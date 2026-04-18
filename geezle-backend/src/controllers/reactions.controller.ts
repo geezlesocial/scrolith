@@ -362,6 +362,20 @@ const rebuildSummary = async (targetType: ReactionTargetType, targetId: string) 
 const sumReactionCounts = (counts: Record<string, number>) =>
   Object.values(counts || {}).reduce((total, value) => total + Math.max(0, Number(value || 0)), 0);
 
+const normalizeReactorUser = (entry: {
+  userId: string;
+  reactionKey: string;
+  reactedAt: Date;
+  user?: { id?: string | null; name?: string | null; username?: string | null; avatar?: string | null } | null;
+}) => ({
+  userId: entry.userId,
+  name: entry.user?.name || entry.user?.username || 'Scrolith member',
+  username: entry.user?.username || null,
+  avatar: entry.user?.avatar || null,
+  reactionKey: entry.reactionKey,
+  reactedAt: entry.reactedAt.toISOString()
+});
+
 const syncScrollReactionMetrics = async (
   req: Request,
   scrollId: string,
@@ -893,7 +907,7 @@ export const getReactionUsers = async (req: Request, res: Response) => {
       return res.status(denied.status).json({ success: false, error: denied.error });
     }
 
-    const users = await prisma.reaction.findMany({
+    const genericUsers = await prisma.reaction.findMany({
       where: { targetType, targetId, reactionKey },
       orderBy: { createdAt: 'desc' },
       take: 150,
@@ -904,16 +918,52 @@ export const getReactionUsers = async (req: Request, res: Response) => {
       }
     });
 
+    const legacyPostUsers =
+      targetType === 'POST'
+        ? await prisma.communityPostReaction.findMany({
+            where: { postId: targetId, type: reactionKey },
+            orderBy: { createdAt: 'desc' },
+            take: 150,
+            include: {
+              user: {
+                select: { id: true, name: true, username: true, avatar: true }
+              }
+            }
+          })
+        : [];
+
+    const merged = new Map<
+      string,
+      {
+        userId: string;
+        reactionKey: string;
+        reactedAt: Date;
+        user?: { id?: string | null; name?: string | null; username?: string | null; avatar?: string | null } | null;
+      }
+    >();
+
+    [
+      ...legacyPostUsers.map((entry) => ({
+        userId: entry.userId,
+        reactionKey: entry.type,
+        reactedAt: entry.createdAt,
+        user: entry.user
+      })),
+      ...genericUsers.map((entry) => ({
+        userId: entry.userId,
+        reactionKey: entry.reactionKey,
+        reactedAt: entry.createdAt,
+        user: entry.user
+      }))
+    ]
+      .sort((a, b) => b.reactedAt.getTime() - a.reactedAt.getTime())
+      .forEach((entry) => {
+        if (!merged.has(entry.userId)) merged.set(entry.userId, entry);
+      });
+
     return res.json({
       success: true,
-      data: users.map((entry) => ({
-        userId: entry.userId,
-        name: entry.user?.name || 'User',
-        username: entry.user?.username || null,
-        avatar: entry.user?.avatar || null,
-        reactionKey: entry.reactionKey,
-        reactedAt: entry.createdAt.toISOString()
-      }))
+      data: Array.from(merged.values()).slice(0, 150).map(normalizeReactorUser)
     });
   } catch (error: any) {
     console.error('[reactions] users error:', error);
