@@ -597,7 +597,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
   return (
     <div
       className={`fixed inset-0 z-[120] flex bg-slate-950/72 backdrop-blur-sm ${
-        compactSurface ? "items-end justify-center overflow-y-auto px-2 py-2" : "items-center justify-center px-4 py-6"
+        compactSurface ? "items-end justify-center overflow-y-auto px-2 py-2" : "items-center justify-center overflow-y-auto px-4 py-3"
       }`}
       onClick={onClose}
     >
@@ -605,7 +605,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
         className={`grid w-full gap-4 border border-white/10 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.45)] ${
           compactSurface
             ? "mx-auto max-h-[min(92dvh,48rem)] max-w-[34rem] grid-cols-1 overflow-hidden rounded-[28px]"
-            : "max-w-5xl rounded-[32px] p-4 md:grid-cols-[1.1fr_0.9fr] md:p-5"
+            : "max-h-[calc(100dvh-1.5rem)] max-w-5xl overflow-hidden rounded-[32px] p-3 md:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)] md:p-4"
         }`}
         style={
           compactSurface
@@ -619,9 +619,11 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
       >
         <div
           className={`relative min-h-0 ${
-            compactSurface ? "order-1 overflow-y-auto px-3 pb-3 pt-3" : "order-2 overflow-y-auto"
+            compactSurface
+              ? "order-1 overflow-y-auto px-3 pb-3 pt-3"
+              : "order-2 max-h-full overflow-y-auto overscroll-contain pr-1"
           }`}
-          style={compactSurface ? { WebkitOverflowScrolling: "touch" } : undefined}
+          style={{ WebkitOverflowScrolling: "touch", scrollbarGutter: "stable" }}
         >
           <div
             className={`sticky top-0 z-10 mb-3 flex justify-end bg-white/96 pb-2 pt-1 backdrop-blur ${
@@ -647,8 +649,8 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
             hideStandaloneLinks
             surfaceClassName={
               compactSurface
-                ? "h-full rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[28px] sm:p-6"
-                : "h-full rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[28px] sm:p-6"
+                ? "rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[28px] sm:p-4"
+                : "rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[28px]"
             }
           />
           <div className={`text-center ${compactSurface ? "mt-3" : "mt-4"}`}>
@@ -664,8 +666,9 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
 
         <div
           className={`overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white ${
-            compactSurface ? "order-2 mx-3 mb-3 rounded-[22px] p-4" : "order-1 rounded-[28px] p-6"
+            compactSurface ? "order-2 mx-3 mb-3 rounded-[22px] p-4" : "order-1 max-h-full overflow-y-auto rounded-[28px] p-5"
           }`}
+          style={{ WebkitOverflowScrolling: "touch" }}
         >
           <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">
             <Sparkles className="h-3.5 w-3.5" />
