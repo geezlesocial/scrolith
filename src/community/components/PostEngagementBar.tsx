@@ -16,6 +16,7 @@ import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
+import ReactionReactorsModal from './ReactionReactorsModal';
 
 type AllowedReaction = {
   key: string;
@@ -202,6 +203,8 @@ const PostEngagementBar: React.FC<Props> = ({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerAnchor, setPickerAnchor] = useState<'summary' | 'button'>('button');
   const [pickerPosition, setPickerPosition] = useState<FloatingPosition | null>(null);
+  const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [reactorsInitialKey, setReactorsInitialKey] = useState<string | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(() => Boolean(focusCommentId));
   const [focusInputKey, setFocusInputKey] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
@@ -406,6 +409,13 @@ const PostEngagementBar: React.FC<Props> = ({
     callback();
   };
 
+  const openReactors = (reactionKey?: string | null) => {
+    if (!ensureAuth()) return;
+    setReactorsInitialKey(reactionKey || null);
+    setReactorsOpen(true);
+    setPickerOpen(false);
+  };
+
   const handleInterestSurveySubmit = async (signal: 'INTERESTED' | 'NOT_INTERESTED') => {
     if (!ensureAuth()) {
       throw new Error('Authentication required.');
@@ -449,8 +459,7 @@ const PostEngagementBar: React.FC<Props> = ({
                 onTouchStart={stopActionPropagation}
                 onClick={(event) =>
                   triggerAction(event, () => {
-                    setPickerAnchor('summary');
-                    setPickerOpen(true);
+                    openReactors(null);
                   })
                 }
                 className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/90 bg-white px-3 py-1.5 shadow-sm hover:bg-slate-50"
@@ -714,7 +723,13 @@ const PostEngagementBar: React.FC<Props> = ({
           {breakdown.length ? (
             <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2">
               {breakdown.slice(0, 5).map((item) => (
-                <div key={`summary_${item.key}`} className="rounded-lg bg-slate-50 px-2 py-1.5">
+                <button
+                  key={`summary_${item.key}`}
+                  type="button"
+                  onClick={(event) => triggerAction(event, () => openReactors(item.key))}
+                  className="w-full rounded-lg bg-slate-50 px-2 py-1.5 text-left transition hover:bg-blue-50"
+                  title={`View people who reacted with ${item.label}`}
+                >
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-semibold text-slate-700">{item.emoji} {item.label}</span>
                     <span className="text-slate-500">{item.count} ({item.pct}%)</span>
@@ -722,12 +737,23 @@ const PostEngagementBar: React.FC<Props> = ({
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
                     <div className="h-full rounded-full" style={{ width: `${Math.max(4, item.pct)}%`, backgroundColor: item.color }} />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           ) : null}
         </div>
       ) : null}
+
+      <ReactionReactorsModal
+        open={reactorsOpen}
+        onClose={() => setReactorsOpen(false)}
+        targetType="POST"
+        targetId={postId}
+        counts={counts}
+        allowed={allowed}
+        initialReactionKey={reactorsInitialKey}
+        title="People who reacted"
+      />
 
       <div ref={commentsAnchorRef} />
       {commentsEnabled ? (

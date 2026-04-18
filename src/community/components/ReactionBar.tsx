@@ -3,6 +3,7 @@ import { SmilePlus } from 'lucide-react';
 import { useContent } from '../../context/ContentContext';
 import { useUser } from '../../context/UserContext';
 import { ReactionsService, ReactionTargetType } from '../../services/reactions';
+import ReactionReactorsModal from './ReactionReactorsModal';
 
 type AllowedReaction = {
   key: string;
@@ -89,6 +90,8 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   const [userReaction, setUserReaction] = useState<string | null>(initialUserReaction || null);
   const [busy, setBusy] = useState(false);
   const [openMore, setOpenMore] = useState(false);
+  const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [reactorsInitialKey, setReactorsInitialKey] = useState<string | null>(null);
   const interactionProps = {
     onMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => event.stopPropagation(),
     onTouchStart: (event: React.TouchEvent<HTMLButtonElement>) => event.stopPropagation(),
@@ -198,6 +201,38 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
   const safeQuickLimit = Math.max(1, Math.min(8, Number(quickLimit) || 4));
   const quick = allowed.slice(0, safeQuickLimit);
   const more = allowed.slice(safeQuickLimit);
+  const totalCount = Object.values(counts || {}).reduce((total, value) => total + Math.max(0, Number(value || 0)), 0);
+  const topReactions = Object.entries(counts || {})
+    .map(([key, value]) => ({
+      key,
+      count: Math.max(0, Number(value || 0)),
+      meta: allowed.find((item) => item.key === key) || DEFAULT_ALLOWED.find((item) => item.key === key)
+    }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+  const openReactors = (event: React.SyntheticEvent, reactionKey?: string | null) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!user?.id) {
+      if (confirm('Log in to view who reacted?')) window.location.href = '/auth/login';
+      return;
+    }
+    setReactorsInitialKey(reactionKey || null);
+    setReactorsOpen(true);
+    setOpenMore(false);
+  };
+  const reactorsModal = (
+    <ReactionReactorsModal
+      open={reactorsOpen}
+      onClose={() => setReactorsOpen(false)}
+      targetType={targetType}
+      targetId={targetId}
+      counts={counts}
+      allowed={allowed}
+      initialReactionKey={reactorsInitialKey}
+    />
+  );
 
   if (layout === 'rail') {
     const railBaseClass = railShowText
@@ -213,60 +248,182 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
 
     if (railVariant === 'launcher') {
       return (
-        <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
-          <button
-            type="button"
-            disabled={busy || disabled}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setOpenMore((prev) => !prev);
-            }}
-            {...interactionProps}
-            className={`${railBaseClass} text-white transition ${
-              selectedReaction ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
-            } disabled:cursor-not-allowed disabled:opacity-60`}
-            title={selectedReaction?.label || railLauncherLabel}
-            >
-            {selectedReaction ? (
-              <span className={railEmojiClass}>{selectedReaction.emoji}</span>
-            ) : (
-              <SmilePlus className={railIconClass} />
-            )}
-            {railShowText ? <span className="text-[10px] font-semibold">{railLauncherLabel}</span> : <span className="sr-only">{railLauncherLabel}</span>}
-          </button>
-          {openMore ? (
-            <div
-              className={`absolute top-0 z-[80] flex max-w-[240px] flex-col gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
-                compact ? 'right-[58px]' : 'right-[72px]'
-              }`}
-            >
-              {allowed.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={(event) => {
-                    void react(event, item.key);
-                    setOpenMore(false);
-                  }}
-                  {...interactionProps}
-                  className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
-                    userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'
-                  }`}
-                  title={item.label}
-                >
-                  <span className="text-base leading-none">{item.emoji}</span>
-                  <span className="font-semibold">{item.label}</span>
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        <>
+          <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              disabled={busy || disabled}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setOpenMore((prev) => !prev);
+              }}
+              {...interactionProps}
+              className={`${railBaseClass} text-white transition ${
+                selectedReaction ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
+              } disabled:cursor-not-allowed disabled:opacity-60`}
+              title={selectedReaction?.label || railLauncherLabel}
+              >
+              {selectedReaction ? (
+                <span className={railEmojiClass}>{selectedReaction.emoji}</span>
+              ) : (
+                <SmilePlus className={railIconClass} />
+              )}
+              {railShowText ? <span className="text-[10px] font-semibold">{railLauncherLabel}</span> : <span className="sr-only">{railLauncherLabel}</span>}
+            </button>
+            {showCounts && totalCount > 0 ? (
+              <button
+                type="button"
+                onClick={(event) => openReactors(event, null)}
+                {...interactionProps}
+                className="inline-flex min-w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 px-2 py-1 text-[10px] font-bold text-white shadow-sm transition hover:bg-black/65"
+                title="View people who reacted"
+              >
+                {totalCount}
+              </button>
+            ) : null}
+            {openMore ? (
+              <div
+                className={`absolute top-0 z-[80] flex max-w-[240px] flex-col gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
+                  compact ? 'right-[58px]' : 'right-[72px]'
+                }`}
+              >
+                {allowed.map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={(event) => {
+                      void react(event, item.key);
+                      setOpenMore(false);
+                    }}
+                    {...interactionProps}
+                    className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-sm transition ${
+                      userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'text-slate-700 hover:bg-slate-100'
+                    }`}
+                    title={item.label}
+                  >
+                    <span className="text-base leading-none">{item.emoji}</span>
+                    <span className="font-semibold">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+          {reactorsModal}
+        </>
       );
     }
 
     return (
-      <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
+      <>
+        <div className={`relative flex flex-col items-center gap-2 ${className}`} onClick={(event) => event.stopPropagation()}>
+          {quick.map((item) => {
+            const count = counts[item.key] || 0;
+            const selected = userReaction === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                disabled={busy || disabled}
+                onClick={(event) => react(event, item.key)}
+                {...interactionProps}
+                className={`${railBaseClass} text-white transition ${
+                  selected ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+                title={item.label}
+              >
+                <span className={railEmojiClass}>{item.emoji}</span>
+                {railShowText && railTextMode === 'label' ? (
+                  <span className="text-[10px] font-semibold">{item.label}</span>
+                ) : railShowText && showCounts && count > 0 ? (
+                  <span className="text-[10px] font-semibold">{count}</span>
+                ) : null}
+              </button>
+            );
+          })}
+
+          {showCounts && totalCount > 0 ? (
+            <button
+              type="button"
+              onClick={(event) => openReactors(event, null)}
+              {...interactionProps}
+              className="inline-flex min-w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 px-2 py-1 text-[10px] font-bold text-white shadow-sm transition hover:bg-black/65"
+              title="View people who reacted"
+            >
+              {totalCount}
+            </button>
+          ) : null}
+
+          {more.length ? (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setOpenMore((prev) => !prev);
+                }}
+                {...interactionProps}
+                className={`${railBaseClass} bg-black/45 text-white transition hover:bg-black/65`}
+                title="More reactions"
+              >
+                <SmilePlus className={railIconClass} />
+                {railShowText ? <span className="text-[10px] font-semibold">More</span> : <span className="sr-only">More reactions</span>}
+              </button>
+              {openMore ? (
+                <div
+                  className={`absolute top-0 z-[80] flex max-w-[220px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
+                    compact ? 'right-[58px]' : 'right-[72px]'
+                  }`}
+                >
+                  {more.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={(event) => {
+                        void react(event, item.key);
+                        setOpenMore(false);
+                      }}
+                      {...interactionProps}
+                      className={`rounded-lg px-2 py-1 text-sm transition ${
+                        userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'
+                      }`}
+                      title={item.label}
+                    >
+                      {item.emoji}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        {reactorsModal}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className={`mt-3 flex flex-wrap items-center gap-1.5 ${className}`}>
+        {showCounts && totalCount > 0 ? (
+          <button
+            type="button"
+            onClick={(event) => openReactors(event, null)}
+            {...interactionProps}
+            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+            title="View people who reacted"
+          >
+            <span className="inline-flex -space-x-1">
+              {topReactions.map((item) => (
+                <span key={item.key} className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white bg-slate-100 text-[10px]">
+                  {item.meta?.emoji || '\u{1F44D}'}
+                </span>
+              ))}
+            </span>
+            <span>{totalCount}</span>
+          </button>
+        ) : null}
         {quick.map((item) => {
           const count = counts[item.key] || 0;
           const selected = userReaction === item.key;
@@ -277,17 +434,13 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
               disabled={busy || disabled}
               onClick={(event) => react(event, item.key)}
               {...interactionProps}
-              className={`${railBaseClass} text-white transition ${
-                selected ? 'bg-blue-600/85 ring-1 ring-blue-200/60' : 'bg-black/45 hover:bg-black/65'
+              className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition ${
+                selected ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               } disabled:cursor-not-allowed disabled:opacity-60`}
               title={item.label}
             >
-              <span className={railEmojiClass}>{item.emoji}</span>
-              {railShowText && railTextMode === 'label' ? (
-                <span className="text-[10px] font-semibold">{item.label}</span>
-              ) : railShowText && showCounts && count > 0 ? (
-                <span className="text-[10px] font-semibold">{count}</span>
-              ) : null}
+              <span>{item.emoji}</span>
+              {showCounts && count > 0 ? <span className="font-semibold">{count}</span> : null}
             </button>
           );
         })}
@@ -302,18 +455,13 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
                 setOpenMore((prev) => !prev);
               }}
               {...interactionProps}
-              className={`${railBaseClass} bg-black/45 text-white transition hover:bg-black/65`}
-              title="More reactions"
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
             >
-              <SmilePlus className={railIconClass} />
-              {railShowText ? <span className="text-[10px] font-semibold">More</span> : <span className="sr-only">More reactions</span>}
+              <SmilePlus className="h-3.5 w-3.5" />
+              More
             </button>
             {openMore ? (
-              <div
-                className={`absolute top-0 z-[80] flex max-w-[220px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-xl ${
-                  compact ? 'right-[58px]' : 'right-[72px]'
-                }`}
-              >
+              <div className="absolute left-0 top-9 z-[80] flex max-w-[260px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
                 {more.map((item) => (
                   <button
                     key={item.key}
@@ -336,71 +484,8 @@ const ReactionBar: React.FC<ReactionBarProps> = ({
           </div>
         ) : null}
       </div>
-    );
-  }
-
-  return (
-    <div className={`mt-3 flex flex-wrap items-center gap-1.5 ${className}`}>
-      {quick.map((item) => {
-        const count = counts[item.key] || 0;
-        const selected = userReaction === item.key;
-        return (
-          <button
-            key={item.key}
-            type="button"
-            disabled={busy || disabled}
-            onClick={(event) => react(event, item.key)}
-            {...interactionProps}
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs transition ${
-              selected ? 'border-blue-200 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-            } disabled:cursor-not-allowed disabled:opacity-60`}
-            title={item.label}
-          >
-            <span>{item.emoji}</span>
-            {showCounts && count > 0 ? <span className="font-semibold">{count}</span> : null}
-          </button>
-        );
-      })}
-
-      {more.length ? (
-        <div className="relative">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setOpenMore((prev) => !prev);
-            }}
-            {...interactionProps}
-            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50"
-          >
-            <SmilePlus className="h-3.5 w-3.5" />
-            More
-          </button>
-          {openMore ? (
-            <div className="absolute left-0 top-9 z-[80] flex max-w-[260px] flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-              {more.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={(event) => {
-                    void react(event, item.key);
-                    setOpenMore(false);
-                  }}
-                  {...interactionProps}
-                  className={`rounded-lg px-2 py-1 text-sm transition ${
-                    userReaction === item.key ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100'
-                  }`}
-                  title={item.label}
-                >
-                  {item.emoji}
-                </button>
-              ))}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+      {reactorsModal}
+    </>
   );
 };
 

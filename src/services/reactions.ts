@@ -11,6 +11,15 @@ export type ReactionSummaryResponse = {
   allowed?: { key: string; label: string; emoji: string; enabled?: boolean }[];
 };
 
+export type ReactionUser = {
+  userId: string;
+  name: string;
+  username?: string | null;
+  avatar?: string | null;
+  reactionKey: string;
+  reactedAt: string;
+};
+
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   if (response?.data !== undefined) return response.data as T;
@@ -42,9 +51,7 @@ export const ReactionsService = {
 
   async getUsers(targetType: ReactionTargetType, targetId: string, reactionKey: string) {
     const response = await api.get('/reactions/users', { params: { targetType, targetId, reactionKey } });
-    return extractData<
-      Array<{ userId: string; name: string; username?: string | null; avatar?: string | null; reactionKey: string; reactedAt: string }>
-    >(response);
+    return extractData<ReactionUser[]>(response);
   }
 };
 
