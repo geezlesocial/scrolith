@@ -92,6 +92,9 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
   const [signupLoading, setSignupLoading] = React.useState(false);
   const [loginError, setLoginError] = React.useState("");
   const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
+  const embeddedModalSurface = hideStandaloneLinks;
+  const formSpacingClass = embeddedModalSurface ? "space-y-3" : "space-y-4";
+  const inputPaddingClass = embeddedModalSurface && !compactSurface ? "py-2.5" : "py-3";
 
   React.useEffect(() => {
     setActiveTab(normalizeGuestAuthTab(defaultTab || content?.defaultTab));
@@ -200,7 +203,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         "min-w-0 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
       }
     >
-      <div className="mb-4">
+      <div className={embeddedModalSurface ? "mb-3" : "mb-4"}>
         <h2 className="text-lg font-semibold text-slate-900 sm:text-xl">
           {title || content?.authPanelTitle || "Welcome back"}
         </h2>
@@ -208,7 +211,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           <p className="mt-1 text-sm text-slate-500">{subtitle || content?.authPanelSubtitle}</p>
         ) : null}
       </div>
-      <div className="mb-4 flex min-w-0 rounded-full border border-slate-200 bg-slate-50 p-1">
+      <div className={`${embeddedModalSurface ? "mb-3" : "mb-4"} flex min-w-0 rounded-full border border-slate-200 bg-slate-50 p-1`}>
         <button
           type="button"
           onClick={() => setActiveTab("login")}
@@ -229,7 +232,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
         </button>
       </div>
       {activeTab === "login" ? (
-        <form className="space-y-4" onSubmit={handleLoginSubmit}>
+        <form className={formSpacingClass} onSubmit={handleLoginSubmit}>
           {content?.enableSocialLogin !== false ? (
             <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" />
           ) : null}
@@ -243,7 +246,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
             value={loginForm.email}
             onChange={(event) => setLoginForm((prev) => ({ ...prev, email: event.target.value }))}
             placeholder="Email address"
-            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
           />
           <div className="relative">
             <input
@@ -253,7 +256,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               value={loginForm.password}
               onChange={(event) => setLoginForm((prev) => ({ ...prev, password: event.target.value }))}
               placeholder="Password"
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
             />
             <button
               type="button"
@@ -275,13 +278,21 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               Forgot password?
             </Link>
           </div>
-          <button
-            type="submit"
-            disabled={loginLoading}
-            className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          <div
+            className={
+              embeddedModalSurface
+                ? "sticky bottom-0 z-20 -mx-1 bg-white/95 px-1 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-white/85"
+                : ""
+            }
           >
-            {loginLoading ? "Signing in..." : content?.loginCtaLabel || "Login"}
-          </button>
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loginLoading ? "Signing in..." : content?.loginCtaLabel || "Login"}
+            </button>
+          </div>
           {!hideStandaloneLinks ? (
             <Link to="/auth/login" className="block text-center text-xs font-semibold text-slate-500 hover:text-slate-700">
               Open full login page
@@ -289,7 +300,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
           ) : null}
         </form>
       ) : (
-        <form className="space-y-4" onSubmit={handleSignupSubmit}>
+        <form className={formSpacingClass} onSubmit={handleSignupSubmit}>
           <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
             <button
               type="button"
@@ -324,7 +335,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
                 value={signupForm.firstName}
                 onChange={(event) => setSignupForm((prev) => ({ ...prev, firstName: event.target.value }))}
                 placeholder="First name"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
               />
               {signupErrors.firstName ? <p className="mt-1 text-xs text-red-600">{signupErrors.firstName}</p> : null}
             </div>
@@ -335,7 +346,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
                 value={signupForm.lastName}
                 onChange={(event) => setSignupForm((prev) => ({ ...prev, lastName: event.target.value }))}
                 placeholder="Last name"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
               />
               {signupErrors.lastName ? <p className="mt-1 text-xs text-red-600">{signupErrors.lastName}</p> : null}
             </div>
@@ -348,7 +359,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               value={signupForm.email}
               onChange={(event) => setSignupForm((prev) => ({ ...prev, email: event.target.value }))}
               placeholder="Email address"
-              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
             />
             {signupErrors.email ? <p className="mt-1 text-xs text-red-600">{signupErrors.email}</p> : null}
           </div>
@@ -361,7 +372,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
                 value={signupForm.password}
                 onChange={(event) => setSignupForm((prev) => ({ ...prev, password: event.target.value }))}
                 placeholder="Password"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
               />
               <button
                 type="button"
@@ -382,7 +393,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
                 value={signupForm.confirmPassword}
                 onChange={(event) => setSignupForm((prev) => ({ ...prev, confirmPassword: event.target.value }))}
                 placeholder="Confirm password"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                className={`w-full rounded-xl border border-slate-300 bg-white px-4 ${inputPaddingClass} pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200`}
               />
               <button
                 type="button"
@@ -428,13 +439,21 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               </Link>
             ) : null}
           </div>
-          <button
-            type="submit"
-            disabled={signupLoading}
-            className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          <div
+            className={
+              embeddedModalSurface
+                ? "sticky bottom-0 z-20 -mx-1 bg-white/95 px-1 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-white/85"
+                : ""
+            }
           >
-            {signupLoading ? "Creating account..." : content?.signupCtaLabel || "Sign up"}
-          </button>
+            <button
+              type="submit"
+              disabled={signupLoading}
+              className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {signupLoading ? "Creating account..." : content?.signupCtaLabel || "Sign up"}
+            </button>
+          </div>
         </form>
       )}
       {footerNote ? (
@@ -605,7 +624,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
         className={`grid w-full gap-4 border border-white/10 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.45)] ${
           compactSurface
             ? "mx-auto max-h-[min(92dvh,48rem)] max-w-[34rem] grid-cols-1 overflow-hidden rounded-[28px]"
-            : "max-h-[calc(100dvh-1.5rem)] max-w-5xl overflow-hidden rounded-[32px] p-3 md:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)] md:p-4"
+            : "h-[calc(100dvh-1.5rem)] max-h-[54rem] max-w-5xl grid-rows-[minmax(0,1fr)] overflow-hidden rounded-[32px] p-3 md:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)] md:p-4"
         }`}
         style={
           compactSurface
@@ -621,7 +640,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
           className={`relative min-h-0 ${
             compactSurface
               ? "order-1 overflow-y-auto px-3 pb-3 pt-3"
-              : "order-2 max-h-full overflow-y-auto overscroll-contain pr-1"
+              : "order-2 flex max-h-full min-h-0 flex-col overflow-y-auto overscroll-contain pr-1"
           }`}
           style={{ WebkitOverflowScrolling: "touch", scrollbarGutter: "stable" }}
         >
@@ -650,7 +669,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
             surfaceClassName={
               compactSurface
                 ? "rounded-[22px] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[28px] sm:p-4"
-                : "rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[28px]"
+                : "min-h-0 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[28px]"
             }
           />
           <div className={`text-center ${compactSurface ? "mt-3" : "mt-4"}`}>
@@ -666,7 +685,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
 
         <div
           className={`overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white ${
-            compactSurface ? "order-2 mx-3 mb-3 rounded-[22px] p-4" : "order-1 max-h-full overflow-y-auto rounded-[28px] p-5"
+            compactSurface ? "order-2 mx-3 mb-3 rounded-[22px] p-4" : "order-1 min-h-0 max-h-full overflow-y-auto rounded-[28px] p-5"
           }`}
           style={{ WebkitOverflowScrolling: "touch" }}
         >
