@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { Loader2, RefreshCw, UserRound, X } from 'lucide-react';
 import { ReactionsService, ReactionTargetType, ReactionUser } from '../../services/reactions';
@@ -74,6 +75,13 @@ const matchesReactionTarget = (detail: any, targetType: ReactionTargetType, targ
   return eventTargetType === targetType;
 };
 
+const areCountsEqual = (left?: Record<string, number>, right?: Record<string, number>) => {
+  const leftKeys = Object.keys(left || {});
+  const rightKeys = Object.keys(right || {});
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => toSafeCount(left?.[key]) === toSafeCount(right?.[key]));
+};
+
 const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
   open,
   onClose,
@@ -97,9 +105,10 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [refreshToken, setRefreshToken] = useState(0);
+  const requestSeqRef = useRef(0);
 
   useEffect(() => {
-    setLocalCounts(counts || {});
+    setLocalCounts((current) => (areCountsEqual(current, counts || {}) ? current : counts || {}));
   }, [counts, targetId, targetType]);
 
   const reactionTabs = useMemo(() => {
@@ -133,13 +142,26 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
   useEffect(() => {
     if (!open) return undefined;
     const originalOverflow = document.body.style.overflow;
+    const originalPaddingRight = document.body.style.paddingRight;
+    const originalOverscrollBehavior = document.body.style.overscrollBehavior;
+    const originalScrollbarGutter = document.documentElement.style.scrollbarGutter;
+    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
     document.body.style.overflow = 'hidden';
+    document.body.style.overscrollBehavior = 'contain';
+    document.documentElement.style.scrollbarGutter = 'stable';
+    if (scrollbarWidth > 0) {
+      const existingPadding = Number.parseFloat(window.getComputedStyle(document.body).paddingRight || '0') || 0;
+      document.body.style.paddingRight = `${existingPadding + scrollbarWidth}px`;
+    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => {
       document.body.style.overflow = originalOverflow;
+      document.body.style.paddingRight = originalPaddingRight;
+      document.body.style.overscrollBehavior = originalOverscrollBehavior;
+      document.documentElement.style.scrollbarGutter = originalScrollbarGutter;
       window.removeEventListener('keydown', onKeyDown);
     };
   }, [onClose, open]);
@@ -153,7 +175,7 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
       if (!matchesReactionTarget(detail, targetType, targetId)) return;
       const nextCounts = detail?.counts || detail?.reactions;
       if (nextCounts && typeof nextCounts === 'object' && !Array.isArray(nextCounts)) {
-        setLocalCounts(nextCounts as Record<string, number>);
+        setLocalCounts((current) => (areCountsEqual(current, nextCounts as Record<string, number>) ? current : (nextCounts as Record<string, number>)));
       }
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(() => setRefreshToken((value) => value + 1), 250);
@@ -172,6 +194,7 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
   useEffect(() => {
     if (!open || !targetId) return;
     let active = true;
+    const requestId = ++requestSeqRef.current;
     const keys = activeKey === 'all' ? reactionTabs.map((item) => item.key) : [activeKey];
     if (!keys.length) {
       setReactors([]);
@@ -184,7 +207,7 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
     setError('');
     Promise.all(keys.map((key) => ReactionsService.getUsers(targetType, targetId, key)))
       .then((rows) => {
-        if (!active) return;
+        if (!active || requestId !== requestSeqRef.current) return;
         const byUser = new Map<string, ReactionUser>();
         rows.flat().forEach((row) => {
           const userId = String(row.userId || '').trim();
@@ -201,7 +224,7 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
         );
       })
       .catch((loadError: any) => {
-        if (!active) return;
+        if (!active || requestId !== requestSeqRef.current) return;
         const status = Number(loadError?.response?.status || 0);
         if (status === 403) {
           setError(loadError?.response?.data?.error || 'Viewing reactors is disabled for this content.');
@@ -213,7 +236,7 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
         setReactors([]);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && requestId === requestSeqRef.current) setLoading(false);
       });
 
     return () => {
@@ -226,18 +249,28 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
   const activeLabel =
     activeKey === 'all' ? 'All reactions' : allowedMap.get(activeKey)?.label || activeKey || 'Reaction';
 
-  return (
+  const modal = (
     <div
-      className="fixed inset-0 z-[1300] flex items-end justify-center bg-slate-950/60 px-3 py-3 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
+      className="fixed inset-0 z-[1300] flex items-end justify-center overflow-hidden bg-slate-950/60 px-3 py-3 backdrop-blur-sm sm:items-center"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }}
+      onMouseDown={(event) => event.stopPropagation()}
+      onTouchStart={(event) => event.stopPropagation()}
       role="presentation"
+      style={{ contain: 'layout style paint', overscrollBehavior: 'contain' }}
     >
       <div
         className="flex max-h-[min(92dvh,42rem)] w-full max-w-lg flex-col overflow-hidden rounded-[28px] bg-white shadow-[0_32px_100px_rgba(15,23,42,0.38)]"
         onClick={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title || 'People who reacted'}
+        style={{ transform: 'translate3d(0,0,0)', touchAction: 'auto' }}
       >
         <div className="border-b border-slate-200 px-4 py-4">
           <div className="flex items-start justify-between gap-3">
@@ -250,15 +283,23 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setRefreshToken((value) => value + 1)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setRefreshToken((value) => value + 1);
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
                 aria-label="Refresh reaction profiles"
               >
-                <RefreshCw className="h-4 w-4" />
+                <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onClose();
+                }}
                 className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900"
                 aria-label="Close reaction profiles"
               >
@@ -270,7 +311,11 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
             <button
               type="button"
-              onClick={() => setActiveKey('all')}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setActiveKey('all');
+              }}
               className={[
                 'inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
                 activeKey === 'all'
@@ -285,7 +330,11 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
               <button
                 key={item.key}
                 type="button"
-                onClick={() => setActiveKey(item.key)}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setActiveKey(item.key);
+                }}
                 className={[
                   'inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition',
                   activeKey === item.key
@@ -301,8 +350,16 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
           </div>
         </div>
 
-        <div className="min-h-[14rem] flex-1 overflow-y-auto px-4 py-3">
-          {loading ? (
+        <div className="relative min-h-[14rem] flex-1 overflow-y-auto overscroll-contain px-4 py-3">
+          {loading && reactors.length ? (
+            <div className="pointer-events-none sticky top-0 z-10 mb-2 flex justify-center">
+              <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white/95 px-3 py-1 text-xs font-semibold text-blue-700 shadow-sm">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Updating
+              </span>
+            </div>
+          ) : null}
+          {loading && !reactors.length ? (
             <div className="flex min-h-[12rem] items-center justify-center text-sm text-slate-500">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Loading profiles...
@@ -321,7 +378,12 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
                   <Link
                     key={`${reactor.userId}-${reactor.reactionKey}`}
                     to={profilePath}
-                    onClick={onClose}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onClose();
+                    }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onTouchStart={(event) => event.stopPropagation()}
                     className="group flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5 transition hover:border-blue-100 hover:bg-blue-50/60"
                   >
                     <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-sm font-semibold text-slate-500">
@@ -358,6 +420,9 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
       </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return modal;
+  return createPortal(modal, document.body);
 };
 
 export default ReactionReactorsModal;
