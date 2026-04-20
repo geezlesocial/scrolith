@@ -164,7 +164,6 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
                 muted={adMuted}
                 onMutedChange={setAdMuted}
                 loop={false}
-                onEnded={onClose}
               />
             ) : (
               <img src={mediaUrl} alt={title} className="h-full w-full object-cover" loading="eager" />

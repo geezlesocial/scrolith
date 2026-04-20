@@ -1043,8 +1043,16 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
       // Backward-compatible bridge for existing campaigns while admins migrate to Scroll placements.
       if (policy.fallbackToCommunityFeed) {
-        const fallbackAds = await AdService.getAds({ role: user?.role, placement: 'community_feed', limit: 8 });
-        setScrollAds(fallbackAds.filter((ad) => Boolean(String(ad?.id || '').trim())));
+        const [homepageFallbackAds, communityFallbackAds] = await Promise.all([
+          AdService.getAds({ role: user?.role, placement: 'homepage_feed', limit: 8 }),
+          AdService.getAds({ role: user?.role, placement: 'community_feed', limit: 8 })
+        ]);
+        const fallbackById = new Map<string, AdCampaign>();
+        [...homepageFallbackAds, ...communityFallbackAds].forEach((ad) => {
+          const id = String(ad?.id || '').trim();
+          if (id && !fallbackById.has(id)) fallbackById.set(id, ad);
+        });
+        setScrollAds(Array.from(fallbackById.values()));
       } else {
         setScrollAds([]);
       }

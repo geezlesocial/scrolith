@@ -1499,7 +1499,8 @@ export default function MobileFeed({
     const timer = window.setTimeout(() => {
       Promise.allSettled([
         CommunityService.getPublicAds({ placement: 'homepage_feed', limit: constrainedForFeed ? 4 : 8 }),
-        CommunityService.getPublicAds({ placement: 'community_feed', limit: constrainedForFeed ? 4 : 8 })
+        CommunityService.getPublicAds({ placement: 'community_feed', limit: constrainedForFeed ? 4 : 8 }),
+        CommunityService.getPublicAds({ placement: 'scroll_feed', limit: constrainedForFeed ? 4 : 8 })
       ])
         .then((results) => {
           if (cancelled) return;
