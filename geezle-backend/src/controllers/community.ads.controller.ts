@@ -20,13 +20,20 @@ const AD_PLACEMENT_ALIASES: Record<string, string> = {
   thread_detail: 'thread_detail',
   chat: 'chat_sidebar',
   chat_sidebar: 'chat_sidebar',
-  sidebar: 'homepage'
+  sidebar: 'homepage',
+  scroll: 'scroll_preroll',
+  scroll_feed: 'scroll_feed',
+  scroll_preroll: 'scroll_preroll',
+  scroll_video: 'scroll_preroll',
+  scroll_overlay: 'scroll_preroll'
 };
 
 const DEFAULT_ALLOWED_PLACEMENTS = [
   'homepage',
   'homepage_feed',
   'community_feed',
+  'scroll_preroll',
+  'scroll_feed',
   'forum_listing',
   'thread_detail',
   'chat_sidebar'
@@ -98,6 +105,8 @@ const defaultAdsConfig = {
     homepage_feed: 5,
     community_feed: 5,
     feed: 5,
+    scroll_preroll: 8,
+    scroll_feed: 6,
     forum_listing: 8,
     thread_detail: 6,
     chat_sidebar: 2,
@@ -108,6 +117,8 @@ const defaultAdsConfig = {
     homepage_feed: 0.4,
     community_feed: 0.4,
     feed: 0.4,
+    scroll_preroll: 0.65,
+    scroll_feed: 0.45,
     forum_listing: 0.6,
     thread_detail: 0.5,
     chat_sidebar: 0.2,
@@ -133,7 +144,7 @@ const resolveAllowedPlacements = (raw: any): string[] => {
   const normalized = source
     .map((item) => normalizePlacement(item))
     .filter((placement) => DEFAULT_ALLOWED_PLACEMENTS.includes(placement));
-  return normalized.length ? Array.from(new Set(normalized)) : [...DEFAULT_ALLOWED_PLACEMENTS];
+  return Array.from(new Set([...(normalized.length ? normalized : DEFAULT_ALLOWED_PLACEMENTS), ...DEFAULT_ALLOWED_PLACEMENTS]));
 };
 
 const normalizeCountryList = (raw: any, fallback: string[] = []): string[] => {

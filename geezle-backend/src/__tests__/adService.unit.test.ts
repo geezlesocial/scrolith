@@ -12,7 +12,8 @@ jest.mock('@prisma/client', () => {
     communityAd: mockAd,
     adMetricsDaily: mockMetrics,
     appSetting: mockAppSetting,
-    $transaction: mockTransaction
+    $transaction: mockTransaction,
+    $on: jest.fn()
   };
   return { PrismaClient: jest.fn(() => mockPrisma) };
 });
@@ -23,7 +24,7 @@ describe('adService (unit)', () => {
   test('selectAdsForPlacement returns active ads', async () => {
     const { PrismaClient } = require('@prisma/client');
     const prisma = new PrismaClient();
-    prisma.communityAd.findMany.mockResolvedValue([{ id: 'a1', remainingBudget: 100 }]);
+    prisma.communityAd.findMany.mockResolvedValue([{ id: 'a1', placement: 'homepage', remainingBudget: 100 }]);
     const ads = await selectAdsForPlacement('homepage');
     expect(ads).toHaveLength(1);
   });
