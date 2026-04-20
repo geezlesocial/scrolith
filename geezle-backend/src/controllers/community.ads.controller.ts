@@ -136,7 +136,23 @@ const defaultAdsConfig = {
   allowedPlacements: DEFAULT_ALLOWED_PLACEMENTS,
   targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
   allowedMediaTypes: ['text', 'image', 'video'],
-  requireLoginToInteract: false
+  requireLoginToInteract: false,
+  scrollAds: {
+    enabled: true,
+    fallbackToCommunityFeed: true,
+    videoSkipDelaySeconds: 10,
+    staticSkipDelaySeconds: 3,
+    firstAdAfterScrolls: 1,
+    repeatEveryScrolls: 5,
+    minSecondsBetweenAds: 90,
+    maxAdsPerSession: 6,
+    maxAdsPerViewerDay: 20,
+    perAdCooldownMinutes: 30,
+    placementPacing: {
+      scroll_preroll: 2,
+      scroll_feed: 1
+    }
+  }
 };
 
 const resolveAllowedPlacements = (raw: any): string[] => {
@@ -168,6 +184,47 @@ const sanitizeTargetCountries = (raw: any, allowedRaw: any): string[] => {
   return requested.filter((entry) => allowedSet.has(entry.toLowerCase()));
 };
 
+const toBoundedInteger = (value: any, fallback: number, min: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+};
+
+const sanitizeScrollAdsConfig = (raw: any) => {
+  const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const fallback = defaultAdsConfig.scrollAds;
+  const pacingInput = input.placementPacing && typeof input.placementPacing === 'object' ? input.placementPacing : {};
+  const scrollPrerollWeight = toBoundedInteger(
+    pacingInput.scroll_preroll ?? input.scrollPrerollWeight,
+    fallback.placementPacing.scroll_preroll,
+    0,
+    10
+  );
+  const scrollFeedWeight = toBoundedInteger(
+    pacingInput.scroll_feed ?? input.scrollFeedWeight,
+    fallback.placementPacing.scroll_feed,
+    0,
+    10
+  );
+
+  return {
+    enabled: input.enabled !== false,
+    fallbackToCommunityFeed: input.fallbackToCommunityFeed !== false,
+    videoSkipDelaySeconds: toBoundedInteger(input.videoSkipDelaySeconds, fallback.videoSkipDelaySeconds, 0, 60),
+    staticSkipDelaySeconds: toBoundedInteger(input.staticSkipDelaySeconds, fallback.staticSkipDelaySeconds, 0, 30),
+    firstAdAfterScrolls: toBoundedInteger(input.firstAdAfterScrolls, fallback.firstAdAfterScrolls, 1, 50),
+    repeatEveryScrolls: toBoundedInteger(input.repeatEveryScrolls, fallback.repeatEveryScrolls, 1, 100),
+    minSecondsBetweenAds: toBoundedInteger(input.minSecondsBetweenAds, fallback.minSecondsBetweenAds, 0, 3600),
+    maxAdsPerSession: toBoundedInteger(input.maxAdsPerSession, fallback.maxAdsPerSession, 0, 100),
+    maxAdsPerViewerDay: toBoundedInteger(input.maxAdsPerViewerDay, fallback.maxAdsPerViewerDay, 0, 500),
+    perAdCooldownMinutes: toBoundedInteger(input.perAdCooldownMinutes, fallback.perAdCooldownMinutes, 0, 1440),
+    placementPacing: {
+      scroll_preroll: scrollPrerollWeight,
+      scroll_feed: scrollFeedWeight
+    }
+  };
+};
+
 const mergeAdsConfig = (raw: any) => {
   const input = raw && typeof raw === 'object' ? raw : {};
   const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
@@ -181,6 +238,7 @@ const mergeAdsConfig = (raw: any) => {
     cpcByPlacement,
     allowedPlacements: normalizedAllowedPlacements,
     targetCountries: normalizedTargetCountries,
+    scrollAds: sanitizeScrollAdsConfig(input.scrollAds),
     maxPlacementsPerAd: Math.max(1, Math.min(3, Number(input.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd))),
     maxImageAssets: Math.max(1, Math.min(12, Number(input.maxImageAssets ?? defaultAdsConfig.maxImageAssets))),
     maxVideoAssets: Math.max(1, Math.min(3, Number(input.maxVideoAssets ?? defaultAdsConfig.maxVideoAssets))),
@@ -199,6 +257,14 @@ const mergeAdsConfig = (raw: any) => {
   }
 
   return normalized;
+};
+
+const buildPublicAdsRuntimeConfig = (config: any) => {
+  const merged = mergeAdsConfig(config || defaultAdsConfig);
+  return {
+    allowedPlacements: merged.allowedPlacements,
+    scrollAds: sanitizeScrollAdsConfig(merged.scrollAds)
+  };
 };
 
 const getPlacementRate = (
@@ -1372,21 +1438,123 @@ export const resumeAd = async (req: Request, res: Response) => {
 
 export const getAdsAnalytics = async (_req: Request, res: Response) => {
   try {
-    // Basic analytics summary: total impressions, clicks, spend
-    const agg = await prisma.adMetricsDaily.aggregate({
-      _sum: { impressions: true, clicks: true, spend: true }
-    });
+    const [agg, ads] = await Promise.all([
+      prisma.adMetricsDaily.aggregate({
+        _sum: { impressions: true, clicks: true, spend: true }
+      }),
+      prisma.communityAd.findMany({
+        include: {
+          metrics: true
+        }
+      })
+    ]);
     const totals = {
       impressions: Number(agg?._sum?.impressions || 0),
       clicks: Number(agg?._sum?.clicks || 0),
       spend: Number(agg?._sum?.spend || 0)
     };
+    const byPlacementMap = new Map<
+      string,
+      {
+        placement: string;
+        campaigns: number;
+        activeCampaigns: number;
+        impressions: number;
+        clicks: number;
+        spend: number;
+        remainingBudget: number;
+      }
+    >();
+    const topCampaigns: any[] = [];
+
+    for (const ad of ads as any[]) {
+      const targeting = parseTargeting(ad.targeting);
+      const placements = Array.isArray(targeting.placements)
+        ? Array.from(new Set(targeting.placements.map((entry: any) => normalizePlacement(entry))))
+        : [normalizePlacement(ad.placement)];
+      const primaryPlacement = placements[0] || normalizePlacement(ad.placement);
+      const metricRows = Array.isArray(ad.metrics) ? ad.metrics : [];
+      const adImpressions =
+        metricRows.reduce((sum: number, row: any) => sum + Number(row.impressions || 0), 0) ||
+        Number(ad.impressions || 0);
+      const adClicks =
+        metricRows.reduce((sum: number, row: any) => sum + Number(row.clicks || 0), 0) ||
+        Number(ad.clicks || 0);
+      const adSpend = metricRows.reduce((sum: number, row: any) => sum + Number(row.spend || 0), 0);
+
+      for (const placement of placements) {
+        const current =
+          byPlacementMap.get(placement) || {
+            placement,
+            campaigns: 0,
+            activeCampaigns: 0,
+            impressions: 0,
+            clicks: 0,
+            spend: 0,
+            remainingBudget: 0
+          };
+        current.campaigns += 1;
+        current.activeCampaigns += String(ad.status || '').toUpperCase() === 'ACTIVE' ? 1 : 0;
+        current.impressions += adImpressions;
+        current.clicks += adClicks;
+        current.spend += adSpend;
+        current.remainingBudget += Number(ad.remainingBudget || 0);
+        byPlacementMap.set(placement, current);
+      }
+
+      if (primaryPlacement === 'scroll_preroll' || primaryPlacement === 'scroll_feed' || placements.includes('scroll_preroll') || placements.includes('scroll_feed')) {
+        topCampaigns.push({
+          id: ad.id,
+          title: ad.title,
+          status: ad.status,
+          placement: primaryPlacement,
+          placements,
+          impressions: adImpressions,
+          clicks: adClicks,
+          spend: Number(adSpend.toFixed(6)),
+          ctr: adImpressions > 0 ? Number(((adClicks / adImpressions) * 100).toFixed(2)) : 0,
+          remainingBudget: Number(ad.remainingBudget || 0)
+        });
+      }
+    }
+
+    const byPlacement = Array.from(byPlacementMap.values()).map((entry) => ({
+      ...entry,
+      spend: Number(entry.spend.toFixed(6)),
+      remainingBudget: Number(entry.remainingBudget.toFixed(2)),
+      ctr: entry.impressions > 0 ? Number(((entry.clicks / entry.impressions) * 100).toFixed(2)) : 0
+    }));
+    const scrollPlacements = byPlacement.filter((entry) => entry.placement === 'scroll_preroll' || entry.placement === 'scroll_feed');
+    const scrollTotals = scrollPlacements.reduce(
+      (acc, entry) => {
+        acc.campaigns += entry.campaigns;
+        acc.activeCampaigns += entry.activeCampaigns;
+        acc.impressions += entry.impressions;
+        acc.clicks += entry.clicks;
+        acc.spend += entry.spend;
+        acc.remainingBudget += entry.remainingBudget;
+        return acc;
+      },
+      { campaigns: 0, activeCampaigns: 0, impressions: 0, clicks: 0, spend: 0, remainingBudget: 0 }
+    );
     return res.json({
       success: true,
       data: {
         ...agg,
         ...totals,
-        adminRevenue: totals.spend
+        adminRevenue: totals.spend,
+        ctr: totals.impressions > 0 ? Number(((totals.clicks / totals.impressions) * 100).toFixed(2)) : 0,
+        byPlacement,
+        scroll: {
+          ...scrollTotals,
+          spend: Number(scrollTotals.spend.toFixed(6)),
+          remainingBudget: Number(scrollTotals.remainingBudget.toFixed(2)),
+          ctr: scrollTotals.impressions > 0 ? Number(((scrollTotals.clicks / scrollTotals.impressions) * 100).toFixed(2)) : 0,
+          placements: scrollPlacements,
+          topCampaigns: topCampaigns
+            .sort((a, b) => Number(b.impressions || 0) - Number(a.impressions || 0))
+            .slice(0, 10)
+        }
       }
     });
   } catch (error: any) {
@@ -1405,6 +1573,19 @@ export const getAdsConfig = async (_req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get ads config error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load ads config' });
+  }
+};
+
+export const getAdsRuntimeConfig = async (_req: Request, res: Response) => {
+  try {
+    const existing = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
+    return res.json({
+      success: true,
+      data: buildPublicAdsRuntimeConfig(existing?.data || defaultAdsConfig)
+    });
+  } catch (error: any) {
+    console.error('Get ads runtime config error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load ads runtime config' });
   }
 };
 

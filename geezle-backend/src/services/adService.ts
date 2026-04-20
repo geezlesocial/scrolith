@@ -61,8 +61,62 @@ const defaultAdsConfig = {
     chat_sidebar: 0.2,
     chat: 0.2
   },
-  allowedPlacements: ALLOWED_PLACEMENTS
+  allowedPlacements: ALLOWED_PLACEMENTS,
+  scrollAds: {
+    enabled: true,
+    fallbackToCommunityFeed: true,
+    videoSkipDelaySeconds: 10,
+    staticSkipDelaySeconds: 3,
+    firstAdAfterScrolls: 1,
+    repeatEveryScrolls: 5,
+    minSecondsBetweenAds: 90,
+    maxAdsPerSession: 6,
+    maxAdsPerViewerDay: 20,
+    perAdCooldownMinutes: 30,
+    placementPacing: {
+      scroll_preroll: 2,
+      scroll_feed: 1
+    }
+  }
 };
+
+function toBoundedInteger(value: any, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+function sanitizeScrollAdsConfig(raw: any) {
+  const input = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const fallback = defaultAdsConfig.scrollAds;
+  const pacingInput = input.placementPacing && typeof input.placementPacing === 'object' ? input.placementPacing : {};
+  return {
+    enabled: input.enabled !== false,
+    fallbackToCommunityFeed: input.fallbackToCommunityFeed !== false,
+    videoSkipDelaySeconds: toBoundedInteger(input.videoSkipDelaySeconds, fallback.videoSkipDelaySeconds, 0, 60),
+    staticSkipDelaySeconds: toBoundedInteger(input.staticSkipDelaySeconds, fallback.staticSkipDelaySeconds, 0, 30),
+    firstAdAfterScrolls: toBoundedInteger(input.firstAdAfterScrolls, fallback.firstAdAfterScrolls, 1, 50),
+    repeatEveryScrolls: toBoundedInteger(input.repeatEveryScrolls, fallback.repeatEveryScrolls, 1, 100),
+    minSecondsBetweenAds: toBoundedInteger(input.minSecondsBetweenAds, fallback.minSecondsBetweenAds, 0, 3600),
+    maxAdsPerSession: toBoundedInteger(input.maxAdsPerSession, fallback.maxAdsPerSession, 0, 100),
+    maxAdsPerViewerDay: toBoundedInteger(input.maxAdsPerViewerDay, fallback.maxAdsPerViewerDay, 0, 500),
+    perAdCooldownMinutes: toBoundedInteger(input.perAdCooldownMinutes, fallback.perAdCooldownMinutes, 0, 1440),
+    placementPacing: {
+      scroll_preroll: toBoundedInteger(
+        pacingInput.scroll_preroll ?? input.scrollPrerollWeight,
+        fallback.placementPacing.scroll_preroll,
+        0,
+        10
+      ),
+      scroll_feed: toBoundedInteger(
+        pacingInput.scroll_feed ?? input.scrollFeedWeight,
+        fallback.placementPacing.scroll_feed,
+        0,
+        10
+      )
+    }
+  };
+}
 
 function mergeAdsConfig(raw: any) {
   const input = raw && typeof raw === 'object' ? raw : {};
@@ -82,7 +136,8 @@ function mergeAdsConfig(raw: any) {
     ...input,
     cpmByPlacement: { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) },
     cpcByPlacement: { ...defaultAdsConfig.cpcByPlacement, ...(input.cpcByPlacement || {}) },
-    allowedPlacements: allowedPlacements.length ? allowedPlacements : [...ALLOWED_PLACEMENTS]
+    allowedPlacements: allowedPlacements.length ? allowedPlacements : [...ALLOWED_PLACEMENTS],
+    scrollAds: sanitizeScrollAdsConfig(input.scrollAds)
   };
 }
 

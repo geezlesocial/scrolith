@@ -81,6 +81,7 @@ import {
   recordAdImpression,
   recordAdClick,
   getAdsConfig,
+  getAdsRuntimeConfig,
   updateAdsConfig
 } from '../controllers/community.ads.controller';
 import {
@@ -295,6 +296,7 @@ router.get('/blocks/me', authMiddleware, listMyBlocks);
 
 // Ads routes (community-scoped)
 router.get('/ads', getPublicAds);
+router.get('/ads/runtime-config', getAdsRuntimeConfig);
 router.get('/ads/config', authMiddleware, getAdsConfig);
 router.post('/ads/draft', authMiddleware, createAdDraft);
 router.post('/ads/:id/pay', authMiddleware, payAd);
