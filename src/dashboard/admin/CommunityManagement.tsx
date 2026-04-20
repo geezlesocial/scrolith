@@ -71,6 +71,23 @@ const normalizeTargetCountryCatalog = (entries: unknown[]): string[] => {
         });
 };
 
+const DEFAULT_SCROLL_ADS_CONFIG = {
+    enabled: true,
+    fallbackToCommunityFeed: true,
+    videoSkipDelaySeconds: 10,
+    staticSkipDelaySeconds: 3,
+    firstAdAfterScrolls: 1,
+    repeatEveryScrolls: 5,
+    minSecondsBetweenAds: 90,
+    maxAdsPerSession: 6,
+    maxAdsPerViewerDay: 20,
+    perAdCooldownMinutes: 30,
+    placementPacing: {
+        scroll_preroll: 2,
+        scroll_feed: 1
+    }
+};
+
 const CommunityManagement = () => {
     const [activeTab, setActiveTab] = useState<AdminTab>('overview');
     const [settings, setSettings] = useState<CommunitySettings | null>(null);
@@ -1597,6 +1614,45 @@ const AdManager = () => {
         }));
     };
 
+    const scrollAdsConfig = {
+        ...DEFAULT_SCROLL_ADS_CONFIG,
+        ...(adsConfig?.scrollAds || {}),
+        placementPacing: {
+            ...DEFAULT_SCROLL_ADS_CONFIG.placementPacing,
+            ...(adsConfig?.scrollAds?.placementPacing || {})
+        }
+    };
+
+    const updateScrollAdsConfig = (patch: Record<string, any>) => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            scrollAds: {
+                ...DEFAULT_SCROLL_ADS_CONFIG,
+                ...(prev?.scrollAds || {}),
+                placementPacing: {
+                    ...DEFAULT_SCROLL_ADS_CONFIG.placementPacing,
+                    ...(prev?.scrollAds?.placementPacing || {})
+                },
+                ...patch
+            }
+        }));
+    };
+
+    const updateScrollAdPacing = (placement: 'scroll_preroll' | 'scroll_feed', value: number) => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            scrollAds: {
+                ...DEFAULT_SCROLL_ADS_CONFIG,
+                ...(prev?.scrollAds || {}),
+                placementPacing: {
+                    ...DEFAULT_SCROLL_ADS_CONFIG.placementPacing,
+                    ...(prev?.scrollAds?.placementPacing || {}),
+                    [placement]: Number(value || 0)
+                }
+            }
+        }));
+    };
+
     const approve = async (id: string) => {
         await AdService.approveAd(id);
         setReviewQueue(prev => prev.filter(a => a.id !== id));
@@ -1632,7 +1688,7 @@ const AdManager = () => {
             {adsAnalytics && (
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                     <h4 className="font-bold text-gray-900 mb-2">Ads Analytics</h4>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-4 text-sm lg:grid-cols-5">
                         <div>
                             <div className="text-gray-500">Impressions</div>
                             <div className="font-semibold">{adsAnalytics?._sum?.impressions ?? adsAnalytics?.impressions ?? 0}</div>
@@ -1649,7 +1705,60 @@ const AdManager = () => {
                             <div className="text-gray-500">Admin Revenue</div>
                             <div className="font-semibold">{adsAnalytics?.adminRevenue ?? 0}</div>
                         </div>
+                        <div>
+                            <div className="text-gray-500">CTR</div>
+                            <div className="font-semibold">{adsAnalytics?.ctr ?? 0}%</div>
+                        </div>
                     </div>
+                    {adsAnalytics?.scroll && (
+                        <div className="mt-4 rounded-xl border border-cyan-100 bg-cyan-50/60 p-3">
+                            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h5 className="text-sm font-bold text-slate-900">/scroll Ad Analytics</h5>
+                                    <p className="text-xs text-slate-500">Pre-roll and feed-overlay delivery from Ads Manager campaigns.</p>
+                                </div>
+                                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-cyan-700">
+                                    {adsAnalytics.scroll.activeCampaigns || 0} active campaigns
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-5">
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll impressions</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.impressions || 0}</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll clicks</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.clicks || 0}</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll CTR</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.ctr || 0}%</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll spend</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.spend || 0}</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Remaining budget</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.remainingBudget || 0}</div>
+                                </div>
+                            </div>
+                            {Array.isArray(adsAnalytics.scroll.placements) && adsAnalytics.scroll.placements.length > 0 && (
+                                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                    {adsAnalytics.scroll.placements.map((placement: any) => (
+                                        <div key={placement.placement} className="rounded-lg border border-cyan-100 bg-white p-3 text-xs">
+                                            <div className="mb-1 font-semibold text-slate-800">{placement.placement}</div>
+                                            <div className="grid grid-cols-3 gap-2 text-gray-600">
+                                                <span>{placement.impressions || 0} impressions</span>
+                                                <span>{placement.clicks || 0} clicks</span>
+                                                <span>{placement.ctr || 0}% CTR</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -1831,6 +1940,155 @@ const AdManager = () => {
                                     <p className="text-xs text-gray-500">No countries configured yet.</p>
                                 )}
                             </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-lg border border-cyan-200 bg-gradient-to-br from-cyan-50 to-white p-3 space-y-3">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-xs font-bold uppercase tracking-wide text-cyan-700">/scroll Video Ad Delivery</p>
+                                    <GuideTip text="Control how sponsored video and image ads appear inside /scroll without changing Scroll content, reactions, or video navigation." />
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Skip timers, frequency caps, and placement pacing are pushed to web and mobile clients in real time after saving.
+                                </p>
+                            </div>
+                            <label className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-white px-3 py-1.5 text-xs font-semibold text-cyan-700">
+                                <input
+                                    type="checkbox"
+                                    checked={scrollAdsConfig.enabled !== false}
+                                    onChange={(e) => updateScrollAdsConfig({ enabled: e.target.checked })}
+                                />
+                                Enable /scroll ads
+                            </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-4">
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Video Skip Delay" help="Seconds before users can skip a video ad. Use 10 seconds for modern pre-roll behavior." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={60}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.videoSkipDelaySeconds}
+                                    onChange={(e) => updateScrollAdsConfig({ videoSkipDelaySeconds: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Static Skip Delay" help="Seconds before users can skip static/image ads." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={30}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.staticSkipDelaySeconds}
+                                    onChange={(e) => updateScrollAdsConfig({ staticSkipDelaySeconds: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="First Ad After" help="Show the first eligible ad after this many Scroll videos." />
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={50}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.firstAdAfterScrolls}
+                                    onChange={(e) => updateScrollAdsConfig({ firstAdAfterScrolls: Number(e.target.value || 1) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Repeat Every" help="After the first ad, serve another eligible ad every N Scroll videos." />
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.repeatEveryScrolls}
+                                    onChange={(e) => updateScrollAdsConfig({ repeatEveryScrolls: Number(e.target.value || 1) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Minimum Gap" help="Minimum seconds between ad displays for a viewer session." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={3600}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.minSecondsBetweenAds}
+                                    onChange={(e) => updateScrollAdsConfig({ minSecondsBetweenAds: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Session Cap" help="Maximum /scroll ads shown in one browser/app session. Set 0 for no session cap." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.maxAdsPerSession}
+                                    onChange={(e) => updateScrollAdsConfig({ maxAdsPerSession: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Daily Viewer Cap" help="Maximum /scroll ads shown to one device/viewer per day. Set 0 for no daily cap." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={500}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.maxAdsPerViewerDay}
+                                    onChange={(e) => updateScrollAdsConfig({ maxAdsPerViewerDay: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Same Ad Cooldown" help="Minutes before the same ad can be shown again to the same device/viewer." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={1440}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.perAdCooldownMinutes}
+                                    onChange={(e) => updateScrollAdsConfig({ perAdCooldownMinutes: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Pre-roll Weight" help="Relative pacing weight for Scroll pre-roll campaigns. Higher means more pre-roll ads in the rotation." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={10}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.placementPacing.scroll_preroll}
+                                    onChange={(e) => updateScrollAdPacing('scroll_preroll', Number(e.target.value || 0))}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Feed Overlay Weight" help="Relative pacing weight for Scroll feed-overlay campaigns." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={10}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.placementPacing.scroll_feed}
+                                    onChange={(e) => updateScrollAdPacing('scroll_feed', Number(e.target.value || 0))}
+                                />
+                            </label>
+                            <label className="flex min-h-[86px] items-center gap-3 rounded-lg border border-cyan-100 bg-white p-3">
+                                <input
+                                    type="checkbox"
+                                    checked={scrollAdsConfig.fallbackToCommunityFeed !== false}
+                                    onChange={(e) => updateScrollAdsConfig({ fallbackToCommunityFeed: e.target.checked })}
+                                />
+                                <span>
+                                    <span className="block font-semibold text-gray-700">Fallback to community ads</span>
+                                    <span className="text-gray-500">Use existing community feed campaigns when no /scroll campaigns are active.</span>
+                                </span>
+                            </label>
                         </div>
                     </div>
 

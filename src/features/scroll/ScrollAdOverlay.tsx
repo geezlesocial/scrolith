@@ -4,8 +4,8 @@ import type { AdCampaign } from '../../types';
 import { AdService } from '../../services/ads';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 
-const VIDEO_SKIP_DELAY_SECONDS = 10;
-const STATIC_SKIP_DELAY_SECONDS = 3;
+const DEFAULT_VIDEO_SKIP_DELAY_SECONDS = 10;
+const DEFAULT_STATIC_SKIP_DELAY_SECONDS = 3;
 
 const getAdMedia = (ad: AdCampaign | null) => {
   if (!ad) return null;
@@ -42,10 +42,19 @@ type ScrollAdOverlayProps = {
   ad: AdCampaign | null;
   isOpen: boolean;
   muted: boolean;
+  videoSkipDelaySeconds?: number;
+  staticSkipDelaySeconds?: number;
   onClose: () => void;
 };
 
-const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({ ad, isOpen, muted, onClose }) => {
+const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
+  ad,
+  isOpen,
+  muted,
+  videoSkipDelaySeconds = DEFAULT_VIDEO_SKIP_DELAY_SECONDS,
+  staticSkipDelaySeconds = DEFAULT_STATIC_SKIP_DELAY_SECONDS,
+  onClose
+}) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const impressionRecordedRef = useRef('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -54,7 +63,10 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({ ad, isOpen, muted, on
   const media = useMemo(() => getAdMedia(ad), [ad]);
   const mediaUrl = useMemo(() => resolveAssetUrl(String(media?.url || '')), [media?.url]);
   const videoCreative = useMemo(() => isVideoMedia(media), [media]);
-  const skipDelay = videoCreative ? VIDEO_SKIP_DELAY_SECONDS : STATIC_SKIP_DELAY_SECONDS;
+  const skipDelay = Math.max(
+    0,
+    Math.floor(videoCreative ? videoSkipDelaySeconds : staticSkipDelaySeconds)
+  );
   const canSkip = elapsedSeconds >= skipDelay;
   const destination = ad ? resolveDestination(ad) : '';
 

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
-import type { AdCampaign } from '../../types';
+import type { AdCampaign, ScrollAdsRuntimePolicy } from '../../types';
 import ScrollCard from './ScrollCard';
 import ScrollAdOverlay from './ScrollAdOverlay';
 import ScrollCreateModal from './ScrollCreateModal';
@@ -42,9 +42,25 @@ import { postOptionsApi } from '../../services/postOptions';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
+const SCROLL_AD_CAP_STATE_KEY = 'scroll:ads:frequencyCaps';
 const SCROLL_VIDEO_ROUTE_PATTERN = /^\/scroll(?:\/|$)/i;
 const POST_VIDEO_MORE_CURSOR = '__post_video_more__';
-const SCROLL_AD_FREQUENCY = 5;
+const DEFAULT_SCROLL_AD_POLICY: ScrollAdsRuntimePolicy = {
+  enabled: true,
+  fallbackToCommunityFeed: true,
+  videoSkipDelaySeconds: 10,
+  staticSkipDelaySeconds: 3,
+  firstAdAfterScrolls: 1,
+  repeatEveryScrolls: 5,
+  minSecondsBetweenAds: 90,
+  maxAdsPerSession: 6,
+  maxAdsPerViewerDay: 20,
+  perAdCooldownMinutes: 30,
+  placementPacing: {
+    scroll_preroll: 2,
+    scroll_feed: 1
+  }
+};
 
 const readStoredIndex = () => {
   const value = Number(localStorage.getItem(LAST_SCROLL_INDEX_KEY) || 0);
@@ -55,6 +71,114 @@ const readStoredIndex = () => {
 const readMutedPreference = () => {
   const raw = String(localStorage.getItem(GLOBAL_SCROLL_MUTED_KEY) || 'true').toLowerCase();
   return !(raw === 'false' || raw === '0' || raw === 'off');
+};
+
+const clampInteger = (value: unknown, fallback: number, min: number, max: number) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+};
+
+const normalizeScrollAdPolicy = (raw?: Partial<ScrollAdsRuntimePolicy> | null): ScrollAdsRuntimePolicy => {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const placementPacing = source.placementPacing && typeof source.placementPacing === 'object' ? source.placementPacing : {};
+  return {
+    enabled: source.enabled !== false,
+    fallbackToCommunityFeed: source.fallbackToCommunityFeed !== false,
+    videoSkipDelaySeconds: clampInteger(source.videoSkipDelaySeconds, DEFAULT_SCROLL_AD_POLICY.videoSkipDelaySeconds, 0, 60),
+    staticSkipDelaySeconds: clampInteger(source.staticSkipDelaySeconds, DEFAULT_SCROLL_AD_POLICY.staticSkipDelaySeconds, 0, 30),
+    firstAdAfterScrolls: clampInteger(source.firstAdAfterScrolls, DEFAULT_SCROLL_AD_POLICY.firstAdAfterScrolls, 1, 50),
+    repeatEveryScrolls: clampInteger(source.repeatEveryScrolls, DEFAULT_SCROLL_AD_POLICY.repeatEveryScrolls, 1, 100),
+    minSecondsBetweenAds: clampInteger(source.minSecondsBetweenAds, DEFAULT_SCROLL_AD_POLICY.minSecondsBetweenAds, 0, 3600),
+    maxAdsPerSession: clampInteger(source.maxAdsPerSession, DEFAULT_SCROLL_AD_POLICY.maxAdsPerSession, 0, 100),
+    maxAdsPerViewerDay: clampInteger(source.maxAdsPerViewerDay, DEFAULT_SCROLL_AD_POLICY.maxAdsPerViewerDay, 0, 500),
+    perAdCooldownMinutes: clampInteger(source.perAdCooldownMinutes, DEFAULT_SCROLL_AD_POLICY.perAdCooldownMinutes, 0, 1440),
+    placementPacing: {
+      scroll_preroll: clampInteger(
+        placementPacing.scroll_preroll,
+        DEFAULT_SCROLL_AD_POLICY.placementPacing.scroll_preroll,
+        0,
+        10
+      ),
+      scroll_feed: clampInteger(
+        placementPacing.scroll_feed,
+        DEFAULT_SCROLL_AD_POLICY.placementPacing.scroll_feed,
+        0,
+        10
+      )
+    }
+  };
+};
+
+const todayAdCapKey = () => new Date().toISOString().slice(0, 10);
+
+const readScrollAdCapState = () => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SCROLL_AD_CAP_STATE_KEY) || '{}');
+    const today = todayAdCapKey();
+    if (!parsed || parsed.day !== today) return { day: today, total: 0, byAd: {} as Record<string, { count: number; lastAt: number }> };
+    return {
+      day: today,
+      total: Math.max(0, Number(parsed.total || 0)),
+      byAd: parsed.byAd && typeof parsed.byAd === 'object' ? parsed.byAd : {}
+    };
+  } catch {
+    return { day: todayAdCapKey(), total: 0, byAd: {} as Record<string, { count: number; lastAt: number }> };
+  }
+};
+
+const writeScrollAdCapState = (state: ReturnType<typeof readScrollAdCapState>) => {
+  try {
+    localStorage.setItem(SCROLL_AD_CAP_STATE_KEY, JSON.stringify(state));
+  } catch {
+    // localStorage can be unavailable in hardened browser contexts.
+  }
+};
+
+const getAdPlacements = (ad: AdCampaign) => {
+  const targeting = ad.targeting && typeof ad.targeting === 'object' ? ad.targeting : {};
+  const source = Array.isArray((targeting as any).placements) && (targeting as any).placements.length
+    ? (targeting as any).placements
+    : [ad.placement];
+  return Array.from(new Set(source.map((entry: any) => String(entry || '').trim()).filter(Boolean)));
+};
+
+const buildPacedScrollAdPool = (
+  preRollAds: AdCampaign[],
+  feedAds: AdCampaign[],
+  policy: ScrollAdsRuntimePolicy
+) => {
+  const preRollWeight = Math.max(0, Number(policy.placementPacing.scroll_preroll || 0));
+  const feedWeight = Math.max(0, Number(policy.placementPacing.scroll_feed || 0));
+  const uniqueById = new Map<string, AdCampaign>();
+  const sequence: AdCampaign[] = [];
+  const maxLength = Math.max(preRollAds.length + feedAds.length, 1) * Math.max(preRollWeight + feedWeight, 1);
+  let preIndex = 0;
+  let feedIndex = 0;
+
+  const pushNext = (source: AdCampaign[], index: number) => {
+    if (!source.length) return index;
+    const ad = source[index % source.length];
+    const id = String(ad?.id || '').trim();
+    if (id && !uniqueById.has(id)) {
+      uniqueById.set(id, ad);
+      sequence.push(ad);
+    } else if (id) {
+      sequence.push(ad);
+    }
+    return index + 1;
+  };
+
+  while (sequence.length < maxLength && (preRollAds.length || feedAds.length)) {
+    for (let i = 0; i < preRollWeight && preRollAds.length; i += 1) preIndex = pushNext(preRollAds, preIndex);
+    for (let i = 0; i < feedWeight && feedAds.length; i += 1) feedIndex = pushNext(feedAds, feedIndex);
+    if (preRollWeight === 0 && feedWeight === 0) break;
+    if (sequence.length >= preRollAds.length + feedAds.length && uniqueById.size >= preRollAds.length + feedAds.length) break;
+  }
+
+  return (sequence.length ? sequence : [...preRollAds, ...feedAds]).filter((ad) =>
+    Boolean(String(ad?.id || '').trim())
+  );
 };
 
 const isInteractiveScrollControlTarget = (target: EventTarget | null) => {
@@ -366,6 +490,9 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [seriesActiveScrollId, setSeriesActiveScrollId] = useState<string | null>(null);
   const [scrollAds, setScrollAds] = useState<AdCampaign[]>([]);
+  const [scrollAdPolicy, setScrollAdPolicy] = useState<ScrollAdsRuntimePolicy>(() =>
+    normalizeScrollAdPolicy(DEFAULT_SCROLL_AD_POLICY)
+  );
   const [activeScrollAd, setActiveScrollAd] = useState<{ ad: AdCampaign; key: string; scrollId: string } | null>(null);
   const showLiveDiscovery = liveFeatureStatus.enabled && liveFeatureStatus.experienceConfig?.showFeaturedRailInScrollFeed !== false;
   const autoAdvanceOnEnd = !embedded && SCROLL_VIDEO_ROUTE_PATTERN.test(location.pathname);
@@ -388,6 +515,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const touchSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
   const displayedScrollAdKeysRef = useRef<Set<string>>(new Set());
   const scrollAdTimerRef = useRef<number | null>(null);
+  const sessionScrollAdCountRef = useRef(0);
+  const lastScrollAdShownAtRef = useRef(0);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -892,24 +1021,34 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const loadScrollAds = useCallback(async () => {
     try {
-      const [preRollAds, feedAds] = await Promise.all([
+      const [runtimeConfig, preRollAds, feedAds] = await Promise.all([
+        AdService.getRuntimeConfig(),
         AdService.getAds({ role: user?.role, placement: 'scroll_preroll', limit: 12 }),
         AdService.getAds({ role: user?.role, placement: 'scroll_feed', limit: 12 })
       ]);
-      const deduped = [...preRollAds, ...feedAds].filter((ad, index, list) => {
-        const id = String(ad?.id || '').trim();
-        return id && list.findIndex((entry) => String(entry?.id || '').trim() === id) === index;
-      });
-      if (deduped.length > 0) {
-        setScrollAds(deduped);
+      const policy = normalizeScrollAdPolicy(runtimeConfig?.scrollAds || DEFAULT_SCROLL_AD_POLICY);
+      setScrollAdPolicy(policy);
+      if (!policy.enabled) {
+        setScrollAds([]);
+        return;
+      }
+
+      const pacedAds = buildPacedScrollAdPool(preRollAds, feedAds, policy);
+      if (pacedAds.length > 0) {
+        setScrollAds(pacedAds);
         return;
       }
 
       // Backward-compatible bridge for existing campaigns while admins migrate to Scroll placements.
-      const fallbackAds = await AdService.getAds({ role: user?.role, placement: 'community_feed', limit: 8 });
-      setScrollAds(fallbackAds.filter((ad) => Boolean(String(ad?.id || '').trim())));
+      if (policy.fallbackToCommunityFeed) {
+        const fallbackAds = await AdService.getAds({ role: user?.role, placement: 'community_feed', limit: 8 });
+        setScrollAds(fallbackAds.filter((ad) => Boolean(String(ad?.id || '').trim())));
+      } else {
+        setScrollAds([]);
+      }
     } catch (error) {
       console.warn('Failed to load Scroll ads', error);
+      setScrollAdPolicy(normalizeScrollAdPolicy(DEFAULT_SCROLL_AD_POLICY));
       setScrollAds([]);
     }
   }, [user?.role]);
@@ -936,6 +1075,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
     if (
       embedded ||
+      !scrollAdPolicy.enabled ||
       loading ||
       createOpen ||
       commentOpen ||
@@ -952,16 +1092,62 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
     const activeScroll = items[activeIndex];
     if (!activeScroll?.id) return;
-    const shouldServeAd = activeIndex === 0 || (activeIndex + 1) % SCROLL_AD_FREQUENCY === 0;
+    const scrollPosition = activeIndex + 1;
+    const firstSlot = Math.max(1, scrollAdPolicy.firstAdAfterScrolls);
+    const repeatEvery = Math.max(1, scrollAdPolicy.repeatEveryScrolls);
+    const shouldServeAd =
+      scrollPosition === firstSlot ||
+      (scrollPosition > firstSlot && (scrollPosition - firstSlot) % repeatEvery === 0);
     if (!shouldServeAd) return;
 
-    const ad = scrollAds[activeIndex % scrollAds.length];
+    const now = Date.now();
+    if (
+      scrollAdPolicy.minSecondsBetweenAds > 0 &&
+      now - lastScrollAdShownAtRef.current < scrollAdPolicy.minSecondsBetweenAds * 1000
+    ) {
+      return;
+    }
+    if (
+      scrollAdPolicy.maxAdsPerSession > 0 &&
+      sessionScrollAdCountRef.current >= scrollAdPolicy.maxAdsPerSession
+    ) {
+      return;
+    }
+
+    const capState = readScrollAdCapState();
+    if (scrollAdPolicy.maxAdsPerViewerDay > 0 && capState.total >= scrollAdPolicy.maxAdsPerViewerDay) {
+      return;
+    }
+
+    const perAdCooldownMs = Math.max(0, scrollAdPolicy.perAdCooldownMinutes) * 60 * 1000;
+    const orderedAds = scrollAds.map((_, offset) => scrollAds[(activeIndex + offset) % Math.max(1, scrollAds.length)]);
+    const ad = orderedAds.find((candidate) => {
+        const adId = String(candidate?.id || '').trim();
+        if (!adId) return false;
+        const cap = capState.byAd?.[adId];
+        if (perAdCooldownMs > 0 && cap?.lastAt && now - Number(cap.lastAt || 0) < perAdCooldownMs) return false;
+        const placements = getAdPlacements(candidate);
+        if (!placements.includes('scroll_preroll') && !placements.includes('scroll_feed') && !scrollAdPolicy.fallbackToCommunityFeed) {
+          return false;
+        }
+        return true;
+      });
     if (!ad?.id) return;
     const key = `${activeScroll.id}:${ad.id}`;
     if (displayedScrollAdKeysRef.current.has(key)) return;
 
     scrollAdTimerRef.current = window.setTimeout(() => {
       displayedScrollAdKeysRef.current.add(key);
+      sessionScrollAdCountRef.current += 1;
+      lastScrollAdShownAtRef.current = Date.now();
+      const nextCapState = readScrollAdCapState();
+      const adCap = nextCapState.byAd[String(ad.id)] || { count: 0, lastAt: 0 };
+      nextCapState.total = Math.max(0, Number(nextCapState.total || 0)) + 1;
+      nextCapState.byAd[String(ad.id)] = {
+        count: Math.max(0, Number(adCap.count || 0)) + 1,
+        lastAt: Date.now()
+      };
+      writeScrollAdCapState(nextCapState);
       setActiveScrollAd({ ad, key, scrollId: activeScroll.id });
     }, 900);
 
@@ -982,6 +1168,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     loading,
     repostOpen,
     scrollAds,
+    scrollAdPolicy,
     seriesModalOpen,
     shareOpen
   ]);
@@ -1649,6 +1836,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         ad={activeScrollAd?.ad || null}
         isOpen={Boolean(activeScrollAd)}
         muted={muted}
+        videoSkipDelaySeconds={scrollAdPolicy.videoSkipDelaySeconds}
+        staticSkipDelaySeconds={scrollAdPolicy.staticSkipDelaySeconds}
         onClose={() => setActiveScrollAd(null)}
       />
 

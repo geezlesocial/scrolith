@@ -1319,6 +1319,28 @@ export interface AdCampaign {
   endAt?: string;
 }
 
+export interface ScrollAdsRuntimePolicy {
+  enabled: boolean;
+  fallbackToCommunityFeed: boolean;
+  videoSkipDelaySeconds: number;
+  staticSkipDelaySeconds: number;
+  firstAdAfterScrolls: number;
+  repeatEveryScrolls: number;
+  minSecondsBetweenAds: number;
+  maxAdsPerSession: number;
+  maxAdsPerViewerDay: number;
+  perAdCooldownMinutes: number;
+  placementPacing: {
+    scroll_preroll: number;
+    scroll_feed: number;
+  };
+}
+
+export interface AdsRuntimeConfig {
+  allowedPlacements?: string[];
+  scrollAds: ScrollAdsRuntimePolicy;
+}
+
 // Additional exported convenience types expected by frontend
 export type StepsContent = any;
 export type TestimonialsContent = any;

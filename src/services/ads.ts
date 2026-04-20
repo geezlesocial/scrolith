@@ -1,5 +1,5 @@
 import api from './api';
-import { AdCampaign, UserRole } from '../types';
+import { AdCampaign, AdsRuntimeConfig, UserRole } from '../types';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -205,6 +205,16 @@ export const AdService = {
   getAnalytics: async (): Promise<any> => {
     const response = await api.get('/community/admin/ads/analytics');
     return extractData<any>(response);
+  },
+
+  getRuntimeConfig: async (): Promise<AdsRuntimeConfig | null> => {
+    try {
+      const response = await api.get('/community/ads/runtime-config');
+      const data = extractData<AdsRuntimeConfig>(response);
+      return data || null;
+    } catch {
+      return null;
+    }
   },
 
   getAd: async (id: string): Promise<AdCampaign | null> => {
