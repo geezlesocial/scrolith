@@ -40,6 +40,7 @@ import { postOptionsApi } from '../../services/postOptions';
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
 const SCROLL_VIDEO_ROUTE_PATTERN = /^\/scroll(?:\/|$)/i;
+const POST_VIDEO_MORE_CURSOR = '__post_video_more__';
 
 const readStoredIndex = () => {
   const value = Number(localStorage.getItem(LAST_SCROLL_INDEX_KEY) || 0);
@@ -59,6 +60,18 @@ const isInteractiveScrollControlTarget = (target: EventTarget | null) => {
       'button, a, input, textarea, select, label, [role="dialog"], [data-scroll-skip-swipe="true"]'
     )
   );
+};
+
+const isLikelyMediaFileName = (value: unknown) => {
+  const text = String(value || '').trim();
+  if (!text) return false;
+  return /^[\w\s().-]+\.(mp4|mov|m4v|webm|ogg|avi|mkv)$/i.test(text);
+};
+
+const cleanPostVideoTitle = (value: unknown) => {
+  const title = String(value || '').trim();
+  if (!title || isLikelyMediaFileName(title)) return null;
+  return title;
 };
 
 const getPostBridgeSource = (scroll?: ScrollVideo | null) => {
@@ -100,7 +113,7 @@ const buildViewerSeedScroll = (source: PendingPostVideoScrollViewerSource): Scro
     username: String(source.authorUsername || '').trim() || null,
     isVerified: false
   },
-  title: source.title || 'Featured from post',
+  title: cleanPostVideoTitle(source.title) || 'Featured from post',
   description: source.description || null,
   location: source.location || null,
   visibility: 'public',
@@ -190,7 +203,7 @@ const buildViewerSourceFromPost = (
     fileId: attachmentId,
     mediaUrl,
     thumbnailUrl: String(resolvePostAttachmentPosterUrl(attachment) || '').trim() || null,
-    title: String(post?.title || attachment?.name || '').trim() || null,
+    title: cleanPostVideoTitle(post?.title),
     description: String(post?.content || post?.description || '').trim() || null,
     location: String(post?.location || '').trim() || null,
     authorName:
@@ -248,7 +261,7 @@ const buildViewerSeedScrollFromPost = (post: any): ScrollVideo | null => {
         String(post?.author?.username || post?.authorUsername || post?.userUsername || '').trim() || null,
       isVerified: Boolean(post?.author?.isVerified)
     },
-    title: String(post?.title || attachment?.name || '').trim() || 'Featured from post',
+    title: cleanPostVideoTitle(post?.title) || 'Featured from post',
     description: String(post?.content || post?.description || '').trim() || null,
     location: String(post?.location || '').trim() || null,
     visibility: 'public',
@@ -362,6 +375,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const itemsRef = useRef<ScrollVideo[]>([]);
   const activeIndexRef = useRef(activeIndex);
   const nextCursorRef = useRef<string | null>(null);
+  const postVideoNextCursorRef = useRef<string | null>(null);
   const loadingMoreRef = useRef(false);
   const pendingAutoAdvanceIndexRef = useRef<number | null>(null);
   const wheelNavigationLockRef = useRef<number>(0);
@@ -513,6 +527,31 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     [profile.feedPageSize]
   );
 
+  const loadPostVideoSeeds = useCallback(async (cursor?: string | null) => {
+    try {
+      const response = await CommunityService.getFeed({
+        limit: Math.max(36, Number(profile.feedPageSize || 0) * 4 || 36),
+        cursor: cursor || undefined,
+        scope: 'discover'
+      });
+      const rows = Array.isArray(response?.items) ? response.items : Array.isArray(response) ? response : [];
+      const seen = new Set<string>();
+      const videos: ScrollVideo[] = [];
+      rows.forEach((post: any) => {
+        const seed = buildViewerSeedScrollFromPost(post);
+        if (!seed?.id || seen.has(seed.id)) return;
+        seen.add(seed.id);
+        videos.push(seed);
+      });
+      return {
+        items: videos,
+        nextCursor: String(response?.nextCursor || '').trim() || null
+      };
+    } catch {
+      return { items: [], nextCursor: null };
+    }
+  }, [profile.feedPageSize]);
+
   const resolvePostVideoRouteSource = useCallback(async (params: URLSearchParams) => {
     const postId = String(params.get('post') || params.get('postId') || '').trim();
     const preferredFileId = String(params.get('file') || params.get('fileId') || '').trim() || null;
@@ -573,15 +612,28 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         } else {
           setLoading(true);
         }
-        const data = await ScrollService.getFeed({
-          cursor: cursor || undefined,
-          limit: profile.feedPageSize
-        });
+        if (!cursor) postVideoNextCursorRef.current = null;
+        const isPostVideoOnlyCursor = cursor === POST_VIDEO_MORE_CURSOR;
+        const nativeCursor = isPostVideoOnlyCursor ? null : cursor || undefined;
+        const shouldLoadPostVideos = !cursor || Boolean(postVideoNextCursorRef.current);
+        const [data, postVideoSeedResult] = await Promise.all([
+          isPostVideoOnlyCursor
+            ? Promise.resolve({ items: [], nextCursor: null, config: undefined })
+            : ScrollService.getFeed({
+                cursor: nativeCursor || undefined,
+                limit: profile.feedPageSize
+              }),
+          shouldLoadPostVideos ? loadPostVideoSeeds(cursor ? postVideoNextCursorRef.current : null) : Promise.resolve({ items: [], nextCursor: null })
+        ]);
         const nextItems = Array.isArray(data?.items) ? data.items : [];
+        const postVideoSeeds = Array.isArray(postVideoSeedResult?.items) ? postVideoSeedResult.items : [];
+        postVideoNextCursorRef.current = postVideoSeedResult?.nextCursor || null;
         const seededSource = !cursor ? viewerSeedSourceRef.current : null;
         const seededItem = seededSource ? buildViewerSeedScroll(seededSource) : null;
-        setConfig((data?.config as ScrollConfig) || null);
-        setNextCursor(data?.nextCursor || null);
+        if (!isPostVideoOnlyCursor) {
+          setConfig((data?.config as ScrollConfig) || null);
+        }
+        setNextCursor(data?.nextCursor || (postVideoNextCursorRef.current ? POST_VIDEO_MORE_CURSOR : null));
         setItems((prev) => {
           if (!cursor) {
             const merged: ScrollVideo[] = [];
@@ -593,12 +645,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
             };
             pushUnique(seededItem);
             seededItemsRef.current.forEach((entry) => pushUnique(entry));
+            postVideoSeeds.forEach((entry) => pushUnique(entry));
             nextItems.forEach((entry) => pushUnique(entry));
             return merged;
           }
           const existing = new Set(prev.map((entry) => entry.id));
           const merged = [...prev];
-          for (const entry of nextItems) {
+          for (const entry of [...postVideoSeeds, ...nextItems]) {
             if (!existing.has(entry.id)) merged.push(entry);
           }
           return merged;
@@ -615,7 +668,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         setLoadingMore(false);
       }
     },
-    [profile.feedPageSize, showNotification]
+    [loadPostVideoSeeds, profile.feedPageSize, showNotification]
   );
 
   useEffect(() => {

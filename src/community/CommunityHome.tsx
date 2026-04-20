@@ -459,7 +459,7 @@ const CommunityHome = () => {
         fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
         mediaUrl,
         thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
-        title: String(post?.title || media?.name || '').trim() || null,
+        title: String(post?.title || '').trim() || null,
         description: String(post?.content || '').trim() || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
