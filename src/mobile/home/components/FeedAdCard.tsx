@@ -5,6 +5,7 @@ import {
   XIcon as X
 } from '../../../components/icons/ShellIcons';
 import OptimizedImage from '../../../components/media/OptimizedImage';
+import AdVideoPlayer from '../../../components/ads/AdVideoPlayer';
 import { CommunityService } from '../../../services/community';
 
 type AdMedia = { id: string; url: string; mimeType: string | null; name: string | null };
@@ -91,15 +92,12 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
       {primaryMedia ? (
         <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
           {isVideoMedia(primaryMedia) ? (
-            <video
+            <AdVideoPlayer
               src={primaryMedia.url}
-              className="h-48 w-full object-cover"
-              muted
-              autoPlay
+              className="h-48 w-full"
+              videoClassName="h-full w-full object-cover"
               loop
-              playsInline
               preload="auto"
-              controls={false}
             />
           ) : isImage(primaryMedia.mimeType) ? (
             <OptimizedImage

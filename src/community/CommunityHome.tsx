@@ -28,6 +28,7 @@ import { AdService } from '../services/ads';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../services/scroll';
 import { ReactionsService } from '../services/reactions';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
+import AdVideoPlayer from '../components/ads/AdVideoPlayer';
 import MediaPreviewModal, { type PreviewMedia } from '../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../components/media/PostVideoActionBar';
 import OverlayActionRailButton from '../components/media/OverlayActionRailButton';
@@ -3327,14 +3328,11 @@ const CommunityHome = () => {
                       {media?.url && (
                         <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
                           {mediaType === 'video' ? (
-                            <video
+                            <AdVideoPlayer
                               src={media.url}
-                              muted
-                              autoPlay
-                              loop
-                              playsInline
+                              className="h-36 w-full"
+                              videoClassName="h-full w-full object-cover"
                               preload="auto"
-                              className="h-36 w-full object-cover"
                             />
                           ) : (
                             <img src={media.url} alt={ad.title || 'Ad media'} className="h-36 w-full object-cover" />

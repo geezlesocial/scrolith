@@ -71,6 +71,7 @@ import { downloadToDevice } from '../../utils/deviceDownload';
 import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
+import AdVideoPlayer from '../ads/AdVideoPlayer';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostOriginPreview from '../post/PostOriginPreview';
 import TranslatablePostText from '../translation/TranslatablePostText';
@@ -6287,14 +6288,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       {sidebarFeaturedAd.mediaUrl ? (
                         <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white">
                           {sidebarFeaturedAd.mediaType === 'video' ? (
-                            <video
+                            <AdVideoPlayer
                               src={sidebarFeaturedAd.mediaUrl}
-                              muted
-                              autoPlay
-                              loop
-                              playsInline
+                              className="h-24 w-full"
+                              videoClassName="h-full w-full object-cover"
                               preload="auto"
-                              className="h-24 w-full object-cover"
                             />
                           ) : (
                             <img
@@ -7253,14 +7251,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     {sidebarTopAd.mediaUrl ? (
                       <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
                         {sidebarTopAd.mediaType === 'video' ? (
-                          <video
+                          <AdVideoPlayer
                             src={sidebarTopAd.mediaUrl}
-                            muted
-                            autoPlay
-                            loop
-                            playsInline
+                            className="h-32 w-full"
+                            videoClassName="h-full w-full object-cover"
                             preload="auto"
-                            className="h-32 w-full object-cover"
                           />
                         ) : (
                           <img
@@ -7475,14 +7470,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     {sidebarMiddleAd.mediaUrl ? (
                       <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
                         {sidebarMiddleAd.mediaType === 'video' ? (
-                          <video
+                          <AdVideoPlayer
                             src={sidebarMiddleAd.mediaUrl}
-                            muted
-                            autoPlay
-                            loop
-                            playsInline
+                            className="h-32 w-full"
+                            videoClassName="h-full w-full object-cover"
                             preload="auto"
-                            className="h-32 w-full object-cover"
                           />
                         ) : (
                           <img

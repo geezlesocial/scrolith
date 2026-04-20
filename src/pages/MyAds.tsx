@@ -31,6 +31,7 @@ import { useNotification } from '../context/NotificationContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { useUser } from '../context/UserContext';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
+import AdVideoPlayer from '../components/ads/AdVideoPlayer';
 import { PaymentService } from '../services/payment';
 import { PaymentGateway } from '../types';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
@@ -2154,14 +2155,11 @@ const MyAds = () => {
                         <div className="relative aspect-[16/10]">
                           {primaryMedia.url ? (
                             primaryMedia.type === 'video' ? (
-                              <video
+                              <AdVideoPlayer
                                 src={primaryMedia.url}
-                                muted
-                                playsInline
-                                autoPlay
-                                loop
+                                className="h-full w-full"
+                                videoClassName="h-full w-full object-cover"
                                 preload="auto"
-                                className="h-full w-full object-cover"
                               />
                             ) : (
                               <img
@@ -2414,14 +2412,11 @@ const MyAds = () => {
                   <div className="relative aspect-[16/10]">
                     {selectedMedia?.url ? (
                       selectedMedia.type === 'video' ? (
-                        <video
+                        <AdVideoPlayer
                           src={selectedMedia.url}
-                          muted
-                          playsInline
-                          autoPlay
-                          loop
+                          className="h-full w-full"
+                          videoClassName="h-full w-full object-cover"
                           preload="auto"
-                          className="h-full w-full object-cover"
                         />
                       ) : (
                         <img
@@ -3051,18 +3046,14 @@ const MyAds = () => {
                       <div key={media.id} className="border rounded-xl p-2 flex items-center gap-3">
                         {mediaUrl ? (
                           isAdVideoMedia(media) ? (
-                            <video
+                            <AdVideoPlayer
                               key={mediaUrl}
                               src={mediaUrl}
-                              muted
-                              playsInline
-                              autoPlay
-                              loop
+                              className="h-16 w-16 rounded-lg"
+                              videoClassName="h-full w-full object-cover"
                               preload="auto"
-                              className="h-16 w-16 rounded-lg object-cover"
-                              onLoadedData={(event) => {
-                                event.currentTarget.play().catch(() => undefined);
-                              }}
+                              soundButtonClassName="right-1 top-1 h-7 min-w-7 px-1"
+                              showSoundLabel={false}
                             />
                           ) : (
                             <img src={mediaUrl} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
@@ -3126,18 +3117,12 @@ const MyAds = () => {
                       <div className="relative aspect-[4/5]">
                         {formPreviewMediaUrl ? (
                           String(formPreviewMedia?.mimeType || formPreviewMedia?.type || '').toLowerCase().startsWith('video/') ? (
-                            <video
+                            <AdVideoPlayer
                               key={formPreviewMediaUrl}
                               src={formPreviewMediaUrl}
-                              muted
-                              playsInline
-                              autoPlay
-                              loop
+                              className="h-full w-full"
+                              videoClassName="h-full w-full object-cover"
                               preload="auto"
-                              className="h-full w-full object-cover"
-                              onLoadedData={(event) => {
-                                event.currentTarget.play().catch(() => undefined);
-                              }}
                             />
                           ) : (
                             <img

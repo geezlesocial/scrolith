@@ -4,6 +4,7 @@ import { ExternalLink } from 'lucide-react';
 import { AdCampaign } from '../types';
 import DonateButton from './DonateButton';
 import OptimizedImage from './media/OptimizedImage';
+import AdVideoPlayer from './ads/AdVideoPlayer';
 
 const AdCard = ({ ad, showDonate = false }: { ad: AdCampaign; showDonate?: boolean }) => {
     const statusMap: Record<string, { label: string; cls: string }> = {
@@ -39,7 +40,12 @@ const AdCard = ({ ad, showDonate = false }: { ad: AdCampaign; showDonate?: boole
             {media?.url && (
                 <div className="h-48 overflow-hidden bg-gray-100">
                     {mediaType === 'video' ? (
-                        <video src={media.url} className="w-full h-full object-cover" controls preload="none" playsInline />
+                        <AdVideoPlayer
+                            src={media.url}
+                            className="h-full w-full"
+                            videoClassName="h-full w-full object-cover"
+                            preload="metadata"
+                        />
                     ) : (
                         <OptimizedImage
                             src={media.url}

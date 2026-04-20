@@ -3,6 +3,7 @@ import { ExternalLink, Megaphone, MousePointerClick, Volume2, VolumeX, X } from 
 import type { AdCampaign } from '../../types';
 import { AdService } from '../../services/ads';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import AdVideoPlayer from '../../components/ads/AdVideoPlayer';
 
 const DEFAULT_VIDEO_SKIP_DELAY_SECONDS = 10;
 const DEFAULT_STATIC_SKIP_DELAY_SECONDS = 3;
@@ -55,7 +56,6 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
   staticSkipDelaySeconds = DEFAULT_STATIC_SKIP_DELAY_SECONDS,
   onClose
 }) => {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const impressionRecordedRef = useRef('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [adMuted, setAdMuted] = useState(muted);
@@ -94,17 +94,6 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
     }, 1000);
     return () => window.clearTimeout(timer);
   }, [ad?.id, isOpen]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !isOpen || !videoCreative) return;
-    video.muted = adMuted;
-    video.playsInline = true;
-    const attempt = video.play();
-    if (attempt && typeof attempt.catch === 'function') {
-      attempt.catch(() => undefined);
-    }
-  }, [adMuted, isOpen, mediaUrl, videoCreative]);
 
   const handleClose = useCallback(() => {
     if (!canSkip) return;
@@ -166,16 +155,16 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
         <div className="relative min-h-0 flex-1 bg-black">
           {mediaUrl ? (
             videoCreative ? (
-              <video
-                ref={videoRef}
+              <AdVideoPlayer
                 src={mediaUrl}
-                className="h-full w-full object-contain"
-                muted={adMuted}
-                playsInline
-                autoPlay
+                className="h-full w-full"
+                videoClassName="h-full w-full object-contain"
                 preload="auto"
+                mutedDefault={adMuted}
+                muted={adMuted}
+                onMutedChange={setAdMuted}
+                loop={false}
                 onEnded={onClose}
-                onContextMenu={(event) => event.preventDefault()}
               />
             ) : (
               <img src={mediaUrl} alt={title} className="h-full w-full object-cover" loading="eager" />
