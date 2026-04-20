@@ -319,6 +319,9 @@ const normalizePlacement = (value: any): string => {
   return raw;
 };
 
+const normalizedPlacementsNeedCreative = (placements: string[]) =>
+  (Array.isArray(placements) ? placements : []).some((placement) => normalizePlacement(placement).startsWith('scroll_'));
+
 const normalizePricingModel = (value: any): 'CPM' | 'CPC' =>
   String(value || '').toUpperCase() === 'CPC' ? 'CPC' : 'CPM';
 
@@ -337,7 +340,18 @@ type AdFormState = {
   budget: number;
   currency: string;
   durationDays: number;
-  media: { id: string; url?: string; name?: string; mimeType?: string; type?: string }[];
+  media: {
+    id: string;
+    url?: string;
+    downloadUrl?: string;
+    download_url?: string;
+    path?: string;
+    storageKey?: string;
+    name?: string;
+    mimeType?: string;
+    mime_type?: string;
+    type?: string;
+  }[];
 };
 
 type PromotionSourceType = 'post' | 'page' | null;
@@ -1154,8 +1168,7 @@ const MyAds = () => {
   const mediaCounts = useMemo(() => {
     return form.media.reduce(
       (acc, media) => {
-        const mime = String(media.mimeType || media.type || '').toLowerCase();
-        if (mime.startsWith('video/')) acc.videos += 1;
+        if (isAdVideoMedia(media)) acc.videos += 1;
         else acc.images += 1;
         return acc;
       },
@@ -1211,7 +1224,8 @@ const MyAds = () => {
               id: media.id || '',
               url: media.url,
               name: media.name,
-              mimeType: media.mimeType
+              mimeType: media.mimeType,
+              type: isAdVideoMedia(media) ? 'video' : 'image'
             }))
           : (ad.mediaFileIds || []).map((id) => ({ id } as any));
 
@@ -1364,6 +1378,14 @@ const MyAds = () => {
         'warning',
         'Media limit',
         `Max media per ad: ${maxImageAssets} images and ${maxVideoAssets} video.`
+      );
+      return;
+    }
+    if ((mode === 'pay' || mode === 'submit') && normalizedPlacementsNeedCreative(form.placements) && form.media.length === 0) {
+      showNotification(
+        'warning',
+        'Creative required',
+        'Scroll ad placements require at least one image or video before payment and review.'
       );
       return;
     }
@@ -1628,25 +1650,22 @@ const MyAds = () => {
     refreshPerformance(ad.id);
   };
 
-  const appendMediaToForm = (files: Array<{ id: string; url?: string; name?: string; mimeType?: string; type?: string }>) => {
+  const appendMediaToForm = (files: AdFormState['media']) => {
     if (!Array.isArray(files) || files.length === 0) return;
     let blockedImages = 0;
     let blockedVideos = 0;
     setForm((prev) => {
       const nextMedia = [...prev.media];
       let imageCount = nextMedia.reduce((count, media) => {
-        const mime = String(media.mimeType || media.type || '').toLowerCase();
-        return mime.startsWith('video/') ? count : count + 1;
+        return isAdVideoMedia(media) ? count : count + 1;
       }, 0);
       let videoCount = nextMedia.reduce((count, media) => {
-        const mime = String(media.mimeType || media.type || '').toLowerCase();
-        return mime.startsWith('video/') ? count + 1 : count;
+        return isAdVideoMedia(media) ? count + 1 : count;
       }, 0);
 
       for (const file of files) {
         if (!file?.id || nextMedia.some((media) => media.id === file.id)) continue;
-        const mime = String(file.mimeType || file.type || '').toLowerCase();
-        const isVideo = mime.startsWith('video/');
+        const isVideo = isAdVideoMedia(file);
         if (isVideo) {
           if (videoCount >= maxVideoAssets) {
             blockedVideos += 1;
@@ -1660,7 +1679,11 @@ const MyAds = () => {
           }
           imageCount += 1;
         }
-        nextMedia.push(file);
+        nextMedia.push({
+          ...file,
+          type: isVideo ? 'video' : file.type || 'image',
+          mimeType: file.mimeType || file.mime_type || file.type
+        });
       }
 
       return { ...prev, media: nextMedia };
@@ -1893,6 +1916,7 @@ const MyAds = () => {
           Boolean(form.destinationUrl.trim())
       },
       { label: 'Placement strategy', complete: Array.isArray(form.placements) && form.placements.length > 0 },
+      { label: 'Creative uploaded', complete: form.media.length > 0 || !normalizedPlacementsNeedCreative(form.placements) },
       { label: 'Budget configured', complete: toNumber(form.budget) >= minBudget },
       { label: 'Payment method', complete: Boolean(formGatewayId) }
     ];
@@ -1903,7 +1927,7 @@ const MyAds = () => {
       total: checks.length,
       score: Math.round((completed / checks.length) * 100)
     };
-  }, [form.body, form.budget, form.destinationType, form.destinationUrl, form.objective, form.placements, form.title, formGatewayId, minBudget]);
+  }, [form.body, form.budget, form.destinationType, form.destinationUrl, form.media.length, form.objective, form.placements, form.title, formGatewayId, minBudget]);
 
   const formPreviewMedia = form.media[0] || null;
   const formPreviewMediaUrl = resolveAdPreviewMediaUrl(formPreviewMedia);
@@ -3028,7 +3052,7 @@ const MyAds = () => {
                       <GuideTip text="Upload visual assets for your ad. Limits are enforced by admin policy and shown below." />
                     </div>
                     <p className="text-xs text-gray-500">
-                      Upload up to {maxImageAssets} images and {maxVideoAssets} video.
+                      Upload up to {maxImageAssets} images and {maxVideoAssets} video. Video previews autoplay muted; use the sound control to test audio.
                     </p>
                   </div>
                   <button
@@ -3116,7 +3140,7 @@ const MyAds = () => {
                     <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-950">
                       <div className="relative aspect-[4/5]">
                         {formPreviewMediaUrl ? (
-                          String(formPreviewMedia?.mimeType || formPreviewMedia?.type || '').toLowerCase().startsWith('video/') ? (
+                          isAdVideoMedia(formPreviewMedia) ? (
                             <AdVideoPlayer
                               key={formPreviewMediaUrl}
                               src={formPreviewMediaUrl}

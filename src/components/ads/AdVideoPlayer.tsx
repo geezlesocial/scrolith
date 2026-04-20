@@ -90,6 +90,9 @@ const AdVideoPlayer: React.FC<AdVideoPlayerProps> = ({
       <button
         type="button"
         onClick={toggleMuted}
+        onPointerDown={(event) => event.stopPropagation()}
+        onMouseDown={(event) => event.stopPropagation()}
+        onTouchStart={(event) => event.stopPropagation()}
         className={`absolute z-10 inline-flex items-center justify-center gap-1 rounded-full border border-white/30 bg-black/60 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-white/70 ${soundButtonClassName}`}
         aria-label={muted ? 'Unmute ad sound' : 'Mute ad sound'}
         title={muted ? 'Unmute ad' : 'Mute ad'}
