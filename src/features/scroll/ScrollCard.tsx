@@ -68,6 +68,7 @@ const formatGcoin = (value: number) => {
 };
 
 const TOUCH_CONTROL_HIDE_DELAY_MS = 20000;
+const DESKTOP_CONTROL_HIDE_DELAY_MS = 3600;
 
 const resolveScrollAuthorAvatar = (scroll: ScrollVideo) =>
   resolvePostAttachmentMediaUrl({
@@ -153,7 +154,48 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
   const series = Array.isArray(scroll.series) ? scroll.series : [];
   const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
-  const overlayControlsVisible = !touchOverlayMode || controlsVisible || ownerMenuOpen;
+  const overlayControlsVisible = controlsVisible || ownerMenuOpen;
+  const reactionInitialCounts = useMemo(
+    () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
+    [scroll.metrics?.likes]
+  );
+  const rightActions = useMemo(
+    () => [
+      {
+        key: 'comment',
+        label: 'Comment',
+        icon: MessageCircle,
+        count: Number(scroll.metrics?.comments || 0),
+        countSuffix: undefined,
+        onClick: () => onComment(scroll)
+      },
+      {
+        key: 'repost',
+        label: 'Repost',
+        icon: Repeat2,
+        count: Number(scroll.metrics?.reposts || 0),
+        countSuffix: undefined,
+        onClick: () => onRepost(scroll)
+      },
+      {
+        key: 'dash',
+        label: 'Dash',
+        icon: Coins,
+        count: dashGcoinTotal,
+        countSuffix: 'GC',
+        onClick: () => onDash(scroll)
+      },
+      {
+        key: 'send',
+        label: 'Send',
+        icon: Send,
+        count: Number(scroll.metrics?.sends || 0),
+        countSuffix: undefined,
+        onClick: () => onSend(scroll)
+      }
+    ],
+    [dashGcoinTotal, onComment, onDash, onRepost, onSend, scroll]
+  );
 
   useEffect(() => {
     marksRef.current = {};
@@ -175,9 +217,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   }, []);
 
   const revealControls = useCallback(() => {
-    if (!touchOverlayMode) return;
     setControlsVisible(true);
-  }, [touchOverlayMode]);
+  }, []);
 
   const resumePlaybackFromGesture = useCallback(() => {
     const video = videoRef.current;
@@ -245,14 +286,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
   useEffect(() => {
     clearControlsHideTimer();
-    if (!touchOverlayMode || !controlsVisible || ownerMenuOpen) return;
+    if (!autoplayEnabled || !isActive || !controlsVisible || ownerMenuOpen) return;
 
     controlsHideTimerRef.current = window.setTimeout(() => {
       setControlsVisible(false);
-    }, TOUCH_CONTROL_HIDE_DELAY_MS);
+    }, touchOverlayMode ? TOUCH_CONTROL_HIDE_DELAY_MS : DESKTOP_CONTROL_HIDE_DELAY_MS);
 
     return clearControlsHideTimer;
-  }, [clearControlsHideTimer, controlsVisible, ownerMenuOpen, touchOverlayMode]);
+  }, [autoplayEnabled, clearControlsHideTimer, controlsVisible, isActive, ownerMenuOpen, touchOverlayMode]);
 
   useEffect(() => clearControlsHideTimer, [clearControlsHideTimer]);
 
@@ -427,16 +468,6 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     return { filter: 'none' } as React.CSSProperties;
   }, [scroll.filterPreset, scroll.filterStrength]);
 
-  const rightActions = useMemo(
-    () => [
-      { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onComment(scroll) },
-      { key: 'repost', label: 'Repost', icon: Repeat2, onClick: () => onRepost(scroll) },
-      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onDash(scroll) },
-      { key: 'send', label: 'Send', icon: Send, onClick: () => onSend(scroll) }
-    ],
-    [onComment, onDash, onRepost, onSend, scroll]
-  );
-
   const showInterestSurvey =
     interestSurveyEnabled &&
     isActive &&
@@ -460,6 +491,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       ref={rootRef}
       className="relative h-screen w-full snap-start bg-black text-white overflow-hidden"
       aria-label={`Scroll by ${authorName}`}
+      onMouseMove={revealControls}
+      onMouseDown={revealControls}
       onTouchStart={(event) => {
         revealControls();
         const target = event.target as HTMLElement | null;
@@ -549,7 +582,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/55 via-transparent to-black/25" />
 
       <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-start justify-between gap-3">
           <div className="pointer-events-auto">
@@ -739,24 +772,48 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         <ReactionBar
           targetType={reactionTargetType}
           targetId={reactionTargetId || scroll.id}
+          initialCounts={reactionInitialCounts}
           layout="rail"
           className="w-[60px] sm:w-[68px]"
           compact
           railVariant="launcher"
           railLauncherLabel="Reaction"
         />
-        {rightActions.map((action) => (
-          <OverlayActionRailButton
-            key={action.key}
-            onClick={() => {
-              revealControls();
-              void action.onClick();
-            }}
-            icon={action.icon}
-            label={action.label}
-            className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
-          />
-        ))}
+        {rightActions.map((action) => {
+          const count = Math.max(0, Number(action.count || 0));
+          const countLabel = action.countSuffix ? `${formatGcoin(count)} ${action.countSuffix}` : formatGcoin(count);
+          return (
+            <div key={action.key} className="flex flex-col items-center gap-1">
+              <OverlayActionRailButton
+                onClick={() => {
+                  revealControls();
+                  void action.onClick();
+                }}
+                icon={action.icon}
+                label={action.label}
+                className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+              />
+              {count > 0 ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    revealControls();
+                    void action.onClick();
+                  }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  className="min-w-9 rounded-full border border-white/12 bg-black/45 px-2 py-0.5 text-center text-[10px] font-bold leading-4 text-white shadow-sm transition hover:bg-black/65"
+                  title={`${countLabel} ${action.label.toLowerCase()}`}
+                  aria-label={`${countLabel} ${action.label}`}
+                >
+                  {countLabel}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
         <OverlayActionRailButton
           onClick={() => {
             revealControls();
@@ -785,16 +842,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
             : 'translate-y-0 opacity-100'
         } ${touchOverlayMode && !overlayControlsVisible ? 'pr-0 pointer-events-none' : 'pr-[76px] sm:pr-[88px]'}`}
       >
-        <div className="w-full max-w-[min(44rem,100%)] space-y-2">
-          <div className="pointer-events-auto inline-flex max-w-full flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-[11px] font-semibold text-white/85 shadow-[0_12px_36px_-24px_rgba(15,23,42,0.9)] backdrop-blur-md">
-            <span>{Number(scroll.metrics.likes || 0)} likes</span>
-            <span>{Number(scroll.metrics.comments || 0)} comments</span>
-            <span>{Number(scroll.metrics.reposts || 0)} reposts</span>
-            <span>{Number(scroll.metrics.sends || 0)} sends</span>
-            <span>{formatGcoin(dashGcoinTotal)} GC dashed</span>
-          </div>
+        <div className="w-full max-w-[min(34rem,100%)] space-y-2">
           {scroll.sourceScroll ? (
-            <div className="pointer-events-auto rounded-[22px] border border-fuchsia-300/20 bg-fuchsia-400/10 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
+            <div className="pointer-events-auto rounded-[18px] border border-fuchsia-300/15 bg-fuchsia-400/8 px-3 py-2.5 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.9)] backdrop-blur-[2px]">
               <div className="flex items-start gap-3">
                 <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-fuchsia-300/25 bg-fuchsia-500/15 text-fuchsia-100">
                   <Link2 className="h-4 w-4" />
@@ -814,7 +864,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               </div>
             </div>
           ) : null}
-          <div className="pointer-events-auto rounded-[24px] border border-white/10 bg-black/34 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md">
+          <div className="pointer-events-auto rounded-[18px] border border-white/8 bg-black/18 px-3 py-2.5 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.88)] backdrop-blur-[2px]">
             <ExpandablePreviewText
               text={headlineLine}
               limit={headlinePreviewLimit}
