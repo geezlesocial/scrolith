@@ -78,7 +78,11 @@ import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../member
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
-import { stashPendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
+import {
+  buildPostVideoScrollViewerPath,
+  stashPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollViewerSource
+} from '../../utils/postVideoScrollBridge';
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
@@ -1334,7 +1338,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const postId = String(post?.id || '').trim();
       const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
       if (!postId || !mediaUrl) return;
-      stashPendingPostVideoScrollViewerSource({
+      const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
         fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
         mediaUrl,
@@ -1348,24 +1352,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         isFollowingAuthor:
           typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
         createdAt: String(post?.createdAt || '').trim() || null
-      });
-      navigate('/scroll?watch=post-video', {
+      };
+      stashPendingPostVideoScrollViewerSource(sourcePayload);
+      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
         state: {
-          pendingViewerSource: {
-            sourcePostId: postId,
-            fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
-            mediaUrl,
-            thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
-            title: String(post?.title || media?.name || '').trim() || null,
-            description: String(post?.content || '').trim() || null,
-            location: String(post?.location || '').trim() || null,
-            authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
-            authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
-            authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
-            isFollowingAuthor:
-              typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
-            createdAt: String(post?.createdAt || '').trim() || null
-          }
+          pendingViewerSource: sourcePayload
         }
       });
     },

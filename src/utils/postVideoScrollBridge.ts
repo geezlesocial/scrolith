@@ -137,3 +137,14 @@ export const clearPendingPostVideoScrollViewerSource = () => {
   if (!canUseStorage()) return;
   window.sessionStorage.removeItem(VIEWER_STORAGE_KEY);
 };
+
+export const buildPostVideoScrollViewerPath = (source: Pick<PendingPostVideoScrollViewerSource, 'sourcePostId' | 'fileId'>) => {
+  const postId = normalizeString(source.sourcePostId, 64);
+  if (!postId) return '/scroll';
+  const params = new URLSearchParams();
+  params.set('watch', 'post-video');
+  params.set('post', postId);
+  const fileId = normalizeString(source.fileId, 128);
+  if (fileId) params.set('file', fileId);
+  return `/scroll?${params.toString()}`;
+};

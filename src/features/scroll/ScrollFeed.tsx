@@ -151,9 +151,65 @@ const inferPostAttachmentType = (attachment: any) => {
   return explicitType;
 };
 
-const findPrimaryVideoAttachment = (post: any) => {
+const resolveAttachmentBridgeId = (attachment: any, fallback = '') => {
+  return (
+    String(
+      attachment?.fileId ||
+        attachment?.file_id ||
+        attachment?.file?.id ||
+        attachment?.asset?.id ||
+        attachment?.id ||
+        fallback
+    ).trim() || fallback
+  );
+};
+
+const findPrimaryVideoAttachment = (post: any, preferredFileId?: string | null) => {
   const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
-  return attachments.find((attachment: any) => inferPostAttachmentType(attachment) === 'video') || null;
+  const videos = attachments.filter((attachment: any) => inferPostAttachmentType(attachment) === 'video');
+  const normalizedPreferred = String(preferredFileId || '').trim();
+  if (normalizedPreferred) {
+    const exact = videos.find((attachment: any) => resolveAttachmentBridgeId(attachment) === normalizedPreferred);
+    if (exact) return exact;
+  }
+  return videos[0] || null;
+};
+
+const buildViewerSourceFromPost = (
+  post: any,
+  preferredFileId?: string | null
+): PendingPostVideoScrollViewerSource | null => {
+  const postId = String(post?.id || '').trim();
+  const attachment = findPrimaryVideoAttachment(post, preferredFileId);
+  const mediaUrl = attachment ? String(resolvePostAttachmentMediaUrl(attachment) || '').trim() : '';
+  if (!postId || !attachment || !mediaUrl) return null;
+
+  const attachmentId = resolveAttachmentBridgeId(attachment, mediaUrl);
+  return {
+    sourcePostId: postId,
+    fileId: attachmentId,
+    mediaUrl,
+    thumbnailUrl: String(resolvePostAttachmentPosterUrl(attachment) || '').trim() || null,
+    title: String(post?.title || attachment?.name || '').trim() || null,
+    description: String(post?.content || post?.description || '').trim() || null,
+    location: String(post?.location || '').trim() || null,
+    authorName:
+      String(
+        post?.author?.displayName ||
+          post?.author?.name ||
+          post?.authorName ||
+          post?.userName ||
+          post?.user_name ||
+          ''
+      ).trim() || null,
+    authorAvatar:
+      String(post?.author?.avatarUrl || post?.author?.avatar || post?.authorAvatar || '').trim() || null,
+    authorUsername:
+      String(post?.author?.username || post?.authorUsername || post?.userUsername || '').trim() || null,
+    isFollowingAuthor:
+      typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
+    createdAt: String(post?.createdAt || '').trim() || null
+  };
 };
 
 const buildViewerSeedScrollFromPost = (post: any): ScrollVideo | null => {
@@ -162,15 +218,7 @@ const buildViewerSeedScrollFromPost = (post: any): ScrollVideo | null => {
   const mediaUrl = attachment ? String(resolvePostAttachmentMediaUrl(attachment) || '').trim() : '';
   if (!postId || !attachment || !mediaUrl) return null;
 
-  const attachmentId =
-    String(
-      attachment?.fileId ||
-        attachment?.file_id ||
-        attachment?.file?.id ||
-        attachment?.asset?.id ||
-        attachment?.id ||
-        mediaUrl
-    ).trim() || mediaUrl;
+  const attachmentId = resolveAttachmentBridgeId(attachment, mediaUrl);
   const authorId =
     String(post?.author?.id || post?.authorId || post?.userId || post?.user_id || '').trim() || postId;
   const authorName =
@@ -310,6 +358,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const seededItemsRef = useRef<ScrollVideo[]>(Array.isArray(initialItems) ? initialItems.filter(Boolean) : []);
   const openedSeriesSourceRef = useRef<string | null>(null);
   const pendingViewerSourceConsumedRef = useRef(false);
+  const consumedPostVideoRouteKeyRef = useRef<string | null>(null);
   const itemsRef = useRef<ScrollVideo[]>([]);
   const activeIndexRef = useRef(activeIndex);
   const nextCursorRef = useRef<string | null>(null);
@@ -463,6 +512,20 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     },
     [profile.feedPageSize]
   );
+
+  const resolvePostVideoRouteSource = useCallback(async (params: URLSearchParams) => {
+    const postId = String(params.get('post') || params.get('postId') || '').trim();
+    const preferredFileId = String(params.get('file') || params.get('fileId') || '').trim() || null;
+    if (!postId) return null;
+    try {
+      const response = await CommunityService.getPostById(postId);
+      const post = response?.data || response?.post || response;
+      return buildViewerSourceFromPost(post, preferredFileId);
+    } catch (error) {
+      console.error('Failed to recover post video route source', error);
+      return null;
+    }
+  }, []);
 
   const loadLiveSessions = useCallback(async () => {
     if (!showLiveDiscovery) {
@@ -639,22 +702,81 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     if (embedded) return;
     const params = new URLSearchParams(location.search);
     if (params.get('watch') !== 'post-video') return;
-    const pendingViewerSource = routePendingViewerSource || readPendingPostVideoScrollViewerSource();
-    params.delete('watch');
-    navigate(
-      {
-        pathname: location.pathname,
-        search: params.toString() ? `?${params.toString()}` : ''
-      },
-      {
-        replace: true,
-        state: {
-          ...(routeState || {}),
-          pendingViewerSource
-        }
+    const routeKey = [
+      params.get('watch') || '',
+      params.get('post') || params.get('postId') || routePendingViewerSource?.sourcePostId || '',
+      params.get('file') || params.get('fileId') || routePendingViewerSource?.fileId || ''
+    ].join(':');
+    if (consumedPostVideoRouteKeyRef.current === routeKey) return;
+
+    let cancelled = false;
+    const activatePostVideoRoute = async () => {
+      const pendingViewerSource =
+        routePendingViewerSource ||
+        readPendingPostVideoScrollViewerSource() ||
+        (await resolvePostVideoRouteSource(params));
+
+      if (cancelled) return;
+      if (!pendingViewerSource) {
+        showNotification('warning', 'Scroll', 'This post video is no longer available.');
+        const cleaned = new URLSearchParams(location.search);
+        cleaned.delete('watch');
+        cleaned.delete('post');
+        cleaned.delete('postId');
+        cleaned.delete('file');
+        cleaned.delete('fileId');
+        navigate(
+          {
+            pathname: location.pathname,
+            search: cleaned.toString() ? `?${cleaned.toString()}` : ''
+          },
+          { replace: true, state: { ...(routeState || {}), pendingViewerSource: null } }
+        );
+        return;
       }
-    );
-  }, [embedded, location.pathname, location.search, navigate, routePendingViewerSource, routeState]);
+
+      consumedPostVideoRouteKeyRef.current = routeKey;
+      pendingViewerSourceConsumedRef.current = true;
+      viewerSeedSourceRef.current = pendingViewerSource;
+      const seededItem = buildViewerSeedScroll(pendingViewerSource);
+      seededItemsRef.current = [seededItem];
+      setActiveIndex(0);
+      setItems((prev) => [seededItem, ...prev.filter((entry) => entry.id !== seededItem.id)]);
+      void hydratePostVideoStream(pendingViewerSource);
+      clearPendingPostVideoScrollViewerSource();
+
+      if (routePendingViewerSource) {
+        navigate(
+          {
+            pathname: location.pathname,
+            search: location.search
+          },
+          {
+            replace: true,
+            state: {
+              ...(routeState || {}),
+              pendingViewerSource: null
+            }
+          }
+        );
+      }
+    };
+
+    void activatePostVideoRoute();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    embedded,
+    hydratePostVideoStream,
+    location.pathname,
+    location.search,
+    navigate,
+    resolvePostVideoRouteSource,
+    routePendingViewerSource,
+    routeState,
+    showNotification
+  ]);
 
   useEffect(() => {
     if (embedded) return;

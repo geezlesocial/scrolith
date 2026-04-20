@@ -33,6 +33,7 @@ import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
 import { normalizeContentOfferTags } from '../../../utils/contentOffers';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
 import {
+  buildPostVideoScrollViewerPath,
   stashPendingPostVideoScrollViewerSource,
   type PendingPostVideoScrollViewerSource
 } from '../../../utils/postVideoScrollBridge';
@@ -1110,7 +1111,7 @@ export default function MobileFeed({
         return;
       }
       stashPendingPostVideoScrollViewerSource(sourcePayload);
-      navigate('/scroll?watch=post-video', {
+      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
         state: {
           pendingViewerSource: sourcePayload
         }
