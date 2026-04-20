@@ -241,6 +241,90 @@ const resolveAdDeliveryPlacements = (ad: any): string[] => {
   );
 };
 
+const buildAdDeliveryDiagnostics = (ad: any, configInput?: any) => {
+  const config = mergeAdsConfig(configInput || defaultAdsConfig);
+  const allowedPlacements = resolveAllowedPlacements(config.allowedPlacements);
+  const allowedSet = new Set(allowedPlacements);
+  const scrollAds = sanitizeScrollAdsConfig(config.scrollAds);
+  const placements = resolveAdDeliveryPlacements(ad);
+  const status = String(ad?.status || '').toUpperCase();
+  const now = Date.now();
+  const remainingBudget = Number(ad?.remainingBudget ?? ad?.budget ?? 0);
+  const startTime = ad?.startAt ? new Date(ad.startAt).getTime() : null;
+  const endTime = ad?.endAt ? new Date(ad.endAt).getTime() : null;
+  const mediaFileIds = Array.isArray(ad?.mediaFileIds)
+    ? ad.mediaFileIds.map((id: any) => String(id || '').trim()).filter(Boolean)
+    : [];
+
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+
+  if (status !== 'ACTIVE') blockers.push(`Campaign status is ${status || 'UNKNOWN'}, not ACTIVE.`);
+  if (remainingBudget <= 0) blockers.push('Campaign has no remaining budget.');
+  if (startTime && startTime > now) blockers.push('Campaign flight has not started yet.');
+  if (endTime && endTime < now) blockers.push('Campaign flight has ended.');
+  if (!placements.length) blockers.push('Campaign has no valid delivery placements.');
+  if (!mediaFileIds.length && placements.some((placement) => placement.startsWith('scroll_'))) {
+    blockers.push('Scroll placements require at least one creative asset.');
+  } else if (!mediaFileIds.length) {
+    warnings.push('No creative asset is attached; delivery may be limited on visual placements.');
+  }
+
+  const placementChecks = placements.map((placement) => {
+    const placementBlockers: string[] = [];
+    if (!allowedSet.has(placement)) placementBlockers.push('Placement is disabled by ads configuration.');
+    if (placement.startsWith('scroll_') && !scrollAds.enabled) {
+      placementBlockers.push('Scroll ad delivery is disabled by ads configuration.');
+    }
+    if (placement === 'scroll_preroll' && Number(scrollAds.placementPacing.scroll_preroll || 0) <= 0) {
+      placementBlockers.push('Scroll pre-roll pacing weight is zero.');
+    }
+    if (placement === 'scroll_feed' && Number(scrollAds.placementPacing.scroll_feed || 0) <= 0) {
+      placementBlockers.push('Scroll feed pacing weight is zero.');
+    }
+    return {
+      placement,
+      eligible: placementBlockers.length === 0,
+      blockers: placementBlockers
+    };
+  });
+
+  const eligiblePlacements = placementChecks
+    .filter((check) => check.eligible)
+    .map((check) => check.placement);
+
+  if (placements.length > 0 && eligiblePlacements.length === 0) {
+    blockers.push('No selected placement is currently eligible for delivery.');
+  }
+
+  const isServing = blockers.length === 0 && eligiblePlacements.length > 0;
+  const summary = isServing
+    ? 'Campaign is eligible for live delivery.'
+    : blockers[0] || 'Campaign is not eligible for live delivery.';
+
+  return {
+    isServing,
+    summary,
+    status,
+    placements,
+    eligiblePlacements,
+    placementChecks,
+    blockers,
+    warnings,
+    remainingBudget,
+    mediaAssetCount: mediaFileIds.length,
+    scrollPolicy: {
+      enabled: scrollAds.enabled,
+      firstAdAfterScrolls: scrollAds.firstAdAfterScrolls,
+      repeatEveryScrolls: scrollAds.repeatEveryScrolls,
+      maxAdsPerSession: scrollAds.maxAdsPerSession,
+      videoSkipDelaySeconds: scrollAds.videoSkipDelaySeconds,
+      placementPacing: scrollAds.placementPacing
+    },
+    checkedAt: new Date().toISOString()
+  };
+};
+
 const mergeAdsConfig = (raw: any) => {
   const input = raw && typeof raw === 'object' ? raw : {};
   const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
@@ -1328,7 +1412,10 @@ export const getMyAds = async (req: Request, res: Response) => {
         .trim()
         .toLowerCase() === '1';
 
-    const ads = await prisma.communityAd.findMany({ where: { creatorId: userId }, orderBy: { createdAt: 'desc' } });
+    const [ads, adsConfigSetting] = await Promise.all([
+      prisma.communityAd.findMany({ where: { creatorId: userId }, orderBy: { createdAt: 'desc' } }),
+      prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
+    ]);
     const visibleAds = includeArchived
       ? ads
       : ads.filter((ad) => {
@@ -1336,7 +1423,14 @@ export const getMyAds = async (req: Request, res: Response) => {
           return !Boolean(targeting.userDeleted);
         });
     const hydrated = await hydrateAdsWithMedia(visibleAds);
-    return res.json({ success: true, data: hydrated });
+    const adsConfig = adsConfigSetting?.data || defaultAdsConfig;
+    return res.json({
+      success: true,
+      data: hydrated.map((ad) => ({
+        ...ad,
+        delivery: buildAdDeliveryDiagnostics(ad, adsConfig)
+      }))
+    });
   } catch (error: any) {
     console.error('Get my ads error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load ads' });
@@ -1352,8 +1446,13 @@ export const getAdPerformance = async (req: Request, res: Response) => {
     if (!ad) return res.status(404).json({ success: false, error: 'Ad not found' });
     if (ad.creatorId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
 
-    const metrics = await prisma.adMetricsDaily.findMany({ where: { adId }, orderBy: { date: 'desc' } });
-    return res.json({ success: true, data: { ad, metrics } });
+    const [metrics, adsConfigSetting] = await Promise.all([
+      prisma.adMetricsDaily.findMany({ where: { adId }, orderBy: { date: 'desc' } }),
+      prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
+    ]);
+    const hydrated = (await hydrateAdsWithMedia([ad]))[0] || ad;
+    const delivery = buildAdDeliveryDiagnostics(hydrated, adsConfigSetting?.data || defaultAdsConfig);
+    return res.json({ success: true, data: { ad: hydrated, metrics, delivery } });
   } catch (error: any) {
     console.error('Get ad performance error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load performance' });
@@ -1498,7 +1597,7 @@ export const resumeAd = async (req: Request, res: Response) => {
 
 export const getAdsAnalytics = async (_req: Request, res: Response) => {
   try {
-    const [agg, ads] = await Promise.all([
+    const [agg, ads, adsConfigSetting] = await Promise.all([
       prisma.adMetricsDaily.aggregate({
         _sum: { impressions: true, clicks: true, spend: true }
       }),
@@ -1506,8 +1605,10 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
         include: {
           metrics: true
         }
-      })
+      }),
+      prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
     ]);
+    const adsConfig = adsConfigSetting?.data || defaultAdsConfig;
     const totals = {
       impressions: Number(agg?._sum?.impressions || 0),
       clicks: Number(agg?._sum?.clicks || 0),
@@ -1526,6 +1627,12 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
       }
     >();
     const topCampaigns: any[] = [];
+    const deliveryHealth = {
+      serving: 0,
+      blocked: 0,
+      warning: 0,
+      blockers: {} as Record<string, number>
+    };
 
     for (const ad of ads as any[]) {
       const targeting = parseTargeting(ad.targeting);
@@ -1541,6 +1648,15 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
         metricRows.reduce((sum: number, row: any) => sum + Number(row.clicks || 0), 0) ||
         Number(ad.clicks || 0);
       const adSpend = metricRows.reduce((sum: number, row: any) => sum + Number(row.spend || 0), 0);
+      const delivery = buildAdDeliveryDiagnostics(ad, adsConfig);
+      if (delivery.isServing) {
+        deliveryHealth.serving += 1;
+      } else {
+        deliveryHealth.blocked += 1;
+        const reason = delivery.blockers[0] || 'Unknown delivery blocker.';
+        deliveryHealth.blockers[reason] = (deliveryHealth.blockers[reason] || 0) + 1;
+      }
+      if (delivery.warnings.length > 0) deliveryHealth.warning += 1;
 
       for (const placement of placements) {
         const current =
@@ -1573,7 +1689,8 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
           clicks: adClicks,
           spend: Number(adSpend.toFixed(6)),
           ctr: adImpressions > 0 ? Number(((adClicks / adImpressions) * 100).toFixed(2)) : 0,
-          remainingBudget: Number(ad.remainingBudget || 0)
+          remainingBudget: Number(ad.remainingBudget || 0),
+          delivery
         });
       }
     }
@@ -1604,6 +1721,7 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
         ...totals,
         adminRevenue: totals.spend,
         ctr: totals.impressions > 0 ? Number(((totals.clicks / totals.impressions) * 100).toFixed(2)) : 0,
+        deliveryHealth,
         byPlacement,
         scroll: {
           ...scrollTotals,
@@ -1679,29 +1797,32 @@ export const getPublicAds = async (req: Request, res: Response) => {
     const limitRaw = Number(req.query.limit);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(30, Math.floor(limitRaw))) : 8;
     const where: any = { status: 'ACTIVE' };
-    const ads = await prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' }, take: Math.max(limit * 6, 30) });
-    const now = Date.now();
+    const [ads, adsConfigSetting] = await Promise.all([
+      prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' }, take: Math.max(limit * 6, 30) }),
+      prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
+    ]);
+    const adsConfig = adsConfigSetting?.data || defaultAdsConfig;
     const filtered = ads.filter((ad) => {
-      const adPlacements = resolveAdDeliveryPlacements(ad);
+      const diagnostics = buildAdDeliveryDiagnostics(ad, adsConfig);
+      const adPlacements = diagnostics.eligiblePlacements;
       if (shouldFilterByPlacement) {
         if (!adPlacements.includes(normalizedPlacement)) return false;
       }
-      if (ad.remainingBudget !== undefined && Number(ad.remainingBudget) <= 0) return false;
-      if (ad.startAt && new Date(ad.startAt).getTime() > now) return false;
-      if (ad.endAt && new Date(ad.endAt).getTime() < now) return false;
-      return true;
+      return diagnostics.isServing;
     });
     const selectedAds = filtered.slice(0, limit);
     const adsWithPlacement = selectedAds.map((ad) => {
       const targeting = parseTargeting(ad.targeting);
-      const placements = resolveAdDeliveryPlacements(ad);
+      const diagnostics = buildAdDeliveryDiagnostics(ad, adsConfig);
+      const placements = diagnostics.placements;
       return {
         ...ad,
         placement:
-          shouldFilterByPlacement && placements.includes(normalizedPlacement)
+          shouldFilterByPlacement && diagnostics.eligiblePlacements.includes(normalizedPlacement)
             ? normalizedPlacement
-            : normalizePlacement(ad.placement || placements[0]),
-        targeting: { ...targeting, placements }
+            : normalizePlacement(ad.placement || diagnostics.eligiblePlacements[0] || placements[0]),
+        targeting: { ...targeting, placements },
+        delivery: diagnostics
       };
     });
     const hydrated = await hydrateAdsWithMedia(adsWithPlacement);
