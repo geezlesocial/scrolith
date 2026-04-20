@@ -267,6 +267,27 @@ const buildPublicAdsRuntimeConfig = (config: any) => {
   };
 };
 
+const resolvePostPaymentAdStatus = async (): Promise<'ACTIVE' | 'SUBMITTED_FOR_REVIEW'> => {
+  try {
+    const adsConfigSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
+    const adsConfig = mergeAdsConfig((adsConfigSetting?.data as any) || defaultAdsConfig);
+    return adsConfig.autoApproveAds || String(adsConfig.approvalMode || '').toLowerCase() === 'auto'
+      ? 'ACTIVE'
+      : 'SUBMITTED_FOR_REVIEW';
+  } catch (error) {
+    console.warn('[community_ads] Failed to resolve post-payment status; falling back to review queue.', error);
+    return 'SUBMITTED_FOR_REVIEW';
+  }
+};
+
+const emitAdStatusUpdated = (req: Request, adId: string, status: string) => {
+  const io = (req.app as any).get('io');
+  const communityIo = (req.app as any).get('communityIo');
+  try { io?.emit('community:ad_status_updated', { adId, status }); } catch (e) {}
+  try { communityIo?.emit('community:ad_status_updated', { adId, status }); } catch (e) {}
+  try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status }); } catch (e) {}
+};
+
 const getPlacementRate = (
   config: any,
   placement: string,
@@ -848,12 +869,28 @@ export const payAd = async (req: Request, res: Response) => {
         orderBy: { createdAt: 'desc' }
       });
       if (settledPayment) {
+        let resolvedStatus = normalizedAdStatus;
+        if (normalizedAdStatus === 'PAID') {
+          resolvedStatus = await resolvePostPaymentAdStatus();
+          await prisma.communityAd.update({
+            where: { id: adId },
+            data: {
+              status: resolvedStatus as any,
+              paymentTransactionId:
+                currentAd.paymentTransactionId || settledPayment.transactionId || currentAd.paymentTransactionId || null
+            }
+          });
+          emitAdStatusUpdated(req, adId, resolvedStatus);
+          if (resolvedStatus === 'ACTIVE') {
+            await notifyCreatorAdStatus(adId, 'ACTIVE', null).catch(() => undefined);
+          }
+        }
         return res.json({
           success: true,
           message: 'Ad payment is already completed.',
           data: {
             paymentMethodId,
-            status: 'paid',
+            status: resolvedStatus.toLowerCase(),
             alreadyPaid: true
           }
         });
@@ -886,6 +923,7 @@ export const payAd = async (req: Request, res: Response) => {
 
       const walletRef = `ad-wallet-${adId}-${Date.now()}`;
       try {
+        const nextStatus = await resolvePostPaymentAdStatus();
         await prisma.$transaction(async (tx) => {
           const freshWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
           if (!freshWallet) throw new Error('Wallet not found.');
@@ -927,20 +965,26 @@ export const payAd = async (req: Request, res: Response) => {
 
           await tx.communityAd.update({
             where: { id: adId },
-            data: { status: 'PAID', paymentTransactionId: walletRef }
+            data: { status: nextStatus, paymentTransactionId: walletRef }
           });
         });
 
-        const io = (req.app as any).get('io');
-        try { io?.emit('community:ad_status_updated', { adId, status: 'PAID' }); } catch (e) {}
-        try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'PAID' }); } catch (e) {}
+        emitAdStatusUpdated(req, adId, nextStatus);
+        if (nextStatus === 'ACTIVE') {
+          await notifyCreatorAdStatus(adId, 'ACTIVE', null).catch(() => undefined);
+        }
 
         return res.json({
           success: true,
-          message: 'Ad payment completed using wallet balance.',
+          message:
+            nextStatus === 'ACTIVE'
+              ? 'Ad payment completed and campaign is live.'
+              : 'Ad payment completed and campaign submitted for review.',
           data: {
             paymentMethodId: 'wallet',
-            status: 'paid'
+            status: nextStatus.toLowerCase(),
+            submittedForReview: nextStatus === 'SUBMITTED_FOR_REVIEW',
+            active: nextStatus === 'ACTIVE'
           }
         });
       } catch (walletError: any) {
@@ -1607,7 +1651,7 @@ export const updateAdsConfig = async (req: Request, res: Response) => {
   }
 };
 
-// Public: list ads available for placement (only ACTIVE/PAID)
+// Public: list ads available for placement. Delivery is restricted to ACTIVE campaigns.
 export const getPublicAds = async (req: Request, res: Response) => {
   try {
     const requestedPlacement =
