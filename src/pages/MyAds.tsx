@@ -73,6 +73,9 @@ const PLACEMENT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'chat_sidebar', label: 'Chat Side Bar' }
 ];
 
+const getPlacementLabel = (placement: string) =>
+  PLACEMENT_OPTIONS.find((option) => option.value === placement)?.label || placement;
+
 type StudioStatusFilter = 'all' | 'active' | 'draft' | 'review' | 'action' | 'paused' | 'ended';
 type StudioSortMode = 'recent' | 'budget_high' | 'spend_high' | 'best_ctr' | 'attention';
 
@@ -1602,7 +1605,13 @@ const MyAds = () => {
     setPerformanceLoading(true);
     try {
       const data = await AdService.getAdPerformance(adId);
-      setPerformanceAd((prev) => (data?.ad as AdCampaign) || prev || null);
+      const nextAd = data?.ad
+        ? ({ ...(data.ad as AdCampaign), delivery: data?.delivery || (data.ad as AdCampaign).delivery } as AdCampaign)
+        : null;
+      if (nextAd?.id) {
+        setAds((prev) => prev.map((ad) => (ad.id === nextAd.id ? { ...ad, ...nextAd } : ad)));
+      }
+      setPerformanceAd((prev) => nextAd || prev || null);
       setPerformanceMetrics(Array.isArray(data?.metrics) ? data.metrics : Array.isArray(data?.daily) ? data.daily : []);
     } catch (e: any) {
       showNotification('error', 'Performance', e?.message || 'Unable to load performance.');
@@ -1726,6 +1735,11 @@ const MyAds = () => {
       return db - da;
     });
   }, [performanceMetrics]);
+
+  const performanceDelivery = performanceAd?.delivery || null;
+  const performanceDeliveryBlockers = Array.isArray(performanceDelivery?.blockers)
+    ? performanceDelivery.blockers
+    : [];
 
   const studioPortfolio = useMemo(() => {
     return ads.reduce(
@@ -1851,6 +1865,15 @@ const MyAds = () => {
   const selectedRemaining = toNumber(selectedAd?.remainingBudget ?? selectedBudget);
   const selectedSpent = Math.max(0, selectedBudget - selectedRemaining);
   const selectedSpendProgress = selectedBudget ? clampPercent((selectedSpent / selectedBudget) * 100) : 0;
+  const selectedDelivery =
+    performanceAd?.id === selectedAd?.id && performanceAd?.delivery
+      ? performanceAd.delivery
+      : selectedAd?.delivery || null;
+  const selectedDeliveryBlockers = Array.isArray(selectedDelivery?.blockers) ? selectedDelivery.blockers : [];
+  const selectedDeliveryWarnings = Array.isArray(selectedDelivery?.warnings) ? selectedDelivery.warnings : [];
+  const selectedEligiblePlacements = Array.isArray(selectedDelivery?.eligiblePlacements)
+    ? selectedDelivery.eligiblePlacements
+    : [];
 
   const actionQueue = useMemo(
     () => ads.filter((ad) => getCampaignCapabilities(ad).needsAction).slice(0, 4),
@@ -2469,6 +2492,85 @@ const MyAds = () => {
                       style={{ width: `${selectedSpendProgress}%` }}
                     />
                   </div>
+                </div>
+
+                <div
+                  className={`rounded-2xl border p-4 ${
+                    selectedDelivery?.isServing
+                      ? 'border-emerald-200 bg-emerald-50'
+                      : selectedDelivery
+                        ? 'border-amber-200 bg-amber-50'
+                        : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Delivery health
+                      </p>
+                      <p
+                        className={`mt-2 text-sm font-semibold ${
+                          selectedDelivery?.isServing
+                            ? 'text-emerald-900'
+                            : selectedDelivery
+                              ? 'text-amber-900'
+                              : 'text-slate-900'
+                        }`}
+                      >
+                        {selectedDelivery?.summary || 'Open Performance to refresh serving diagnostics.'}
+                      </p>
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
+                        selectedDelivery?.isServing
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : selectedDelivery
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`h-2 w-2 rounded-full ${
+                          selectedDelivery?.isServing
+                            ? 'bg-emerald-500'
+                            : selectedDelivery
+                              ? 'bg-amber-500'
+                              : 'bg-slate-400'
+                        }`}
+                      />
+                      {selectedDelivery?.isServing ? 'Serving' : selectedDelivery ? 'Blocked' : 'Unknown'}
+                    </span>
+                  </div>
+
+                  {selectedEligiblePlacements.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedEligiblePlacements.map((placement) => (
+                        <span
+                          key={placement}
+                          className="inline-flex items-center gap-1 rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-700"
+                        >
+                          <LayoutTemplate className="h-3.5 w-3.5 text-emerald-600" />
+                          {getPlacementLabel(placement)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedDeliveryBlockers.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {selectedDeliveryBlockers.slice(0, 3).map((reason) => (
+                        <p key={reason} className="rounded-xl bg-white/75 px-3 py-2 text-xs leading-5 text-amber-900">
+                          {reason}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {selectedDeliveryWarnings.length > 0 ? (
+                    <p className="mt-3 text-xs leading-5 text-slate-600">
+                      {selectedDeliveryWarnings.slice(0, 2).join(' ')}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -3252,6 +3354,38 @@ const MyAds = () => {
                         {formatCurrency(performanceTotals.spend, performanceAd?.currency)}
                       </p>
                     </div>
+                  </div>
+                  <div
+                    className={`rounded-xl border p-4 ${
+                      performanceDelivery?.isServing
+                        ? 'border-emerald-200 bg-emerald-50'
+                        : performanceDelivery
+                          ? 'border-amber-200 bg-amber-50'
+                          : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Serving diagnostics
+                        </p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          {performanceDelivery?.summary || 'No delivery diagnostics returned yet.'}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white/75 px-3 py-1 text-xs font-semibold text-slate-700">
+                        {performanceDelivery?.isServing ? 'Eligible' : performanceDelivery ? 'Needs attention' : 'Unknown'}
+                      </span>
+                    </div>
+                    {performanceDeliveryBlockers.length > 0 ? (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        {performanceDeliveryBlockers.slice(0, 4).map((reason) => (
+                          <p key={reason} className="rounded-lg bg-white/75 px-3 py-2 text-xs leading-5 text-amber-900">
+                            {reason}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="border rounded-xl overflow-hidden">
                     <table className="w-full text-sm">

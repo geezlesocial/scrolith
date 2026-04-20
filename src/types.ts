@@ -1314,6 +1314,20 @@ export interface AdCampaign {
   likes?: number;
   messagesStarted?: number;
   adminReviewNotes?: string | null;
+  delivery?: {
+    isServing: boolean;
+    summary: string;
+    status?: string;
+    placements?: string[];
+    eligiblePlacements?: string[];
+    placementChecks?: Array<{ placement: string; eligible: boolean; blockers?: string[] }>;
+    blockers?: string[];
+    warnings?: string[];
+    remainingBudget?: number;
+    mediaAssetCount?: number;
+    scrollPolicy?: Record<string, any>;
+    checkedAt?: string;
+  };
   createdAt?: string;
   startAt?: string;
   endAt?: string;
