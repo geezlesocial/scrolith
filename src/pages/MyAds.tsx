@@ -35,6 +35,7 @@ import { PaymentService } from '../services/payment';
 import { PaymentGateway } from '../types';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 const toNumber = (value: any): number => {
   const n = typeof value === 'number' ? value : Number(value ?? 0);
@@ -185,7 +186,7 @@ const getCampaignPrimaryMedia = (ad: AdCampaign) => {
   const mediaType = isAdVideoMedia(media) ? 'video' : 'image';
 
   return {
-    url: String(media?.url || '').trim(),
+    url: resolveAdPreviewMediaUrl(media),
     type: mediaType,
     name: String(media?.name || ad.title || 'Creative').trim()
   };
@@ -195,6 +196,19 @@ const isAdVideoMedia = (media: any) => {
   const type = String(media?.mimeType || media?.type || '').toLowerCase();
   const url = String(media?.url || '').toLowerCase();
   return type === 'video' || type.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
+};
+
+const resolveAdPreviewMediaUrl = (media: any) => {
+  return resolveAssetUrl(
+    String(
+      media?.url ||
+        media?.downloadUrl ||
+        media?.download_url ||
+        media?.path ||
+        media?.storageKey ||
+        ''
+    ).trim()
+  );
 };
 
 const getStatusGroup = (status?: string): Exclude<StudioStatusFilter, 'all'> => {
@@ -1868,6 +1882,7 @@ const MyAds = () => {
   }, [form.body, form.budget, form.destinationType, form.destinationUrl, form.objective, form.placements, form.title, formGatewayId, minBudget]);
 
   const formPreviewMedia = form.media[0] || null;
+  const formPreviewMediaUrl = resolveAdPreviewMediaUrl(formPreviewMedia);
   const formPlacementLabels = form.placements
     .map((placement) => placementOptions.find((option) => option.value === placement)?.label || placement)
     .slice(0, maxPlacements);
@@ -2302,9 +2317,7 @@ const MyAds = () => {
                               <Wallet className="h-4 w-4" />
                               {submittingId === ad.id
                                 ? 'Processing...'
-                                : capabilities.status === 'paid'
-                                  ? 'Complete review'
-                                  : 'Pay now'}
+                                : 'Pay now'}
                             </button>
                           ) : null}
                           {capabilities.canPause ? (
@@ -2930,21 +2943,27 @@ const MyAds = () => {
                 </div>
                 {form.media.length > 0 && (
                   <div className="grid gap-3 md:grid-cols-2">
-                    {form.media.map((media) => (
+                    {form.media.map((media) => {
+                      const mediaUrl = resolveAdPreviewMediaUrl(media);
+                      return (
                       <div key={media.id} className="border rounded-xl p-2 flex items-center gap-3">
-                        {media.url ? (
+                        {mediaUrl ? (
                           isAdVideoMedia(media) ? (
                             <video
-                              src={media.url}
+                              key={mediaUrl}
+                              src={mediaUrl}
                               muted
                               playsInline
                               autoPlay
                               loop
                               preload="auto"
                               className="h-16 w-16 rounded-lg object-cover"
+                              onLoadedData={(event) => {
+                                event.currentTarget.play().catch(() => undefined);
+                              }}
                             />
                           ) : (
-                            <img src={media.url} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
+                            <img src={mediaUrl} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
                           )
                         ) : (
                           <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500">File</div>
@@ -2960,7 +2979,8 @@ const MyAds = () => {
                           Remove
                         </button>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                 )}
               </div>
@@ -3002,21 +3022,25 @@ const MyAds = () => {
                   <div className="p-4">
                     <div className="overflow-hidden rounded-[1.25rem] border border-slate-200 bg-slate-950">
                       <div className="relative aspect-[4/5]">
-                        {formPreviewMedia?.url ? (
-                          String(formPreviewMedia.mimeType || formPreviewMedia.type || '').toLowerCase().startsWith('video/') ? (
+                        {formPreviewMediaUrl ? (
+                          String(formPreviewMedia?.mimeType || formPreviewMedia?.type || '').toLowerCase().startsWith('video/') ? (
                             <video
-                              src={formPreviewMedia.url}
+                              key={formPreviewMediaUrl}
+                              src={formPreviewMediaUrl}
                               muted
                               playsInline
                               autoPlay
                               loop
                               preload="auto"
                               className="h-full w-full object-cover"
+                              onLoadedData={(event) => {
+                                event.currentTarget.play().catch(() => undefined);
+                              }}
                             />
                           ) : (
                             <img
-                              src={formPreviewMedia.url}
-                              alt={formPreviewMedia.name || form.title || 'Ad preview'}
+                              src={formPreviewMediaUrl}
+                              alt={formPreviewMedia?.name || form.title || 'Ad preview'}
                               className="h-full w-full object-cover"
                             />
                           )
@@ -3154,7 +3178,7 @@ const MyAds = () => {
                 disabled={saving || gatewayLoading || paymentGateways.length === 0 || !formGatewayId}
                 className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-slate-300"
               >
-                {saving && formActionMode === 'pay' ? 'Processing payment...' : 'Pay Now'}
+                {saving && formActionMode === 'pay' ? 'Processing payment...' : 'Pay now'}
               </button>
             </div>
           </div>

@@ -517,6 +517,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const scrollAdTimerRef = useRef<number | null>(null);
   const sessionScrollAdCountRef = useRef(0);
   const lastScrollAdShownAtRef = useRef(0);
+  const sessionScrollAdViewCountRef = useRef(0);
+  const lastScrollAdViewIdRef = useRef('');
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -1092,7 +1094,12 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
     const activeScroll = items[activeIndex];
     if (!activeScroll?.id) return;
-    const scrollPosition = activeIndex + 1;
+    const activeScrollId = String(activeScroll.id || '').trim();
+    if (lastScrollAdViewIdRef.current !== activeScrollId) {
+      lastScrollAdViewIdRef.current = activeScrollId;
+      sessionScrollAdViewCountRef.current += 1;
+    }
+    const scrollPosition = Math.max(1, sessionScrollAdViewCountRef.current);
     const firstSlot = Math.max(1, scrollAdPolicy.firstAdAfterScrolls);
     const repeatEvery = Math.max(1, scrollAdPolicy.repeatEveryScrolls);
     const shouldServeAd =
