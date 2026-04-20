@@ -225,6 +225,22 @@ const sanitizeScrollAdsConfig = (raw: any) => {
   };
 };
 
+const resolveAdDeliveryPlacements = (ad: any): string[] => {
+  const targeting = parseTargeting(ad?.targeting);
+  const rawPlacements: any[] = [];
+  if (Array.isArray(targeting.placements)) rawPlacements.push(...targeting.placements);
+  if (Array.isArray(ad?.placements)) rawPlacements.push(...ad.placements);
+  if (ad?.placement) rawPlacements.push(ad.placement);
+
+  return Array.from(
+    new Set(
+      rawPlacements
+        .map((entry) => normalizePlacement(entry))
+        .filter((entry) => DEFAULT_ALLOWED_PLACEMENTS.includes(entry))
+    )
+  );
+};
+
 const mergeAdsConfig = (raw: any) => {
   const input = raw && typeof raw === 'object' ? raw : {};
   const cpmByPlacement = { ...defaultAdsConfig.cpmByPlacement, ...(input.cpmByPlacement || {}) } as Record<string, any>;
@@ -1666,12 +1682,8 @@ export const getPublicAds = async (req: Request, res: Response) => {
     const ads = await prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' }, take: Math.max(limit * 6, 30) });
     const now = Date.now();
     const filtered = ads.filter((ad) => {
+      const adPlacements = resolveAdDeliveryPlacements(ad);
       if (shouldFilterByPlacement) {
-        const targeting = parseTargeting(ad.targeting);
-        const adPlacementsRaw = Array.isArray(targeting.placements)
-          ? targeting.placements
-          : [ad.placement];
-        const adPlacements = Array.from(new Set(adPlacementsRaw.map((entry) => normalizePlacement(entry))));
         if (!adPlacements.includes(normalizedPlacement)) return false;
       }
       if (ad.remainingBudget !== undefined && Number(ad.remainingBudget) <= 0) return false;
@@ -1682,11 +1694,13 @@ export const getPublicAds = async (req: Request, res: Response) => {
     const selectedAds = filtered.slice(0, limit);
     const adsWithPlacement = selectedAds.map((ad) => {
       const targeting = parseTargeting(ad.targeting);
-      const placements = Array.isArray(targeting.placements)
-        ? targeting.placements.map((entry: any) => normalizePlacement(entry))
-        : [normalizePlacement(ad.placement)];
+      const placements = resolveAdDeliveryPlacements(ad);
       return {
         ...ad,
+        placement:
+          shouldFilterByPlacement && placements.includes(normalizedPlacement)
+            ? normalizedPlacement
+            : normalizePlacement(ad.placement || placements[0]),
         targeting: { ...targeting, placements }
       };
     });
