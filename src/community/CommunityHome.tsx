@@ -3327,7 +3327,15 @@ const CommunityHome = () => {
                       {media?.url && (
                         <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
                           {mediaType === 'video' ? (
-                            <video src={media.url} controls className="h-36 w-full object-cover" />
+                            <video
+                              src={media.url}
+                              muted
+                              autoPlay
+                              loop
+                              playsInline
+                              preload="auto"
+                              className="h-36 w-full object-cover"
+                            />
                           ) : (
                             <img src={media.url} alt={ad.title || 'Ad media'} className="h-36 w-full object-cover" />
                           )}

@@ -1497,10 +1497,21 @@ export default function MobileFeed({
     let cancelled = false;
     const delayMs = constrainedForFeed ? 1800 : 900;
     const timer = window.setTimeout(() => {
-      CommunityService.getPublicAds({ placement: 'feed', limit: constrainedForFeed ? 4 : 8 })
-        .then((items) => {
+      Promise.allSettled([
+        CommunityService.getPublicAds({ placement: 'homepage_feed', limit: constrainedForFeed ? 4 : 8 }),
+        CommunityService.getPublicAds({ placement: 'community_feed', limit: constrainedForFeed ? 4 : 8 })
+      ])
+        .then((results) => {
           if (cancelled) return;
-          setAds(shuffle(Array.isArray(items) ? items : []));
+          const merged = results.flatMap((result) =>
+            result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
+          );
+          const byId = new Map<string, any>();
+          merged.forEach((item) => {
+            const id = String(item?.id || '').trim();
+            if (id && !byId.has(id)) byId.set(id, item);
+          });
+          setAds(shuffle(Array.from(byId.values())));
         })
         .catch(() => {
           if (cancelled) return;

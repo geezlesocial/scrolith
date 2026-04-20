@@ -280,6 +280,7 @@ type SidebarAdCard = {
   ctaText?: string;
   destinationUrl?: string;
   mediaUrl?: string;
+  mediaType?: 'image' | 'video';
   placement?: string;
 };
 
@@ -1831,6 +1832,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (!id) return null;
     const media = Array.isArray(ad?.media) ? ad.media[0] : null;
     const mediaUrl = resolveAssetUrl(media?.url || ad?.imageUrl || ad?.mediaUrl || '');
+    const mediaType =
+      media && inferMediaType(media) === 'video'
+        ? 'video'
+        : /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(String(mediaUrl || '').toLowerCase())
+          ? 'video'
+          : 'image';
     return {
       id,
       title: String(ad?.title || 'Sponsored').trim() || 'Sponsored',
@@ -1838,6 +1845,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       ctaText: String(ad?.ctaText || ad?.cta || '').trim(),
       destinationUrl: String(ad?.destinationUrl || ad?.targetUrl || '').trim(),
       mediaUrl: mediaUrl || undefined,
+      mediaType,
       placement: String(ad?.placement || '').trim() || undefined
     };
   }, []);
@@ -6278,11 +6286,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       ) : null}
                       {sidebarFeaturedAd.mediaUrl ? (
                         <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white">
-                          <img
-                            src={sidebarFeaturedAd.mediaUrl}
-                            alt={sidebarFeaturedAd.title}
-                            className="h-24 w-full object-cover"
-                          />
+                          {sidebarFeaturedAd.mediaType === 'video' ? (
+                            <video
+                              src={sidebarFeaturedAd.mediaUrl}
+                              muted
+                              autoPlay
+                              loop
+                              playsInline
+                              preload="auto"
+                              className="h-24 w-full object-cover"
+                            />
+                          ) : (
+                            <img
+                              src={sidebarFeaturedAd.mediaUrl}
+                              alt={sidebarFeaturedAd.title}
+                              className="h-24 w-full object-cover"
+                            />
+                          )}
                         </div>
                       ) : null}
                       <button
@@ -7232,11 +7252,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     ) : null}
                     {sidebarTopAd.mediaUrl ? (
                       <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
-                        <img
-                          src={sidebarTopAd.mediaUrl}
-                          alt={sidebarTopAd.title}
-                          className="h-32 w-full object-cover"
-                        />
+                        {sidebarTopAd.mediaType === 'video' ? (
+                          <video
+                            src={sidebarTopAd.mediaUrl}
+                            muted
+                            autoPlay
+                            loop
+                            playsInline
+                            preload="auto"
+                            className="h-32 w-full object-cover"
+                          />
+                        ) : (
+                          <img
+                            src={sidebarTopAd.mediaUrl}
+                            alt={sidebarTopAd.title}
+                            className="h-32 w-full object-cover"
+                          />
+                        )}
                       </div>
                     ) : null}
                     <button
@@ -7442,11 +7474,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     ) : null}
                     {sidebarMiddleAd.mediaUrl ? (
                       <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
-                        <img
-                          src={sidebarMiddleAd.mediaUrl}
-                          alt={sidebarMiddleAd.title}
-                          className="h-32 w-full object-cover"
-                        />
+                        {sidebarMiddleAd.mediaType === 'video' ? (
+                          <video
+                            src={sidebarMiddleAd.mediaUrl}
+                            muted
+                            autoPlay
+                            loop
+                            playsInline
+                            preload="auto"
+                            className="h-32 w-full object-cover"
+                          />
+                        ) : (
+                          <img
+                            src={sidebarMiddleAd.mediaUrl}
+                            alt={sidebarMiddleAd.title}
+                            className="h-32 w-full object-cover"
+                          />
+                        )}
                       </div>
                     ) : null}
                     <button

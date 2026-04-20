@@ -126,7 +126,7 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
 
   return (
     <div
-      className="absolute inset-0 z-[55] flex items-center justify-center bg-black/72 px-3 py-[max(1rem,env(safe-area-inset-top))] text-white backdrop-blur-[2px]"
+      className="fixed inset-0 z-[75] flex items-center justify-center bg-black/72 px-3 py-[max(1rem,env(safe-area-inset-top))] text-white backdrop-blur-[2px]"
       data-scroll-skip-swipe="true"
       role="dialog"
       aria-label="Sponsored Scroll ad"

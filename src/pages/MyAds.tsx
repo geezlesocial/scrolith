@@ -182,19 +182,19 @@ const getCampaignPrimaryMedia = (ad: AdCampaign) => {
         ? { url: ad.creativeUrl, type: 'image', mimeType: 'image/*' }
         : null;
 
-  const mediaType = String(media?.mimeType || media?.type || '')
-    .toLowerCase()
-    .startsWith('video/')
-    ? 'video'
-    : String(media?.type || '').toLowerCase() === 'video'
-      ? 'video'
-      : 'image';
+  const mediaType = isAdVideoMedia(media) ? 'video' : 'image';
 
   return {
     url: String(media?.url || '').trim(),
     type: mediaType,
     name: String(media?.name || ad.title || 'Creative').trim()
   };
+};
+
+const isAdVideoMedia = (media: any) => {
+  const type = String(media?.mimeType || media?.type || '').toLowerCase();
+  const url = String(media?.url || '').toLowerCase();
+  return type === 'video' || type.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
 };
 
 const getStatusGroup = (status?: string): Exclude<StudioStatusFilter, 'all'> => {
@@ -364,7 +364,6 @@ const MyAds = () => {
   const { user } = useUser();
   const [ads, setAds] = useState<AdCampaign[]>([]);
   const [loading, setLoading] = useState(true);
-  const [payingId, setPayingId] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formActionMode, setFormActionMode] = useState<'draft' | 'submit' | 'pay' | null>(null);
@@ -513,7 +512,7 @@ const MyAds = () => {
     adId: string,
     options: { gatewayId?: string; currency?: string } = {}
   ): Promise<{ submitted: boolean; redirected: boolean; message?: string; code?: string }> => {
-    // Always run payment resolution first so Submit for Review reliably opens checkout when required.
+    // Payment is the publishing gate: paid campaigns are automatically submitted or activated.
     const paymentState = await requestAdPayment(adId, {
       gatewayId: options.gatewayId,
       currency: options.currency || form.currency,
@@ -1266,28 +1265,8 @@ const MyAds = () => {
     }
   };
 
-  const handlePay = async (ad: AdCampaign, gatewayId?: string) => {
-    const adId = ad.id;
-    const currency = ad.currency || form.currency;
-    if (!confirm('Proceed to pay for this ad?')) return;
-    setPayingId(adId);
-    try {
-      const selectedGateway = resolveGatewaySelection(adId, gatewayId);
-      const paymentState = await requestAdPayment(adId, {
-        gatewayId: selectedGateway,
-        currency
-      });
-      if (paymentState.redirected) return;
-      if (paymentState.paid) await load();
-    } catch (e: any) {
-      showNotification('error', 'Payment error', e?.message || 'Unable to process payment.');
-    } finally {
-      setPayingId(null);
-    }
-  };
-
   const handleSubmit = async (adId: string) => {
-    if (!confirm('Submit this ad for review?')) return;
+    if (!confirm('Proceed to pay now? Paid campaigns are automatically submitted for review.')) return;
     setSubmittingId(adId);
     try {
       const ad = ads.find((entry) => entry.id === adId);
@@ -1302,7 +1281,7 @@ const MyAds = () => {
         await load();
         return;
       }
-      showNotification('success', 'Submitted', submitState.message || 'Ad submitted for review.');
+      showNotification('success', 'Submitted', submitState.message || 'Payment completed and ad submitted for review.');
       await load();
     } catch (e: any) {
       showNotification('error', 'Submit failed', e?.message || 'Unable to submit ad.');
@@ -1552,7 +1531,7 @@ const MyAds = () => {
         throw new Error('Unable to resolve ad campaign id.');
       }
 
-      if (mode === 'submit') {
+      if (mode === 'submit' || mode === 'pay') {
         const selectedGateway = resolveGatewaySelection(adId, formGatewayId, { preferFallback: true });
         const submitState = await submitAdWithAutoPayment(adId, {
           gatewayId: selectedGateway,
@@ -1585,24 +1564,11 @@ const MyAds = () => {
           await load();
           return;
         }
-        showNotification('success', 'Submitted', submitState.message || 'Ad submitted for review.');
+        showNotification('success', 'Submitted', submitState.message || 'Payment completed and ad submitted for review.');
         setFormOpen(false);
         setEditingAdId(null);
         await load();
         return;
-      }
-
-      if (mode === 'pay') {
-        const paymentState = await requestAdPayment(adId, {
-          gatewayId: resolveGatewaySelection(adId, formGatewayId, { preferFallback: true }),
-          currency: form.currency
-        });
-        if (paymentState.redirected) return;
-        if (!paymentState.paid) {
-          showNotification('error', 'Payment failed', paymentState.message || 'Unable to process payment.');
-          await load();
-          return;
-        }
       }
 
       setFormOpen(false);
@@ -2154,7 +2120,9 @@ const MyAds = () => {
                                 src={primaryMedia.url}
                                 muted
                                 playsInline
-                                preload="metadata"
+                                autoPlay
+                                loop
+                                preload="auto"
                                 className="h-full w-full object-cover"
                               />
                             ) : (
@@ -2322,19 +2290,6 @@ const MyAds = () => {
                             <Copy className="h-4 w-4" />
                             Duplicate
                           </button>
-                          {capabilities.canPay ? (
-                            <button
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handlePay(ad, adGatewaySelections[ad.id]);
-                              }}
-                              disabled={payingId === ad.id}
-                              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
-                            >
-                              <Wallet className="h-4 w-4" />
-                              {payingId === ad.id ? 'Processing...' : 'Fund'}
-                            </button>
-                          ) : null}
                           {capabilities.canSubmit ? (
                             <button
                               onClick={(event) => {
@@ -2342,10 +2297,14 @@ const MyAds = () => {
                                 void handleSubmit(ad.id);
                               }}
                               disabled={submittingId === ad.id}
-                              className="inline-flex items-center gap-2 rounded-2xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:bg-sky-300"
+                              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
                             >
-                              <Rocket className="h-4 w-4" />
-                              {submittingId === ad.id ? 'Submitting...' : 'Submit'}
+                              <Wallet className="h-4 w-4" />
+                              {submittingId === ad.id
+                                ? 'Processing...'
+                                : capabilities.status === 'paid'
+                                  ? 'Complete review'
+                                  : 'Pay now'}
                             </button>
                           ) : null}
                           {capabilities.canPause ? (
@@ -2423,7 +2382,9 @@ const MyAds = () => {
                           src={selectedMedia.url}
                           muted
                           playsInline
-                          preload="metadata"
+                          autoPlay
+                          loop
+                          preload="auto"
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -2972,7 +2933,19 @@ const MyAds = () => {
                     {form.media.map((media) => (
                       <div key={media.id} className="border rounded-xl p-2 flex items-center gap-3">
                         {media.url ? (
-                          <img src={media.url} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
+                          isAdVideoMedia(media) ? (
+                            <video
+                              src={media.url}
+                              muted
+                              playsInline
+                              autoPlay
+                              loop
+                              preload="auto"
+                              className="h-16 w-16 rounded-lg object-cover"
+                            />
+                          ) : (
+                            <img src={media.url} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
+                          )
                         ) : (
                           <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500">File</div>
                         )}
@@ -3035,7 +3008,9 @@ const MyAds = () => {
                               src={formPreviewMedia.url}
                               muted
                               playsInline
-                              preload="metadata"
+                              autoPlay
+                              loop
+                              preload="auto"
                               className="h-full w-full object-cover"
                             />
                           ) : (
@@ -3173,13 +3148,6 @@ const MyAds = () => {
                   : formMode === 'create'
                     ? 'Save Draft'
                     : 'Save Changes'}
-              </button>
-              <button
-                onClick={() => handleFormAction('submit')}
-                disabled={saving || gatewayLoading || paymentGateways.length === 0 || !formGatewayId}
-                className="rounded-2xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:bg-slate-300"
-              >
-                {saving && formActionMode === 'submit' ? 'Submitting...' : 'Submit for Review'}
               </button>
               <button
                 onClick={() => handleFormAction('pay')}

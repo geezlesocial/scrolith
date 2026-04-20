@@ -19,7 +19,11 @@ type CommunityAd = {
   placement?: string | null;
 };
 
-const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
+const isVideoMedia = (media?: AdMedia | null) => {
+  const mime = String(media?.mimeType || '').toLowerCase();
+  const url = String(media?.url || '').toLowerCase();
+  return mime.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
+};
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
 
 export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
@@ -86,8 +90,17 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
 
       {primaryMedia ? (
         <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-          {isVideo(primaryMedia.mimeType) ? (
-            <video src={primaryMedia.url} className="h-48 w-full object-cover" controls preload="none" playsInline />
+          {isVideoMedia(primaryMedia) ? (
+            <video
+              src={primaryMedia.url}
+              className="h-48 w-full object-cover"
+              muted
+              autoPlay
+              loop
+              playsInline
+              preload="auto"
+              controls={false}
+            />
           ) : isImage(primaryMedia.mimeType) ? (
             <OptimizedImage
               src={primaryMedia.url}
