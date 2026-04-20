@@ -106,7 +106,19 @@ export type MediaType = 'image' | 'video' | 'document';
 export type FileCategory = 'portfolio' | 'document' | 'verification' | 'chat';
 export type NotificationType = 'info' | 'success' | 'warning' | 'alert' | 'error';
 export type GcoinTransactionType = 'reward' | 'transfer' | 'conversion' | 'admin_adjustment';
-export type AdPlacement = 'feed' | 'sidebar' | 'forum_top' | 'forum_listing' | 'thread_detail' | 'chat';
+export type AdPlacement =
+  | 'feed'
+  | 'sidebar'
+  | 'homepage'
+  | 'homepage_feed'
+  | 'community_feed'
+  | 'scroll_preroll'
+  | 'scroll_feed'
+  | 'forum_top'
+  | 'forum_listing'
+  | 'thread_detail'
+  | 'chat'
+  | 'chat_sidebar';
 
 // Uploaded file type for Uploaded Files SSOT
 export interface UploadedFileSummary {

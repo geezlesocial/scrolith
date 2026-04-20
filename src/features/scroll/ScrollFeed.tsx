@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
+import type { AdCampaign } from '../../types';
 import ScrollCard from './ScrollCard';
+import ScrollAdOverlay from './ScrollAdOverlay';
 import ScrollCreateModal from './ScrollCreateModal';
 import ScrollCommentsSheet from './ScrollCommentsSheet';
 import ScrollSeriesModal from './ScrollSeriesModal';
@@ -23,6 +25,7 @@ import PostShareModal from '../../community/components/PostShareModal';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import PostComments from '../../components/PostComments';
 import { LiveService, type LiveSession } from '../../services/live';
+import { AdService } from '../../services/ads';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../utils/inlineMedia';
 import {
   clearPendingPostVideoScrollSource,
@@ -41,6 +44,7 @@ const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
 const SCROLL_VIDEO_ROUTE_PATTERN = /^\/scroll(?:\/|$)/i;
 const POST_VIDEO_MORE_CURSOR = '__post_video_more__';
+const SCROLL_AD_FREQUENCY = 5;
 
 const readStoredIndex = () => {
   const value = Number(localStorage.getItem(LAST_SCROLL_INDEX_KEY) || 0);
@@ -361,6 +365,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const [seriesLoading, setSeriesLoading] = useState(false);
   const [seriesError, setSeriesError] = useState<string | null>(null);
   const [seriesActiveScrollId, setSeriesActiveScrollId] = useState<string | null>(null);
+  const [scrollAds, setScrollAds] = useState<AdCampaign[]>([]);
+  const [activeScrollAd, setActiveScrollAd] = useState<{ ad: AdCampaign; key: string; scrollId: string } | null>(null);
   const showLiveDiscovery = liveFeatureStatus.enabled && liveFeatureStatus.experienceConfig?.showFeaturedRailInScrollFeed !== false;
   const autoAdvanceOnEnd = !embedded && SCROLL_VIDEO_ROUTE_PATTERN.test(location.pathname);
 
@@ -380,6 +386,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   const pendingAutoAdvanceIndexRef = useRef<number | null>(null);
   const wheelNavigationLockRef = useRef<number>(0);
   const touchSwipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const displayedScrollAdKeysRef = useRef<Set<string>>(new Set());
+  const scrollAdTimerRef = useRef<number | null>(null);
 
   const patchMetrics = useCallback((scrollId: string, metrics: Partial<ScrollVideo['metrics']>) => {
     setItems((prev) =>
@@ -881,6 +889,102 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     }, 30000);
     return () => window.clearInterval(interval);
   }, [showLiveDiscovery, loadLiveSessions]);
+
+  const loadScrollAds = useCallback(async () => {
+    try {
+      const [preRollAds, feedAds] = await Promise.all([
+        AdService.getAds({ role: user?.role, placement: 'scroll_preroll', limit: 12 }),
+        AdService.getAds({ role: user?.role, placement: 'scroll_feed', limit: 12 })
+      ]);
+      const deduped = [...preRollAds, ...feedAds].filter((ad, index, list) => {
+        const id = String(ad?.id || '').trim();
+        return id && list.findIndex((entry) => String(entry?.id || '').trim() === id) === index;
+      });
+      if (deduped.length > 0) {
+        setScrollAds(deduped);
+        return;
+      }
+
+      // Backward-compatible bridge for existing campaigns while admins migrate to Scroll placements.
+      const fallbackAds = await AdService.getAds({ role: user?.role, placement: 'community_feed', limit: 8 });
+      setScrollAds(fallbackAds.filter((ad) => Boolean(String(ad?.id || '').trim())));
+    } catch (error) {
+      console.warn('Failed to load Scroll ads', error);
+      setScrollAds([]);
+    }
+  }, [user?.role]);
+
+  useEffect(() => {
+    if (embedded) {
+      setScrollAds([]);
+      return;
+    }
+    void loadScrollAds();
+    const events = ['community:ad_created', 'community:ad_status_updated', 'community:ads_config_updated'];
+    events.forEach((eventName) => window.addEventListener(eventName, loadScrollAds as EventListener));
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, loadScrollAds as EventListener));
+    };
+  }, [embedded, loadScrollAds]);
+
+  useEffect(() => {
+    if (scrollAdTimerRef.current !== null) {
+      window.clearTimeout(scrollAdTimerRef.current);
+      scrollAdTimerRef.current = null;
+    }
+    setActiveScrollAd(null);
+
+    if (
+      embedded ||
+      loading ||
+      createOpen ||
+      commentOpen ||
+      repostOpen ||
+      shareOpen ||
+      dashOpen ||
+      liveDiscoveryOpen ||
+      seriesModalOpen ||
+      scrollAds.length === 0 ||
+      items.length === 0
+    ) {
+      return;
+    }
+
+    const activeScroll = items[activeIndex];
+    if (!activeScroll?.id) return;
+    const shouldServeAd = activeIndex === 0 || (activeIndex + 1) % SCROLL_AD_FREQUENCY === 0;
+    if (!shouldServeAd) return;
+
+    const ad = scrollAds[activeIndex % scrollAds.length];
+    if (!ad?.id) return;
+    const key = `${activeScroll.id}:${ad.id}`;
+    if (displayedScrollAdKeysRef.current.has(key)) return;
+
+    scrollAdTimerRef.current = window.setTimeout(() => {
+      displayedScrollAdKeysRef.current.add(key);
+      setActiveScrollAd({ ad, key, scrollId: activeScroll.id });
+    }, 900);
+
+    return () => {
+      if (scrollAdTimerRef.current !== null) {
+        window.clearTimeout(scrollAdTimerRef.current);
+        scrollAdTimerRef.current = null;
+      }
+    };
+  }, [
+    activeIndex,
+    commentOpen,
+    createOpen,
+    dashOpen,
+    embedded,
+    items,
+    liveDiscoveryOpen,
+    loading,
+    repostOpen,
+    scrollAds,
+    seriesModalOpen,
+    shareOpen
+  ]);
 
   useEffect(() => {
     localStorage.setItem(LAST_SCROLL_INDEX_KEY, String(Math.max(0, activeIndex)));
@@ -1540,6 +1644,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           </>
         )}
       </div>
+
+      <ScrollAdOverlay
+        ad={activeScrollAd?.ad || null}
+        isOpen={Boolean(activeScrollAd)}
+        muted={muted}
+        onClose={() => setActiveScrollAd(null)}
+      />
 
       {showLiveDiscovery && liveDiscoveryOpen ? (
         <div className="fixed inset-0 z-[60] bg-black/90 text-white">

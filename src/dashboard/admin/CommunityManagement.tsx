@@ -1844,6 +1844,8 @@ const AdManager = () => {
                                 { key: 'homepage', label: 'Homepage' },
                                 { key: 'homepage_feed', label: 'Homepage Feed' },
                                 { key: 'community_feed', label: 'Community Feed' },
+                                { key: 'scroll_preroll', label: 'Scroll Pre-roll' },
+                                { key: 'scroll_feed', label: 'Scroll Feed Overlay' },
                                 { key: 'forum_listing', label: 'Forum Listing' },
                                 { key: 'thread_detail', label: 'Thread Detail' },
                                 { key: 'chat_sidebar', label: 'Chat Side Bar' }
@@ -2059,6 +2061,8 @@ const AdManager = () => {
                                         <option value="homepage">Homepage</option>
                                         <option value="homepage_feed">Homepage Feed</option>
                                         <option value="community_feed">Community Feed</option>
+                                        <option value="scroll_preroll">Scroll Pre-roll</option>
+                                        <option value="scroll_feed">Scroll Feed Overlay</option>
                                         <option value="forum_listing">Forum listing</option>
                                         <option value="thread_detail">Thread detail</option>
                                         <option value="chat_sidebar">Chat sidebar</option>

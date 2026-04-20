@@ -104,6 +104,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'community:ad_status_updated', fn: forward('community:ad_status_updated') }
       ,{ ev: 'community:ad_payment_initiated', fn: forward('community:ad_payment_initiated') }
       ,{ ev: 'community:ad_metrics_updated', fn: forward('community:ad_metrics_updated') }
+      ,{ ev: 'community:ads_config_updated', fn: forward('community:ads_config_updated') }
       ,{ ev: 'community:gcoin_transaction_created', fn: forward('community:gcoin_transaction_created') }
       ,{ ev: 'community:gcoin_balance_updated', fn: forward('community:gcoin_balance_updated') }
       ,{ ev: 'community:gcoin_donated', fn: forward('community:gcoin_donated') }

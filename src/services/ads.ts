@@ -145,8 +145,20 @@ const toAdPayload = (payload: Partial<AdCampaign>) => {
 
 export const AdService = {
   // Public ads listing (frontend)
-  getAds: async (role?: UserRole): Promise<AdCampaign[]> => {
-    const response = await api.get('/community/ads', { params: role ? { role } : undefined });
+  getAds: async (
+    roleOrOptions?: UserRole | { role?: UserRole; placement?: string; limit?: number }
+  ): Promise<AdCampaign[]> => {
+    const params =
+      roleOrOptions && typeof roleOrOptions === 'object'
+        ? {
+            role: roleOrOptions.role,
+            placement: roleOrOptions.placement,
+            limit: roleOrOptions.limit
+          }
+        : roleOrOptions
+          ? { role: roleOrOptions }
+          : undefined;
+    const response = await api.get('/community/ads', { params });
     const data = extractData<AdCampaign[]>(response);
     return Array.isArray(data) ? data : [];
   },

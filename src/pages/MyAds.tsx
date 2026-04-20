@@ -54,6 +54,8 @@ const DEFAULT_ALLOWED_PLACEMENTS = [
   'homepage',
   'homepage_feed',
   'community_feed',
+  'scroll_preroll',
+  'scroll_feed',
   'forum_listing',
   'thread_detail',
   'chat_sidebar'
@@ -63,6 +65,8 @@ const PLACEMENT_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'homepage', label: 'Homepage' },
   { value: 'homepage_feed', label: 'Homepage Feed' },
   { value: 'community_feed', label: 'Community Feed' },
+  { value: 'scroll_preroll', label: 'Scroll Pre-roll' },
+  { value: 'scroll_feed', label: 'Scroll Feed Overlay' },
   { value: 'forum_listing', label: 'Forum Listing' },
   { value: 'thread_detail', label: 'Thread Detail' },
   { value: 'chat_sidebar', label: 'Chat Side Bar' }
@@ -292,6 +296,7 @@ const normalizePlacement = (value: any): string => {
   if (!raw) return 'community_feed';
   if (raw === 'feed') return 'community_feed';
   if (raw === 'chat') return 'chat_sidebar';
+  if (raw === 'scroll' || raw === 'scroll_video' || raw === 'scroll_overlay') return 'scroll_preroll';
   if (raw === 'forum_top') return 'forum_listing';
   return raw;
 };
