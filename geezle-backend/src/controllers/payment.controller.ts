@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
+import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 import { computeCommissionBreakdown } from '../utils/commission';
 import prisma from '../utils/prismaClient';
 
@@ -16,16 +17,29 @@ const getOrCreateSettings = async () => {
   return settings;
 };
 
-const resolveAdActivationStatus = async (): Promise<'ACTIVE' | 'SUBMITTED_FOR_REVIEW'> => {
+const resolveAdActivationStatus = async (
+  adId: string
+): Promise<{ status: 'ACTIVE' | 'SUBMITTED_FOR_REVIEW'; blockers: string[] }> => {
   try {
     const configSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
     const configData: any = configSetting?.data || {};
     const approvalMode = String(configData?.approvalMode || '').toLowerCase();
     const autoApproveAds = Boolean(configData?.autoApproveAds);
-    return approvalMode === 'auto' || autoApproveAds ? 'ACTIVE' : 'SUBMITTED_FOR_REVIEW';
+    if (approvalMode !== 'auto' && !autoApproveAds) {
+      return { status: 'SUBMITTED_FOR_REVIEW', blockers: [] };
+    }
+
+    const ad = await prisma.communityAd.findUnique({ where: { id: adId } });
+    if (!ad) {
+      return { status: 'SUBMITTED_FOR_REVIEW', blockers: ['Campaign was not found after payment completion.'] };
+    }
+    const readiness = await buildCommunityAdActivationReadiness(ad);
+    return readiness.canActivate
+      ? { status: 'ACTIVE', blockers: [] }
+      : { status: 'SUBMITTED_FOR_REVIEW', blockers: readiness.blockers };
   } catch (error) {
     console.warn('Failed to resolve ad activation status from ads config; falling back to review queue.');
-    return 'SUBMITTED_FOR_REVIEW';
+    return { status: 'SUBMITTED_FOR_REVIEW', blockers: [] };
   }
 };
 
@@ -122,7 +136,6 @@ export const handleWebhook = async (req: Request, res: Response) => {
           const transactionId = paymentIntentId || checkoutSession.id;
           const amountReceived = Number(checkoutSession.amount_total || 0) / 100;
           const currencyStr = String(checkoutSession.currency || 'usd').toUpperCase();
-          const nextAdStatus = await resolveAdActivationStatus();
 
           const existing = await prisma.adPayment.findFirst({
             where: { adId, transactionId }
@@ -136,7 +149,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
               }),
               prisma.communityAd.update({
                 where: { id: adId },
-                data: { status: nextAdStatus, paymentTransactionId: transactionId }
+                data: { status: 'PAID', paymentTransactionId: transactionId }
               })
             ]);
           } else {
@@ -152,12 +165,28 @@ export const handleWebhook = async (req: Request, res: Response) => {
               }),
               prisma.communityAd.update({
                 where: { id: adId },
-                data: { status: nextAdStatus, paymentTransactionId: transactionId }
+                data: { status: 'PAID', paymentTransactionId: transactionId }
               })
             ]);
           }
 
-          console.log(`Checkout session completed for ad ${adId}; transitioned to ${nextAdStatus}`);
+          const activation = await resolveAdActivationStatus(String(adId));
+          await prisma.communityAd.update({
+            where: { id: adId },
+            data: { status: activation.status }
+          });
+          try {
+            const ioReal = (global as any).appIo || (global as any).io || null;
+            if (ioReal && typeof ioReal.emit === 'function') {
+              try { ioReal.emit('community:ad_status_updated', { adId, status: activation.status }); } catch(e){}
+            }
+          } catch(e){ console.error('Emit ad checkout event error:', e); }
+
+          console.log(
+            `Checkout session completed for ad ${adId}; transitioned to ${activation.status}${
+              activation.blockers.length ? ` (${activation.blockers.join('; ')})` : ''
+            }`
+          );
         } catch (checkoutAdError) {
           console.error('Error updating ad payment from checkout session completion:', checkoutAdError);
         }
@@ -175,14 +204,13 @@ export const handleWebhook = async (req: Request, res: Response) => {
           // Reconcile a pending AdPayment (created when PaymentIntent was requested)
           const amountReceived = (paymentIntent.amount_received || paymentIntent.amount) / 100;
           const currencyStr = (paymentIntent.currency || 'usd').toUpperCase();
-          const nextAdStatus = await resolveAdActivationStatus();
           const existing = await prisma.adPayment.findFirst({ where: { adId, transactionId: paymentIntent.id } });
           if (existing) {
             await prisma.$transaction([
               prisma.adPayment.update({ where: { id: existing.id }, data: { status: 'completed', amount: amountReceived, currency: currencyStr } }),
               prisma.communityAd.update({
                 where: { id: adId },
-                data: { status: nextAdStatus, paymentTransactionId: paymentIntent.id }
+                data: { status: 'PAID', paymentTransactionId: paymentIntent.id }
               })
             ]);
           } else {
@@ -199,12 +227,22 @@ export const handleWebhook = async (req: Request, res: Response) => {
               }),
               prisma.communityAd.update({
                 where: { id: adId },
-                data: { status: nextAdStatus, paymentTransactionId: paymentIntent.id }
+                data: { status: 'PAID', paymentTransactionId: paymentIntent.id }
               })
             ]);
           }
 
-          console.log(`Payment for ad ${adId} succeeded; transitioned to ${nextAdStatus}`);
+          const activation = await resolveAdActivationStatus(String(adId));
+          await prisma.communityAd.update({
+            where: { id: adId },
+            data: { status: activation.status }
+          });
+
+          console.log(
+            `Payment for ad ${adId} succeeded; transitioned to ${activation.status}${
+              activation.blockers.length ? ` (${activation.blockers.join('; ')})` : ''
+            }`
+          );
           try {
             const io = (global as any).appIo || null;
             // Try to get io from prisma context via process (fallback to runtime app)
@@ -213,7 +251,7 @@ export const handleWebhook = async (req: Request, res: Response) => {
             }
             const ioReal = (global as any).appIo || (global as any).io || null;
             if (ioReal && typeof ioReal.emit === 'function') {
-              try { ioReal.emit('community:ad_status_updated', { adId, status: nextAdStatus }); } catch(e){}
+              try { ioReal.emit('community:ad_status_updated', { adId, status: activation.status }); } catch(e){}
             }
           } catch(e){ console.error('Emit ad paid event error:', e); }
         } else if (orderId) {

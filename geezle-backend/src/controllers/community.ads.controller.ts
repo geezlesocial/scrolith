@@ -6,6 +6,7 @@ import { syncFileUsages } from '../utils/fileUsage';
 import { sendSystemEmail } from '../services/email.service';
 import { getStripeClient } from '../services/stripeConfig.service';
 import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
+import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 const PLATFORM_ORIGIN = process.env.PLATFORM_URL || 'https://scrolith.com';
@@ -241,6 +242,20 @@ const resolveAdDeliveryPlacements = (ad: any): string[] => {
   );
 };
 
+const hasSettledAdPaymentSnapshot = (ad: any) => {
+  if (String(ad?.paymentTransactionId || '').trim()) return true;
+  const payments = Array.isArray(ad?.payments) ? ad.payments : [];
+  return payments.some((payment) =>
+    AD_PAYMENT_COMPLETED_STATUSES.includes(String(payment?.status || '').trim().toLowerCase() as any)
+  );
+};
+
+const isVideoCreativeAsset = (asset: any) => {
+  const mimeType = String(asset?.mimeType || asset?.mime_type || asset?.type || '').trim().toLowerCase();
+  const url = String(asset?.url || asset?.downloadUrl || asset?.download_url || '').trim().toLowerCase();
+  return mimeType === 'video' || mimeType.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
+};
+
 const buildAdDeliveryDiagnostics = (ad: any, configInput?: any) => {
   const config = mergeAdsConfig(configInput || defaultAdsConfig);
   const allowedPlacements = resolveAllowedPlacements(config.allowedPlacements);
@@ -255,11 +270,14 @@ const buildAdDeliveryDiagnostics = (ad: any, configInput?: any) => {
   const mediaFileIds = Array.isArray(ad?.mediaFileIds)
     ? ad.mediaFileIds.map((id: any) => String(id || '').trim()).filter(Boolean)
     : [];
+  const mediaAssets = Array.isArray(ad?.media) ? ad.media : [];
+  const hasVideoCreative = mediaAssets.some((asset) => isVideoCreativeAsset(asset));
 
   const blockers: string[] = [];
   const warnings: string[] = [];
 
   if (status !== 'ACTIVE') blockers.push(`Campaign status is ${status || 'UNKNOWN'}, not ACTIVE.`);
+  if (!hasSettledAdPaymentSnapshot(ad)) blockers.push('Campaign has no settled payment record.');
   if (remainingBudget <= 0) blockers.push('Campaign has no remaining budget.');
   if (startTime && startTime > now) blockers.push('Campaign flight has not started yet.');
   if (endTime && endTime < now) blockers.push('Campaign flight has ended.');
@@ -268,6 +286,9 @@ const buildAdDeliveryDiagnostics = (ad: any, configInput?: any) => {
     blockers.push('Scroll placements require at least one creative asset.');
   } else if (!mediaFileIds.length) {
     warnings.push('No creative asset is attached; delivery may be limited on visual placements.');
+  }
+  if (placements.includes('scroll_preroll') && mediaAssets.length > 0 && !hasVideoCreative) {
+    blockers.push('Scroll pre-roll delivery requires at least one video creative.');
   }
 
   const placementChecks = placements.map((placement) => {
@@ -313,6 +334,8 @@ const buildAdDeliveryDiagnostics = (ad: any, configInput?: any) => {
     warnings,
     remainingBudget,
     mediaAssetCount: mediaFileIds.length,
+    hasSettledPayment: hasSettledAdPaymentSnapshot(ad),
+    hasVideoCreative,
     scrollPolicy: {
       enabled: scrollAds.enabled,
       firstAdAfterScrolls: scrollAds.firstAdAfterScrolls,
@@ -367,16 +390,25 @@ const buildPublicAdsRuntimeConfig = (config: any) => {
   };
 };
 
-const resolvePostPaymentAdStatus = async (): Promise<'ACTIVE' | 'SUBMITTED_FOR_REVIEW'> => {
+const resolvePostPaymentAdStatus = async (
+  ad: any
+): Promise<{ status: 'ACTIVE' | 'SUBMITTED_FOR_REVIEW'; blockers: string[] }> => {
   try {
     const adsConfigSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
     const adsConfig = mergeAdsConfig((adsConfigSetting?.data as any) || defaultAdsConfig);
-    return adsConfig.autoApproveAds || String(adsConfig.approvalMode || '').toLowerCase() === 'auto'
-      ? 'ACTIVE'
-      : 'SUBMITTED_FOR_REVIEW';
+    const autoApprove =
+      adsConfig.autoApproveAds || String(adsConfig.approvalMode || '').toLowerCase() === 'auto';
+    if (!autoApprove) {
+      return { status: 'SUBMITTED_FOR_REVIEW', blockers: [] };
+    }
+    const readiness = await buildCommunityAdActivationReadiness(ad);
+    if (!readiness.canActivate) {
+      return { status: 'SUBMITTED_FOR_REVIEW', blockers: readiness.blockers };
+    }
+    return { status: 'ACTIVE', blockers: [] };
   } catch (error) {
     console.warn('[community_ads] Failed to resolve post-payment status; falling back to review queue.', error);
-    return 'SUBMITTED_FOR_REVIEW';
+    return { status: 'SUBMITTED_FOR_REVIEW', blockers: [] };
   }
 };
 
@@ -970,8 +1002,14 @@ export const payAd = async (req: Request, res: Response) => {
       });
       if (settledPayment) {
         let resolvedStatus = normalizedAdStatus;
+        let statusBlockers: string[] = [];
         if (normalizedAdStatus === 'PAID') {
-          resolvedStatus = await resolvePostPaymentAdStatus();
+          const resolution = await resolvePostPaymentAdStatus({
+            ...currentAd,
+            payments: settledPayment ? [settledPayment] : []
+          });
+          resolvedStatus = resolution.status;
+          statusBlockers = resolution.blockers;
           await prisma.communityAd.update({
             where: { id: adId },
             data: {
@@ -987,11 +1025,17 @@ export const payAd = async (req: Request, res: Response) => {
         }
         return res.json({
           success: true,
-          message: 'Ad payment is already completed.',
+          message:
+            resolvedStatus === 'ACTIVE'
+              ? 'Ad payment is already completed and the campaign is live.'
+              : statusBlockers.length > 0
+                ? `Ad payment is already completed. Campaign is queued for review because ${statusBlockers[0].charAt(0).toLowerCase()}${statusBlockers[0].slice(1)}`
+                : 'Ad payment is already completed.',
           data: {
             paymentMethodId,
             status: resolvedStatus.toLowerCase(),
-            alreadyPaid: true
+            alreadyPaid: true,
+            blockers: statusBlockers
           }
         });
       }
@@ -1023,7 +1067,12 @@ export const payAd = async (req: Request, res: Response) => {
 
       const walletRef = `ad-wallet-${adId}-${Date.now()}`;
       try {
-        const nextStatus = await resolvePostPaymentAdStatus();
+        const resolution = await resolvePostPaymentAdStatus({
+          ...currentAd,
+          paymentTransactionId: walletRef,
+          payments: [{ status: 'completed' }]
+        });
+        const nextStatus = resolution.status;
         await prisma.$transaction(async (tx) => {
           const freshWallet = await tx.wallet.findUnique({ where: { id: wallet.id } });
           if (!freshWallet) throw new Error('Wallet not found.');
@@ -1079,12 +1128,15 @@ export const payAd = async (req: Request, res: Response) => {
           message:
             nextStatus === 'ACTIVE'
               ? 'Ad payment completed and campaign is live.'
-              : 'Ad payment completed and campaign submitted for review.',
+              : resolution.blockers.length > 0
+                ? `Ad payment completed. Campaign submitted for review because ${resolution.blockers[0].charAt(0).toLowerCase()}${resolution.blockers[0].slice(1)}`
+                : 'Ad payment completed and campaign submitted for review.',
           data: {
             paymentMethodId: 'wallet',
             status: nextStatus.toLowerCase(),
             submittedForReview: nextStatus === 'SUBMITTED_FOR_REVIEW',
-            active: nextStatus === 'ACTIVE'
+            active: nextStatus === 'ACTIVE',
+            blockers: resolution.blockers
           }
         });
       } catch (walletError: any) {
@@ -1371,15 +1423,32 @@ export const submitAd = async (req: Request, res: Response) => {
       });
     }
 
-    const adsConfigSetting = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
-    const adsConfig = mergeAdsConfig((adsConfigSetting?.data as any) || defaultAdsConfig);
-    const autoApprove = adsConfig.autoApproveAds || String(adsConfig.approvalMode || '').toLowerCase() === 'auto';
-    const nextStatus = autoApprove ? 'ACTIVE' : 'SUBMITTED_FOR_REVIEW';
+    const paidAd = await prisma.communityAd.findUnique({ where: { id: adId } });
+    const resolution = await resolvePostPaymentAdStatus({
+      ...(paidAd || ad),
+      payments: []
+    });
+    const nextStatus = resolution.status;
     const updated = await prisma.communityAd.update({ where: { id: adId }, data: { status: nextStatus as any } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: nextStatus }); } catch(e){}
     try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: nextStatus }); } catch (e) {}
-    return res.json({ success: true, data: updated });
+    if (nextStatus === 'ACTIVE') {
+      await notifyCreatorAdStatus(adId, 'ACTIVE', null).catch(() => undefined);
+    }
+    return res.json({
+      success: true,
+      message:
+        nextStatus === 'ACTIVE'
+          ? 'Ad payment completed and campaign is live.'
+          : resolution.blockers.length > 0
+            ? `Ad payment completed. Campaign submitted for review because ${resolution.blockers[0].charAt(0).toLowerCase()}${resolution.blockers[0].slice(1)}`
+            : 'Ad payment completed and campaign submitted for review.',
+      data: {
+        ...updated,
+        activationBlockers: resolution.blockers
+      }
+    });
   } catch (error: any) {
     console.error('Submit ad error:', error);
     if (Number(error?.statusCode || 0) === 400) {
@@ -1474,9 +1543,20 @@ export const getReviewQueue = async (_req: Request, res: Response) => {
 export const approveAd = async (req: Request, res: Response) => {
   try {
     const adId = req.params.id;
-    const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'APPROVED' } });
-    // When approved, move to ACTIVE
-    await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
+    const existing = await prisma.communityAd.findUnique({ where: { id: adId } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Ad not found' });
+
+    const readiness = await buildCommunityAdActivationReadiness(existing);
+    if (!readiness.canActivate) {
+      return res.status(400).json({
+        success: false,
+        code: 'AD_NOT_READY_FOR_DELIVERY',
+        error: 'Campaign cannot go live yet.',
+        data: { blockers: readiness.blockers, readiness }
+      });
+    }
+
+    const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
     const io = (req.app as any).get('io');
     try { io?.emit('community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch(e){}
     try { realtime.emitToAd(adId, 'community:ad_status_updated', { adId, status: 'ACTIVE' }); } catch (e) {}
@@ -1582,6 +1662,16 @@ export const resumeAd = async (req: Request, res: Response) => {
     }
     if (existing.status !== 'PAUSED') {
       return res.status(400).json({ success: false, error: 'Only paused ads can be resumed' });
+    }
+
+    const readiness = await buildCommunityAdActivationReadiness(existing);
+    if (!readiness.canActivate) {
+      return res.status(400).json({
+        success: false,
+        code: 'AD_NOT_READY_FOR_DELIVERY',
+        error: 'Campaign cannot be resumed yet.',
+        data: { blockers: readiness.blockers, readiness }
+      });
     }
 
     const ad = await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
@@ -1797,10 +1887,16 @@ export const getPublicAds = async (req: Request, res: Response) => {
     const limitRaw = Number(req.query.limit);
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(30, Math.floor(limitRaw))) : 8;
     const where: any = { status: 'ACTIVE' };
-    const [ads, adsConfigSetting] = await Promise.all([
-      prisma.communityAd.findMany({ where, orderBy: { createdAt: 'desc' }, take: Math.max(limit * 6, 30) }),
+    const [rawAds, adsConfigSetting] = await Promise.all([
+      prisma.communityAd.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        take: Math.max(limit * 6, 30),
+        include: { payments: true }
+      }),
       prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
     ]);
+    const ads = await hydrateAdsWithMedia(rawAds);
     const adsConfig = adsConfigSetting?.data || defaultAdsConfig;
     const filtered = ads.filter((ad) => {
       const diagnostics = buildAdDeliveryDiagnostics(ad, adsConfig);
@@ -1812,11 +1908,12 @@ export const getPublicAds = async (req: Request, res: Response) => {
     });
     const selectedAds = filtered.slice(0, limit);
     const adsWithPlacement = selectedAds.map((ad) => {
+      const { payments: _payments, ...publicAd } = ad as any;
       const targeting = parseTargeting(ad.targeting);
       const diagnostics = buildAdDeliveryDiagnostics(ad, adsConfig);
       const placements = diagnostics.placements;
       return {
-        ...ad,
+        ...publicAd,
         placement:
           shouldFilterByPlacement && diagnostics.eligiblePlacements.includes(normalizedPlacement)
             ? normalizedPlacement
@@ -1825,8 +1922,7 @@ export const getPublicAds = async (req: Request, res: Response) => {
         delivery: diagnostics
       };
     });
-    const hydrated = await hydrateAdsWithMedia(adsWithPlacement);
-    return res.json({ success: true, data: hydrated });
+    return res.json({ success: true, data: adsWithPlacement });
   } catch (error: any) {
     console.error('Get public ads error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load ads' });

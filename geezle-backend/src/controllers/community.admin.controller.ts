@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import fs from 'fs';
 import path from 'path';
+import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 
 const CONFIG_FALLBACK_PATH = path.join(__dirname, '..', '..', 'data', 'community_config.json');
 const EVENT_LOG_DIR = path.join(__dirname, '..', '..', 'data', 'logs');
@@ -318,16 +319,29 @@ export const getAdsReviewQueue = async (_req: Request, res: Response) => {
 export const approveAd = async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const ad = await prisma.communityAd.update({ where: { id }, data: { status: 'APPROVED' } });
+    const existing = await prisma.communityAd.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ success: false, error: 'Ad not found' });
+
+    const readiness = await buildCommunityAdActivationReadiness(existing);
+    if (!readiness.canActivate) {
+      return res.status(400).json({
+        success: false,
+        code: 'AD_NOT_READY_FOR_DELIVERY',
+        error: 'Campaign cannot go live yet.',
+        data: { blockers: readiness.blockers, readiness }
+      });
+    }
+
+    const ad = await prisma.communityAd.update({ where: { id }, data: { status: 'ACTIVE' } });
     try {
       const communityIo = (global as any).appCommunityIo;
       const io = (global as any).appIo;
       if (communityIo && typeof communityIo.emit === 'function') {
-        communityIo.emit('community:ad_status_updated', { adId: id, status: 'APPROVED' });
-        appendEventLog({ emittedTo: '/community', adId: id, status: 'APPROVED' });
+        communityIo.emit('community:ad_status_updated', { adId: id, status: 'ACTIVE' });
+        appendEventLog({ emittedTo: '/community', adId: id, status: 'ACTIVE' });
       } else if (io && typeof io.emit === 'function') {
-        io.emit('community:ad_status_updated', { adId: id, status: 'APPROVED' });
-        appendEventLog({ emittedTo: 'root', adId: id, status: 'APPROVED' });
+        io.emit('community:ad_status_updated', { adId: id, status: 'ACTIVE' });
+        appendEventLog({ emittedTo: 'root', adId: id, status: 'ACTIVE' });
       }
     } catch (e) {
       console.warn('Failed to emit ad_status_updated (approve)', e);
