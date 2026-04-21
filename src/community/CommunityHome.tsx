@@ -68,6 +68,7 @@ import { upsertImagePreloadLink } from '../utils/resourceHints';
 import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import PostOriginPreview from '../components/post/PostOriginPreview';
 import TranslatablePostText from '../components/translation/TranslatablePostText';
+import AdCard from '../components/AdCard';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryReplySheet from '../components/stories/StoryReplySheet';
 import { pickInterestSurveyCandidateId } from '../components/recommendation/ContentInterestSurvey';
@@ -1126,8 +1127,8 @@ const CommunityHome = () => {
           : current
       );
     };
-    window.addEventListener('community:ad_status_updated', onAdEvent as EventListener);
-    window.addEventListener('community:ad_created', onAdEvent as EventListener);
+    const adEvents = ['community:ad_status_updated', 'community:ad_created', 'community:ad_deleted', 'community:ads_config_updated'];
+    adEvents.forEach((eventName) => window.addEventListener(eventName, onAdEvent as EventListener));
     window.addEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
     window.addEventListener('community:story_created', onStoryUpdate as EventListener);
     window.addEventListener('community:story_deleted', onStoryUpdate as EventListener);
@@ -1146,8 +1147,7 @@ const CommunityHome = () => {
 
     return () => {
       cancelled = true;
-      window.removeEventListener('community:ad_status_updated', onAdEvent as EventListener);
-      window.removeEventListener('community:ad_created', onAdEvent as EventListener);
+      adEvents.forEach((eventName) => window.removeEventListener(eventName, onAdEvent as EventListener));
       window.removeEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
       window.removeEventListener('community:story_created', onStoryUpdate as EventListener);
       window.removeEventListener('community:story_deleted', onStoryUpdate as EventListener);
@@ -3316,44 +3316,18 @@ const CommunityHome = () => {
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'sponsored', 'Sponsored')}</h2>
               <div className="space-y-4">
                 {ads.map((ad) => {
-                  const media =
-                    (Array.isArray(ad.media) && ad.media.length > 0 ? ad.media[0] : null) ||
-                    (ad.creativeUrl ? { url: ad.creativeUrl, type: 'image' } : null);
-                  const mediaType = media ? inferMediaType(media) : null;
-
                   return (
-                    <div key={ad.id} className="border border-gray-200 rounded-lg p-4">
-                      <h3 className="font-medium text-gray-900">{ad.title}</h3>
-                      <p className="text-sm text-gray-600 mt-2">{ad.description || ad.body}</p>
-                      {media?.url && (
-                        <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
-                          {mediaType === 'video' ? (
-                            <AdVideoPlayer
-                              src={media.url}
-                              className="h-36 w-full"
-                              videoClassName="h-full w-full object-cover"
-                              preload="auto"
-                            />
-                          ) : (
-                            <img src={media.url} alt={ad.title || 'Ad media'} className="h-36 w-full object-cover" />
-                          )}
-                        </div>
-                      )}
-                      <div className="mt-3 flex items-center gap-3">
-                        <a
-                          href={ad.ctaUrl || '#'}
-                          className="text-sm text-blue-600 hover:text-blue-800"
-                          onClick={() => AdService.recordClick(ad.id).catch(() => {})}
-                        >
-                          {ad.ctaText || 'Learn more'}
-                        </a>
-                        {/* If ad has creator/recipient info, show Donate button */}
-                        {(ad.creatorId || ad.recipientId) && (
-                          // @ts-ignore - loosely typed CMS ad object may include creatorId/recipientId
-                          <DonateButton recipientIdentifier={ad.creatorId || ad.recipientId} />
-                        )}
-                      </div>
-                    </div>
+                    <AdCard
+                      key={ad.id}
+                      ad={{
+                        ...(ad as any),
+                        destinationUrl: (ad as any).destinationUrl || (ad as any).ctaUrl || null,
+                        body: (ad as any).body || (ad as any).description || ''
+                      }}
+                      showDonate={Boolean((ad as any).creatorId || (ad as any).recipientId)}
+                      compact
+                      className="mb-0"
+                    />
                   );
                 })}
               </div>

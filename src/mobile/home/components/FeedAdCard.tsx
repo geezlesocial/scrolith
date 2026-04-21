@@ -6,7 +6,9 @@ import {
 } from '../../../components/icons/ShellIcons';
 import OptimizedImage from '../../../components/media/OptimizedImage';
 import AdVideoPlayer from '../../../components/ads/AdVideoPlayer';
+import AdDisclosureBadge from '../../../components/ads/AdDisclosureBadge';
 import { CommunityService } from '../../../services/community';
+import { resolveAssetUrl } from '../../../utils/assetUrl';
 
 type AdMedia = { id: string; url: string; mimeType: string | null; name: string | null };
 
@@ -34,7 +36,12 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
 
   const primaryMedia = useMemo(() => {
     const media = Array.isArray(ad?.media) ? ad.media : [];
-    return media[0] || null;
+    const candidate = media[0] || null;
+    if (!candidate?.url) return null;
+    return {
+      ...candidate,
+      url: resolveAssetUrl(String(candidate.url || '').trim())
+    };
   }, [ad?.media]);
 
   useEffect(() => {
@@ -62,8 +69,10 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
     <div ref={ref} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Promoted</div>
-          <div className="mt-1 text-sm font-semibold text-slate-900 line-clamp-2">{ad.title || 'Sponsored'}</div>
+          {!primaryMedia ? <AdDisclosureBadge label="Sponsored" tone="dark" /> : null}
+          <div className={`${primaryMedia ? '' : 'mt-2'} text-sm font-semibold text-slate-900 line-clamp-2`}>
+            {ad.title || 'Sponsored'}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -90,7 +99,10 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
       {ad.body ? <div className="text-sm text-slate-600 line-clamp-3">{ad.body}</div> : null}
 
       {primaryMedia ? (
-        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+        <div className="relative mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+          <div className="pointer-events-none absolute left-3 top-3 z-10">
+            <AdDisclosureBadge label="Sponsored" tone="light" />
+          </div>
           {isVideoMedia(primaryMedia) ? (
             <AdVideoPlayer
               src={primaryMedia.url}
@@ -98,6 +110,8 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
               videoClassName="h-full w-full object-cover"
               loop
               preload="auto"
+              soundButtonClassName="right-2 top-2 h-8 min-w-8 px-2"
+              showSoundLabel={false}
             />
           ) : isImage(primaryMedia.mimeType) ? (
             <OptimizedImage

@@ -4,6 +4,7 @@ import type { AdCampaign } from '../../types';
 import { AdService } from '../../services/ads';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import AdVideoPlayer from '../../components/ads/AdVideoPlayer';
+import AdDisclosureBadge from '../../components/ads/AdDisclosureBadge';
 
 const DEFAULT_VIDEO_SKIP_DELAY_SECONDS = 10;
 const DEFAULT_STATIC_SKIP_DELAY_SECONDS = 3;
@@ -127,7 +128,7 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
               <Megaphone className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">Sponsored</p>
+              <AdDisclosureBadge label="Sponsored" tone="light" className="border-cyan-200/30 bg-white/10 text-cyan-100 shadow-none" />
               <p className="truncate text-sm font-semibold text-white">{title}</p>
             </div>
           </div>

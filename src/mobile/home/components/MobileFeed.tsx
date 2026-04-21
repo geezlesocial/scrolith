@@ -413,6 +413,8 @@ export default function MobileFeed({
   const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
   const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
   const [secondaryFeedReady, setSecondaryFeedReady] = useState(false);
+  const promotedAdsTimerRef = useRef<number | null>(null);
+  const promotedAdsRequestIdRef = useRef(0);
   const deferredPosts = useDeferredValue(posts);
   const visiblePosts = useMemo(
     () => deferredPosts.slice(0, Math.min(renderedPostCount, deferredPosts.length)),
@@ -1490,20 +1492,25 @@ export default function MobileFeed({
     void load('initial');
   }, [load]);
 
-  useEffect(() => {
+  const loadPromotedAds = useCallback(() => {
+    if (promotedAdsTimerRef.current !== null) {
+      window.clearTimeout(promotedAdsTimerRef.current);
+      promotedAdsTimerRef.current = null;
+    }
     if (feedSettings.showPromoted === false) return;
     if (!secondaryFeedReady) return;
     if (loading || error) return;
-    let cancelled = false;
+    const requestId = promotedAdsRequestIdRef.current + 1;
+    promotedAdsRequestIdRef.current = requestId;
     const delayMs = constrainedForFeed ? 1800 : 900;
-    const timer = window.setTimeout(() => {
+    promotedAdsTimerRef.current = window.setTimeout(() => {
       Promise.allSettled([
         CommunityService.getPublicAds({ placement: 'homepage_feed', limit: constrainedForFeed ? 4 : 8 }),
         CommunityService.getPublicAds({ placement: 'community_feed', limit: constrainedForFeed ? 4 : 8 }),
         CommunityService.getPublicAds({ placement: 'scroll_feed', limit: constrainedForFeed ? 4 : 8 })
       ])
         .then((results) => {
-          if (cancelled) return;
+          if (promotedAdsRequestIdRef.current !== requestId) return;
           const merged = results.flatMap((result) =>
             result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
           );
@@ -1515,15 +1522,32 @@ export default function MobileFeed({
           setAds(shuffle(Array.from(byId.values())));
         })
         .catch(() => {
-          if (cancelled) return;
+          if (promotedAdsRequestIdRef.current !== requestId) return;
           setAds([]);
         });
     }, delayMs);
+  }, [constrainedForFeed, error, feedSettings.showPromoted, loading, secondaryFeedReady]);
+
+  useEffect(() => {
+    loadPromotedAds();
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      promotedAdsRequestIdRef.current += 1;
+      if (promotedAdsTimerRef.current !== null) {
+        window.clearTimeout(promotedAdsTimerRef.current);
+        promotedAdsTimerRef.current = null;
+      }
     };
-  }, [feedSettings.showPromoted, secondaryFeedReady, loading, error, constrainedForFeed]);
+  }, [loadPromotedAds]);
+
+  useEffect(() => {
+    if (feedSettings.showPromoted === false) return;
+    const onAdEvent = () => loadPromotedAds();
+    const events = ['community:ad_created', 'community:ad_status_updated', 'community:ads_config_updated'];
+    events.forEach((eventName) => window.addEventListener(eventName, onAdEvent as EventListener));
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, onAdEvent as EventListener));
+    };
+  }, [feedSettings.showPromoted, loadPromotedAds]);
 
   useEffect(() => {
     if (!showRecommendedGigsJobs) {
