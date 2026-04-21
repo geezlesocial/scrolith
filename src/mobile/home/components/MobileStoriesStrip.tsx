@@ -127,7 +127,25 @@ const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
   return normalized || fallback;
 };
 
-const resolveStoryAuthorAvatar = (story: any) => {
+const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
+  const storyOwnerId = String(story?.authorId || story?.userId || story?.user_id || story?.author?.id || '').trim();
+  const viewerId = String(viewer?.id || viewer?.user_id || '').trim();
+  if (!storyOwnerId || !viewerId || storyOwnerId !== viewerId) return '';
+
+  const viewerProfilePhotoFileId = String(
+    viewer?.profilePhotoFileId || viewer?.profile_photo_file_id || viewer?.avatarFileId || viewer?.avatar_file_id || ''
+  ).trim();
+  if (viewerProfilePhotoFileId) return resolvePostAttachmentMediaUrl({ fileId: viewerProfilePhotoFileId });
+
+  return resolvePostAttachmentMediaUrl(
+    viewer?.avatarUrl || viewer?.avatar_url || viewer?.avatar || ''
+  );
+};
+
+const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
+  const viewerAvatar = resolveViewerProfileAvatar(story, viewer);
+  if (viewerAvatar) return viewerAvatar;
+
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
       story?.author?.profilePhotoFileId ||
@@ -276,7 +294,7 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
-const STORIES_CACHE_VERSION = 'v2';
+const STORIES_CACHE_VERSION = 'v3';
 const LIVE_CACHE_TTL_MS = 90 * 1000;
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
@@ -1384,7 +1402,7 @@ export default function MobileStoriesStrip({
                   const name = resolveStoryAuthorName(story, 'Story');
                   const storyType = resolveStoryType(story);
                   const storyText = resolveStoryContent(story);
-                  const avatar = resolveStoryAuthorAvatar(story);
+                  const avatar = resolveStoryAuthorAvatar(story, user);
                   const avatarFailed = Boolean(storyAvatarErrors[id]);
                   const media = resolveStoryMediaUrl(story);
                   const imagePreviewFailed = Boolean(storyPreviewMediaErrors[id]);
@@ -2121,7 +2139,7 @@ function StoryViewer({
   const lastTapAtRef = useRef(0);
 
   const name = resolveStoryAuthorName(story, 'Story');
-  const avatar = resolveStoryAuthorAvatar(story);
+  const avatar = resolveStoryAuthorAvatar(story, viewer);
   const authorProfileUrl = resolveStoryAuthorProfileUrl(story);
   const type = resolveStoryType(story);
   const media = resolveStoryMediaUrl(story);

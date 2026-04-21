@@ -257,7 +257,25 @@ const resolveStoryAuthorName = (story: any, fallback = 'Community') => {
   return normalized || fallback;
 };
 
-const resolveStoryAuthorAvatar = (story: any) => {
+const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
+  const storyOwnerId = String(story?.authorId || story?.userId || story?.user_id || story?.author?.id || '').trim();
+  const viewerId = String(viewer?.id || viewer?.user_id || '').trim();
+  if (!storyOwnerId || !viewerId || storyOwnerId !== viewerId) return '';
+
+  const viewerProfilePhotoFileId = String(
+    viewer?.profilePhotoFileId || viewer?.profile_photo_file_id || viewer?.avatarFileId || viewer?.avatar_file_id || ''
+  ).trim();
+  if (viewerProfilePhotoFileId) return resolvePostAttachmentMediaUrl({ fileId: viewerProfilePhotoFileId });
+
+  return resolvePostAttachmentMediaUrl(
+    viewer?.avatarUrl || viewer?.avatar_url || viewer?.avatar || ''
+  );
+};
+
+const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
+  const viewerAvatar = resolveViewerProfileAvatar(story, viewer);
+  if (viewerAvatar) return viewerAvatar;
+
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
       story?.author?.profilePhotoFileId ||
@@ -2667,7 +2685,7 @@ const CommunityHome = () => {
                           })()}
                           {(() => {
                             const authorName = resolveStoryAuthorName(story, 'Community');
-                            const authorAvatar = resolveStoryAuthorAvatar(story);
+                            const authorAvatar = resolveStoryAuthorAvatar(story, user);
                             const authorInitial = resolveStoryAuthorInitial(story);
                             return (
                               <StoryAuthorAvatar
@@ -3720,7 +3738,7 @@ const CommunityHome = () => {
                 <div className="flex min-w-0 items-start gap-2">
                   {(() => {
                     const authorName = resolveStoryAuthorName(activeStory, 'Community member');
-                    const authorAvatar = resolveStoryAuthorAvatar(activeStory);
+                    const authorAvatar = resolveStoryAuthorAvatar(activeStory, user);
                     const authorInitial = resolveStoryAuthorInitial(activeStory);
                     return (
                       <>
