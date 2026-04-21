@@ -678,18 +678,45 @@ const resolveStoryAuthorName = (story: any, fallback = 'Community') => {
 };
 
 const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
-  const storyOwnerId = String(story?.authorId || story?.userId || story?.user_id || story?.author?.id || '').trim();
-  const viewerId = String(viewer?.id || viewer?.user_id || '').trim();
-  if (!storyOwnerId || !viewerId || storyOwnerId !== viewerId) return '';
+  if (!story || !viewer) return '';
+  const normalizeOwnerToken = (value: unknown) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
+  const storyOwnerTokens = [
+    story?.authorId,
+    story?.userId,
+    story?.user_id,
+    story?.author?.id,
+    story?.authorUsername,
+    story?.author?.username,
+    story?.userName,
+    story?.user_name,
+    story?.user?.username,
+    story?.authorName,
+    story?.author?.displayName,
+    story?.author?.name,
+    story?.user?.displayName,
+    story?.user?.name
+  ].map(normalizeOwnerToken).filter(Boolean);
+  const viewerTokens = [
+    viewer?.id,
+    viewer?.user_id,
+    viewer?.username,
+    viewer?.user_name,
+    viewer?.name,
+    viewer?.email
+  ].map(normalizeOwnerToken).filter(Boolean);
+  if (!storyOwnerTokens.some((token) => viewerTokens.includes(token))) return '';
+
+  const viewerAvatar = resolvePostAttachmentMediaUrl(
+    viewer?.avatarUrl || viewer?.avatar_url || viewer?.avatar || ''
+  );
+  if (viewerAvatar) return viewerAvatar;
 
   const viewerProfilePhotoFileId = String(
     viewer?.profilePhotoFileId || viewer?.profile_photo_file_id || viewer?.avatarFileId || viewer?.avatar_file_id || ''
   ).trim();
   if (viewerProfilePhotoFileId) return resolvePostAttachmentMediaUrl({ fileId: viewerProfilePhotoFileId });
 
-  return resolvePostAttachmentMediaUrl(
-    viewer?.avatarUrl || viewer?.avatar_url || viewer?.avatar || ''
-  );
+  return '';
 };
 
 const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {

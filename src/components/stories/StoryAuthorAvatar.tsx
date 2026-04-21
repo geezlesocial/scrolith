@@ -1,5 +1,5 @@
 import React from 'react';
-import OptimizedImage from '../media/OptimizedImage';
+import { resolveAssetUrl } from '../../utils/assetUrl';
 
 type StoryAuthorAvatarProps = {
   src?: string | null;
@@ -25,26 +25,27 @@ export default function StoryAuthorAvatar({
   loading = 'lazy'
 }: StoryAuthorAvatarProps) {
   const imageSrc = String(src || '').trim();
+  const resolvedImageSrc = imageSrc ? resolveAssetUrl(imageSrc) : '';
   const [failedSrc, setFailedSrc] = React.useState('');
   const fallbackInitial = String(initial || name || 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase() || 'S';
-  const shouldRenderImage = Boolean(imageSrc) && failedSrc !== imageSrc;
+  const shouldRenderImage = Boolean(resolvedImageSrc) && failedSrc !== resolvedImageSrc;
 
   React.useEffect(() => {
-    if (!imageSrc) setFailedSrc('');
-  }, [imageSrc]);
+    if (!resolvedImageSrc) setFailedSrc('');
+  }, [resolvedImageSrc]);
 
   return (
     <div className={className}>
       {shouldRenderImage ? (
-        <OptimizedImage
-          src={imageSrc}
+        <img
+          src={resolvedImageSrc}
           alt={name}
           width={width}
           height={height}
-          sizes={sizes}
           className={imageClassName}
           loading={loading}
-          onError={() => setFailedSrc(imageSrc)}
+          decoding="async"
+          onError={() => setFailedSrc(resolvedImageSrc)}
         />
       ) : (
         <span>{fallbackInitial}</span>
