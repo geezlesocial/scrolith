@@ -128,7 +128,7 @@ const defaultAdsConfig = {
   regionalMultipliers: {},
   minBudget: 10,
   maxBudget: 10000,
-  maxPlacementsPerAd: 3,
+  maxPlacementsPerAd: 8,
   maxImageAssets: 6,
   maxVideoAssets: 1,
   approvalMode: 'manual',
@@ -362,7 +362,7 @@ const mergeAdsConfig = (raw: any) => {
     allowedPlacements: normalizedAllowedPlacements,
     targetCountries: normalizedTargetCountries,
     scrollAds: sanitizeScrollAdsConfig(input.scrollAds),
-    maxPlacementsPerAd: Math.max(1, Math.min(3, Number(input.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd))),
+    maxPlacementsPerAd: Math.max(1, Math.min(8, Number(input.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd))),
     maxImageAssets: Math.max(1, Math.min(12, Number(input.maxImageAssets ?? defaultAdsConfig.maxImageAssets))),
     maxVideoAssets: Math.max(1, Math.min(3, Number(input.maxVideoAssets ?? defaultAdsConfig.maxVideoAssets))),
     minBudget: Math.max(0, Number(input.minBudget ?? defaultAdsConfig.minBudget)),
@@ -466,7 +466,7 @@ const sanitizeJsonValue = (value: any): any => {
 };
 
 const extractPlacements = (payload: any, adsConfig: any, existingPrimaryPlacement?: string): string[] => {
-  const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd)));
+  const maxPlacements = Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd)));
   const allowedPlacements = resolveAllowedPlacements(adsConfig?.allowedPlacements);
   const listSource = Array.isArray(payload?.placements)
     ? payload.placements
@@ -500,6 +500,90 @@ const getOrCreateWallet = async (userId: string) => {
     }
   });
   return wallet;
+};
+
+const normalizeComparableString = (value: any) => String(value ?? '').trim();
+
+const normalizeComparableList = (value: any): string[] => {
+  const source = Array.isArray(value) ? value : value === undefined || value === null ? [] : [value];
+  return Array.from(
+    new Set(source.map((entry) => String(entry || '').trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
+};
+
+const areComparableListsEqual = (left: any, right: any) => {
+  const a = normalizeComparableList(left);
+  const b = normalizeComparableList(right);
+  if (a.length !== b.length) return false;
+  return a.every((entry, index) => entry === b[index]);
+};
+
+const adPayloadHas = (payload: any, key: string) =>
+  Object.prototype.hasOwnProperty.call(payload || {}, key);
+
+const isMajorAdUpdate = (
+  payload: any,
+  existing: any,
+  allowed: any,
+  existingTargeting: Record<string, any>,
+  nextTargeting: Record<string, any>,
+  nextPlacements: string[]
+) => {
+  const stringFields = [
+    'title',
+    'body',
+    'objective',
+    'destinationType',
+    'destinationUrl',
+    'ctaText'
+  ];
+  for (const field of stringFields) {
+    if (!adPayloadHas(payload, field)) continue;
+    const nextValue = normalizeComparableString(allowed[field]);
+    const previousValue = normalizeComparableString(existing?.[field]);
+    if (nextValue !== previousValue) return true;
+  }
+
+  if ((adPayloadHas(payload, 'placement') || adPayloadHas(payload, 'placements')) &&
+      !areComparableListsEqual(nextPlacements, resolveAdDeliveryPlacements(existing))) {
+    return true;
+  }
+
+  if (adPayloadHas(payload, 'mediaFileIds') &&
+      !areComparableListsEqual(allowed.mediaFileIds || [], existing?.mediaFileIds || [])) {
+    return true;
+  }
+
+  if (adPayloadHas(payload, 'targetCountries') &&
+      !areComparableListsEqual(nextTargeting.targetCountries || [], existingTargeting.targetCountries || [])) {
+    return true;
+  }
+
+  if (adPayloadHas(payload, 'targetAudience') &&
+      normalizeComparableString(nextTargeting.targetAudience || '') !== normalizeComparableString(existingTargeting.targetAudience || '')) {
+    return true;
+  }
+
+  if (adPayloadHas(payload, 'targeting')) {
+    const reviewKeys = [
+      'promotionType',
+      'promotionEntityId',
+      'promotionEntitySlug',
+      'promotionEntityUrl',
+      'promotionTitle',
+      'promotionSubtitle'
+    ];
+    for (const key of reviewKeys) {
+      if (
+        normalizeComparableString(nextTargeting[key]) !==
+        normalizeComparableString(existingTargeting[key])
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 };
 
 const normalizePaymentMethod = (value: any): string => {
@@ -2011,9 +2095,11 @@ export const updateAd = async (req: Request, res: Response) => {
     const maxVideos = Math.max(1, Math.min(3, Number(adsConfig.maxVideoAssets ?? 1)));
     const minBudget = Math.max(0, Number(adsConfig.minBudget ?? 10));
     const maxBudget = Math.max(minBudget, Number(adsConfig.maxBudget ?? 10000));
-    // Only allow updates when ad is in editable statuses
-    const editableStatuses = ['DRAFT', 'REJECTED', 'AWAITING_PAYMENT', 'PAUSED', 'ENDED'];
-    if (!editableStatuses.includes((existing.status || '').toString().toUpperCase())) {
+    // Campaign owners may tune live ads. Major creative, targeting, destination, or placement
+    // edits automatically leave delivery and re-enter review; budget/schedule tuning stays live.
+    const currentStatus = (existing.status || '').toString().toUpperCase();
+    const editableStatuses = ['DRAFT', 'REJECTED', 'AWAITING_PAYMENT', 'PAID', 'SUBMITTED_FOR_REVIEW', 'APPROVED', 'ACTIVE', 'PAUSED', 'ENDED'];
+    if (!editableStatuses.includes(currentStatus)) {
       return res.status(403).json({ success: false, error: 'Ad cannot be edited in its current status' });
     }
 
@@ -2179,8 +2265,14 @@ export const updateAd = async (req: Request, res: Response) => {
       }
     }
 
-    // Prevent creators from changing status via this endpoint
-    if ('status' in allowed) delete allowed.status;
+    const majorUpdateRequiresReview =
+      ['PAID', 'SUBMITTED_FOR_REVIEW', 'APPROVED', 'ACTIVE'].includes(currentStatus) &&
+      isMajorAdUpdate(payload, existing, allowed, existingTargeting, nextTargeting, placementsFromPayload);
+    if (majorUpdateRequiresReview) {
+      allowed.status = 'SUBMITTED_FOR_REVIEW';
+      allowed.adminReviewNotes = 'Major campaign update submitted by the owner. Review is required before live delivery.';
+    }
+
     const updated = await prisma.communityAd.update({ where: { id: adId }, data: allowed });
     if (payload.mediaFileIds !== undefined) {
       try { await syncFileUsages('community_ad', adId, updated.mediaFileIds || [], 'Community Ad Media'); } catch (e) {}
