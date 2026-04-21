@@ -55,6 +55,7 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import {
   buildPostVideoScrollViewerPath,
   stashPendingPostVideoScrollViewerSource,
@@ -286,9 +287,7 @@ const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
   ].map(normalizeOwnerToken).filter(Boolean);
   if (!storyOwnerTokens.some((token) => viewerTokens.includes(token))) return '';
 
-  const viewerAvatar = resolvePostAttachmentMediaUrl(
-    viewer?.avatarUrl || viewer?.avatar_url || viewer?.avatar || ''
-  );
+  const viewerAvatar = resolveUserAvatarUrl(viewer);
   if (viewerAvatar) return viewerAvatar;
 
   const viewerProfilePhotoFileId = String(
@@ -306,9 +305,11 @@ const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
       story?.author?.profilePhotoFileId ||
+      story?.author?.profile_photo_file_id ||
       story?.author?.avatarFileId ||
       story?.author?.avatar_file_id ||
       story?.user?.profilePhotoFileId ||
+      story?.user?.profile_photo_file_id ||
       story?.user?.avatarFileId ||
       story?.user?.avatar_file_id ||
       ''
@@ -317,24 +318,15 @@ const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
     return resolvePostAttachmentMediaUrl({ fileId: profilePhotoFileId });
   }
 
-  return resolvePostAttachmentMediaUrl({
-    url:
-      story?.authorAvatar ||
-      story?.author?.avatarUrl ||
-      story?.author?.avatar ||
-      story?.authorPhoto ||
-      story?.userAvatar ||
-      story?.user_avatar ||
-      story?.user?.avatarUrl ||
-      story?.user?.avatar ||
-      '',
-    fileId:
-      story?.authorAvatarFileId ||
-      story?.author?.avatarFileId ||
-      story?.author?.avatar_file_id ||
-      story?.user?.avatarFileId ||
-      story?.user?.avatar_file_id ||
-      ''
+  return resolveUserAvatarUrl({
+    ...story,
+    ...(story?.author || {}),
+    avatarUrl: story?.authorAvatar || story?.author?.avatarUrl || story?.userAvatar || story?.user?.avatarUrl,
+    avatar: story?.author?.avatar || story?.user?.avatar || story?.authorPhoto,
+    profilePhotoFileId: story?.authorAvatarFileId || story?.author?.profilePhotoFileId || story?.user?.profilePhotoFileId,
+    profile_photo_file_id: story?.author?.profile_photo_file_id || story?.user?.profile_photo_file_id,
+    avatarFileId: story?.author?.avatarFileId || story?.user?.avatarFileId,
+    avatar_file_id: story?.author?.avatar_file_id || story?.user?.avatar_file_id
   });
 };
 

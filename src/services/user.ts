@@ -8,6 +8,7 @@ import {
   UserSettings
 } from '../types';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { normalizeStorefrontSettings } from '../utils/storefront';
 
 const extractData = <T>(response: any): T => {
@@ -248,8 +249,8 @@ const mapProfile = (p: any): UserProfile => {
   const introVideoUrl = p.intro_video_url ?? p.introVideoUrl ?? '';
   const coverPhotoUrl = p.cover_photo_url ?? p.coverPhotoUrl ?? '';
   const profilePhotoFileId = p.profile_photo_file_id ?? p.profilePhotoFileId;
-  const avatarUrl = p.avatar_url ?? p.avatarUrl ?? p.avatar ?? undefined;
-  const resolvedAvatar = avatarUrl ? resolveAssetUrl(String(avatarUrl)) : undefined;
+  const resolvedAvatar =
+    resolveUserAvatarUrl({ ...p, profilePhotoFileId, profile_photo_file_id: profilePhotoFileId }) || undefined;
   const resolvedCover = coverPhotoUrl ? resolveAssetUrl(String(coverPhotoUrl)) : undefined;
   const professionalIdentity = normalizeProfessionalIdentity(p.professional_identity ?? p.professionalIdentity);
   return {
@@ -315,8 +316,9 @@ const mapProfile = (p: any): UserProfile => {
 };
 
 const mapUser = (u: any): User => {
-  const rawAvatar = u.avatar ?? u.avatar_url ?? u.avatarUrl ?? undefined;
-  const resolvedAvatar = rawAvatar ? resolveAssetUrl(String(rawAvatar)) : undefined;
+  const profilePhotoFileId = u.profile_photo_file_id ?? u.profilePhotoFileId;
+  const resolvedAvatar =
+    resolveUserAvatarUrl({ ...u, profilePhotoFileId, profile_photo_file_id: profilePhotoFileId }) || undefined;
   const normalizedKyc = String(u.kyc_status ?? u.kycStatus ?? '').toLowerCase();
   const isVerified = Boolean(u.isVerified ?? u.is_verified ?? normalizedKyc === 'verified');
   return {
@@ -326,8 +328,8 @@ const mapUser = (u: any): User => {
     role: u.role,
     username: u.username ?? u.user_name ?? u.userName,
     avatar: resolvedAvatar,
-  profilePhotoFileId: u.profile_photo_file_id ?? u.profilePhotoFileId,
-  profile_photo_file_id: u.profile_photo_file_id ?? u.profilePhotoFileId,
+  profilePhotoFileId,
+  profile_photo_file_id: profilePhotoFileId,
   isVerified,
   is_verified: isVerified,
   kycStatus: (u.kyc_status ?? u.kycStatus) as any,

@@ -1,7 +1,7 @@
 import api from './api';
 import { tokenStore } from './tokenStore';
 import { FollowOnboardingStatus, User, UserRole } from '../types';
-import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 
 type AuthResponse = { token?: string; user?: User; success?: boolean; error?: string };
 type CurrentUserResult = { user: User | null; unauthorized: boolean };
@@ -27,8 +27,7 @@ const mapRole = (role?: any): UserRole => {
 
 const normalizeUser = (user?: User): User | null => {
   if (!user) return null;
-  const rawAvatar = (user as any).avatar ?? (user as any).avatar_url ?? (user as any).avatarUrl ?? '';
-  const avatar = rawAvatar ? resolveAssetUrl(String(rawAvatar)) : undefined;
+  const avatar = resolveUserAvatarUrl(user) || undefined;
   return {
     ...user,
     role: mapRole(user.role),
