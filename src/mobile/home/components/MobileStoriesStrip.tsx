@@ -128,6 +128,20 @@ const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
 };
 
 const resolveStoryAuthorAvatar = (story: any) => {
+  const profilePhotoFileId = String(
+    story?.authorAvatarFileId ||
+      story?.author?.profilePhotoFileId ||
+      story?.author?.avatarFileId ||
+      story?.author?.avatar_file_id ||
+      story?.user?.profilePhotoFileId ||
+      story?.user?.avatarFileId ||
+      story?.user?.avatar_file_id ||
+      ''
+  ).trim();
+  if (profilePhotoFileId) {
+    return resolvePostAttachmentMediaUrl({ fileId: profilePhotoFileId });
+  }
+
   return resolvePostAttachmentMediaUrl({
     url:
       story?.authorAvatar ||
