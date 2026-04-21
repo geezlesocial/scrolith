@@ -299,11 +299,13 @@ const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
 };
 
 const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
-  const viewerAvatar = resolveViewerProfileAvatar(story, viewer);
-  if (viewerAvatar) return viewerAvatar;
-
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.profile_photo_file_id ||
+      story?.avatarFileId ||
+      story?.avatar_file_id ||
       story?.author?.profilePhotoFileId ||
       story?.author?.profile_photo_file_id ||
       story?.author?.avatarFileId ||
@@ -321,13 +323,34 @@ const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
   return resolveUserAvatarUrl({
     ...story,
     ...(story?.author || {}),
-    avatarUrl: story?.authorAvatar || story?.author?.avatarUrl || story?.userAvatar || story?.user?.avatarUrl,
-    avatar: story?.author?.avatar || story?.user?.avatar || story?.authorPhoto,
-    profilePhotoFileId: story?.authorAvatarFileId || story?.author?.profilePhotoFileId || story?.user?.profilePhotoFileId,
-    profile_photo_file_id: story?.author?.profile_photo_file_id || story?.user?.profile_photo_file_id,
-    avatarFileId: story?.author?.avatarFileId || story?.user?.avatarFileId,
-    avatar_file_id: story?.author?.avatar_file_id || story?.user?.avatar_file_id
-  });
+    avatarUrl:
+      story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl,
+    avatar:
+      story?.avatar ||
+      story?.author?.avatar ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo,
+    profilePhotoFileId:
+      story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.author?.profilePhotoFileId ||
+      story?.user?.profilePhotoFileId,
+    profile_photo_file_id:
+      story?.profile_photo_file_id ||
+      story?.author?.profile_photo_file_id ||
+      story?.user?.profile_photo_file_id,
+    avatarFileId: story?.avatarFileId || story?.author?.avatarFileId || story?.user?.avatarFileId,
+    avatar_file_id: story?.avatar_file_id || story?.author?.avatar_file_id || story?.user?.avatar_file_id
+  }) || resolveViewerProfileAvatar(story, viewer);
 };
 
 const resolveStoryAuthorInitial = (story: any) => {

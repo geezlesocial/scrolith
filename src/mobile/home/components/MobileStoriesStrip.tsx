@@ -169,9 +169,6 @@ const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
 };
 
 const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
-  const viewerAvatar = resolveViewerProfileAvatar(story, viewer);
-  if (viewerAvatar) return viewerAvatar;
-
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
       story?.author_avatar_file_id ||
@@ -223,7 +220,7 @@ const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
       story?.user?.profile_photo_file_id,
     avatarFileId: story?.avatarFileId || story?.author?.avatarFileId || story?.user?.avatarFileId,
     avatar_file_id: story?.avatar_file_id || story?.author?.avatar_file_id || story?.user?.avatar_file_id
-  });
+  }) || resolveViewerProfileAvatar(story, viewer);
 };
 
 const resolveStoryAuthorProfileUrl = (story: any) => {
