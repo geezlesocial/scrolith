@@ -47,6 +47,7 @@ type ScrollAdOverlayProps = {
   videoSkipDelaySeconds?: number;
   staticSkipDelaySeconds?: number;
   onClose: () => void;
+  onComplete?: () => void;
 };
 
 const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
@@ -55,7 +56,8 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
   muted,
   videoSkipDelaySeconds = DEFAULT_VIDEO_SKIP_DELAY_SECONDS,
   staticSkipDelaySeconds = DEFAULT_STATIC_SKIP_DELAY_SECONDS,
-  onClose
+  onClose,
+  onComplete
 }) => {
   const impressionRecordedRef = useRef('');
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
@@ -106,6 +108,10 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
     AdService.recordClick(ad.id).catch(() => undefined);
     openDestination(destination);
   }, [ad?.id, destination]);
+
+  const handleVideoEnded = useCallback(() => {
+    onComplete?.();
+  }, [onComplete]);
 
   if (!isOpen || !ad) return null;
 
@@ -165,6 +171,7 @@ const ScrollAdOverlay: React.FC<ScrollAdOverlayProps> = ({
                 muted={adMuted}
                 onMutedChange={setAdMuted}
                 loop={false}
+                onEnded={handleVideoEnded}
               />
             ) : (
               <img src={mediaUrl} alt={title} className="h-full w-full object-cover" loading="eager" />

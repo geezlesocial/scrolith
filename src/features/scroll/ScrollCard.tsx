@@ -37,6 +37,7 @@ type ScrollCardProps = {
   isActive: boolean;
   autoplayEnabled: boolean;
   autoAdvanceOnEnd?: boolean;
+  playbackBlocked?: boolean;
   muted: boolean;
   onToggleMute: () => void;
   onRequestNext?: () => Promise<void> | void;
@@ -105,6 +106,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   isActive,
   autoplayEnabled,
   autoAdvanceOnEnd = false,
+  playbackBlocked = false,
   muted,
   onToggleMute,
   onRequestNext,
@@ -135,6 +137,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const mediaLastTapAtRef = useRef(0);
   const controlsHideTimerRef = useRef<number | null>(null);
   const ownerMenuRef = useRef<HTMLDivElement | null>(null);
+  const resumeAfterPlaybackBlockRef = useRef(false);
   const [graphicRevealed, setGraphicRevealed] = useState(false);
   const [touchOverlayMode, setTouchOverlayMode] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -222,7 +225,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
   const resumePlaybackFromGesture = useCallback(() => {
     const video = videoRef.current;
-    if (!video || !mediaUrl || !isActive || !autoplayEnabled) return;
+    if (!video || !mediaUrl || !isActive || !autoplayEnabled || playbackBlocked) return;
     video.muted = muted;
     video.playsInline = true;
 
@@ -249,7 +252,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     try {
       video.load();
     } catch {}
-  }, [autoplayEnabled, isActive, mediaUrl, muted]);
+  }, [autoplayEnabled, isActive, mediaUrl, muted, playbackBlocked]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -325,7 +328,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     if (!video) return;
 
     const tryPlay = () => {
-      if (!isActive || !autoplayEnabled || document.hidden) return;
+      if (!isActive || !autoplayEnabled || playbackBlocked || document.hidden) return;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(() => {
@@ -351,6 +354,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       return;
     }
 
+    if (playbackBlocked) {
+      resumeAfterPlaybackBlockRef.current = !video.paused;
+      video.pause();
+      return;
+    }
+
     tryPlay();
     video.addEventListener('loadedmetadata', tryPlay);
     video.addEventListener('canplay', tryPlay);
@@ -359,7 +368,17 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       video.removeEventListener('loadedmetadata', tryPlay);
       video.removeEventListener('canplay', tryPlay);
     };
-  }, [autoAdvanceOnEnd, autoplayEnabled, isActive, muted, scroll.id]);
+  }, [autoAdvanceOnEnd, autoplayEnabled, isActive, muted, playbackBlocked, scroll.id]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isActive || !autoplayEnabled || playbackBlocked) return;
+    if (!resumeAfterPlaybackBlockRef.current || document.hidden) return;
+    resumeAfterPlaybackBlockRef.current = false;
+    video.muted = muted;
+    video.playsInline = true;
+    void video.play().catch(() => undefined);
+  }, [autoplayEnabled, isActive, muted, playbackBlocked, scroll.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -369,13 +388,13 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         video.pause();
         return;
       }
-      if (isActive && autoplayEnabled) {
+      if (isActive && autoplayEnabled && !playbackBlocked) {
         void video.play().catch(() => undefined);
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [autoplayEnabled, isActive]);
+  }, [autoplayEnabled, isActive, playbackBlocked]);
 
   const handleVideoEnded = useCallback(() => {
     if (!autoAdvanceOnEnd || !isActive) return;
@@ -564,7 +583,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               muted={muted}
               loop={!autoAdvanceOnEnd}
               playsInline
-              autoPlay={autoplayEnabled && isActive}
+              autoPlay={autoplayEnabled && isActive && !playbackBlocked}
               controls={!autoplayEnabled}
               controlsList={!autoplayEnabled ? 'nodownload' : undefined}
               preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}

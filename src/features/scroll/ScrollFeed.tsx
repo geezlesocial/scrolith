@@ -143,6 +143,22 @@ const getAdPlacements = (ad: AdCampaign) => {
   return Array.from(new Set(source.map((entry: any) => String(entry || '').trim()).filter(Boolean)));
 };
 
+const getAdPrimaryMedia = (ad: AdCampaign | null | undefined) => {
+  if (!ad) return null;
+  const media = Array.isArray(ad.media) && ad.media.length > 0 ? ad.media[0] : null;
+  if (media?.url) return media;
+  const creativeUrl = String((ad as any).creativeUrl || (ad as any).creative_url || '').trim();
+  if (creativeUrl) return { url: creativeUrl, mimeType: 'image/*' };
+  return null;
+};
+
+const isVideoAdCreative = (ad: AdCampaign | null | undefined) => {
+  const media = getAdPrimaryMedia(ad);
+  const mimeType = String((media as any)?.mimeType || (media as any)?.type || '').toLowerCase();
+  const url = String((media as any)?.url || '').toLowerCase();
+  return mimeType.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
+};
+
 const buildPacedScrollAdPool = (
   preRollAds: AdCampaign[],
   feedAds: AdCampaign[],
@@ -1654,6 +1670,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const activeScrollUrl = activeActionScroll?.id ? buildScrollUrl(activeActionScroll.id) : '';
   const activeActionPostBridge = activeActionScroll ? getPostBridgeSource(activeActionScroll) : null;
+  const activeVideoScrollAdOpen = Boolean(activeScrollAd?.ad && isVideoAdCreative(activeScrollAd.ad));
   const handleClose = useCallback(() => {
     if (embedded && onClose) {
       onClose();
@@ -1808,6 +1825,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   scroll={scroll}
                   isActive={index === activeIndex}
                   autoAdvanceOnEnd={autoAdvanceOnEnd}
+                  playbackBlocked={activeVideoScrollAdOpen && activeScrollAd?.scrollId === scroll.id}
                   initialIsFollowing={
                     (() => {
                       const authorId = String(scroll.author?.id || scroll.authorId || '').trim();
@@ -1854,6 +1872,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         videoSkipDelaySeconds={scrollAdPolicy.videoSkipDelaySeconds}
         staticSkipDelaySeconds={scrollAdPolicy.staticSkipDelaySeconds}
         onClose={() => setActiveScrollAd(null)}
+        onComplete={() => setActiveScrollAd(null)}
       />
 
       {showLiveDiscovery && liveDiscoveryOpen ? (

@@ -5,7 +5,7 @@ import App from './App'
 import './index.css'
 import { installMobileObservability } from './mobile/runtime/mobileObservability'
 
-const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v3'
+const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v4'
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement

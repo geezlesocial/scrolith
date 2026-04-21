@@ -174,6 +174,11 @@ const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
 
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.profile_photo_file_id ||
+      story?.avatarFileId ||
+      story?.avatar_file_id ||
       story?.author?.profilePhotoFileId ||
       story?.author?.profile_photo_file_id ||
       story?.author?.avatarFileId ||
@@ -191,12 +196,33 @@ const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
   return resolveUserAvatarUrl({
     ...story,
     ...(story?.author || {}),
-    avatarUrl: story?.authorAvatar || story?.author?.avatarUrl || story?.userAvatar || story?.user?.avatarUrl,
-    avatar: story?.author?.avatar || story?.user?.avatar || story?.authorPhoto,
-    profilePhotoFileId: story?.authorAvatarFileId || story?.author?.profilePhotoFileId || story?.user?.profilePhotoFileId,
-    profile_photo_file_id: story?.author?.profile_photo_file_id || story?.user?.profile_photo_file_id,
-    avatarFileId: story?.author?.avatarFileId || story?.user?.avatarFileId,
-    avatar_file_id: story?.author?.avatar_file_id || story?.user?.avatar_file_id
+    avatarUrl:
+      story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl,
+    avatar:
+      story?.avatar ||
+      story?.author?.avatar ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo,
+    profilePhotoFileId:
+      story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.author?.profilePhotoFileId ||
+      story?.user?.profilePhotoFileId,
+    profile_photo_file_id:
+      story?.profile_photo_file_id ||
+      story?.author?.profile_photo_file_id ||
+      story?.user?.profile_photo_file_id,
+    avatarFileId: story?.avatarFileId || story?.author?.avatarFileId || story?.user?.avatarFileId,
+    avatar_file_id: story?.avatar_file_id || story?.author?.avatar_file_id || story?.user?.avatar_file_id
   });
 };
 
@@ -313,7 +339,7 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
-const STORIES_CACHE_VERSION = 'v3';
+const STORIES_CACHE_VERSION = 'v4';
 const LIVE_CACHE_TTL_MS = 90 * 1000;
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
@@ -437,6 +463,10 @@ export default function MobileStoriesStrip({
   const [storyPreviewMediaErrors, setStoryPreviewMediaErrors] = useState<Record<string, boolean>>({});
   const [storyAvatarErrors, setStoryAvatarErrors] = useState<Record<string, boolean>>({});
   const [scrollAvatarErrors, setScrollAvatarErrors] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setStoryAvatarErrors({});
+  }, [currentUserId, storiesReloadTick]);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<'choose' | 'compose'>('choose');
@@ -1522,23 +1552,17 @@ export default function MobileStoriesStrip({
                         </div>
                       )}
                         <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                          {avatar && !avatarFailed ? (
-                            <OptimizedImage
-                              src={avatar}
-                              alt={name}
-                              width={56}
-                              height={56}
-                              sizes="28px"
-                              className="h-full w-full object-cover"
-                              onError={() =>
-                                setStoryAvatarErrors((prev) =>
-                                  prev[id] ? prev : { ...prev, [id]: true }
-                                )
-                              }
-                            />
-                          ) : (
-                            <span>{fallbackLetter}</span>
-                          )}
+                          <StoryAuthorAvatar
+                            src={avatar}
+                            name={name}
+                            initial={fallbackLetter}
+                            className="inline-flex h-full w-full items-center justify-center bg-slate-700 text-[11px] font-semibold text-white"
+                            imageClassName="h-full w-full object-cover"
+                            width={56}
+                            height={56}
+                            sizes="28px"
+                            loading="eager"
+                          />
                       </div>
                       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                         <p className="line-clamp-1 text-[10px] font-semibold text-white">{name}</p>
