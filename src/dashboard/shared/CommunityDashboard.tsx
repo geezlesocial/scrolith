@@ -2892,13 +2892,6 @@ const CommunityDashboard: React.FC = () => {
             Save draft
           </button>
           <button
-            onClick={() => handleAdSubmit('submit')}
-            disabled={adActionLoading}
-            className="rounded-2xl bg-gradient-to-r from-indigo-500 to-sky-600 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            Submit for review
-          </button>
-          <button
             onClick={() => handleAdSubmit('pay')}
             disabled={adActionLoading}
             className="rounded-2xl bg-slate-900 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white"
