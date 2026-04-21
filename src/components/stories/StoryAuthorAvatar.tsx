@@ -27,18 +27,33 @@ export default function StoryAuthorAvatar({
   const imageSrc = String(src || '').trim();
   const resolvedImageSrc = imageSrc ? resolveAssetUrl(imageSrc) : '';
   const [failedSrc, setFailedSrc] = React.useState('');
+  const [retryNonce, setRetryNonce] = React.useState(0);
   const fallbackInitial = String(initial || name || 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase() || 'S';
   const shouldRenderImage = Boolean(resolvedImageSrc) && failedSrc !== resolvedImageSrc;
+  const displayImageSrc =
+    shouldRenderImage && retryNonce > 0 && resolvedImageSrc.includes('/api/files/content/')
+      ? `${resolvedImageSrc}${resolvedImageSrc.includes('?') ? '&' : '?'}avatarRetry=${retryNonce}`
+      : resolvedImageSrc;
 
   React.useEffect(() => {
-    if (!resolvedImageSrc) setFailedSrc('');
+    setFailedSrc('');
+    setRetryNonce(0);
   }, [resolvedImageSrc]);
+
+  React.useEffect(() => {
+    if (!failedSrc || failedSrc !== resolvedImageSrc) return;
+    const retryTimer = window.setTimeout(() => {
+      setFailedSrc('');
+      setRetryNonce((current) => current + 1);
+    }, 2500);
+    return () => window.clearTimeout(retryTimer);
+  }, [failedSrc, resolvedImageSrc]);
 
   return (
     <div className={className}>
       {shouldRenderImage ? (
         <img
-          src={resolvedImageSrc}
+          src={displayImageSrc}
           alt={name}
           width={width}
           height={height}

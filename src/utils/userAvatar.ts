@@ -9,6 +9,32 @@ const pickFirstString = (...values: unknown[]) => {
   return '';
 };
 
+const looksLikeDirectAvatarUrl = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('/') ||
+    normalized.startsWith('data:') ||
+    normalized.startsWith('blob:') ||
+    normalized.includes('/uploads/') ||
+    normalized.includes('/api/files/content/') ||
+    normalized.includes('?') ||
+    normalized.includes('.png') ||
+    normalized.includes('.jpg') ||
+    normalized.includes('.jpeg') ||
+    normalized.includes('.webp') ||
+    normalized.includes('.gif')
+  );
+};
+
+const looksLikeFileId = (value: string) => {
+  const normalized = String(value || '').trim();
+  if (!normalized || looksLikeDirectAvatarUrl(normalized)) return false;
+  return /^[a-z0-9_-]{12,}$/i.test(normalized);
+};
+
 export const resolveUserAvatarUrl = (userLike: any): string => {
   if (!userLike) return '';
 
@@ -32,9 +58,12 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
     userLike.userAvatarFileId
   );
 
-  const resolved = resolvePostAttachmentMediaUrl({ url: directUrl, fileId });
+  const effectiveFileId = fileId || (looksLikeFileId(directUrl) ? directUrl : '');
+  const effectiveDirectUrl = effectiveFileId === directUrl ? '' : directUrl;
+
+  const resolved = resolvePostAttachmentMediaUrl({ url: effectiveDirectUrl, fileId: effectiveFileId });
   if (resolved) return resolved;
-  if (directUrl) return resolveAssetUrl(directUrl);
-  if (fileId) return resolvePostAttachmentMediaUrl({ fileId });
+  if (effectiveDirectUrl) return resolveAssetUrl(effectiveDirectUrl);
+  if (effectiveFileId) return resolvePostAttachmentMediaUrl({ fileId: effectiveFileId });
   return '';
 };
