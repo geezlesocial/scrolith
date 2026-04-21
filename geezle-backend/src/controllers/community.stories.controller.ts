@@ -35,6 +35,23 @@ const resolveStoredFileUrl = (
   return directUrl || file.url || null;
 };
 
+const resolveUserProfilePhotoUrl = async (
+  author: { avatar?: string | null; profilePhotoFileId?: string | null } | null | undefined,
+  req?: Request
+) => {
+  const baseUrl = getBaseFileUrl(req);
+  const profilePhotoFileId = String(author?.profilePhotoFileId || '').trim();
+  if (profilePhotoFileId) {
+    const file = await prisma.file.findUnique({ where: { id: profilePhotoFileId } }).catch(() => null);
+    if (file) {
+      const profilePhotoUrl = resolveStoredFileUrl(file, baseUrl);
+      if (profilePhotoUrl) return profilePhotoUrl;
+    }
+  }
+
+  return resolveDirectMediaUrl(author?.avatar, baseUrl) || author?.avatar || null;
+};
+
 const getStoryExpiryHours = async () => {
   const cfg = await prisma.communityConfig.findFirst();
   return cfg?.storyExpiryHours ?? 24;
@@ -230,13 +247,25 @@ const buildStoryPayload = async (
     ? likesCountOverride
     : (story?._count?.likes ?? story?.likesCount ?? 0);
   const viewerLiked = Array.isArray(story?.likes) ? story.likes.length > 0 : Boolean(story?.viewerLiked);
+  const authorAvatar = await resolveUserProfilePhotoUrl(story.author, req);
+  const authorAvatarFileId = story.author?.profilePhotoFileId || null;
+  const authorName = story.author?.name || story.author?.username || 'Anonymous';
   return {
     id: story.id,
     authorId: story.authorId,
-    authorName: story.author?.name || 'Anonymous',
-    authorAvatar: resolveDirectMediaUrl(story.author?.avatar, getBaseFileUrl(req)) || story.author?.avatar || null,
-    authorAvatarFileId: story.author?.profilePhotoFileId || null,
+    authorName,
+    authorAvatar,
+    authorAvatarFileId,
     authorUsername: story.author?.username || null,
+    author: {
+      id: story.author?.id || story.authorId,
+      name: authorName,
+      username: story.author?.username || null,
+      avatarUrl: authorAvatar,
+      avatar: authorAvatar,
+      profilePhotoFileId: authorAvatarFileId,
+      avatarFileId: authorAvatarFileId
+    },
     type: story.type,
     content: story.content,
     caption: story.content,
