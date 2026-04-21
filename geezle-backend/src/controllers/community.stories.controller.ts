@@ -35,21 +35,31 @@ const resolveStoredFileUrl = (
   return directUrl || file.url || null;
 };
 
+const looksLikeStoredFileId = (value?: string | null) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return false;
+  if (normalized.startsWith('/') || normalized.includes('/') || normalized.includes('.') || normalized.includes('?')) return false;
+  return /^[a-z0-9_-]{12,}$/i.test(normalized);
+};
+
 const resolveUserProfilePhotoUrl = async (
   author: { avatar?: string | null; profilePhotoFileId?: string | null } | null | undefined,
   req?: Request
 ) => {
   const baseUrl = getBaseFileUrl(req);
+  const avatar = String(author?.avatar || '').trim();
   const profilePhotoFileId = String(author?.profilePhotoFileId || '').trim();
-  if (profilePhotoFileId) {
-    const file = await prisma.file.findUnique({ where: { id: profilePhotoFileId } }).catch(() => null);
+  const avatarFileId = profilePhotoFileId || (looksLikeStoredFileId(avatar) ? avatar : '');
+  if (avatarFileId) {
+    const file = await prisma.file.findUnique({ where: { id: avatarFileId } }).catch(() => null);
     if (file) {
       const profilePhotoUrl = resolveStoredFileUrl(file, baseUrl);
       if (profilePhotoUrl) return profilePhotoUrl;
     }
   }
 
-  return resolveDirectMediaUrl(author?.avatar, baseUrl) || author?.avatar || null;
+  return resolveDirectMediaUrl(avatar, baseUrl) || avatar || null;
 };
 
 const getStoryExpiryHours = async () => {

@@ -1799,7 +1799,14 @@ export const serveFileContent = async (req: Request, res: Response) => {
     const isProfilePhotoFile =
       String(file.mimeType || '').toLowerCase().startsWith('image/') &&
       (await prisma.user
-        .count({ where: { profilePhotoFileId: file.id } })
+        .count({
+          where: {
+            OR: [
+              { profilePhotoFileId: file.id },
+              { avatar: file.id }
+            ]
+          }
+        })
         .then((count) => count > 0)
         .catch(() => false));
     const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
