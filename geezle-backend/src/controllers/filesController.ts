@@ -1796,18 +1796,28 @@ export const serveFileContent = async (req: Request, res: Response) => {
       return;
     }
 
+    const isProfilePhotoFile =
+      String(file.mimeType || '').toLowerCase().startsWith('image/') &&
+      (await prisma.user
+        .count({ where: { profilePhotoFileId: file.id } })
+        .then((count) => count > 0)
+        .catch(() => false));
     const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
+    // Profile photos are intentionally public identity assets. They may have
+    // been uploaded through private file flows, but browsers cannot attach app
+    // bearer tokens to <img> requests, so allow read-only avatar delivery here.
+    const canServeAsPublicProfilePhoto = isPrivate && isProfilePhotoFile;
     const canAccessPrivate =
       Boolean(requester?.id) &&
       (isAdmin ||
         requester?.id === file.ownerId ||
         (await canRequesterAccessPrivateMessengerFile(file.id, String(requester?.id || ''))));
-    if (isPrivate && !canAccessPrivate) {
+    if (isPrivate && !canAccessPrivate && !canServeAsPublicProfilePhoto) {
       res.status(403).json({ success: false, error: 'You do not have access to this file' });
       return;
     }
 
-    const cacheControl = isPrivate
+    const cacheControl = isPrivate && !canServeAsPublicProfilePhoto
       ? 'private, no-store, max-age=0'
       : 'public, max-age=31536000, immutable';
     const imageVariant = parseImageVariantRequest(req);
