@@ -77,6 +77,7 @@ import PostOriginPreview from '../post/PostOriginPreview';
 import TranslatablePostText from '../translation/TranslatablePostText';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../member-home/MemberHomeHighlightsBoard';
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
+import StoryAuthorAvatar from '../stories/StoryAuthorAvatar';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
 import {
@@ -6555,20 +6556,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             const authorAvatar = resolveStoryAuthorAvatar(story);
                             const authorInitial = resolveStoryAuthorInitial(story);
                             return (
-                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                                {authorAvatar ? (
-                                  <OptimizedImage
-                                    src={authorAvatar}
-                                    alt={authorName}
-                                    width={56}
-                                    height={56}
-                                    sizes="28px"
-                                    className="h-full w-full object-cover"
-                                  />
-                                ) : (
-                                  <span>{authorInitial}</span>
-                                )}
-                              </div>
+                              <StoryAuthorAvatar
+                                src={authorAvatar}
+                                name={authorName}
+                                initial={authorInitial}
+                                className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow"
+                                width={56}
+                                height={56}
+                                sizes="28px"
+                              />
                             );
                           })()}
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
@@ -8418,13 +8414,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     const authorInitial = resolveStoryAuthorInitial(activeStory);
                     return (
                       <>
-                        <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-700 text-xs font-semibold text-white">
-                          {authorAvatar ? (
-                            <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                          ) : (
-                            <span>{authorInitial}</span>
-                          )}
-                        </div>
+                        <StoryAuthorAvatar
+                          src={authorAvatar}
+                          name={authorName}
+                          initial={authorInitial}
+                          className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-700 text-xs font-semibold text-white"
+                          width={72}
+                          height={72}
+                          sizes="36px"
+                        />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-slate-900">{authorName}</p>
                           <div className="mt-1 flex flex-wrap items-center gap-2">

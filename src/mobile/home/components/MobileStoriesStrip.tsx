@@ -45,6 +45,7 @@ import { LiveService, type LiveSession } from '../../../services/live';
 import { buildPublicAppUrl } from '../../../utils/siteUrl';
 import StoryUploadStatusCard from '../../../components/stories/StoryUploadStatusCard';
 import StoryReplySheet from '../../../components/stories/StoryReplySheet';
+import StoryAuthorAvatar from '../../../components/stories/StoryAuthorAvatar';
 import {
   MOBILE_MODAL_CARD_CLASS,
   MOBILE_PAGE_CONTAINER_CLASS,
@@ -1450,7 +1451,7 @@ export default function MobileStoriesStrip({
                             }
                           />
                         )
-                      ) : avatar ? (
+                      ) : avatar && !avatarFailed ? (
                         <OptimizedImage
                           src={avatar}
                           alt={name}
@@ -1458,6 +1459,11 @@ export default function MobileStoriesStrip({
                           height={376}
                           sizes={STORY_RAIL_MEDIA_SIZES}
                           className="pointer-events-none h-full w-full object-cover"
+                          onError={() =>
+                            setStoryAvatarErrors((prev) =>
+                              prev[id] ? prev : { ...prev, [id]: true }
+                            )
+                          }
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
@@ -2234,15 +2240,15 @@ function StoryViewer({
             <div className="flex min-w-0 items-center gap-3">
               {authorProfileUrl ? (
                 <button type="button" onClick={openAuthorProfile} className="flex min-w-0 items-center gap-3 text-left">
-                  <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
-                    {avatar ? (
-                      <OptimizedImage src={avatar} alt={name} width={72} height={72} sizes="36px" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
-                        {(name[0] || 'S').toUpperCase()}
-                      </div>
-                    )}
-                  </div>
+                  <StoryAuthorAvatar
+                    src={avatar}
+                    name={name}
+                    initial={name[0] || 'S'}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white"
+                    width={72}
+                    height={72}
+                    sizes="36px"
+                  />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{name}</div>
                     <div className="truncate text-[11px] text-white/70">Open profile</div>
@@ -2250,15 +2256,15 @@ function StoryViewer({
                 </button>
               ) : (
                 <>
-                  <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
-                    {avatar ? (
-                      <OptimizedImage src={avatar} alt={name} width={72} height={72} sizes="36px" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
-                        {(name[0] || 'S').toUpperCase()}
-                      </div>
-                    )}
-                  </div>
+                  <StoryAuthorAvatar
+                    src={avatar}
+                    name={name}
+                    initial={name[0] || 'S'}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white"
+                    width={72}
+                    height={72}
+                    sizes="36px"
+                  />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold">{name}</div>
                   </div>
