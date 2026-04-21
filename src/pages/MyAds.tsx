@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   ArrowUpRight,
@@ -403,6 +403,7 @@ const MyAds = () => {
   const [statusFilter, setStatusFilter] = useState<StudioStatusFilter>('all');
   const [sortMode, setSortMode] = useState<StudioSortMode>('attention');
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const studioPanelRef = useRef<HTMLElement | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
@@ -448,7 +449,7 @@ const MyAds = () => {
     return Array.from(new Set([...configured, ...selected]));
   }, [adsConfig, form.targetCountries]);
 
-  const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
+  const maxPlacements = Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? 8)));
   const maxImageAssets = Math.max(1, Math.min(12, Number(adsConfig?.maxImageAssets ?? 6)));
   const maxVideoAssets = Math.max(1, Math.min(3, Number(adsConfig?.maxVideoAssets ?? 1)));
   const minBudget = Math.max(0, Number(adsConfig?.minBudget ?? 10));
@@ -1260,6 +1261,13 @@ const MyAds = () => {
     setFormOpen(true);
   };
 
+  const openStudio = useCallback((ad: AdCampaign) => {
+    setSelectedCampaignId(ad.id);
+    window.requestAnimationFrame(() => {
+      studioPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
+
   const openEdit = (ad: AdCampaign) => {
     setPromotionSelection(buildPromotionSelectionFromAd(ad));
     setPromotionLoading(false);
@@ -1268,7 +1276,7 @@ const MyAds = () => {
     setFormGatewayId(adGatewaySelections[ad.id] || getPreferredCheckoutGatewayId());
     setForm(buildFormFromAd(ad));
     setFormOpen(true);
-    setSelectedCampaignId(ad.id);
+    openStudio(ad);
   };
 
   const openDuplicate = (ad: AdCampaign) => {
@@ -1283,7 +1291,7 @@ const MyAds = () => {
     });
     setFormGatewayId(adGatewaySelections[ad.id] || getPreferredCheckoutGatewayId());
     setFormOpen(true);
-    setSelectedCampaignId(ad.id);
+    openStudio(ad);
   };
 
   const handleDelete = async (id: string) => {
@@ -1554,7 +1562,16 @@ const MyAds = () => {
           if (!updated) throw new Error('Unable to update ad.');
           adId = updated.id || editingAdId;
           if (mode === 'draft') {
-            showNotification('success', 'Updated', 'Ad updated successfully.');
+            const updatedStatus = normalizeCampaignStatus(updated.status);
+            if (updatedStatus === 'submitted_for_review') {
+              showNotification(
+                'success',
+                'Submitted for review',
+                'Major campaign changes were saved and sent back to review automatically.'
+              );
+            } else {
+              showNotification('success', 'Updated', 'Ad updated successfully.');
+            }
           }
         } catch (updateError: any) {
           if (mode === 'draft') throw updateError;
@@ -1699,7 +1716,17 @@ const MyAds = () => {
 
   const getCampaignCapabilities = useCallback((ad: AdCampaign) => {
     const status = normalizeCampaignStatus(ad.status);
-    const canEdit = ['draft', 'rejected', 'awaiting_payment', 'paused', 'ended'].includes(status);
+    const canEdit = [
+      'draft',
+      'rejected',
+      'awaiting_payment',
+      'paid',
+      'submitted_for_review',
+      'approved',
+      'active',
+      'paused',
+      'ended'
+    ].includes(status);
     const canPay = ['draft', 'rejected', 'awaiting_payment'].includes(status);
     const canSubmit = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
     const canDelete = [
@@ -2167,7 +2194,7 @@ const MyAds = () => {
                 return (
                   <article
                     key={ad.id}
-                    onClick={() => setSelectedCampaignId(ad.id)}
+                    onClick={() => openStudio(ad)}
                     className={`overflow-hidden rounded-[1.75rem] border bg-white shadow-sm transition ${
                       isSelected
                         ? 'border-sky-400 shadow-[0_20px_60px_rgba(14,165,233,0.16)]'
@@ -2229,8 +2256,9 @@ const MyAds = () => {
                           </div>
                           <button
                             onClick={(event) => {
+                              event.preventDefault();
                               event.stopPropagation();
-                              setSelectedCampaignId(ad.id);
+                              openStudio(ad);
                             }}
                             className="inline-flex items-center gap-2 self-start rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
                           >
@@ -2411,7 +2439,7 @@ const MyAds = () => {
           )}
         </div>
 
-        <aside className="space-y-4 xl:sticky xl:top-24 xl:self-start">
+        <aside ref={studioPanelRef} className="space-y-4 xl:sticky xl:top-24 xl:self-start">
           <div className="overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-5 py-4">
               <div className="flex items-center justify-between gap-3">

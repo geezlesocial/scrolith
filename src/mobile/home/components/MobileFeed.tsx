@@ -1499,7 +1499,6 @@ export default function MobileFeed({
     }
     if (feedSettings.showPromoted === false) return;
     if (!secondaryFeedReady) return;
-    if (loading || error) return;
     const requestId = promotedAdsRequestIdRef.current + 1;
     promotedAdsRequestIdRef.current = requestId;
     const delayMs = constrainedForFeed ? 1800 : 900;
@@ -1507,7 +1506,8 @@ export default function MobileFeed({
       Promise.allSettled([
         CommunityService.getPublicAds({ placement: 'homepage_feed', limit: constrainedForFeed ? 4 : 8 }),
         CommunityService.getPublicAds({ placement: 'community_feed', limit: constrainedForFeed ? 4 : 8 }),
-        CommunityService.getPublicAds({ placement: 'scroll_feed', limit: constrainedForFeed ? 4 : 8 })
+        CommunityService.getPublicAds({ placement: 'scroll_feed', limit: constrainedForFeed ? 4 : 8 }),
+        CommunityService.getPublicAds({ placement: 'scroll_preroll', limit: constrainedForFeed ? 2 : 4 })
       ])
         .then((results) => {
           if (promotedAdsRequestIdRef.current !== requestId) return;
@@ -1526,7 +1526,7 @@ export default function MobileFeed({
           setAds([]);
         });
     }, delayMs);
-  }, [constrainedForFeed, error, feedSettings.showPromoted, loading, secondaryFeedReady]);
+  }, [constrainedForFeed, feedSettings.showPromoted, secondaryFeedReady]);
 
   useEffect(() => {
     loadPromotedAds();

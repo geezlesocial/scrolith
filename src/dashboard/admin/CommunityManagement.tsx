@@ -1833,10 +1833,15 @@ const AdManager = () => {
                                     <input
                                         type="number"
                                         min={1}
-                                        max={3}
+                                        max={8}
                                         className="w-full border rounded p-2"
-                                        value={adsConfig?.maxPlacementsPerAd ?? 3}
-                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxPlacementsPerAd: Number(e.target.value || 1) }))}
+                                        value={adsConfig?.maxPlacementsPerAd ?? 8}
+                                        onChange={(e) =>
+                                            setAdsConfig((prev: any) => ({
+                                                ...prev,
+                                                maxPlacementsPerAd: Math.max(1, Math.min(8, Number(e.target.value || 1)))
+                                            }))
+                                        }
                                     />
                                 </div>
                                 <div>

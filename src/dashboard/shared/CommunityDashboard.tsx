@@ -2656,7 +2656,7 @@ const CommunityDashboard: React.FC = () => {
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>Where should the ad appear?</span>
-            <span>Select up to {Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)))}</span>
+            <span>Select up to {Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? 8)))}</span>
           </div>
           <div className="grid gap-2 md:grid-cols-3">
             {[
@@ -2680,7 +2680,7 @@ const CommunityDashboard: React.FC = () => {
                     key={option.value}
                     type="button"
                     onClick={() => {
-                      const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
+                      const maxPlacements = Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? 8)));
                       if (selected) {
                         setAdDraft((prev) => ({
                           ...prev,
