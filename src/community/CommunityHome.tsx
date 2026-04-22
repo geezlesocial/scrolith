@@ -75,6 +75,7 @@ import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryAuthorAvatar from '../components/stories/StoryAuthorAvatar';
 import StoryReplySheet from '../components/stories/StoryReplySheet';
 import { pickInterestSurveyCandidateId } from '../components/recommendation/ContentInterestSurvey';
+import { RecoService } from '../services/reco';
 import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
@@ -107,6 +108,18 @@ const toPreviewMedia = (media: any): PreviewMedia | null => {
     thumbnailUrl: media?.thumbnailUrl || media?.thumbnail_url || null,
     duration: media?.duration
   };
+};
+
+const extractCommunityFeedItems = (payload: any): any[] => {
+  if (Array.isArray(payload?.data?.data?.items)) return payload.data.data.items;
+  if (Array.isArray(payload?.data?.data?.posts)) return payload.data.data.posts;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.posts)) return payload.posts;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.data?.posts)) return payload.data.posts;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload)) return payload;
+  return [];
 };
 
 const GRAPHIC_WARNING_LABEL = 'Graphic warning';
@@ -441,6 +454,9 @@ const CommunityHome = () => {
   const [trendingTopics, setTrendingTopics] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [topContributors, setTopContributors] = useState<any[]>([]);
+  const [recommendedCommunityPeople, setRecommendedCommunityPeople] = useState<any[]>([]);
+  const [recommendedCommunityPages, setRecommendedCommunityPages] = useState<any[]>([]);
+  const [pageFollowBusy, setPageFollowBusy] = useState<Record<string, boolean>>({});
   const [discussions, setDiscussions] = useState<any[]>([]);
   const [communityStats, setCommunityStats] = useState({
     members: 0,
@@ -707,6 +723,53 @@ const CommunityHome = () => {
     },
     [triggerPostDoubleTapLike]
   );
+
+  const buildContributorUrl = useCallback((entry?: any) => {
+    const handle = String(entry?.username || entry?.userName || '').trim().replace(/^@+/, '');
+    if (handle) return `/u/${encodeURIComponent(handle)}`;
+    const id = String(entry?.id || entry?.userId || '').trim();
+    return id ? `/profile/${encodeURIComponent(id)}` : '/community';
+  }, []);
+
+  const buildCommunityPageUrl = useCallback((page?: any) => {
+    const slug = String(page?.slug || page?.handle || page?.username || '').trim().replace(/^@+/, '');
+    if (slug) return `/company/${encodeURIComponent(slug)}`;
+    const id = String(page?.id || page?.pageId || '').trim();
+    return id ? `/community/pages/${encodeURIComponent(id)}` : '/community';
+  }, []);
+
+  const handleCommunityPageFollow = useCallback(async (page: any) => {
+    const pageId = String(page?.id || page?.pageId || '').trim();
+    if (!pageId) return;
+    if (!user?.id) {
+      if (confirm('Log in to follow pages?')) window.location.href = '/auth/login';
+      return;
+    }
+    if (pageFollowBusy[pageId]) return;
+    const wasFollowing = Boolean(page?.isFollowing);
+    setPageFollowBusy((prev) => ({ ...prev, [pageId]: true }));
+    setRecommendedCommunityPages((prev) =>
+      prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: !wasFollowing } : item))
+    );
+    try {
+      if (wasFollowing && page?.followId) {
+        await CommunityService.unfollowTarget(String(page.followId));
+      } else if (!wasFollowing) {
+        const response = await CommunityService.followTarget({ targetType: 'page', targetId: pageId });
+        const followId = response?.id || response?.followId || response?.data?.id || null;
+        setRecommendedCommunityPages((prev) =>
+          prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: true, followId } : item))
+        );
+      }
+    } catch (error) {
+      setRecommendedCommunityPages((prev) =>
+        prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: wasFollowing } : item))
+      );
+      console.error('Failed to update page follow status', error);
+    } finally {
+      setPageFollowBusy((prev) => ({ ...prev, [pageId]: false }));
+    }
+  }, [pageFollowBusy, user?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1016,19 +1079,65 @@ const CommunityHome = () => {
           homepageConfigResult,
           storiesFeedResult,
           scrollFeedResult,
-          overviewResult
+          overviewResult,
+          pagesResult,
+          peopleResult
         ] = await Promise.allSettled([
           CommunityService.getPosts({ limit: postsLimit }),
-          AdService.getAds(user?.role),
+          Promise.allSettled([
+            CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
+            CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 6 })
+          ]).then((results) => {
+            const merged: any[] = [];
+            results.forEach((result) => {
+              if (result.status === 'fulfilled' && Array.isArray(result.value)) merged.push(...result.value);
+            });
+            const seen = new Set<string>();
+            return merged.filter((ad) => {
+              const id = String(ad?.id || '').trim();
+              if (!id || seen.has(id)) return false;
+              seen.add(id);
+              return true;
+            });
+          }),
           CommunityService.getCommunityHomepage(),
           CommunityService.getStoriesFeed(),
           ScrollService.getFeed({ limit: reelsLimit }),
-          loadCommunityOverview()
+          loadCommunityOverview(),
+          CommunityService.getRecommendedBusinessPages(4),
+          user?.id
+            ? Promise.allSettled([
+                RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
+                RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
+              ]).then((results) => {
+                const merged: any[] = [];
+                results.forEach((result) => {
+                  if (result.status === 'fulfilled' && Array.isArray(result.value)) merged.push(...result.value);
+                });
+                const seen = new Set<string>();
+                return merged.filter((account) => {
+                  const id = String(account?.id || account?.entityId || account?.user?.id || '').trim();
+                  if (!id || seen.has(id)) return false;
+                  seen.add(id);
+                  return true;
+                });
+              })
+            : Promise.resolve([])
         ]);
         if (cancelled) return;
 
         if (feedPostsResult.status === 'fulfilled') {
-          const normalizedPosts = sortPosts((Array.isArray(feedPostsResult.value) ? feedPostsResult.value : []).map(normalizePost));
+          let rawPosts = extractCommunityFeedItems(feedPostsResult.value);
+          if (rawPosts.length === 0) {
+            try {
+              rawPosts = extractCommunityFeedItems(
+                await CommunityService.getFeed({ limit: postsLimit, scope: 'discover' })
+              );
+            } catch (feedFallbackError) {
+              console.warn('Failed to load community feed fallback:', feedFallbackError);
+            }
+          }
+          const normalizedPosts = sortPosts(rawPosts.map(normalizePost));
           setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
           setCommentCounts((prev) => {
             if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
@@ -1101,6 +1210,56 @@ const CommunityHome = () => {
         if (overviewResult.status === 'rejected') {
           console.error('Failed to load community overview:', overviewResult.reason);
         }
+
+        if (pagesResult.status === 'fulfilled') {
+          const pages = Array.isArray(pagesResult.value) ? pagesResult.value : [];
+          setRecommendedCommunityPages(
+            pages
+              .map((page: any) => {
+                const source = page?.account || page || {};
+                const id = String(source?.id || page?.entityId || page?.pageId || '').trim();
+                if (!id) return null;
+                return {
+                  id,
+                  name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
+                  slug: source?.slug || source?.pageSlug || page?.slug || page?.handle || '',
+                  handle: source?.handle || source?.pageHandle || page?.handle || '',
+                  avatar: source?.avatar || page?.logo?.url || page?.logoUrl || null,
+                  tagline: source?.tagline || source?.headline || page?.tagline || page?.description || '',
+                  followersCount: Number(source?.followersCount || page?.followersCount || 0),
+                  isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
+                  followId: source?.followId || page?.followId || null
+                };
+              })
+              .filter(Boolean)
+          );
+        } else {
+          console.error('Failed to load community page recommendations:', pagesResult.reason);
+        }
+
+        if (peopleResult.status === 'fulfilled') {
+          const people = Array.isArray(peopleResult.value) ? peopleResult.value : [];
+          setRecommendedCommunityPeople(
+            people
+              .map((account: any) => {
+                const source = account?.user || account?.account || account || {};
+                const id = String(source?.id || account?.entityId || account?.userId || '').trim();
+                if (!id) return null;
+                return {
+                  id,
+                  name: String(source?.name || account?.name || 'Community member').trim() || 'Community member',
+                  username: source?.username || source?.handle || account?.username || account?.handle || '',
+                  avatar: source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar || null,
+                  headline: source?.headline || source?.bio || account?.headline || account?.reason || 'Recommended for your network',
+                  isFollowing: Boolean(source?.isFollowing ?? account?.isFollowing)
+                };
+              })
+              .filter(Boolean)
+              .slice(0, 6)
+          );
+        } else {
+          console.error('Failed to load community people recommendations:', peopleResult.reason);
+        }
       } catch (error) {
         console.error('Error loading community data:', error);
       } finally {
@@ -1122,7 +1281,21 @@ const CommunityHome = () => {
 
     const onAdEvent = async () => {
       try {
-        const newAds = await AdService.getAds(user?.role);
+        const adResults = await Promise.allSettled([
+          CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
+          CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 6 })
+        ]);
+        const merged: any[] = [];
+        adResults.forEach((result) => {
+          if (result.status === 'fulfilled' && Array.isArray(result.value)) merged.push(...result.value);
+        });
+        const seen = new Set<string>();
+        const newAds = merged.filter((ad) => {
+          const id = String(ad?.id || '').trim();
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
         if (cancelled) return;
         setAds(newAds);
       } catch (e) { console.error('Failed to refresh ads on event', e); }
@@ -2391,7 +2564,12 @@ const CommunityHome = () => {
     : 'inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700';
 
   const showLeftSidebar = showTrendingTopics || showUpcomingEvents || showTopContributors;
-  const showRightSidebar = showQuickActions || showSponsored || showStats;
+  const showRightSidebar =
+    showQuickActions ||
+    showSponsored ||
+    showStats ||
+    recommendedCommunityPeople.length > 0 ||
+    recommendedCommunityPages.length > 0;
 
   const mainColSpanClass =
     showLeftSidebar && showRightSidebar
@@ -2509,14 +2687,32 @@ const CommunityHome = () => {
                 </div>
                 <div className="space-y-3">
                   {topContributors.map((contributor) => (
-                    <div key={contributor.id} className="flex items-center p-2 hover:bg-gray-50 rounded-lg">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center mr-3">
-                        <span className="font-bold">{contributor.name.charAt(0)}</span>
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium">{contributor.name}</div>
-                        <div className="text-sm text-gray-500">{contributor.reputation} rep</div>
-                      </div>
+                    <div key={contributor.id} className="flex items-center gap-3 rounded-lg p-2 hover:bg-gray-50">
+                      <Link to={buildContributorUrl(contributor)} className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-200">
+                          {contributor.avatar ? (
+                            <img
+                              src={resolveUserAvatarUrl(contributor.avatar) || resolvePostAttachmentMediaUrl(contributor.avatar)}
+                              alt={contributor.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center font-bold">
+                              {String(contributor.name || 'C').charAt(0)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{contributor.name}</div>
+                          <div className="text-sm text-gray-500">{contributor.reputation} rep</div>
+                        </div>
+                      </Link>
+                      <FollowButton
+                        targetUserId={contributor.id}
+                        currentUserId={user?.id}
+                        initialIsFollowing={followStateMap[contributor.id]}
+                        className="h-7 px-2 text-[11px]"
+                      />
                     </div>
                   ))}
                 </div>
@@ -3413,6 +3609,82 @@ const CommunityHome = () => {
               </div>
             </div>
             )}
+
+            {recommendedCommunityPeople.length > 0 ? (
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+                <h2 className="mb-4 text-lg font-bold">People to follow</h2>
+                <div className="space-y-3">
+                  {recommendedCommunityPeople.map((person) => {
+                    const avatar = resolveUserAvatarUrl(person.avatar) || resolvePostAttachmentMediaUrl(person.avatar);
+                    return (
+                      <div key={person.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
+                        <Link to={buildContributorUrl(person)} className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">
+                            {avatar ? (
+                              <img src={avatar} alt={person.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">
+                                {String(person.name || 'U').charAt(0)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-gray-900">{person.name}</div>
+                            <div className="truncate text-xs text-gray-500">{person.headline}</div>
+                          </div>
+                        </Link>
+                        <FollowButton
+                          targetUserId={person.id}
+                          currentUserId={user?.id}
+                          initialIsFollowing={Boolean(person.isFollowing || followStateMap[person.id])}
+                          className="h-7 px-2 text-[11px]"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {recommendedCommunityPages.length > 0 ? (
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+                <h2 className="mb-4 text-lg font-bold">Pages to follow</h2>
+                <div className="space-y-3">
+                  {recommendedCommunityPages.map((page) => {
+                    const avatar = resolvePostAttachmentMediaUrl(page.avatar);
+                    return (
+                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
+                        <Link to={buildCommunityPageUrl(page)} className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">
+                            {avatar ? (
+                              <img src={avatar} alt={page.name} className="h-full w-full object-cover" />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">
+                                {String(page.name || 'P').charAt(0)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-gray-900">{page.name}</div>
+                            <div className="truncate text-xs text-gray-500">{page.tagline || `${page.followersCount || 0} followers`}</div>
+                          </div>
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={Boolean(pageFollowBusy[page.id])}
+                          onClick={() => handleCommunityPageFollow(page)}
+                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase ${
+                            page.isFollowing ? 'border-gray-300 text-gray-700' : 'border-blue-200 text-blue-600'
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {pageFollowBusy[page.id] ? '...' : page.isFollowing ? 'Following' : 'Follow'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
 
             {/* Ads/Sponsored */}
             {showSponsored && (

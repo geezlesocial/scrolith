@@ -205,13 +205,21 @@ const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallback
 };
 
 const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.data?.jobs)) return payload.data.jobs as Job[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Job[];
+  if (Array.isArray(payload?.items)) return payload.items as Job[];
   if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload?.data)) return payload.data as Job[];
   if (Array.isArray(payload)) return payload as Job[];
   return [];
 };
 
 const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.data?.gigs)) return payload.data.gigs as Gig[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Gig[];
+  if (Array.isArray(payload?.items)) return payload.items as Gig[];
   if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload?.data)) return payload.data as Gig[];
   if (Array.isArray(payload)) return payload as Gig[];
   return [];
 };
@@ -1012,11 +1020,11 @@ export default function MobileFeed({
   }, [currentUserId]);
 
   useEffect(() => {
-    if (loading || error || posts.length === 0) return;
+    if (loading || error) return;
     let cancelled = false;
     let timeoutId: number | null = null;
     let idleHandle: number | null = null;
-    const readyDelay = constrainedForFeed ? 2600 : 1200;
+    const readyDelay = posts.length > 0 ? (constrainedForFeed ? 2600 : 1200) : 600;
     const markReady = () => {
       if (cancelled) return;
       setSecondaryFeedReady(true);
@@ -1562,16 +1570,24 @@ export default function MobileFeed({
     const requestLimit = constrainedForFeed ? Math.max(3, Math.min(8, listingPoolLimit)) : Math.max(4, Math.min(14, listingPoolLimit));
     const timer = window.setTimeout(() => {
       const jobRequests: Array<Promise<any>> = constrainedForFeed
-        ? [jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true })]
+        ? [
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true })
+          ]
         : [
             jobsApi.getJobs({ status: 'active', limit: requestLimit, featuredOnly: true }),
-            jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true })
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true })
           ];
       const gigRequests: Array<Promise<any>> = constrainedForFeed
-        ? [gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true })]
+        ? [
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true })
+          ]
         : [
             gigsApi.getGigs({ status: 'active', limit: requestLimit, featuredOnly: true }),
-            gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true })
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true })
           ];
 
       Promise.all([
@@ -1642,17 +1658,14 @@ export default function MobileFeed({
   useEffect(() => {
     if (feedSettings.showSuggestedPeople === false) return;
     if (!user?.id) return;
-    if (constrainedForFeed) {
-      setSuggestedPeople([]);
-      return;
-    }
     if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
+    const requestLimit = constrainedForFeed ? 2 : 4;
     const timer = window.setTimeout(() => {
       Promise.allSettled([
-        RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
-        RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
+        RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: requestLimit }),
+        RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: requestLimit })
       ])
         .then((results) => {
           if (cancelled) return;
@@ -1671,13 +1684,13 @@ export default function MobileFeed({
               return { id, name, username, avatarUrl, targetType: 'user' as const };
             })
             .filter(Boolean);
-          setSuggestedPeople(mapped.slice(0, 4));
+          setSuggestedPeople(mapped.slice(0, requestLimit * 2));
         })
         .catch(() => {
           if (cancelled) return;
           setSuggestedPeople([]);
         });
-    }, 1600);
+    }, constrainedForFeed ? 2200 : 1600);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -1687,15 +1700,12 @@ export default function MobileFeed({
   useEffect(() => {
     if (feedSettings.showSuggestedPages === false) return;
     if (!user?.id) return;
-    if (constrainedForFeed) {
-      setSuggestedPages([]);
-      return;
-    }
     if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
+    const requestLimit = constrainedForFeed ? 2 : 4;
     const timer = window.setTimeout(() => {
-      RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 4 })
+      RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: requestLimit })
         .then((items) => {
           if (cancelled) return;
           const mapped = (Array.isArray(items) ? items : [])
@@ -1709,13 +1719,13 @@ export default function MobileFeed({
               return { id, name, username, avatarUrl, targetType: 'page' as const };
             })
             .filter(Boolean);
-          setSuggestedPages(mapped.slice(0, 4));
+          setSuggestedPages(mapped.slice(0, requestLimit));
         })
         .catch(() => {
           if (cancelled) return;
           setSuggestedPages([]);
         });
-    }, 1800);
+    }, constrainedForFeed ? 2400 : 1800);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);

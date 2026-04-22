@@ -1096,7 +1096,11 @@ const resolveHighlightPostFallback = (post: any): string => {
 };
 
 const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.data?.jobs)) return payload.data.jobs as Job[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Job[];
+  if (Array.isArray(payload?.items)) return payload.items as Job[];
   if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload?.data)) return payload.data as Job[];
   if (Array.isArray(payload)) {
     const looksLikeJobList = payload.every((entry) => !entry || typeof entry !== 'object' || Object.prototype.hasOwnProperty.call(entry, 'id'));
     if (looksLikeJobList) return payload as Job[];
@@ -1105,7 +1109,11 @@ const extractJobsFromPayload = (payload: any): Job[] => {
 };
 
 const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.data?.gigs)) return payload.data.gigs as Gig[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Gig[];
+  if (Array.isArray(payload?.items)) return payload.items as Gig[];
   if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload?.data)) return payload.data as Gig[];
   if (Array.isArray(payload)) {
     const looksLikeGigList = payload.every((entry) => !entry || typeof entry !== 'object' || Object.prototype.hasOwnProperty.call(entry, 'id'));
     if (looksLikeGigList) return payload as Gig[];
@@ -2626,7 +2634,25 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       );
       tasks.push(
         showSidebarAds
-          ? CommunityService.getPublicAds({ limit: 12 })
+          ? Promise.allSettled([
+              CommunityService.getPublicAds({ placement: 'homepage', limit: 6 }),
+              CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 8 }),
+              CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 })
+            ]).then((results) => {
+              const merged: any[] = [];
+              results.forEach((result) => {
+                if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+                  merged.push(...result.value);
+                }
+              });
+              const seen = new Set<string>();
+              return merged.filter((ad) => {
+                const id = String(ad?.id || '').trim();
+                if (!id || seen.has(id)) return false;
+                seen.add(id);
+                return true;
+              });
+            })
           : Promise.resolve([])
       );
 
