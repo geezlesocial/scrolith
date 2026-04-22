@@ -1,4 +1,5 @@
 import { UserService } from '../services/user';
+import { resolveAssetUrl } from './assetUrl';
 import { resolvePostAttachmentMediaUrl } from './postAttachmentMedia';
 import { resolveUserAvatarUrl } from './userAvatar';
 
@@ -22,6 +23,21 @@ const pickFirstString = (...values: unknown[]) => {
 
 const normalizeLookupToken = (value: unknown) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
 
+const looksLikeDirectAvatarUrl = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.startsWith('http://') ||
+    normalized.startsWith('https://') ||
+    normalized.startsWith('/') ||
+    normalized.startsWith('uploads/') ||
+    normalized.startsWith('data:') ||
+    normalized.startsWith('blob:') ||
+    normalized.includes('/uploads/') ||
+    /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(normalized)
+  );
+};
+
 const safeUsernameCandidate = (value: unknown) => {
   const normalized = String(value || '').trim().replace(/^@+/, '');
   if (!normalized || normalized.includes(' ')) return '';
@@ -41,6 +57,24 @@ const resolveProfilePhotoFileId = (value: any) =>
 const resolveHydratedAuthor = (profile: any): HydratedStoryAuthor | null => {
   if (!profile || typeof profile !== 'object') return null;
   const profilePhotoFileId = resolveProfilePhotoFileId(profile);
+  const directAvatar = pickFirstString(
+    profile.avatarUrl,
+    profile.avatar_url,
+    profile.avatar,
+    profile.authorAvatar,
+    profile.userAvatar,
+    profile.user_avatar
+  );
+  if (looksLikeDirectAvatarUrl(directAvatar)) {
+    return {
+      id: pickFirstString(profile.id, profile.userId, profile.user_id),
+      name: pickFirstString(profile.name, profile.displayName, profile.display_name, profile.username),
+      username: pickFirstString(profile.username, profile.userName, profile.user_name),
+      avatarUrl: resolveAssetUrl(directAvatar),
+      profilePhotoFileId
+    };
+  }
+
   const avatarUrl =
     resolveUserAvatarUrl({
       ...profile,

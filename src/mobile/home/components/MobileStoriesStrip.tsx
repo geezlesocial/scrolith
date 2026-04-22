@@ -170,6 +170,30 @@ const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
 };
 
 const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
+  const directAvatar = String(
+    story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.author?.avatar ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo ||
+      ''
+  ).trim();
+  if (
+    directAvatar &&
+    (/^(https?:|data:|blob:|\/|uploads\/)/i.test(directAvatar) ||
+      directAvatar.includes('/uploads/') ||
+      /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(directAvatar))
+  ) {
+    return resolvePostAttachmentMediaUrl({ url: directAvatar });
+  }
+
   const profilePhotoFileId = String(
     story?.authorAvatarFileId ||
       story?.author_avatar_file_id ||
@@ -337,7 +361,7 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
-const STORIES_CACHE_VERSION = 'v5';
+const STORIES_CACHE_VERSION = 'v6';
 const LIVE_CACHE_TTL_MS = 90 * 1000;
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
