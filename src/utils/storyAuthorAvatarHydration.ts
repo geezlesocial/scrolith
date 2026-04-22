@@ -22,6 +22,12 @@ const pickFirstString = (...values: unknown[]) => {
 
 const normalizeLookupToken = (value: unknown) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
 
+const safeUsernameCandidate = (value: unknown) => {
+  const normalized = String(value || '').trim().replace(/^@+/, '');
+  if (!normalized || normalized.includes(' ')) return '';
+  return /^[a-z0-9_.-]{3,40}$/i.test(normalized) ? normalized : '';
+};
+
 const resolveProfilePhotoFileId = (value: any) =>
   pickFirstString(
     value?.profilePhotoFileId,
@@ -80,13 +86,22 @@ const resolveViewerAuthor = (story: any, viewer?: any): HydratedStoryAuthor | nu
 
 const fetchAuthorByStory = (story: any): Promise<HydratedStoryAuthor | null> => {
   const authorId = pickFirstString(story?.authorId, story?.userId, story?.user_id, story?.author?.id);
-  const username = pickFirstString(
+  const explicitUsername = pickFirstString(
     story?.authorUsername,
     story?.author?.username,
     story?.user?.username,
+    story?.owner?.username,
+    story?.creator?.username,
+    story?.createdBy?.username,
+    story?.account?.username,
     story?.userName,
     story?.user_name
   ).replace(/^@+/, '');
+  const username =
+    explicitUsername ||
+    safeUsernameCandidate(story?.authorName) ||
+    safeUsernameCandidate(story?.author?.name) ||
+    safeUsernameCandidate(story?.user?.name);
   const cacheKey = authorId ? `id:${authorId}` : username ? `username:${username.toLowerCase()}` : '';
   if (!cacheKey) return Promise.resolve(null);
   const cached = authorCache.get(cacheKey);
