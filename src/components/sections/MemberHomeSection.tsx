@@ -2784,9 +2784,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       const normalizedAds =
         adsRes.status === 'fulfilled' && Array.isArray(adsRes.value)
-          ? adsRes.value
-              .map((ad: any) => normalizeSidebarAd(ad))
-              .filter(Boolean) as SidebarAdCard[]
+          ? shuffleArray(
+              adsRes.value
+                .map((ad: any) => normalizeSidebarAd(ad))
+                .filter(Boolean) as SidebarAdCard[]
+            )
           : [];
       let sidebarAdCursor = 0;
       const topAd = showTopSidebarAd ? (normalizedAds[sidebarAdCursor++] || null) : null;
@@ -6400,48 +6402,63 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       <Briefcase className="h-4 w-4 text-indigo-500" />
                     </div>
                   </button>
+
+                  {showFeaturedSidebarAd ? (
+                    <div className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-left shadow-sm">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                          Sponsored
+                        </span>
+                        <Star className="h-3.5 w-3.5 text-amber-500" />
+                      </div>
+                      {sidebarFeaturedAd ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                            className="block w-full text-left"
+                          >
+                            <p className="line-clamp-2 text-sm font-semibold text-slate-900">{sidebarFeaturedAd.title}</p>
+                            {sidebarFeaturedAd.body ? (
+                              <p className="mt-1 line-clamp-2 text-xs text-slate-500">{sidebarFeaturedAd.body}</p>
+                            ) : null}
+                          </button>
+                          {sidebarFeaturedAd.mediaUrl ? (
+                            <div
+                              onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                              className="mt-2 cursor-pointer overflow-hidden rounded-lg border border-amber-100 bg-amber-50"
+                            >
+                              {sidebarFeaturedAd.mediaType === 'video' ? (
+                                <AdVideoPlayer
+                                  src={sidebarFeaturedAd.mediaUrl}
+                                  className="h-20 w-full"
+                                  videoClassName="h-full w-full object-cover"
+                                  preload="metadata"
+                                />
+                              ) : (
+                                <img
+                                  src={sidebarFeaturedAd.mediaUrl}
+                                  alt={sidebarFeaturedAd.title}
+                                  className="h-20 w-full object-cover"
+                                />
+                              )}
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                            className="mt-2 inline-flex rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white"
+                          >
+                            {sidebarFeaturedAd.ctaText || 'Learn more'}
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-slate-600">Approved campaigns rotate here once available.</p>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              {showFeaturedSidebarAd && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
-                  {sidebarFeaturedAd ? (
-                    <>
-                      <p className="text-sm font-semibold text-slate-900">{sidebarFeaturedAd.title}</p>
-                      {sidebarFeaturedAd.body ? (
-                        <p className="mt-2 text-xs text-slate-600 line-clamp-3">{sidebarFeaturedAd.body}</p>
-                      ) : null}
-                      {sidebarFeaturedAd.mediaUrl ? (
-                        <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white">
-                          {sidebarFeaturedAd.mediaType === 'video' ? (
-                            <AdVideoPlayer
-                              src={sidebarFeaturedAd.mediaUrl}
-                              className="h-24 w-full"
-                              videoClassName="h-full w-full object-cover"
-                              preload="auto"
-                            />
-                          ) : (
-                            <img
-                              src={sidebarFeaturedAd.mediaUrl}
-                              alt={sidebarFeaturedAd.title}
-                              className="h-24 w-full object-cover"
-                            />
-                          )}
-                        </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
-                        className="mt-3 inline-flex rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white"
-                      >
-                        {sidebarFeaturedAd.ctaText || 'Learn more'}
-                      </button>
-                    </>
-                  ) : (
-                    <p className="text-xs text-slate-600">Sponsored campaigns appear here once approved.</p>
-                  )}
-                </div>
-              )}
             </div>
           </aside>
 
