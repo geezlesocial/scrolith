@@ -58,6 +58,96 @@ const LabelWithGuide: React.FC<{ label: string; help: string; className?: string
     </div>
 );
 
+const AD_PLACEMENT_LABELS: Record<string, string> = {
+    homepage: 'Homepage',
+    homepage_feed: 'Homepage Feed',
+    community_feed: 'Community Feed',
+    scroll_preroll: 'Scroll Pre-roll',
+    scroll_feed: 'Scroll Feed Overlay',
+    forum_listing: 'Forum Listing',
+    thread_detail: 'Thread Detail',
+    chat_sidebar: 'Chat Sidebar'
+};
+
+const normalizeAdPlacement = (value: any): string => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return 'community_feed';
+    if (raw === 'feed') return 'community_feed';
+    if (raw === 'chat') return 'chat_sidebar';
+    if (raw === 'scroll' || raw === 'scroll_video' || raw === 'scroll_overlay') return 'scroll_preroll';
+    if (raw === 'forum_top') return 'forum_listing';
+    return raw;
+};
+
+const getAdminAdPlacements = (ad: AdCampaign): string[] => {
+    const targeting = ad?.targeting && typeof ad.targeting === 'object' && !Array.isArray(ad.targeting)
+        ? ad.targeting as Record<string, any>
+        : {};
+    const source =
+        Array.isArray(ad.delivery?.placements) && ad.delivery.placements.length > 0
+            ? ad.delivery.placements
+            : Array.isArray(targeting.placements) && targeting.placements.length > 0
+                ? targeting.placements
+                : Array.isArray(ad.placements) && ad.placements.length > 0
+                    ? ad.placements
+                    : [ad.placement || 'community_feed'];
+
+    return Array.from(new Set(source.map((placement: any) => normalizeAdPlacement(placement)).filter(Boolean)));
+};
+
+const AdminAdDeliveryStrip: React.FC<{ ad: AdCampaign }> = ({ ad }) => {
+    const delivery = ad.delivery || null;
+    const checks = Array.isArray(delivery?.placementChecks) && delivery.placementChecks.length > 0
+        ? delivery.placementChecks.map((check) => ({
+            placement: normalizeAdPlacement(check.placement),
+            eligible: Boolean(check.eligible),
+            blockers: Array.isArray(check.blockers) ? check.blockers : []
+        }))
+        : getAdminAdPlacements(ad).map((placement) => ({
+            placement,
+            eligible: null as boolean | null,
+            blockers: [] as string[]
+        }));
+    const blockers = Array.isArray(delivery?.blockers) ? delivery.blockers : [];
+    const isServing = Boolean(delivery?.isServing);
+
+    return (
+        <div className={`mt-3 rounded-lg border p-3 ${isServing ? 'border-emerald-200 bg-emerald-50' : delivery ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Delivery diagnostics</p>
+                    <p className={`mt-1 text-xs font-semibold ${isServing ? 'text-emerald-800' : delivery ? 'text-amber-900' : 'text-gray-600'}`}>
+                        {delivery?.summary || 'Diagnostics pending from backend.'}
+                    </p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${isServing ? 'bg-emerald-100 text-emerald-700' : delivery ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {isServing ? 'Serving' : delivery ? 'Blocked' : 'Unknown'}
+                </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+                {checks.map((check) => (
+                    <span
+                        key={check.placement}
+                        title={check.blockers[0] || undefined}
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                            check.eligible === true
+                                ? 'bg-white text-emerald-700'
+                                : check.eligible === false
+                                    ? 'bg-white text-amber-800'
+                                    : 'bg-white text-gray-600'
+                        }`}
+                    >
+                        {AD_PLACEMENT_LABELS[check.placement] || check.placement}
+                    </span>
+                ))}
+            </div>
+            {blockers.length > 0 ? (
+                <p className="mt-2 text-[11px] leading-5 text-amber-900">{blockers[0]}</p>
+            ) : null}
+        </div>
+    );
+};
+
 const normalizeTargetCountryCatalog = (entries: unknown[]): string[] => {
     const seen = new Set<string>();
     return entries
@@ -2169,9 +2259,14 @@ const AdManager = () => {
                 ) : (
                     <div className="space-y-3">
                         {reviewQueue.map((ad) => (
-                            <div key={ad.id} className="flex items-center justify-between border rounded p-3">
+                            <div key={ad.id} className="flex items-center justify-between gap-3 border rounded p-3">
                                 <div>
                                     <div className="font-medium">{ad.title}</div>
+                                    {ad.delivery?.summary ? (
+                                        <div className={`mt-1 text-xs font-semibold ${ad.delivery.isServing ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                            Delivery: {ad.delivery.summary}
+                                        </div>
+                                    ) : null}
                                     <div className="text-xs text-gray-500">Placement: {ad.placement} • Budget: {ad.budget}</div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -2209,6 +2304,7 @@ const AdManager = () => {
                                 <div><strong>{c.clicks ?? 0}</strong> clicks</div>
                                 <div><strong>{c.ctr ?? 0}%</strong> CTR</div>
                             </div>
+                            <AdminAdDeliveryStrip ad={c} />
                         </div>
                         <div className="flex flex-col gap-2 justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => { setOriginalEditing(c); setIsEditing(c); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4"/></button>

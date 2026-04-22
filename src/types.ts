@@ -1325,6 +1325,8 @@ export interface AdCampaign {
     warnings?: string[];
     remainingBudget?: number;
     mediaAssetCount?: number;
+    hasSettledPayment?: boolean;
+    hasVideoCreative?: boolean;
     scrollPolicy?: Record<string, any>;
     checkedAt?: string;
   };

@@ -325,6 +325,115 @@ const normalizedPlacementsNeedCreative = (placements: string[]) =>
 const normalizePricingModel = (value: any): 'CPM' | 'CPC' =>
   String(value || '').toUpperCase() === 'CPC' ? 'CPC' : 'CPM';
 
+const getDeliveryPlacementRows = (ad: AdCampaign) => {
+  const delivery = ad.delivery || null;
+  const checks = Array.isArray(delivery?.placementChecks) ? delivery.placementChecks : [];
+  if (checks.length > 0) {
+    return checks.map((check) => ({
+      placement: normalizePlacement(check.placement),
+      eligible: Boolean(check.eligible),
+      blockers: Array.isArray(check.blockers) ? check.blockers : []
+    }));
+  }
+
+  return getCampaignPlacements(ad).map((placement) => ({
+    placement: normalizePlacement(placement),
+    eligible: null as boolean | null,
+    blockers: [] as string[]
+  }));
+};
+
+const getDeliveryTone = (delivery?: AdCampaign['delivery'] | null) => {
+  if (!delivery) {
+    return {
+      label: 'Checking',
+      container: 'border-slate-200 bg-slate-50',
+      dot: 'bg-slate-400',
+      text: 'text-slate-700'
+    };
+  }
+  if (delivery.isServing) {
+    return {
+      label: 'Serving',
+      container: 'border-emerald-200 bg-emerald-50',
+      dot: 'bg-emerald-500',
+      text: 'text-emerald-800'
+    };
+  }
+  return {
+    label: 'Blocked',
+    container: 'border-amber-200 bg-amber-50',
+    dot: 'bg-amber-500',
+    text: 'text-amber-900'
+  };
+};
+
+const AdDeliveryMatrix: React.FC<{ ad: AdCampaign; compact?: boolean }> = ({ ad, compact = false }) => {
+  const delivery = ad.delivery || null;
+  const tone = getDeliveryTone(delivery);
+  const rows = getDeliveryPlacementRows(ad);
+  const blockers = Array.isArray(delivery?.blockers) ? delivery.blockers : [];
+  const warnings = Array.isArray(delivery?.warnings) ? delivery.warnings : [];
+
+  return (
+    <div className={`rounded-2xl border ${tone.container} ${compact ? 'p-3' : 'p-4'}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            Delivery map
+          </p>
+          <p className={`mt-1 text-sm font-semibold ${tone.text}`}>
+            {delivery?.summary || 'Delivery diagnostics will appear after the backend refreshes this campaign.'}
+          </p>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700">
+          <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
+          {tone.label}
+        </span>
+      </div>
+
+      <div className={`mt-3 grid gap-2 ${compact ? 'sm:grid-cols-2' : 'sm:grid-cols-2'}`}>
+        {rows.map((row) => (
+          <div
+            key={row.placement}
+            className={`rounded-xl border px-3 py-2 text-xs ${
+              row.eligible === true
+                ? 'border-emerald-200 bg-white/85 text-emerald-800'
+                : row.eligible === false
+                  ? 'border-amber-200 bg-white/85 text-amber-900'
+                  : 'border-slate-200 bg-white/85 text-slate-600'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{getPlacementLabel(row.placement)}</span>
+              <span className="text-[10px] font-bold uppercase tracking-[0.14em]">
+                {row.eligible === true ? 'Ready' : row.eligible === false ? 'Blocked' : 'Pending'}
+              </span>
+            </div>
+            {row.blockers.length > 0 && !compact ? (
+              <p className="mt-1 leading-5 text-slate-600">{row.blockers[0]}</p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+
+      {!compact && blockers.length > 0 ? (
+        <div className="mt-3 space-y-2">
+          {blockers.slice(0, 4).map((reason) => (
+            <p key={reason} className="rounded-xl bg-white/80 px-3 py-2 text-xs leading-5 text-amber-900">
+              {reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      {!compact && warnings.length > 0 ? (
+        <p className="mt-3 text-xs leading-5 text-slate-600">{warnings.slice(0, 2).join(' ')}</p>
+      ) : null}
+    </div>
+  );
+};
+
 type AdFormState = {
   title: string;
   body: string;
@@ -2314,6 +2423,8 @@ const MyAds = () => {
                           </div>
                         </div>
 
+                        <AdDeliveryMatrix ad={ad} compact />
+
                         <div className="flex flex-wrap gap-2">
                           <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1 text-xs font-medium text-slate-600">
                             <Rocket className="h-3.5 w-3.5 text-sky-600" />
@@ -2618,6 +2729,10 @@ const MyAds = () => {
                       {selectedDeliveryWarnings.slice(0, 2).join(' ')}
                     </p>
                   ) : null}
+
+                  <div className="mt-3">
+                    <AdDeliveryMatrix ad={selectedAd} />
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -3421,6 +3536,11 @@ const MyAds = () => {
                             {reason}
                           </p>
                         ))}
+                      </div>
+                    ) : null}
+                    {performanceAd ? (
+                      <div className="mt-3">
+                        <AdDeliveryMatrix ad={performanceAd} />
                       </div>
                     ) : null}
                   </div>
