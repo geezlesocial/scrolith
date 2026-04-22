@@ -442,21 +442,21 @@ export default function MobileFeed({
     [visiblePosts, user?.id]
   );
   const listingSlots = useMemo(() => {
-    if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
+    if (!showRecommendedGigsJobs || !posts.length) return 0;
     const baseSlots = Math.floor(posts.length / listingCardEveryPosts);
     const sparseSlots = posts.length > 0 ? 1 : 0;
     return Math.min(maxListingCardsPerFeed, Math.max(baseSlots, sparseSlots));
-  }, [showRecommendedGigsJobs, user?.id, posts.length, listingCardEveryPosts, maxListingCardsPerFeed]);
+  }, [showRecommendedGigsJobs, posts.length, listingCardEveryPosts, maxListingCardsPerFeed]);
 
   const listingCardEntries = useMemo(() => {
-    if (!showRecommendedGigsJobs || !user?.id || !posts.length || listingSlots <= 0) {
+    if (!showRecommendedGigsJobs || !posts.length || listingSlots <= 0) {
       return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
     }
 
     const jobPool = shuffle(dedupeById((recommendedJobs || []) as Array<Job & { id: string }>)).slice(0, listingSlots * 3);
     const gigPool = shuffle(dedupeById((recommendedGigs || []) as Array<Gig & { id: string }>)).slice(0, listingSlots * 3);
     const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
-    let preferJob = ((String(user.id || '').length + posts.length) % 2) === 0;
+    let preferJob = ((String(user?.id || 'guest').length + posts.length) % 2) === 0;
 
     while (entries.length < listingSlots && (jobPool.length || gigPool.length)) {
       if (preferJob && jobPool.length) {
@@ -1020,7 +1020,7 @@ export default function MobileFeed({
   }, [currentUserId]);
 
   useEffect(() => {
-    if (loading || error) return;
+    if (loading) return;
     let cancelled = false;
     let timeoutId: number | null = null;
     let idleHandle: number | null = null;
@@ -1043,7 +1043,7 @@ export default function MobileFeed({
         (window as any).cancelIdleCallback(idleHandle);
       }
     };
-  }, [constrainedForFeed, error, loading, posts.length]);
+  }, [constrainedForFeed, loading, posts.length]);
 
   const handleListingContact = useCallback(
     async (payload: { kind: 'jobs' | 'gigs'; item: any }) => {
@@ -1563,9 +1563,8 @@ export default function MobileFeed({
       setRecommendedGigs([]);
       return;
     }
-    if (!user?.id) return;
     if (!secondaryFeedReady) return;
-    if (loading || error) return;
+    if (loading) return;
     let cancelled = false;
     const requestLimit = constrainedForFeed ? Math.max(3, Math.min(8, listingPoolLimit)) : Math.max(4, Math.min(14, listingPoolLimit));
     const timer = window.setTimeout(() => {
@@ -1596,20 +1595,38 @@ export default function MobileFeed({
       ])
         .then(([jobsResults, gigsResults]) => {
           if (cancelled) return;
-          const jobsList = dedupeById(
+          let jobsList = dedupeById(
             shuffle(
               jobsResults.flatMap((result) =>
                 result.status === 'fulfilled' ? extractJobsFromPayload(result.value) : []
               )
             ) as Array<Job & { id: string }>
           ).slice(0, requestLimit);
-          const gigsList = dedupeById(
+          let gigsList = dedupeById(
             shuffle(
               gigsResults.flatMap((result) =>
                 result.status === 'fulfilled' ? extractGigsFromPayload(result.value) : []
               )
             ) as Array<Gig & { id: string }>
           ).slice(0, requestLimit);
+
+          if (jobsList.length === 0 || gigsList.length === 0) {
+            Promise.allSettled([
+              jobsList.length === 0 ? jobsApi.getJobs({ status: 'active', limit: requestLimit }) : Promise.resolve(null),
+              gigsList.length === 0 ? gigsApi.getGigs({ status: 'active', limit: requestLimit }) : Promise.resolve(null)
+            ]).then(([jobsFallback, gigsFallback]) => {
+              if (cancelled) return;
+              if (jobsList.length === 0 && jobsFallback.status === 'fulfilled' && jobsFallback.value) {
+                jobsList = dedupeById(extractJobsFromPayload(jobsFallback.value) as Array<Job & { id: string }>).slice(0, requestLimit);
+              }
+              if (gigsList.length === 0 && gigsFallback.status === 'fulfilled' && gigsFallback.value) {
+                gigsList = dedupeById(extractGigsFromPayload(gigsFallback.value) as Array<Gig & { id: string }>).slice(0, requestLimit);
+              }
+              setRecommendedJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList));
+              setRecommendedGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList));
+            });
+            return;
+          }
 
           setRecommendedJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList));
           setRecommendedGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList));
@@ -1625,7 +1642,7 @@ export default function MobileFeed({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showRecommendedGigsJobs, user?.id, secondaryFeedReady, loading, error, listingPoolLimit, constrainedForFeed]);
+  }, [showRecommendedGigsJobs, secondaryFeedReady, loading, listingPoolLimit, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
@@ -1997,7 +2014,7 @@ export default function MobileFeed({
     );
   }
 
-  if (!posts.length) {
+  if (!posts.length && !showHighlightsBoard && !recommendedJobs.length && !recommendedGigs.length) {
     return (
       <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
@@ -2049,6 +2066,37 @@ export default function MobileFeed({
               compact
             />
           </Suspense>
+        ) : null}
+        {showRecommendedGigsJobs && (recommendedJobs.length || recommendedGigs.length) ? (
+          <section className="space-y-3 rounded-[30px] border border-slate-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]" aria-label="Recommended jobs and gigs">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-500">Opportunities</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-950">Featured jobs and gigs</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  Recommended listings stay visible on member_home while the feed updates.
+                </p>
+              </div>
+            </div>
+            {recommendedJobs.length ? (
+              <RecommendedListingCard
+                kind="jobs"
+                title="Featured jobs"
+                items={recommendedJobs.slice(0, 2) as any}
+                seeAllHref="/browse-jobs"
+                onContact={({ kind, item }) => void handleListingContact({ kind, item })}
+              />
+            ) : null}
+            {recommendedGigs.length ? (
+              <RecommendedListingCard
+                kind="gigs"
+                title="Featured gigs"
+                items={recommendedGigs.slice(0, 2) as any}
+                seeAllHref="/browse"
+                onContact={({ kind, item }) => void handleListingContact({ kind, item })}
+              />
+            ) : null}
+          </section>
         ) : null}
         {visiblePosts.map((post, idx) => {
           const postId = String(post?.id || '');

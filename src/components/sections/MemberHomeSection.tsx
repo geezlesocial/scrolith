@@ -1713,14 +1713,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const isGuest = !user || String(user?.role || '').toLowerCase() === 'guest';
   const listingPoolLimit = Math.max(maxListingCardsPerFeed * 4, maxJobs * 2, maxGigs * 2, 12);
   const listingCardEntries = useMemo(() => {
-    if (!showListingCards || !user || !feedItems.length) return [];
-    const slots = Math.min(maxListingCardsPerFeed, Math.floor(feedItems.length / listingCardEveryPosts));
+    if (!showListingCards || !feedItems.length) return [];
+    const slots = Math.min(
+      maxListingCardsPerFeed,
+      Math.max(1, Math.floor(feedItems.length / listingCardEveryPosts))
+    );
     if (slots <= 0) return [];
 
     const jobPool = shuffleArray(dedupeById((listingJobsPool || []) as Array<Job & { id: string }>)).slice(0, slots * 2);
     const gigPool = shuffleArray(dedupeById((listingGigsPool || []) as Array<Gig & { id: string }>)).slice(0, slots * 2);
     const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
-    let preferJob = ((String(user.id || '').length + feedItems.length) % 2) === 0;
+    let preferJob = ((String(user?.id || 'guest').length + feedItems.length) % 2) === 0;
 
     while (entries.length < slots && (jobPool.length || gigPool.length)) {
       if (preferJob && jobPool.length) {
@@ -1738,7 +1741,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return entries.filter((entry) => Boolean(entry.item?.id));
   }, [
     showListingCards,
-    user,
+    user?.id,
     feedItems.length,
     maxListingCardsPerFeed,
     listingCardEveryPosts,
@@ -7687,7 +7690,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               </div>
             )}
 
-            {isFreelancer && showJobs && (
+            {showJobs && (
               <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <Briefcase className="h-4 w-4 text-slate-700" />
@@ -7775,7 +7778,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               </div>
             )}
 
-            {isEmployer && showGigs && (
+            {showGigs && (
               <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <Sparkles className="h-4 w-4 text-indigo-500" />
