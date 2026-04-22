@@ -201,21 +201,27 @@ export const listGigs = async (req: Request, res: Response) => {
     const explicitRandomize = parseBooleanQuery(req.query.random);
     const hasRandomParam = req.query.random !== undefined;
     const limit = parseLimitQuery(req.query.limit, 100);
+    const isOwnListingRequest = ownerId === 'me';
     const shouldDefaultRandomize =
       !hasRandomParam &&
-      ownerId !== 'me' &&
+      !isOwnListingRequest &&
       String(status || '').toLowerCase() === 'active' &&
       limit !== null;
     const randomize = explicitRandomize || shouldDefaultRandomize;
 
     const where: any = {};
 
-    if (ownerId === 'me') {
+    if (isOwnListingRequest) {
       if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
       where.userId = userId;
+    } else {
+      where.isActive = true;
+      where.isVisible = true;
+      where.adminStatus = 'APPROVED';
+      where.status = 'ACTIVE';
     }
 
-    if (status) {
+    if (status && isOwnListingRequest) {
       const normalized = status.toLowerCase();
       if (normalized === 'under_review') {
         where.status = 'PENDING';
