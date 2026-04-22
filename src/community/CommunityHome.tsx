@@ -56,6 +56,7 @@ import { resolveAssetUrl } from '../utils/assetUrl';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
 import {
   buildPostVideoScrollViewerPath,
   stashPendingPostVideoScrollViewerSource,
@@ -1053,7 +1054,9 @@ const CommunityHome = () => {
         }
 
         if (storiesFeedResult.status === 'fulfilled') {
-          const nextStories = filterActiveStories(Array.isArray(storiesFeedResult.value) ? storiesFeedResult.value : []);
+          const filteredStories = filterActiveStories(Array.isArray(storiesFeedResult.value) ? storiesFeedResult.value : []);
+          const nextStories = await hydrateStoryAuthorAvatars(filteredStories, user);
+          if (cancelled) return;
           setStories((prev) => (nextStories.length === 0 && prev.length ? prev : nextStories));
         } else {
           console.error('Failed to load community stories:', storiesFeedResult.reason);

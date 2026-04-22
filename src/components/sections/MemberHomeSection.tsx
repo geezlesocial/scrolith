@@ -60,6 +60,7 @@ import { resolveAssetUrl } from '../../utils/assetUrl';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
@@ -2826,8 +2827,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     try {
       const feed = await CommunityService.getStoriesFeed();
       const list = Array.isArray(feed) ? feed : [];
+      const nextStories = await hydrateStoryAuthorAvatars(filterActiveStories(list).slice(0, maxStories), user);
       setStories((prev) => {
-        const nextStories = filterActiveStories(list).slice(0, maxStories);
         return nextStories.length === 0 && prev.length ? prev : nextStories;
       });
     } catch (error) {

@@ -36,6 +36,7 @@ import { resolveInlineMedia } from '../../../utils/inlineMedia';
 import { downloadToDevice } from '../../../utils/deviceDownload';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
+import { hydrateStoryAuthorAvatars } from '../../../utils/storyAuthorAvatarHydration';
 import ReactionBar from '../../../community/components/ReactionBar';
 import OverlayActionRailButton from '../../../components/media/OverlayActionRailButton';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
@@ -336,7 +337,7 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
-const STORIES_CACHE_VERSION = 'v4';
+const STORIES_CACHE_VERSION = 'v5';
 const LIVE_CACHE_TTL_MS = 90 * 1000;
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
@@ -929,9 +930,11 @@ export default function MobileStoriesStrip({
     setLoading(!hasCachedStories);
     setError(null);
     withFastFail(CommunityService.getStoriesFeed(), 25000, 'Stories request timed out. Tap retry.')
-      .then((items) => {
+      .then(async (items) => {
         if (!mounted) return;
-        const nextStories = Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : [];
+        const filteredStories = Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : [];
+        const nextStories = await hydrateStoryAuthorAvatars(filteredStories, user);
+        if (!mounted) return;
         if (nextStories.length === 0 && storiesRef.current.length > 0) {
           setError('Showing saved stories while we reconnect.');
           return;
@@ -965,7 +968,7 @@ export default function MobileStoriesStrip({
     return () => {
       mounted = false;
     };
-  }, [enabled, maxItems, storiesCacheKey, storiesReloadTick]);
+  }, [enabled, maxItems, storiesCacheKey, storiesReloadTick, user]);
 
   useEffect(() => {
     if (!enabled) return;
