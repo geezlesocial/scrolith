@@ -54,8 +54,7 @@ const resolveUserProfilePhotoUrl = async (
   if (avatarFileId) {
     const file = await prisma.file.findUnique({ where: { id: avatarFileId } }).catch(() => null);
     if (file) {
-      const profilePhotoUrl = resolveStoredFileUrl(file, baseUrl);
-      if (profilePhotoUrl) return profilePhotoUrl;
+      return buildFileContentUrl(file.id, baseUrl);
     }
   }
 
@@ -258,7 +257,9 @@ const buildStoryPayload = async (
     : (story?._count?.likes ?? story?.likesCount ?? 0);
   const viewerLiked = Array.isArray(story?.likes) ? story.likes.length > 0 : Boolean(story?.viewerLiked);
   const authorAvatar = await resolveUserProfilePhotoUrl(story.author, req);
-  const authorAvatarFileId = story.author?.profilePhotoFileId || null;
+  const rawAuthorAvatar = String(story.author?.avatar || '').trim();
+  const authorAvatarFileId =
+    story.author?.profilePhotoFileId || (looksLikeStoredFileId(rawAuthorAvatar) ? rawAuthorAvatar : null);
   const authorName = story.author?.name || story.author?.username || 'Anonymous';
   return {
     id: story.id,
