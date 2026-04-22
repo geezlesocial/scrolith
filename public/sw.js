@@ -1,4 +1,4 @@
-const VERSION = 'v13-20260422-story-direct-avatar';
+const VERSION = 'v14-20260422-avatar-direct-url-authority';
 const STATIC_CACHE = `scrolith-static-${VERSION}`;
 const API_CACHE = `scrolith-api-${VERSION}`;
 const APP_SHELL = [];

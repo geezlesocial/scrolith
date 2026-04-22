@@ -58,12 +58,13 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
     userLike.userAvatarFileId
   );
 
-  const effectiveFileId = fileId || (looksLikeFileId(directUrl) ? directUrl : '');
-  const effectiveDirectUrl = effectiveFileId === directUrl ? '' : directUrl;
+  if (directUrl && !looksLikeFileId(directUrl)) {
+    return resolveAssetUrl(directUrl);
+  }
 
-  const resolved = resolvePostAttachmentMediaUrl({ url: effectiveDirectUrl, fileId: effectiveFileId });
+  const effectiveFileId = fileId || (looksLikeFileId(directUrl) ? directUrl : '');
+  const resolved = resolvePostAttachmentMediaUrl({ fileId: effectiveFileId });
   if (resolved) return resolved;
-  if (effectiveDirectUrl) return resolveAssetUrl(effectiveDirectUrl);
   if (effectiveFileId) return resolvePostAttachmentMediaUrl({ fileId: effectiveFileId });
   return '';
 };

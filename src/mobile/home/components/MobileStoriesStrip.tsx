@@ -361,7 +361,7 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
-const STORIES_CACHE_VERSION = 'v6';
+const STORIES_CACHE_VERSION = 'v7';
 const LIVE_CACHE_TTL_MS = 90 * 1000;
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
