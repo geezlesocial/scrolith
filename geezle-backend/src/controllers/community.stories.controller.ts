@@ -49,16 +49,23 @@ const resolveUserProfilePhotoUrl = async (
 ) => {
   const baseUrl = getBaseFileUrl(req);
   const avatar = String(author?.avatar || '').trim();
+  const directAvatarUrl = resolveDirectMediaUrl(avatar, baseUrl) || avatar || null;
+  if (directAvatarUrl && !looksLikeStoredFileId(avatar)) {
+    return directAvatarUrl;
+  }
+
   const profilePhotoFileId = String(author?.profilePhotoFileId || '').trim();
   const avatarFileId = profilePhotoFileId || (looksLikeStoredFileId(avatar) ? avatar : '');
   if (avatarFileId) {
     const file = await prisma.file.findUnique({ where: { id: avatarFileId } }).catch(() => null);
     if (file) {
+      const directFileUrl = resolveDirectMediaUrl(file.url, baseUrl) || file.url || null;
+      if (directFileUrl) return directFileUrl;
       return buildFileContentUrl(file.id, baseUrl);
     }
   }
 
-  return resolveDirectMediaUrl(avatar, baseUrl) || avatar || null;
+  return directAvatarUrl;
 };
 
 const getStoryExpiryHours = async () => {
