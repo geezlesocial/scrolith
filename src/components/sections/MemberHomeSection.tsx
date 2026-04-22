@@ -1633,8 +1633,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const showSidebarAds =
     resolveToggle(undefined, memberHomeAds.enabled, false) &&
     resolveToggle(undefined, memberHomeWidgets.rightSidebarAdsEnabled, true);
+  const showFeaturedSidebarAd = resolveToggle(undefined, memberHomeAds.leftSidebarFeaturedEnabled, true);
   const showTopSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarTopEnabled, true);
-  const showFeaturedSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.leftSidebarFeaturedEnabled, true);
   const showMiddleSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarMiddleEnabled, true);
   const postDensity = String(memberHomeFeed.postDensity || 'comfortable').toLowerCase() === 'compact' ? 'compact' : 'comfortable';
   const defaultIntentFeedTab: FeedTab = (() => {
@@ -2633,11 +2633,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           : Promise.resolve([])
       );
       tasks.push(
-        showSidebarAds
+        showSidebarAds || showFeaturedSidebarAd
           ? Promise.allSettled([
               CommunityService.getPublicAds({ placement: 'homepage', limit: 6 }),
               CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 8 }),
-              CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 })
+              CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
+              CommunityService.getPublicAds({ limit: 10 })
             ]).then((results) => {
               const merged: any[] = [];
               results.forEach((result) => {
