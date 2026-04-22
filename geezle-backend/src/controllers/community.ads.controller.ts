@@ -1615,9 +1615,23 @@ export const getAdPerformance = async (req: Request, res: Response) => {
 // Admin endpoints
 export const getReviewQueue = async (_req: Request, res: Response) => {
   try {
-    const ads = await prisma.communityAd.findMany({ where: { status: 'SUBMITTED_FOR_REVIEW' }, orderBy: { createdAt: 'asc' } });
+    const [ads, adsConfigSetting] = await Promise.all([
+      prisma.communityAd.findMany({
+        where: { status: 'SUBMITTED_FOR_REVIEW' },
+        orderBy: { createdAt: 'asc' },
+        include: { payments: true }
+      }),
+      prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
+    ]);
     const hydrated = await hydrateAdsWithMedia(ads);
-    return res.json({ success: true, data: hydrated });
+    const adsConfig = adsConfigSetting?.data || defaultAdsConfig;
+    return res.json({
+      success: true,
+      data: hydrated.map((ad) => ({
+        ...ad,
+        delivery: buildAdDeliveryDiagnostics(ad, adsConfig)
+      }))
+    });
   } catch (error: any) {
     console.error('Get review queue error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load review queue' });
@@ -2371,20 +2385,31 @@ export const deleteAd = async (req: Request, res: Response) => {
 // Admin: list all campaigns (for admin UI)
 export const getAllCampaigns = async (_req: Request, res: Response) => {
   try {
-    const ads = await prisma.communityAd.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        creator: {
-          select: { id: true, name: true, email: true, username: true }
+    const [ads, adsConfigSetting] = await Promise.all([
+      prisma.communityAd.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: {
+          payments: true,
+          creator: {
+            select: { id: true, name: true, email: true, username: true }
+          }
         }
-      }
-    });
+      }),
+      prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } })
+    ]);
     const withClient = ads.map((ad: any) => ({
       ...ad,
       clientName: ad?.creator?.name || ad?.creator?.username || ad?.creator?.email || 'Customer'
     }));
     const hydrated = await hydrateAdsWithMedia(withClient);
-    return res.json({ success: true, data: hydrated });
+    const adsConfig = adsConfigSetting?.data || defaultAdsConfig;
+    return res.json({
+      success: true,
+      data: hydrated.map((ad) => ({
+        ...ad,
+        delivery: buildAdDeliveryDiagnostics(ad, adsConfig)
+      }))
+    });
   } catch (error: any) {
     console.error('Get all campaigns error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load campaigns' });
