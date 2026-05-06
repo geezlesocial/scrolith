@@ -1,18 +1,32 @@
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { FavoritesService, FavoriteEntityType, FavoriteItem } from '../services/favorites';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FAVORITES_RATE_LIMIT_MESSAGE,
+  FavoritesService,
+  FavoriteEntityType,
+  FavoriteItem,
+  getFavoritesRetryAfterMs,
+  isFavoritesRateLimitedError
+} from '../services/favorites';
 import { useUser } from './UserContext';
 import { useNotification } from './NotificationContext';
 import { useSocket } from './SocketContext';
+
+interface RefreshFavoritesOptions {
+  force?: boolean;
+  silent?: boolean;
+}
 
 interface FavoritesContextType {
   favorites: FavoriteItem[];
   toggleFavorite: (entityType: FavoriteEntityType, entityId: string) => Promise<void>;
   isFavorite: (entityType: FavoriteEntityType, entityId: string) => boolean;
-  refreshFavorites: () => Promise<void>;
+  refreshFavorites: (options?: RefreshFavoritesOptions) => Promise<void>;
 }
 
 const FavoritesContext = createContext<FavoritesContextType | undefined>(undefined);
+const FAVORITES_STALE_MS = 5 * 60 * 1000;
+const FAVORITES_RATE_LIMIT_NOTICE_MS = 60 * 1000;
 
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useUser();
@@ -20,65 +34,144 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const { socket } = useSocket();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const lastLoadedAtRef = useRef(0);
+  const lastRateLimitNoticeAtRef = useRef(0);
+  const retryAfterUntilRef = useRef(0);
+  const eventRefreshTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const canLoadFavorites = isAuthenticated && Boolean(user?.id);
 
-  const refreshFavorites = async () => {
-    if (!isAuthenticated || !user) {
+  const refreshFavorites = useCallback(async (options: RefreshFavoritesOptions = {}) => {
+    const { force = false, silent = false } = options;
+
+    if (!canLoadFavorites) {
       setFavorites([]);
+      setLoaded(true);
+      lastLoadedAtRef.current = 0;
+      retryAfterUntilRef.current = 0;
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && lastLoadedAtRef.current && now - lastLoadedAtRef.current < FAVORITES_STALE_MS) {
       setLoaded(true);
       return;
     }
 
-    try {
-      const data = await FavoritesService.getAll();
-      setFavorites(data);
-    } catch (error: any) {
-      showNotification('error', 'Favorites Load Failed', error?.message || 'Unable to load favorites.');
-      setFavorites([]);
-    } finally {
+    if (!force && retryAfterUntilRef.current > now) {
       setLoaded(true);
+      return;
     }
-  };
+
+    if (inFlightRef.current) {
+      await inFlightRef.current;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        const data = await FavoritesService.getAll();
+        setFavorites(data);
+        lastLoadedAtRef.current = Date.now();
+        retryAfterUntilRef.current = 0;
+      } catch (error: any) {
+        if (isFavoritesRateLimitedError(error)) {
+          const retryAfterMs = getFavoritesRetryAfterMs(error) || FAVORITES_RATE_LIMIT_NOTICE_MS;
+          retryAfterUntilRef.current = Date.now() + retryAfterMs;
+
+          if (!silent && Date.now() - lastRateLimitNoticeAtRef.current > FAVORITES_RATE_LIMIT_NOTICE_MS) {
+            lastRateLimitNoticeAtRef.current = Date.now();
+            showNotification('warning', 'Favorites Unavailable', FAVORITES_RATE_LIMIT_MESSAGE);
+          }
+          return;
+        }
+
+        if (!silent) {
+          showNotification('error', 'Favorites Load Failed', error?.message || 'Unable to load favorites.');
+        }
+      } finally {
+        setLoaded(true);
+      }
+    })();
+
+    inFlightRef.current = request;
+
+    try {
+      await request;
+    } finally {
+      if (inFlightRef.current === request) {
+        inFlightRef.current = null;
+      }
+    }
+  }, [canLoadFavorites, showNotification]);
 
   useEffect(() => {
-    refreshFavorites();
-  }, [isAuthenticated, user?.id]);
+    if (!canLoadFavorites) {
+      setFavorites([]);
+      setLoaded(true);
+      lastLoadedAtRef.current = 0;
+      retryAfterUntilRef.current = 0;
+      return;
+    }
+
+    setLoaded(false);
+    lastLoadedAtRef.current = 0;
+    retryAfterUntilRef.current = 0;
+    refreshFavorites({ force: true, silent: true }).catch(() => null);
+  }, [canLoadFavorites, user?.id, refreshFavorites]);
 
   useEffect(() => {
     if (!loaded) return;
-    if (!isAuthenticated) {
+    if (!canLoadFavorites) {
       setFavorites([]);
     }
-  }, [isAuthenticated, loaded]);
+  }, [canLoadFavorites, loaded]);
 
   useEffect(() => {
-    if (!socket || !isAuthenticated || !user?.id) return;
+    if (!socket || !canLoadFavorites) return;
     const onFavoritesUpdated = () => {
-      refreshFavorites().catch(() => null);
+      refreshFavorites({ force: true, silent: true }).catch(() => null);
     };
     socket.on('favorites:updated', onFavoritesUpdated);
     return () => {
       socket.off('favorites:updated', onFavoritesUpdated);
     };
-  }, [socket, isAuthenticated, user?.id]);
+  }, [socket, canLoadFavorites, refreshFavorites]);
 
   useEffect(() => {
+    if (!canLoadFavorites) return;
+
     const onFavoritesUpdated = () => {
-      refreshFavorites().catch(() => null);
+      if (eventRefreshTimeoutRef.current) {
+        window.clearTimeout(eventRefreshTimeoutRef.current);
+      }
+      eventRefreshTimeoutRef.current = window.setTimeout(() => {
+        refreshFavorites({ force: true, silent: true }).catch(() => null);
+      }, 250);
     };
+
     window.addEventListener('favorites:updated', onFavoritesUpdated as EventListener);
     return () => {
+      if (eventRefreshTimeoutRef.current) {
+        window.clearTimeout(eventRefreshTimeoutRef.current);
+        eventRefreshTimeoutRef.current = null;
+      }
       window.removeEventListener('favorites:updated', onFavoritesUpdated as EventListener);
     };
-  }, []);
+  }, [canLoadFavorites, refreshFavorites]);
 
-  const isFavorite = (entityType: FavoriteEntityType, entityId: string) =>
-    favorites.some((f) => f.entityType === entityType && f.entityId === entityId);
+  const isFavorite = useCallback(
+    (entityType: FavoriteEntityType, entityId: string) =>
+      favorites.some((f) => f.entityType === entityType && f.entityId === entityId),
+    [favorites]
+  );
 
-  const toggleFavorite = async (entityType: FavoriteEntityType, entityId: string) => {
-    if (!isAuthenticated || !user) {
+  const toggleFavorite = useCallback(async (entityType: FavoriteEntityType, entityId: string) => {
+    if (!canLoadFavorites) {
       throw new Error('Please sign in to manage favorites.');
     }
 
+    const previousFavorites = favorites;
     const already = isFavorite(entityType, entityId);
     setFavorites((prev) => {
       if (already) {
@@ -93,11 +186,12 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       } else {
         await FavoritesService.add(entityType, entityId);
       }
+      lastLoadedAtRef.current = Date.now();
     } catch (error) {
-      await refreshFavorites();
+      setFavorites(previousFavorites);
       throw error;
     }
-  };
+  }, [canLoadFavorites, favorites, isFavorite]);
 
   const value = useMemo(
     () => ({
@@ -106,7 +200,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       isFavorite,
       refreshFavorites
     }),
-    [favorites]
+    [favorites, toggleFavorite, isFavorite, refreshFavorites]
   );
 
   return (

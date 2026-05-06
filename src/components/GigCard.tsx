@@ -5,9 +5,11 @@ import { useCurrency } from '../context/CurrencyContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
+import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import { Gig } from '../types';
 import ProBadge from './ProBadge';
 import VerifiedBadge from './common/VerifiedBadge';
+import OptimizedImage from './media/OptimizedImage';
 import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
@@ -115,7 +117,11 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
         liked ? 'Gig removed from favorites.' : 'Gig added to favorites.'
       );
     } catch (error: any) {
-      showNotification('error', 'Favorites', error?.message || 'Unable to update favorites.');
+      showNotification(
+        'error',
+        'Favorites',
+        isFavoritesRateLimitedError(error) ? FAVORITES_RATE_LIMIT_MESSAGE : error?.message || 'Unable to update favorites.'
+      );
     } finally {
       setWorking(false);
     }
@@ -169,9 +175,14 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
       <Link to={`/gigs/${gig.id}`} className="flex h-full flex-col">
         <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
           {imageUrl ? (
-            <img
+            <OptimizedImage
               src={imageUrl}
               alt={gig.title}
+              width={640}
+              height={480}
+              sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
             />
           ) : (
@@ -211,7 +222,15 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
         <div className="flex flex-1 flex-col p-5 sm:p-6">
           <div className="flex items-start gap-3">
             {freelancerAvatar ? (
-              <img src={freelancerAvatar} alt={gig.freelancerName} className="h-10 w-10 flex-shrink-0 rounded-full object-cover ring-2 ring-slate-100" />
+              <OptimizedImage
+                src={freelancerAvatar}
+                alt={gig.freelancerName}
+                width={80}
+                height={80}
+                loading="lazy"
+                decoding="async"
+                className="h-10 w-10 flex-shrink-0 rounded-full object-cover ring-2 ring-slate-100"
+              />
             ) : (
               <div className="h-10 w-10 flex-shrink-0 rounded-full bg-slate-200 ring-2 ring-slate-100" />
             )}

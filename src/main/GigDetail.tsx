@@ -16,6 +16,7 @@ import { PaymentService } from '../services/payment';
 import { MessagingService } from '../services/messaging';
 import { walletApi } from '../services/wallet';
 import { CMSService } from '../services/cms';
+import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import { useSocket } from '../context/SocketContext';
 import { Contract, Message, TimeEntry } from '../types';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
@@ -528,7 +529,11 @@ const GigDetail = () => {
           await toggleFavorite('gig', gig.id);
           showNotification('success', already ? 'Removed' : 'Saved', already ? 'Gig removed from your favorites.' : 'Gig added to your favorites.');
       } catch (error: any) {
-          showNotification('error', 'Favorites', error?.message || 'Unable to update favorites.');
+          showNotification(
+              'error',
+              'Favorites',
+              isFavoritesRateLimitedError(error) ? FAVORITES_RATE_LIMIT_MESSAGE : error?.message || 'Unable to update favorites.'
+          );
       }
   };
   const handleShare = async () => {

@@ -9,6 +9,7 @@ import { Job } from '../types';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
+import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 
 const BrowseJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -54,7 +55,11 @@ const BrowseJobs = () => {
         liked ? 'Job removed from your favorites.' : 'Job added to your favorites.'
       );
     } catch (err: any) {
-      showNotification('error', 'Favorites', err?.message || 'Unable to update favorite.');
+      showNotification(
+        'error',
+        'Favorites',
+        isFavoritesRateLimitedError(err) ? FAVORITES_RATE_LIMIT_MESSAGE : err?.message || 'Unable to update favorite.'
+      );
     } finally {
       setBusyKey(null);
     }

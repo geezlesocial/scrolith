@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { useFavorites } from '../context/FavoritesContext';
-import { FavoritesService } from '../services/favorites';
+import {
+  FAVORITES_RATE_LIMIT_MESSAGE,
+  FavoritesService,
+  isFavoritesRateLimitedError
+} from '../services/favorites';
 import { useCurrency } from '../context/CurrencyContext';
 import GigCard from '../components/GigCard';
 import ProBadge from '../components/ProBadge';
@@ -24,7 +28,7 @@ const Favorites = () => {
       setGigs(Array.isArray(data.gigs) ? data.gigs : []);
       setJobs(Array.isArray(data.jobs) ? data.jobs : []);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load favorites.');
+      setError(isFavoritesRateLimitedError(err) ? FAVORITES_RATE_LIMIT_MESSAGE : err?.message || 'Failed to load favorites.');
       setGigs([]);
       setJobs([]);
     } finally {

@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { Capacitor } from '@capacitor/core';
 import { tokenStore } from './tokenStore';
 import { getApiBaseUrl } from '../utils/apiBase';
 import { resolveAssetUrl } from '../utils/assetUrl';
@@ -15,13 +14,8 @@ if (import.meta.env.PROD && !hasBackendEnv) {
   throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 
-const isNative = () => {
-  try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    return false;
-  }
-};
+const isNative = () =>
+  typeof window !== 'undefined' && Boolean((window as any).Capacitor);
 
 const isAbsoluteRequestUrl = (value: unknown) => /^https?:\/\//i.test(String(value || '').trim());
 const parseTimeoutMs = (value: unknown, fallback: number) => {
@@ -81,6 +75,8 @@ const computeRetryDelayMs = (error: any, attempt: number) => {
 };
 const shouldRetryRequest = (error: any) => {
   const config = (error?.config || {}) as any;
+  if (config.__skipRetry) return false;
+
   const method = String(config?.method || 'get').toLowerCase();
   if (method !== 'get') return false;
 

@@ -1,5 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { FavoritesService } from '../../services/favorites';
+import {
+  FAVORITES_RATE_LIMIT_MESSAGE,
+  FavoritesService,
+  isFavoritesRateLimitedError
+} from '../../services/favorites';
 import Skeleton from '../shared/Skeleton';
 
 type TopGig = { id: string; title: string; likes: number };
@@ -25,7 +29,7 @@ export default function FreelancerLikes() {
       setTopGigs(data.topGigs || []);
       setRecent(data.recent || []);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load likes');
+      setError(isFavoritesRateLimitedError(err) ? FAVORITES_RATE_LIMIT_MESSAGE : err?.message || 'Failed to load likes');
       setProfileLikes(0);
       setGigLikes(0);
       setTotalLikes(0);
