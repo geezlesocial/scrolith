@@ -20,6 +20,7 @@ const minimalLoginSelect = {
   name: true,
   username: true,
   role: true,
+  isActive: true,
   followOnboardingRequired: true,
   followOnboardingCompletedAt: true,
   passwordHash: true
@@ -31,6 +32,7 @@ const minimalMeSelect = {
   name: true,
   username: true,
   role: true,
+  isActive: true,
   followOnboardingRequired: true,
   followOnboardingCompletedAt: true
 };
@@ -41,6 +43,7 @@ const baseLoginSelect = {
   name: true,
   username: true,
   role: true,
+  isActive: true,
   avatar: true,
   profilePhotoFileId: true,
   kycStatus: true,
@@ -55,6 +58,7 @@ const baseMeSelect = {
   name: true,
   username: true,
   role: true,
+  isActive: true,
   avatar: true,
   profilePhotoFileId: true,
   kycStatus: true,
@@ -143,6 +147,8 @@ const mapUserPayload = (user: any) => {
     name: user.name,
     username: user.username || '',
     role: user.role,
+    isActive: user.isActive !== false,
+    is_active: user.isActive !== false,
     avatar: user.avatar,
     profilePhotoFileId: user.profilePhotoFileId ?? null,
     profile_photo_file_id: user.profilePhotoFileId ?? null,
@@ -197,6 +203,15 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 const PASSWORD_RESET_TTL_MINUTES = Number(process.env.PASSWORD_RESET_TTL_MINUTES || 30);
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
+const invalidCredentialsResponse = (res: Response) =>
+  res.status(401).json({
+    success: false,
+    error: 'Invalid email or password',
+    code: 'INVALID_CREDENTIALS'
+  });
+
+const isMissingLoginField = (value: unknown) =>
+  typeof value !== 'string' || value.trim().length === 0;
 
 type ClientMeta = { ip?: string; userAgent?: string };
 
@@ -331,14 +346,20 @@ export const login = async (req: Request, res: Response) => {
     console.log('[auth.login] bodyKeys:', bodyKeys);
     console.log('[auth.login] sanitizedBody:', sanitized);
 
-    let { email, password } = req.body;
-    email = (email || '').toString().trim().toLowerCase();
+    const rawEmail = req.body?.email;
+    const rawPassword = req.body?.password;
+    const email = typeof rawEmail === 'string' ? normalizeEmail(rawEmail) : '';
+    const password = typeof rawPassword === 'string' ? rawPassword : '';
 
     console.log('[auth.login] attempt', { email });
 
     // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    if (isMissingLoginField(rawEmail) || isMissingLoginField(rawPassword)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and password are required',
+        code: 'MISSING_CREDENTIALS'
+      });
     }
 
     // Find user by normalized email (safe select with fallback for older schemas)
@@ -348,33 +369,73 @@ export const login = async (req: Request, res: Response) => {
     // Check if user exists and password is correct
     if (!user) {
       console.log('[auth.login] no user');
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return invalidCredentialsResponse(res);
     }
-    if (!user.passwordHash) {
+    if (user.isActive === false) {
+      console.warn('[auth.login] inactive user login blocked', { userId: user.id, email });
+      return res.status(403).json({
+        success: false,
+        error: 'Account is disabled or suspended',
+        code: 'ACCOUNT_DISABLED'
+      });
+    }
+    if (typeof user.passwordHash !== 'string' || user.passwordHash.trim().length === 0) {
       console.log('[auth.login] no passwordHash for user', user.id);
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return invalidCredentialsResponse(res);
     }
-    const pwMatch = await bcrypt.compare(password, user.passwordHash);
+    let pwMatch = false;
+    try {
+      pwMatch = await bcrypt.compare(password, user.passwordHash);
+    } catch (compareError) {
+      console.warn('[auth.login] password compare failed; treating as invalid credentials', {
+        userId: user.id,
+        email,
+        message: (compareError as any)?.message || compareError
+      });
+      return invalidCredentialsResponse(res);
+    }
     console.log('[auth.login] password match?', pwMatch);
     if (!pwMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return invalidCredentialsResponse(res);
     }
 
     // Staff account guardrails at login time.
-    const staffProfile = await prisma.staffUser.findUnique({
-      where: { userId: user.id },
-      include: {
-        role: {
-          select: { id: true, name: true, isActive: true }
+    let staffProfile: any = null;
+    try {
+      staffProfile = await prisma.staffUser.findUnique({
+        where: { userId: user.id },
+        include: {
+          role: {
+            select: { id: true, name: true, isActive: true }
+          }
         }
-      }
-    });
+      });
+    } catch (staffError) {
+      console.error('[auth.login] Staff account check failed', {
+        userId: user.id,
+        email,
+        message: (staffError as any)?.message || staffError
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Unable to complete login. Please try again shortly.',
+        code: 'LOGIN_GUARD_FAILED'
+      });
+    }
     if (staffProfile) {
       if (staffProfile.status !== 'ACTIVE') {
-        return res.status(403).json({ error: 'Staff account is not active' });
+        return res.status(403).json({
+          success: false,
+          error: 'Staff account is not active',
+          code: 'STAFF_ACCOUNT_INACTIVE'
+        });
       }
       if (!staffProfile.role?.isActive) {
-        return res.status(403).json({ error: 'Assigned staff role is inactive' });
+        return res.status(403).json({
+          success: false,
+          error: 'Assigned staff role is inactive',
+          code: 'STAFF_ROLE_INACTIVE'
+        });
       }
     }
 
@@ -393,11 +454,25 @@ export const login = async (req: Request, res: Response) => {
 
     // Generate JWT token
     console.log('[auth.login] signing token with JWT_SECRET present?', !!JWT_SECRET);
-    const token = (jwt as any).sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN as string }
-    );
+    let token = '';
+    try {
+      token = (jwt as any).sign(
+        { id: user.id, email: user.email, role: user.role },
+        JWT_SECRET,
+        { expiresIn: JWT_EXPIRES_IN as string }
+      );
+    } catch (signError) {
+      console.error('[auth.login] JWT signing failed', {
+        userId: user.id,
+        email,
+        message: (signError as any)?.message || signError
+      });
+      return res.status(500).json({
+        success: false,
+        error: 'Unable to complete login. Please try again shortly.',
+        code: 'TOKEN_SIGN_FAILED'
+      });
+    }
 
     // Persist token in an HttpOnly cookie so sessions survive reloads even if
     // browser storage is blocked/cleared.
@@ -413,11 +488,16 @@ export const login = async (req: Request, res: Response) => {
       success: true,
       user: mapUserPayload(user),
       token,
+      accessToken: token,
       forcePasswordReset: Boolean(staffProfile?.forcePasswordReset),
     });
   } catch (error) {
     console.error('Login error:', error, (error as any)?.stack);
-    return res.status(500).json({ error: 'Internal server error during login' });
+    return res.status(500).json({
+      success: false,
+      error: 'Internal server error during login',
+      code: 'LOGIN_INTERNAL'
+    });
   }
 };
 

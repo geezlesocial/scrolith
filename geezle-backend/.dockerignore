@@ -1,0 +1,9 @@
+node_modules
+**/node_modules
+dist
+coverage
+.git
+.gitignore
+playwright-report
+test-results
+tmp
