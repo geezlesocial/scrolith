@@ -4,35 +4,38 @@ import { useUser } from '../context/UserContext';
 import { DashboardLayout } from './shared/DashboardLayout';
 import type { UserRole } from '../types';
 import { USER_ROLES } from '../utils/userRoles';
-import { Overview as FreelancerOverview } from './freelancer/Overview';
-import MyGigs from './freelancer/MyGigs';
-import Orders from './freelancer/Orders';
-import FreelancerContracts from './freelancer/Contracts';
-import MyProposals from './freelancer/MyProposals';
-import FreelancerUploadedFiles from './freelancer/UploadedFiles';
-import WalletModule from './freelancer/WalletModule';
-import EmployerOverview from './employer/Overview';
-import MyJobs from './employer/MyJobs';
-import ProposalsOffers from './employer/ProposalsOffers';
-import ProjectBriefs from './employer/ProjectBriefs';
-import EmployerContracts from './employer/Contracts';
-import EmployerUploadedFiles from './employer/UploadedFiles';
-import EmployerFavorites from './employer/Favorites';
-import EmployerReviews from './employer/Reviews';
-import FreelancerReviews from './freelancer/Reviews';
-import FreelancerLikes from './freelancer/Likes';
-import MyAds from '../pages/MyAds';
-import CommunityDashboard from './shared/CommunityDashboard';
-import SupportCenter from './shared/SupportCenter';
-import GcoinPanel from './shared/GcoinPanel';
-import MessagesPanel from './shared/MessagesPanel';
-import Favorites from '../pages/Favorites';
-import KYCVerification from './shared/KYCVerification';
-import EditProfile from '../profile/EditProfile';
-import SettingsModule from './shared/SettingsModule';
-import Membership from './shared/Membership';
-import ManagePagesModule from './shared/ManagePagesModule';
-import AffiliateDashboardModule from './shared/AffiliateDashboardModule';
+
+const FreelancerOverview = React.lazy(() => import('./freelancer/Overview'));
+const MyGigs = React.lazy(() => import('./freelancer/MyGigs'));
+const Orders = React.lazy(() => import('./freelancer/Orders'));
+const FreelancerContracts = React.lazy(() => import('./freelancer/Contracts'));
+const MyProposals = React.lazy(() => import('./freelancer/MyProposals'));
+const FreelancerUploadedFiles = React.lazy(() => import('./freelancer/UploadedFiles'));
+const WalletModule = React.lazy(() => import('./freelancer/WalletModule'));
+const EmployerOverview = React.lazy(() => import('./employer/Overview'));
+const MyJobs = React.lazy(() => import('./employer/MyJobs'));
+const ProposalsOffers = React.lazy(() => import('./employer/ProposalsOffers'));
+const ProjectBriefs = React.lazy(() => import('./employer/ProjectBriefs'));
+const EmployerContracts = React.lazy(() => import('./employer/Contracts'));
+const EmployerUploadedFiles = React.lazy(() => import('./employer/UploadedFiles'));
+const EmployerFavorites = React.lazy(() => import('./employer/Favorites'));
+const EmployerReviews = React.lazy(() => import('./employer/Reviews'));
+const FreelancerReviews = React.lazy(() => import('./freelancer/Reviews'));
+const FreelancerLikes = React.lazy(() => import('./freelancer/Likes'));
+const SupportCenter = React.lazy(() => import('./shared/SupportCenter'));
+const GcoinPanel = React.lazy(() => import('./shared/GcoinPanel'));
+const MessagesPanel = React.lazy(() => import('./shared/MessagesPanel'));
+const Favorites = React.lazy(() => import('../pages/Favorites'));
+const KYCVerification = React.lazy(() => import('./shared/KYCVerification'));
+const SettingsModule = React.lazy(() => import('./shared/SettingsModule'));
+const Membership = React.lazy(() => import('./shared/Membership'));
+const ManagePagesModule = React.lazy(() => import('./shared/ManagePagesModule'));
+const AffiliateDashboardModule = React.lazy(() => import('./shared/AffiliateDashboardModule'));
+const MyAds = React.lazy(() => import('../pages/MyAds'));
+const CommunityDashboard = React.lazy(() => import('./shared/CommunityDashboard'));
+const EditProfile = React.lazy(() => import('../profile/EditProfile'));
+const ResumeBuilder = React.lazy(() => import('../pages/freelancer/ResumeBuilder'));
+const ResumeReviewer = React.lazy(() => import('../pages/client/ResumeReviewer'));
 
 const DashboardSectionLoader = () => (
   <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
@@ -93,7 +96,14 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       briefs: 'project-briefs',
       brief: 'project-briefs',
       projectbriefs: 'project-briefs',
-      'project-briefs': 'project-briefs'
+      'project-briefs': 'project-briefs',
+      'resume-builder': 'resume-reviewer',
+      resume: 'resume-reviewer',
+      resumes: 'resume-reviewer',
+      cv: 'resume-reviewer',
+      cvs: 'resume-reviewer',
+      reviewer: 'resume-reviewer',
+      'resume-reviewer': 'resume-reviewer'
     };
     return employerMap[tab] || tab;
   }
@@ -105,7 +115,12 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       'my-gigs': 'my-gigs',
       proposals: 'my-proposals',
       proposal: 'my-proposals',
-      'my-proposals': 'my-proposals'
+      'my-proposals': 'my-proposals',
+      'resume-builder': 'resume-builder',
+      resume: 'resume-builder',
+      resumes: 'resume-builder',
+      cv: 'resume-builder',
+      cvs: 'resume-builder'
     };
     return freelancerMap[tab] || tab;
   }
@@ -180,6 +195,8 @@ export const DashboardRouter: React.FC = () => {
           return <FreelancerContracts />;
         case 'my-proposals':
           return <MyProposals />;
+        case 'resume-builder':
+          return <ResumeBuilder />;
         case 'wallet':
           return <WalletModule />;
         case 'membership':
@@ -225,6 +242,8 @@ export const DashboardRouter: React.FC = () => {
           return <ProposalsOffers />;
         case 'project-briefs':
           return <ProjectBriefs />;
+        case 'resume-reviewer':
+          return <ResumeReviewer />;
         case 'contracts':
           return <EmployerContracts />;
         case 'orders':
