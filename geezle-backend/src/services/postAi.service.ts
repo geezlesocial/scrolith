@@ -16,17 +16,49 @@ const ENHANCE_MODES = new Set<PostEnhanceMode>([
   'expand'
 ]);
 
+const ENHANCE_MODE_ALIASES: Record<string, PostEnhanceMode> = {
+  fix: 'grammar',
+  correct: 'grammar',
+  proofread: 'grammar',
+  rewrite: 'rephrase',
+  clarify: 'rephrase',
+  pro: 'professional',
+  business: 'professional',
+  concise: 'shorten',
+  brief: 'shorten',
+  longer: 'expand',
+  elaborate: 'expand',
+  grammar_fix: 'grammar',
+  improve_grammar: 'grammar',
+  make_professional: 'professional',
+  post_card_polish: 'rephrase',
+  scroll_post_polish: 'rephrase',
+  story_caption_polish: 'rephrase',
+  caption_polish: 'rephrase',
+  marketplace_tone: 'professional',
+  friendly_rewrite: 'rephrase',
+  engagement_rewrite: 'rephrase'
+};
+
+const resolveEnhanceMode = (mode: string): PostEnhanceMode | undefined => {
+  const lowerCaseMode = mode.toLowerCase().trim();
+  if (ENHANCE_MODES.has(lowerCaseMode as PostEnhanceMode)) {
+    return lowerCaseMode as PostEnhanceMode;
+  }
+  return ENHANCE_MODE_ALIASES[lowerCaseMode];
+};
+
 const ENHANCE_PROMPTS: Record<PostEnhanceMode, string> = {
   grammar:
-    'Correct grammar, spelling, punctuation, and readability while preserving the original meaning and tone.',
+    'You are an expert copy editor. Correct all grammar, spelling, and punctuation errors in the following text. Preserve the original tone and meaning. Do not add new information or change the core message. Only return the corrected text.',
   rephrase:
-    'Rephrase the text clearly and naturally while preserving the exact meaning. Do not add new claims.',
+    'You are an expert writer. Rephrase the following text to make it clearer, more concise, and more natural-sounding. Preserve the exact original meaning. Do not add or remove information. Only return the rephrased text.',
   professional:
-    'Rewrite the text in a professional, business-ready tone while preserving meaning and factual content.',
+    'You are an expert business writer. Rewrite the following text in a professional, formal, and business-appropriate tone. Ensure the meaning and factual content are preserved. The output should be ready for a corporate or client-facing communication. Only return the rewritten text.',
   shorten:
-    'Shorten the text while preserving key message and important details. Keep it concise and clear.',
+    'You are an expert editor. Shorten the following text significantly while preserving the key message, essential details, and original meaning. Remove filler words and redundant phrases. The result should be concise and clear. Only return the shortened text.',
   expand:
-    'Expand the text for clarity and structure. Keep the same intent and facts. Do not invent details.'
+    'You are an expert content writer. Expand the following text by adding more detail, explanation, and structure, while keeping the original intent and facts. Do not invent new information. Create a more complete and comprehensive version of the text. Only return the expanded text.',
 };
 
 type PostAiSettings = {
@@ -190,7 +222,7 @@ export const resolvePostAiSettings = async (): Promise<PostAiSettings> => {
 };
 
 export const isValidPostEnhanceMode = (value: unknown): value is PostEnhanceMode =>
-  ENHANCE_MODES.has(String(value || '').trim().toLowerCase() as PostEnhanceMode);
+  !!resolveEnhanceMode(String(value || '').trim());
 
 export const enforcePostEnhanceRateLimit = (userId: string, limitPerMinute = 10) => {
   const id = String(userId || '').trim();
@@ -205,16 +237,19 @@ export const enforcePostEnhanceRateLimit = (userId: string, limitPerMinute = 10)
 
 export const enhancePostDraftWithAi = async (input: {
   text: string;
-  mode: PostEnhanceMode;
+  mode: PostEnhanceMode | string; // Allow string for aliases
   safeMode?: boolean;
   scope?: ScrolithaScope;
 }) => {
   const text = String(input.text || '').trim();
   if (!text) throw new Error('text is required');
-  if (!isValidPostEnhanceMode(input.mode)) throw new Error('Invalid mode');
+
+  const resolvedMode = resolveEnhanceMode(input.mode);
+  if (!resolvedMode) throw new Error('Invalid mode');
+
   if (text.length > 20_000) throw new Error('text is too long (max 20000 characters)');
 
-  const mode = input.mode;
+  const mode = resolvedMode;
   const safeMode = Boolean(input.safeMode);
   const scope = input.scope || 'user';
   const taskPrompt = ENHANCE_PROMPTS[mode];
@@ -224,12 +259,16 @@ export const enhancePostDraftWithAi = async (input: {
     taskPrompt,
     'Never add fabricated facts.',
     'Keep hashtags, @mentions, links, and line breaks unless needed for correctness.',
+    'Return only the improved text, without commentary or apologies.',
     safeMode
       ? 'Safe mode is enabled: avoid unsafe, offensive, or policy-violating language and avoid risky instructions.'
-      : 'Return only the improved text, without commentary.'
-  ].join('\n');
+      : '',
+  ].filter(Boolean).join('\n');
 
   let response;
+  let fallbackUsed = false;
+  let warning: string | undefined = undefined;
+
   try {
     response = await runOllamaText({
       scope,
@@ -237,17 +276,25 @@ export const enhancePostDraftWithAi = async (input: {
       userPrompt: text,
       maxTokens: 420
     });
-  } catch {
+    if (!response.text) {
+      throw new Error('LLM returned an empty response');
+    }
+  } catch (error: any) {
+    fallbackUsed = true;
+    warning = 'The AI enhancement failed, and a fallback method was used. Results may be limited.';
     response = {
       text: fallbackEnhanceText(text, mode),
       model: 'scrolitha-core'
     };
+    console.warn(`[post-ai] Ollama failed for mode ${mode}. Using fallback. Error: ${error.message}`);
   }
 
   return {
     enhancedText: response.text,
     model: response.model,
-    mode
+    mode,
+    fallbackUsed, // Optional, backward-compatible
+    warning,     // Optional, backward-compatible
   };
 };
 
