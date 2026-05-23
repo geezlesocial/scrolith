@@ -158,6 +158,7 @@ const allowedOrigins = new Set<string>(
   [
     process.env.FRONTEND_URL,
     process.env.PUBLIC_APP_URL,
+    'https://scrolitha-ui-8f10d0bf-fix1---scrolith-frontend-ui2ik4yg6q-uc.a.run.app',
     'https://scrolith.com',
     'https://www.scrolith.com',
     'https://m.scrolith.com',

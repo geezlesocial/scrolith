@@ -216,7 +216,6 @@ export const listGigs = async (req: Request, res: Response) => {
       where.userId = userId;
     } else {
       where.isActive = true;
-      where.isVisible = true;
       where.adminStatus = 'APPROVED';
       where.status = 'ACTIVE';
     }
