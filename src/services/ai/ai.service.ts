@@ -256,7 +256,7 @@ export const AIService = {
     }
   },
 
-  enhancePostDraft: async (payload: { text: string; mode: PostEnhanceMode }): Promise<{ enhancedText: string }> => {
+  enhancePostDraft: async (payload: { text: string; mode: PostEnhanceMode }): Promise<{ enhancedText: string; fallbackUsed?: boolean; warning?: string }> => {
     const text = String(payload?.text || '').trim();
     if (!text) throw new Error('Text is required');
 
@@ -270,7 +270,9 @@ export const AIService = {
     );
     const data = unwrap(res);
     return {
-      enhancedText: String(data?.enhancedText || '').trim()
+      enhancedText: String(data?.enhancedText || '').trim(),
+      fallbackUsed: data?.fallbackUsed,
+      warning: data?.warning
     };
   },
 

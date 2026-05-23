@@ -1373,6 +1373,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
+  const [aiSuggestionWarning, setAiSuggestionWarning] = useState<string | null>(null);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
@@ -3335,11 +3336,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setAiSuggestionMode(null);
     setAiOriginalText('');
     setAiCompareView('compare');
+    setAiSuggestionWarning(null);
   }, []);
 
   const runPostAi = useCallback(
     async (mode: PostEnhanceMode) => {
-      const text = String(postDraft.content || '').trim();
+      const text = getPostDraftText().trim();
       if (!text) {
         showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
         return;
@@ -3348,6 +3350,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       setAiLoading(true);
       setAiRunningMode(mode);
+      setAiError(null);
+      setAiSuggestionWarning(null);
       try {
         const result = await AIService.enhancePostDraft({ text, mode });
         const enhancedText = String(result?.enhancedText || '').trim();
@@ -3356,24 +3360,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           return;
         }
 
-        setAiOriginalText(postDraft.content);
+        setAiOriginalText(text);
         setAiSuggestion(enhancedText);
         setAiSuggestionMode(mode);
         setAiCompareView('compare');
+        if (result.fallbackUsed || result.warning) {
+          setAiSuggestionWarning(result.warning || 'Scrolitha used a safe fallback because the AI provider was unavailable. Please review before applying.');
+        }
         setAiSuggestionOpen(true);
       } catch (error: any) {
-        const message =
-          error?.response?.data?.error ||
-          error?.response?.data?.message ||
-          error?.message ||
-          'Unable to process AI enhancement right now.';
-        showNotification('error', 'AI Assistant', message);
+        console.error('Failed to run post AI', error);
+        setAiError(error?.message || 'An unknown error occurred');
+        showNotification('error', 'AI Enhancement Failed', 'Scrolitha could not improve this text right now. Please try again.');
       } finally {
         setAiLoading(false);
         setAiRunningMode(null);
       }
     },
-    [aiLoading, postDraft.content, showNotification]
+    [aiLoading, getPostDraftText, showNotification]
   );
 
   const applyAiSuggestionReplace = useCallback(() => {
@@ -7873,6 +7877,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     ? `Mode: ${postAiActions.find((entry) => entry.mode === aiSuggestionMode)?.label || aiSuggestionMode}`
                     : 'Review before applying'}
                 </p>
+                {aiSuggestionWarning && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+                    {aiSuggestionWarning}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -8907,4 +8916,3 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 };
 
 export default MemberHomeSection;
-
