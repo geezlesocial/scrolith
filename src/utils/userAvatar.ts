@@ -52,19 +52,22 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
   const fileId = pickFirstString(
     userLike.profilePhotoFileId,
     userLike.profile_photo_file_id,
+    userLike.clientProfilePhotoFileId,
+    userLike.client_profile_photo_file_id,
+    userLike.freelancerProfilePhotoFileId,
+    userLike.freelancer_profile_photo_file_id,
     userLike.avatarFileId,
     userLike.avatar_file_id,
     userLike.authorAvatarFileId,
     userLike.userAvatarFileId
   );
 
-  if (directUrl && !looksLikeFileId(directUrl)) {
-    return resolveAssetUrl(directUrl);
-  }
-
   const effectiveFileId = fileId || (looksLikeFileId(directUrl) ? directUrl : '');
   const resolved = resolvePostAttachmentMediaUrl({ fileId: effectiveFileId });
   if (resolved) return resolved;
   if (effectiveFileId) return resolvePostAttachmentMediaUrl({ fileId: effectiveFileId });
+  if (directUrl && !looksLikeFileId(directUrl)) {
+    return resolveAssetUrl(directUrl);
+  }
   return '';
 };

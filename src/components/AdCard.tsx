@@ -9,6 +9,12 @@ import AdDisclosureBadge from './ads/AdDisclosureBadge';
 import { AdService } from '../services/ads';
 import { resolveAssetUrl } from '../utils/assetUrl';
 
+const resolveFileContentUrl = (fileId?: string | null) => {
+    const normalized = String(fileId || '').trim();
+    if (!normalized) return '';
+    return resolveAssetUrl(`/api/files/content/${encodeURIComponent(normalized)}`);
+};
+
 const isVideoMedia = (media: any) => {
     const type = String(media?.mimeType || media?.mime_type || media?.type || '').toLowerCase();
     const url = String(media?.url || '').toLowerCase();
@@ -59,10 +65,11 @@ const AdCard = ({
             : ad.creativeUrl
               ? { url: ad.creativeUrl, type: 'image' }
               : null;
-        if (!primary?.url) return null;
+        const preferredUrl = resolveFileContentUrl(primary?.id) || resolveAssetUrl(String(primary?.url || '').trim());
+        if (!preferredUrl) return null;
         return {
             ...primary,
-            url: resolveAssetUrl(String(primary.url || '').trim())
+            url: preferredUrl
         };
     }, [ad.creativeUrl, ad.media]);
     const mediaType = isVideoMedia(media) ? 'video' : 'image';

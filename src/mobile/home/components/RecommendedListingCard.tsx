@@ -9,6 +9,7 @@ import {
 import { Link, useNavigate } from 'react-router-dom';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
 import OptimizedImage from '../../../components/media/OptimizedImage';
+import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 
@@ -22,6 +23,7 @@ type JobLike = {
   clientId?: string | null;
   clientName?: string | null;
   clientAvatar?: string | null;
+  clientProfilePhotoFileId?: string | null;
   clientIsVerified?: boolean;
   client_is_verified?: boolean;
   clientVerified?: boolean;
@@ -45,6 +47,7 @@ type GigLike = {
   freelancerId?: string | null;
   freelancerName?: string | null;
   freelancerAvatar?: string | null;
+  freelancerProfilePhotoFileId?: string | null;
   freelancerIsVerified?: boolean;
   freelancer_is_verified?: boolean;
   freelancerVerified?: boolean;
@@ -117,9 +120,14 @@ const resolveListingImage = (row: any) => {
   return mediaCandidate ? resolvePostAttachmentMediaUrl(mediaCandidate) : '';
 };
 
-const resolveListingAvatar = (value: unknown) => {
-  const normalized = resolvePostAttachmentMediaUrl(value);
-  return String(normalized || '').trim();
+const resolveListingAvatar = (value: any) => {
+  const normalized = resolveUserAvatarUrl(value);
+  if (normalized) return String(normalized).trim();
+  const directValue =
+    value && typeof value === 'object'
+      ? value.avatarUrl || value.avatar_url || value.avatar || value.clientAvatar || value.freelancerAvatar
+      : value;
+  return String(resolvePostAttachmentMediaUrl(directValue) || '').trim();
 };
 
 const isNestedInteractiveTarget = (target: EventTarget | null) => {
@@ -197,7 +205,11 @@ export default function RecommendedListingCard({
             const href = `/jobs/${encodeURIComponent(id)}`;
             const canContact = Boolean(job.clientId) && Boolean(onContact);
             const { imageKey, imageUrl, canRenderImage } = getImageState(id, job);
-            const clientAvatar = resolveListingAvatar(job.clientAvatar);
+            const clientAvatar = resolveListingAvatar({
+              avatar: job.clientAvatar,
+              clientAvatar: job.clientAvatar,
+              clientProfilePhotoFileId: job.clientProfilePhotoFileId
+            });
             return (
               <div
                 key={id}
@@ -309,7 +321,11 @@ export default function RecommendedListingCard({
           const href = `/gigs/${encodeURIComponent(id)}`;
           const canContact = Boolean(gig.freelancerId) && Boolean(onContact);
           const { imageKey, imageUrl, canRenderImage } = getImageState(id, gig);
-          const freelancerAvatar = resolveListingAvatar(gig.freelancerAvatar);
+          const freelancerAvatar = resolveListingAvatar({
+            avatar: gig.freelancerAvatar,
+            freelancerAvatar: gig.freelancerAvatar,
+            freelancerProfilePhotoFileId: gig.freelancerProfilePhotoFileId
+          });
           return (
             <div
               key={id}

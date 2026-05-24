@@ -744,6 +744,14 @@ export default function MobileFeed({
     const topPage = suggestedPages[0];
     const topAd = ads[0];
     const topPost = posts[0];
+    const resolveHighlightAdMedia = (ad: any) => {
+      const primary = Array.isArray(ad?.media) ? ad.media[0] : null;
+      const fileId = String(primary?.id || '').trim();
+      if (fileId) {
+        return resolveAssetUrl(`/api/files/content/${encodeURIComponent(fileId)}`);
+      }
+      return resolveAssetUrl(String(primary?.url || '').trim());
+    };
 
     items.push({
       id: 'mobile-scrolitha-coach',
@@ -896,7 +904,7 @@ export default function MobileFeed({
         badge: 'Sponsored',
         ctaLabel: topAd.ctaText || 'Open campaign',
         onClick: () => handleHighlightedAdOpen(topAd),
-        mediaUrl: Array.isArray(topAd.media) ? String(topAd.media[0]?.url || '').trim() : '',
+        mediaUrl: resolveHighlightAdMedia(topAd),
         icon: <Megaphone className="h-4 w-4" />,
         tone: 'amber'
       });

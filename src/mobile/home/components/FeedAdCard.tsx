@@ -10,6 +10,12 @@ import AdDisclosureBadge from '../../../components/ads/AdDisclosureBadge';
 import { CommunityService } from '../../../services/community';
 import { resolveAssetUrl } from '../../../utils/assetUrl';
 
+const resolveFileContentUrl = (fileId?: string | null) => {
+  const normalized = String(fileId || '').trim();
+  if (!normalized) return '';
+  return resolveAssetUrl(`/api/files/content/${encodeURIComponent(normalized)}`);
+};
+
 type AdMedia = { id: string; url: string; mimeType: string | null; name: string | null };
 
 type CommunityAd = {
@@ -37,10 +43,11 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
   const primaryMedia = useMemo(() => {
     const media = Array.isArray(ad?.media) ? ad.media : [];
     const candidate = media[0] || null;
-    if (!candidate?.url) return null;
+    const preferredUrl = resolveFileContentUrl(candidate?.id) || resolveAssetUrl(String(candidate?.url || '').trim());
+    if (!preferredUrl) return null;
     return {
       ...candidate,
-      url: resolveAssetUrl(String(candidate.url || '').trim())
+      url: preferredUrl
     };
   }, [ad?.media]);
 
