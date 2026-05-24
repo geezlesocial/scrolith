@@ -1373,6 +1373,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
+  const [aiError, setAiError] = useState<string | null>(null);
   const [aiSuggestionWarning, setAiSuggestionWarning] = useState<string | null>(null);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
