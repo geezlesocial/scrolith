@@ -30,6 +30,7 @@ import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
 import TranslatablePostText from '../../../components/translation/TranslatablePostText';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
+import { resolveAssetUrl } from '../../../utils/assetUrl';
 import { normalizeContentOfferTags } from '../../../utils/contentOffers';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
 import {
