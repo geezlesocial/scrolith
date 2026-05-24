@@ -55,6 +55,8 @@ const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|mov|m4v|mkv|avi|wmv|flv|m3u8)(?:$|[
 const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg|avif)(?:$|[?#])/i;
 const DOCUMENT_EXTENSION_PATTERN = /\.(pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar|7z)(?:$|[?#])/i;
 
+const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(String(value || '').trim());
+
 const buildFileContentUrl = (value: string) => `/api/files/content/${encodeURIComponent(String(value || '').trim())}`;
 
 const readFirstString = (source: any, keys: string[]) => {
@@ -97,6 +99,7 @@ const isLegacyUploadPath = (value: string) => {
 const resolveContentUrl = (value: string) => {
   const normalized = String(value || '').trim();
   if (!normalized) return '';
+  if (isAbsoluteUrl(normalized)) return resolveAssetUrl(normalized);
   return resolveAssetUrl(buildFileContentUrl(normalized));
 };
 
@@ -170,9 +173,11 @@ export const resolveInlineMedia = (
         ? resolveAssetUrl(directValue)
         : resolveContentUrl(directValue)
       : mediaContentId
-        ? looksLikeDirectUrl(mediaContentId)
+        ? isAbsoluteUrl(mediaContentId)
           ? resolveAssetUrl(mediaContentId)
-          : resolveContentUrl(mediaContentId)
+          : looksLikeDirectUrl(mediaContentId)
+            ? resolveAssetUrl(mediaContentId)
+            : resolveContentUrl(mediaContentId)
         : '';
 
   const posterValue =
@@ -189,7 +194,9 @@ export const resolveInlineMedia = (
         ? resolveAssetUrl(posterValue)
         : resolveContentUrl(posterValue)
       : posterId
-        ? resolveContentUrl(posterId)
+        ? isAbsoluteUrl(posterId)
+          ? resolveAssetUrl(posterId)
+          : resolveContentUrl(posterId)
         : '';
 
   const kind = inferMediaKind(

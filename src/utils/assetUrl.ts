@@ -27,10 +27,49 @@ const isAssetPath = (value: string) => {
   );
 };
 
+const recoverEncodedAbsoluteAssetUrl = (value: string) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+
+  const lower = trimmed.toLowerCase();
+  const markers = [
+    '/api/files/content/',
+    'api/files/content/',
+    '/files/content/',
+    'files/content/'
+  ];
+
+  for (const marker of markers) {
+    const markerIndex = lower.indexOf(marker);
+    if (markerIndex < 0) continue;
+    const encodedStart = markerIndex + marker.length;
+    const suffix = trimmed.slice(encodedStart);
+    const queryIndex = suffix.search(/[?#]/);
+    const encodedValue = (queryIndex >= 0 ? suffix.slice(0, queryIndex) : suffix).trim();
+    if (!encodedValue) continue;
+
+    try {
+      const decoded = decodeURIComponent(encodedValue).trim();
+      if (/^https?:\/\//i.test(decoded)) {
+        return decoded;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+};
+
 export const resolveAssetUrl = (value?: string | null) => {
   if (!value) return value ?? '';
   const trimmed = String(value).trim();
   if (!trimmed) return trimmed;
+
+  const recoveredAbsoluteUrl = recoverEncodedAbsoluteAssetUrl(trimmed);
+  if (recoveredAbsoluteUrl && recoveredAbsoluteUrl !== trimmed) {
+    return resolveAssetUrl(recoveredAbsoluteUrl);
+  }
 
   const lower = trimmed.toLowerCase();
   if (
