@@ -1,5 +1,7 @@
 import { resolveAssetUrl } from './assetUrl';
 
+const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(String(value || '').trim());
+
 const looksLikeDirectUrl = (value: string) => {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) return false;
@@ -60,6 +62,7 @@ export const resolvePostAttachmentMediaUrl = (attachment: any) => {
   }
 
   if (!contentId) return normalizedDirect;
+  if (isAbsoluteUrl(contentId)) return resolveAssetUrl(contentId);
   return resolveAssetUrl(buildFileContentUrl(contentId));
 };
 
@@ -85,5 +88,6 @@ export const resolvePostAttachmentPosterUrl = (attachment: any) => {
     return resolveAssetUrl(normalizedPoster);
   }
   if (!posterId) return undefined;
+  if (isAbsoluteUrl(posterId)) return resolveAssetUrl(posterId);
   return resolveAssetUrl(buildFileContentUrl(posterId));
 };

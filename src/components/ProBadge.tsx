@@ -1,6 +1,7 @@
 import React from 'react';
 import { useContent } from '../context/ContentContext';
 import { getApiBaseUrl } from '../utils/apiBase';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 type ProBadgeRole = 'freelancer' | 'employer';
 
@@ -17,9 +18,11 @@ const ProBadge: React.FC<ProBadgeProps> = ({ role, isPro, size = 'sm', className
   if (!isPro) return null;
 
   const buildContentUrl = (fileId?: string) => {
-    if (!fileId) return '';
+    const normalized = String(fileId || '').trim();
+    if (!normalized) return '';
+    if (/^https?:\/\//i.test(normalized)) return resolveAssetUrl(normalized);
     const apiBase = getApiBaseUrl();
-    return `${apiBase}/files/content/${encodeURIComponent(fileId)}`;
+    return `${apiBase}/files/content/${encodeURIComponent(normalized)}`;
   };
 
   const freelancerLogo =
