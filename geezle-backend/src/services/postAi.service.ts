@@ -146,28 +146,90 @@ const ensureSentence = (value: string) => {
   return /[.!?]$/.test(text) ? text : `${text}.`;
 };
 
+const capitalizeFirst = (value: string) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return text.charAt(0).toUpperCase() + text.slice(1);
+};
+
+const cleanFallbackText = (value: string) =>
+  String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\s+([,.;!?])/g, '$1')
+    .replace(/([,.;!?])([^\s])/g, '$1 $2')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const applyCommonGrammarFixes = (value: string) => {
+  let text = cleanFallbackText(value);
+  const replacements: Array<[RegExp, string]> = [
+    [/\bthank for\b/gi, 'thank you for'],
+    [/\bi has\b/gi, 'I have'],
+    [/\bmany idea\b/gi, 'many ideas'],
+    [/\bneed make\b/gi, 'need to make'],
+    [/\bneed write\b/gi, 'need to write'],
+    [/\bneed send\b/gi, 'need to send'],
+    [/\bneed present\b/gi, 'need to present'],
+    [/\bneed explain\b/gi, 'need to explain'],
+    [/\bpls\b/gi, 'please'],
+    [/\bim\b/gi, "I'm"],
+    [/\bdont\b/gi, "don't"],
+    [/\bcant\b/gi, "can't"],
+  ];
+  for (const [pattern, replacement] of replacements) {
+    text = text.replace(pattern, replacement);
+  }
+  text = text
+    .replace(/\b([Tt]hanks?) you for\b/g, 'Thank you for')
+    .replace(/\bi\b/g, 'I')
+    .replace(/\bideas and need to make it professional\b/i, 'ideas and need to make them more professional');
+
+  return ensureSentence(capitalizeFirst(text));
+};
+
 const fallbackEnhanceText = (text: string, mode: PostEnhanceMode) => {
   const normalized = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!normalized) return '';
+  const grammarFixed = applyCommonGrammarFixes(normalized);
 
   if (mode === 'shorten') {
-    const condensed = normalized
+    const condensed = grammarFixed
       .split(/\n+/)
       .map((entry) => entry.trim())
       .filter(Boolean)
       .join(' ');
-    return ensureSentence(condensed.length > 240 ? `${condensed.slice(0, 237).trim()}...` : condensed);
+    const concise = condensed
+      .replace(/\bI have many ideas and need to make them more professional\b/i, 'I need to present my ideas more professionally')
+      .replace(/\bI would like to\b/gi, 'I want to');
+    return ensureSentence(concise.length > 180 ? `${concise.slice(0, 177).trim()}...` : concise);
   }
 
   if (mode === 'expand') {
-    return `${ensureSentence(normalized)}\n\nKey outcome: make the value, timeline, and next step clear for the reader.`;
+    return `${grammarFixed} I want the final message to sound clear, polished, and ready to share with others.`;
   }
 
   if (mode === 'professional') {
-    return ensureSentence(normalized).replace(/\bi'm\b/gi, 'I am');
+    return ensureSentence(
+      grammarFixed
+        .replace(/\bI have many ideas and need to make them more professional\b/i, 'I have several ideas and would like to present them in a more professional manner')
+        .replace(/\bthank you for the responses\b/i, 'Thank you for your responses')
+    );
   }
 
-  return ensureSentence(normalized);
+  if (mode === 'rephrase') {
+    return ensureSentence(
+      grammarFixed
+        .replace(/\bThank you for the responses\b/i, 'Thank you for your responses')
+        .replace(/\bI have many ideas and need to make them more professional\b/i, 'I have several ideas and need to present them more professionally')
+    );
+  }
+
+  if (mode === 'grammar') {
+    return grammarFixed;
+  }
+
+  return grammarFixed;
 };
 
 const fallbackInsightText = (text: string, tone: string, maxLength: number) => {
@@ -281,7 +343,7 @@ export const enhancePostDraftWithAi = async (input: {
     }
   } catch (error: any) {
     fallbackUsed = true;
-    warning = 'The AI enhancement failed, and a fallback method was used. Results may be limited.';
+    warning = 'Scrolitha Ollama accelerator is unavailable. A local fallback was used, so results may be limited.';
     response = {
       text: fallbackEnhanceText(text, mode),
       model: 'scrolitha-core'

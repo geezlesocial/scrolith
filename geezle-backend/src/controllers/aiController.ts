@@ -644,7 +644,9 @@ export const postEnhance = async (req: Request, res: Response) => {
     return res.json({
       success: true,
       data: {
-        enhancedText: result.enhancedText
+        enhancedText: result.enhancedText,
+        fallbackUsed: Boolean(result.fallbackUsed),
+        warning: result.warning
       }
     });
   } catch (error: any) {
@@ -771,4 +773,3 @@ export const postInsight = async (req: Request, res: Response) => {
     return res.status(status).json({ success: false, error: message });
   }
 };
-
