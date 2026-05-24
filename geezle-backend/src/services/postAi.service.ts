@@ -188,6 +188,24 @@ const applyCommonGrammarFixes = (value: string) => {
   return ensureSentence(capitalizeFirst(text));
 };
 
+const toProfessionalFallbackText = (value: string) => {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+
+  const conciseRequest = normalized
+    .replace(/^Need update\b/i, 'I need to provide an update')
+    .replace(/^Need to update\b/i, 'I need to provide an update')
+    .replace(/^Need\b/i, 'I need to')
+    .replace(/^Want\b/i, 'I would like to')
+    .replace(/^Can you\b/i, 'Could you');
+
+  return ensureSentence(
+    conciseRequest
+      .replace(/\bI have many ideas and need to make them more professional\b/i, 'I have several ideas and would like to present them in a more professional manner')
+      .replace(/\bthank you for the responses\b/i, 'Thank you for your responses')
+  );
+};
+
 const fallbackEnhanceText = (text: string, mode: PostEnhanceMode) => {
   const normalized = String(text || '').replace(/\r\n/g, '\n').trim();
   if (!normalized) return '';
@@ -210,11 +228,7 @@ const fallbackEnhanceText = (text: string, mode: PostEnhanceMode) => {
   }
 
   if (mode === 'professional') {
-    return ensureSentence(
-      grammarFixed
-        .replace(/\bI have many ideas and need to make them more professional\b/i, 'I have several ideas and would like to present them in a more professional manner')
-        .replace(/\bthank you for the responses\b/i, 'Thank you for your responses')
-    );
+    return toProfessionalFallbackText(grammarFixed);
   }
 
   if (mode === 'rephrase') {
