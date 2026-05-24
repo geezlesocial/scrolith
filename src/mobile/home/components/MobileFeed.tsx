@@ -272,7 +272,9 @@ const isRawApiUploadUrl = (value: unknown) => {
   const normalized = String(value || '').trim().toLowerCase();
   return (
     normalized.startsWith('https://api.scrolith.com/uploads/') ||
-    normalized.startsWith('http://api.scrolith.com/uploads/')
+    normalized.startsWith('http://api.scrolith.com/uploads/') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/')
   );
 };
 
