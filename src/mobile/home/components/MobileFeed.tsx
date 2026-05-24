@@ -268,6 +268,50 @@ const pickFirstMediaEntry = (values: unknown) => {
   return null;
 };
 
+const isRawApiUploadUrl = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return (
+    normalized.startsWith('https://api.scrolith.com/uploads/') ||
+    normalized.startsWith('http://api.scrolith.com/uploads/')
+  );
+};
+
+const listingHasUsableImageFileId = (row: any) => {
+  const directCandidates = [
+    row?.imageFileId,
+    row?.image_file_id,
+    row?.thumbnailFileId,
+    row?.thumbnail_file_id,
+    row?.mediaId,
+    row?.media_id,
+    row?.attachmentId,
+    row?.attachment_id,
+    row?.creativeFileId,
+    row?.creative_file_id,
+    row?.fileId,
+    row?.file_id
+  ];
+  if (directCandidates.some((value) => String(value || '').trim())) return true;
+
+  const mediaEntries = [pickFirstMediaEntry(row?.images), pickFirstMediaEntry(row?.media)];
+  return mediaEntries.some((entry: any) => {
+    if (!entry || typeof entry !== 'object') return false;
+    return [
+      entry?.fileId,
+      entry?.file_id,
+      entry?.thumbnailFileId,
+      entry?.thumbnail_file_id,
+      entry?.mediaId,
+      entry?.media_id,
+      entry?.attachmentId,
+      entry?.attachment_id,
+      entry?.asset?.id,
+      entry?.file?.id,
+      entry?.id
+    ].some((value) => String(value || '').trim());
+  });
+};
+
 const resolveHighlightListingImage = (row: any) => {
   const mediaCandidate =
     pickFirstMediaEntry(row?.images) ||
@@ -282,6 +326,7 @@ const resolveHighlightListingImage = (row: any) => {
     row?.clientAvatar ||
     row?.freelancerAvatar ||
     null;
+  if (isRawApiUploadUrl(mediaCandidate) && !listingHasUsableImageFileId(row)) return '';
   return mediaCandidate ? resolvePostAttachmentMediaUrl(mediaCandidate) : '';
 };
 
