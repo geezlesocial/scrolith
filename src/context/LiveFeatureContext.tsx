@@ -5,6 +5,7 @@ import {
   normalizeLiveExperienceConfig,
   type LiveFeatureStatus
 } from '../services/live';
+import { tokenStore } from '../services/tokenStore';
 
 type LiveFeatureContextValue = {
   loading: boolean;
@@ -53,9 +54,18 @@ export const LiveFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const refresh = useCallback(async () => {
     try {
       setLoading(true);
+      const token = await tokenStore.get();
+      if (!token) {
+        setStatus(DEFAULT_LIVE_FEATURE_STATUS);
+        return;
+      }
       const next = await LiveService.getFeatureStatus();
       setStatus(normalizeLiveFeatureStatus(next));
-    } catch {
+    } catch (error: any) {
+      if (error?.response?.status === 401) {
+        setStatus(DEFAULT_LIVE_FEATURE_STATUS);
+        return;
+      }
       setStatus((prev) => normalizeLiveFeatureStatus(prev));
     } finally {
       setLoading(false);
