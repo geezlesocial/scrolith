@@ -19,8 +19,8 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => AuthService.getStoredUser());
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(AuthService.getStoredUser()));
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Initialize auth state with proper role recognition
@@ -43,7 +43,18 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
       
       try {
-        const cachedUser = AuthService.getStoredUser();
+        const token = await AuthService.getToken();
+        const cachedUser = token ? AuthService.getStoredUser() : null;
+
+        if (!token) {
+          await AuthService.clearToken();
+          if (mounted) {
+            setUser(null);
+            setIsAuthenticated(false);
+          }
+          return;
+        }
+
         if (cachedUser && mounted) {
           setUser(cachedUser);
           setIsAuthenticated(true);

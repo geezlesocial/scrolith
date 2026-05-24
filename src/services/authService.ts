@@ -92,6 +92,9 @@ class AuthService {
   static async getCurrentUserWithStatus(): Promise<CurrentUserResult> {
     try {
       const token = await tokenStore.get();
+      if (!token) {
+        return { user: null, unauthorized: false };
+      }
       const response = token
         ? await api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
         : await api.get('/auth/me');
