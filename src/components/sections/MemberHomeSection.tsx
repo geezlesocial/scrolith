@@ -3339,6 +3339,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setAiSuggestionWarning(null);
   }, []);
 
+  const getPostDraftText = useCallback(() => String(postDraft.content || ''), [postDraft.content]);
+
   const runPostAi = useCallback(
     async (mode: PostEnhanceMode) => {
       const text = getPostDraftText().trim();
