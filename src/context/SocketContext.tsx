@@ -36,7 +36,7 @@ const buildSocketSignature = (input: {
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const { user, isAuthenticated } = useUser()
+  const { user, isAuthenticated, isLoading } = useUser()
   const { shouldAttemptLiveConnections, recoveryTick } = useNetworkStatus()
   const lastOptionsRef = useRef<any>(null)
   const hasEverConnectedRef = useRef(false)
@@ -218,6 +218,10 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       return
     }
 
+    if (isLoading) {
+      return
+    }
+
     const backendEnv =
       import.meta.env.VITE_BACKEND_URL ||
       import.meta.env.VITE_API_URL ||
@@ -349,7 +353,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     void connectSocket()
-  }, [user?.id, user?.role, isAuthenticated, shouldAttemptLiveConnections, recoveryTick])
+  }, [user?.id, user?.role, isAuthenticated, isLoading, shouldAttemptLiveConnections, recoveryTick])
 
   return (
     <SocketContext.Provider value={{ socket, isConnected }}>
