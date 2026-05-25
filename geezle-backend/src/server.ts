@@ -2528,6 +2528,14 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 runtimeOptimizationBundle.middlewares.forEach((middleware) => app.use(middleware));
 
+const assetCorsPolicyOverride: express.RequestHandler = (_req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+};
+
+app.use('/api/files/content', assetCorsPolicyOverride);
+app.use('/uploads', assetCorsPolicyOverride);
+
 // Static uploads - allow cross-origin usage from frontend
 app.use(
   '/uploads',
@@ -3384,4 +3392,3 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
 
 export default app;
 export { server, io, communityNs };
-
