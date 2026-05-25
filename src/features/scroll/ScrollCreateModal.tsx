@@ -372,6 +372,9 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
       }
       setDescription(rewrittenText);
       setIsAIEnhanced(true);
+      if (result?.warning) {
+        showNotification('warning', 'Scrolitha', String(result.warning));
+      }
       showNotification('success', 'Scrolitha', `${SCROLL_DESCRIPTION_REWRITE_ACTIONS.find((entry) => entry.mode === mode)?.label || 'Rewrite'} applied.`);
     } catch (error: any) {
       const message =

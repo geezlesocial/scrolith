@@ -58,6 +58,7 @@ export default function MobilePostScreen({
   const [aiSuggestion, setAiSuggestion] = useState('');
   const [aiSuggestionMode, setAiSuggestionMode] = useState<PostEnhanceMode | null>(null);
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
+  const [aiSuggestionWarning, setAiSuggestionWarning] = useState<string | null>(null);
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
 
@@ -285,6 +286,7 @@ export default function MobilePostScreen({
     setAiSuggestionOpen(false);
     setAiSuggestion('');
     setAiSuggestionMode(null);
+    setAiSuggestionWarning(null);
     setAiOriginalText('');
     setAiCompareView('compare');
   };
@@ -310,6 +312,13 @@ export default function MobilePostScreen({
       setAiSuggestion(enhancedText);
       setAiSuggestionMode(mode);
       setAiCompareView('compare');
+      if (result.fallbackUsed || result.usedFallback || result.warning) {
+        setAiSuggestionWarning(
+          result.warning || 'Scrolitha used backup processing for this suggestion. Please review before applying.'
+        );
+      } else {
+        setAiSuggestionWarning(null);
+      }
       setAiSuggestionOpen(true);
     } catch (error: any) {
       showNotification(
@@ -697,6 +706,12 @@ export default function MobilePostScreen({
                 AI only
               </button>
             </div>
+
+            {aiSuggestionWarning ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {aiSuggestionWarning}
+              </div>
+            ) : null}
 
             {aiCompareView === 'compare' ? (
               <div className="mt-3 grid gap-2">

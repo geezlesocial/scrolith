@@ -676,12 +676,14 @@ export default function InsightsQuickPanel({
       setCoachStatus(null);
       try {
         let nextOutput = '';
+        let nextWarning = '';
         if (coachSurface === 'gig' && actionKey === 'improve-gig') {
           const result = await ScrolithaService.gigImprove({
             text,
             context: { surface: 'member_home', target: 'gig', source: 'insights_quick_panel' }
           });
           nextOutput = String(result?.improved || result?.rewrittenText || result?.text || '').trim();
+          nextWarning = String(result?.warning || '').trim();
         } else {
           const rewriteMode =
             actionKey === 'clarify-brief'
@@ -701,6 +703,7 @@ export default function InsightsQuickPanel({
             goal
           });
           nextOutput = String(result?.rewrittenText || result?.text || result?.reply || '').trim();
+          nextWarning = String(result?.warning || '').trim();
         }
 
         if (!nextOutput) {
@@ -708,7 +711,7 @@ export default function InsightsQuickPanel({
         }
 
         setCoachOutput(nextOutput);
-        setCoachStatus('Scrolitha coach updated your draft.');
+        setCoachStatus(nextWarning || 'Scrolitha coach updated your draft.');
       } catch (e: any) {
         setCoachStatus(e?.response?.data?.message || e?.message || 'Scrolitha coach could not improve this draft right now.');
       } finally {

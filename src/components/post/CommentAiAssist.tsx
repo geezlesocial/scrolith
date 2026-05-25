@@ -104,6 +104,9 @@ const CommentAiAssist: React.FC<CommentAiAssistProps> = ({
         showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
         return;
       }
+      if (result?.warning) {
+        showNotification('warning', 'Scrolitha', String(result.warning));
+      }
       setSourceText(text);
       setSuggestion(enhancedText);
       setSuggestionAction(action.key);

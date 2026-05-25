@@ -3368,7 +3368,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         setAiSuggestionMode(mode);
         setAiCompareView('compare');
         if (result.fallbackUsed || result.warning) {
-          setAiSuggestionWarning(result.warning || 'Scrolitha used a safe fallback because the AI provider was unavailable. Please review before applying.');
+          setAiSuggestionWarning(
+            result.warning || 'Scrolitha used backup processing for this suggestion. Please review before applying.'
+          );
         }
         setAiSuggestionOpen(true);
       } catch (error: any) {
