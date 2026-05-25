@@ -1,5 +1,9 @@
 import { createHash } from 'crypto';
-import { ollamaChat, resolveScrolithaLlmRuntime } from '../../../services/scrolitha/scrolitha.ollama';
+import {
+  generateScrolithaText,
+  SCROLITHA_BACKUP_WARNING_CODE,
+  SCROLITHA_BACKUP_WARNING_MESSAGE
+} from '../../../services/scrolitha/scrolitha.ollama';
 import type { ScrolithaActor, ScrolithaScope } from '../../../services/scrolitha/scrolitha.types';
 import { writeScrolithaAuditLog } from '../../../services/scrolitha/scrolitha.audit';
 import prisma from '../../../utils/prismaClient';
@@ -49,46 +53,54 @@ const keywordToxicityScore = (text: string) => {
 };
 
 export const ScrolithaService = {
-  async generate(input: GenerateInput): Promise<{ text: string; provider: string; model: string }> {
-    const runtime = await resolveScrolithaLlmRuntime(input.scope);
+  async generate(input: GenerateInput): Promise<{
+    text: string;
+    provider: string;
+    model: string;
+    usedFallback?: boolean;
+    warning?: string;
+    warningCode?: string;
+  }> {
     const prompt = String(input.prompt || '').trim();
     if (!prompt) throw new Error('Prompt is required.');
 
     let text = '';
-    let provider = runtime.provider;
-    let model = runtime.model || 'heuristic';
+    let provider = 'scrolitha';
+    let model = 'scrolitha-core';
+    let usedFallback = false;
+    let warning: string | undefined;
+    let warningCode: string | undefined;
 
-    if (runtime.enabled && runtime.provider === 'ollama' && runtime.runtimeConfigured && runtime.host && runtime.model) {
-      try {
-        const response = await ollamaChat({
-          host: runtime.host,
-          model: runtime.model,
-          messages: [
-            {
-              role: 'system',
-              content:
-                String(input.system || '').trim() ||
-                'You are Scrolitha, a precise and professional assistant for marketplace growth tasks.'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          maxTokens: input.maxTokens || runtime.maxTokens,
-          temperature: input.temperature ?? runtime.temperature,
-          topP: runtime.topP,
-          timeoutMs: runtime.timeoutMs
-        });
-        text = String(response.text || '').trim();
-      } catch (error) {
-        console.warn('[scrolitha] generate fallback used:', error);
-      }
+    try {
+      const response = await generateScrolithaText({
+        scope: input.scope,
+        routeKey: 'scrolitha_generate',
+        systemPrompt:
+          String(input.system || '').trim() ||
+          'You are Scrolitha, a precise and professional assistant for marketplace growth tasks.',
+        userPrompt: prompt,
+        maxTokens: input.maxTokens,
+        temperature: input.temperature
+      });
+      text = String(response.text || '').trim();
+      model = String(response.model || 'scrolitha-core').trim() || 'scrolitha-core';
+      usedFallback = Boolean(response.usedBackupProcessing);
+      warning = response.warning || undefined;
+      warningCode = response.warningCode || undefined;
+    } catch (error: any) {
+      usedFallback = true;
+      warning = SCROLITHA_BACKUP_WARNING_MESSAGE;
+      warningCode = SCROLITHA_BACKUP_WARNING_CODE;
+      console.warn('[scrolitha] provider path failed, using backup processing', {
+        scope: input.scope,
+        error: String(error?.message || 'unknown error').slice(0, 220)
+      });
     }
 
     if (!text) {
-      provider = runtime.enabled ? 'core' : 'disabled';
-      model = runtime.enabled ? 'scrolitha-core' : 'heuristic-fallback';
+      usedFallback = true;
+      warning = warning || SCROLITHA_BACKUP_WARNING_MESSAGE;
+      warningCode = warningCode || SCROLITHA_BACKUP_WARNING_CODE;
       text = `Draft suggestion:\n${prompt}\n\nRefine this copy for clarity, outcomes, and professional tone before publishing.`;
     }
 
@@ -103,7 +115,9 @@ export const ScrolithaService = {
         riskLevel: 'low',
         metadata: {
           provider,
-          model
+          model,
+          usedFallback,
+          warningCode: warningCode || null
         }
       }
     });
@@ -117,7 +131,7 @@ export const ScrolithaService = {
       resultSummary: `Generated ${text.length} chars`
     });
 
-    return { text, provider, model };
+    return { text, provider, model, usedFallback, warning, warningCode };
   },
 
   async embed(text: string): Promise<number[]> {

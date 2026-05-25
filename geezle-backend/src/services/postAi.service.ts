@@ -2,7 +2,11 @@ import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { writeScrolithaAuditLog } from './scrolitha/scrolitha.audit';
 import { incrementMinuteCounter } from './scrolitha/scrolitha.cache';
-import { resolveScrolithaLlmRuntime, ollamaChat } from './scrolitha/scrolitha.ollama';
+import {
+  generateScrolithaText,
+  SCROLITHA_BACKUP_WARNING_CODE,
+  SCROLITHA_BACKUP_WARNING_MESSAGE
+} from './scrolitha/scrolitha.ollama';
 import { ensureScrolithaConfig } from './scrolitha/scrolitha.policy';
 import type { ScrolithaScope } from './scrolitha/scrolitha.types';
 
@@ -258,38 +262,27 @@ const fallbackInsightText = (text: string, tone: string, maxLength: number) => {
   return value.length > maxLength ? `${value.slice(0, maxLength - 3).trim()}...` : value;
 };
 
-const runOllamaText = async (input: {
+const runScrolithaText = async (input: {
   scope: ScrolithaScope;
+  routeKey?: string;
   systemPrompt: string;
   userPrompt: string;
   maxTokens?: number;
 }) => {
-  const runtime = await resolveScrolithaLlmRuntime(input.scope);
-  if (!runtime.enabled || runtime.provider === 'disabled') {
-    throw new Error('Scrolitha is disabled');
-  }
-  if (runtime.provider !== 'ollama' || !runtime.runtimeConfigured) {
-    throw new Error('Scrolitha Ollama accelerator is not configured');
-  }
-
-  const result = await ollamaChat({
-    host: runtime.host,
-    model: runtime.model,
-    messages: [
-      { role: 'system', content: input.systemPrompt },
-      { role: 'user', content: input.userPrompt }
-    ],
-    maxTokens: input.maxTokens || Math.min(runtime.maxTokens || 1024, 420),
-    temperature: runtime.temperature,
-    topP: runtime.topP,
-    timeoutMs: runtime.timeoutMs
+  const result = await generateScrolithaText({
+    scope: input.scope,
+    routeKey: input.routeKey,
+    systemPrompt: input.systemPrompt,
+    userPrompt: input.userPrompt,
+    maxTokens: input.maxTokens || 420
   });
-
-  const text = String(result.text || '').trim();
-  if (!text) {
-    throw new Error('Scrolitha returned an empty response');
-  }
-  return { text, model: runtime.model };
+  return {
+    text: String(result.text || '').trim(),
+    model: result.model,
+    usedBackupProcessing: Boolean(result.usedBackupProcessing),
+    warning: result.warning,
+    warningCode: result.warningCode
+  };
 };
 
 export const resolvePostAiSettings = async (): Promise<PostAiSettings> => {
@@ -346,8 +339,9 @@ export const enhancePostDraftWithAi = async (input: {
   let warning: string | undefined = undefined;
 
   try {
-    response = await runOllamaText({
+    response = await runScrolithaText({
       scope,
+      routeKey: 'post_enhance',
       systemPrompt,
       userPrompt: text,
       maxTokens: 420
@@ -355,14 +349,23 @@ export const enhancePostDraftWithAi = async (input: {
     if (!response.text) {
       throw new Error('LLM returned an empty response');
     }
+    if (response.usedBackupProcessing) {
+      fallbackUsed = true;
+      warning = response.warning || SCROLITHA_BACKUP_WARNING_MESSAGE;
+    }
   } catch (error: any) {
     fallbackUsed = true;
-    warning = 'Scrolitha Ollama accelerator is unavailable. A local fallback was used, so results may be limited.';
+    warning = SCROLITHA_BACKUP_WARNING_MESSAGE;
     response = {
       text: fallbackEnhanceText(text, mode),
-      model: 'scrolitha-core'
+      model: 'scrolitha-core',
+      warningCode: SCROLITHA_BACKUP_WARNING_CODE
     };
-    console.warn(`[post-ai] Ollama failed for mode ${mode}. Using fallback. Error: ${error.message}`);
+    console.warn(`[post-ai] Scrolitha provider failed for mode ${mode}. Using backup processing.`, {
+      mode,
+      scope,
+      error: String(error?.message || 'unknown error').slice(0, 220)
+    });
   }
 
   return {
@@ -371,6 +374,7 @@ export const enhancePostDraftWithAi = async (input: {
     mode,
     fallbackUsed, // Optional, backward-compatible
     warning,     // Optional, backward-compatible
+    warningCode: response.warningCode || (fallbackUsed ? SCROLITHA_BACKUP_WARNING_CODE : undefined)
   };
 };
 
@@ -405,8 +409,9 @@ export const generatePostInsightText = async (input: {
 
   let response;
   try {
-    response = await runOllamaText({
+    response = await runScrolithaText({
       scope,
+      routeKey: 'post_insight',
       systemPrompt,
       userPrompt: text,
       maxTokens: 260

@@ -1,9 +1,11 @@
 import { Request, Response } from 'express';
-import OpenAI from 'openai';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import prisma from '../utils/prismaClient';
 import { getScrolithaKnowledgeBundle } from '../services/scrolitha/scrolitha.knowledge';
-import { ollamaChat, resolveScrolithaLlmRuntime } from '../services/scrolitha/scrolitha.ollama';
+import {
+  generateScrolithaText,
+  resolveScrolithaLlmRuntime,
+  sanitizeScrolithaUserMessage
+} from '../services/scrolitha/scrolitha.ollama';
 import { resolveActorFromRequest, writeScrolithaAuditLog } from '../services/scrolitha/scrolitha.audit';
 import { ensureScrolithaConfig } from '../services/scrolitha/scrolitha.policy';
 import {
@@ -32,72 +34,21 @@ const getSystemAiConfig = async () => {
   return system.aiConfig || system?.system?.aiConfig || null;
 };
 
-const pickProvider = (aiConfig: any, routeKey: string): AiProvider | null => {
-  const routing = aiConfig?.routing || {};
-  const routeProvider = (routing?.[routeKey] as AiProvider) || null;
-  if (routeProvider === 'scrolitha') return 'scrolitha';
-  const googleEnabled = aiConfig?.providers?.google?.enabled;
-  const openaiEnabled = aiConfig?.providers?.openai?.enabled;
-  if (routeProvider === 'google' && googleEnabled) return 'google';
-  if (routeProvider === 'openai' && openaiEnabled) return 'openai';
-  if (googleEnabled) return 'google';
-  if (openaiEnabled) return 'openai';
-  return null;
-};
-
-const getSafety = (aiConfig: any) => ({
-  maxTokens: Number(aiConfig?.safety?.maxTokens ?? aiConfig?.safety?.max_tokens ?? 1024),
-  temperature: Number(aiConfig?.safety?.temperature ?? 0.7)
-});
-
-const askScrolithaOllama = async (prompt: string, options?: { system?: string }) => {
+const askScrolithaText = async (
+  prompt: string,
+  options?: { system?: string; routeKey?: string }
+) => {
   const runtime = await resolveScrolithaLlmRuntime('user');
-  if (!runtime.enabled || runtime.provider === 'disabled') {
-    throw new Error('Scrolitha is disabled');
-  }
-  if (runtime.provider !== 'ollama' || !runtime.runtimeConfigured) {
-    throw new Error('Scrolitha Ollama accelerator is not configured');
-  }
-
-  const messages = options?.system
-    ? [
-        { role: 'system' as const, content: options.system },
-        { role: 'user' as const, content: prompt }
-      ]
-    : [{ role: 'user' as const, content: prompt }];
-
-  const result = await ollamaChat({
-    host: runtime.host,
-    model: runtime.model,
-    messages,
+  const result = await generateScrolithaText({
+    scope: 'user',
+    routeKey: options?.routeKey || 'scrolitha_core',
+    systemPrompt: options?.system,
+    userPrompt: prompt,
     maxTokens: runtime.maxTokens,
     temperature: runtime.temperature,
-    topP: runtime.topP,
-    timeoutMs: runtime.timeoutMs
+    topP: runtime.topP
   });
-
   return { provider: 'scrolitha' as const, model: SCROLITHA_MODEL_LABEL, text: result.text || '' };
-};
-
-const askOpenAI = async (apiKey: string, model: string, prompt: string, maxTokens: number, temperature: number) => {
-  const client = new OpenAI({ apiKey });
-  const response = await client.chat.completions.create({
-    model,
-    messages: [{ role: 'user', content: prompt }],
-    max_tokens: maxTokens,
-    temperature
-  });
-  return response.choices?.[0]?.message?.content?.trim() || '';
-};
-
-const askGoogle = async (apiKey: string, model: string, prompt: string, maxTokens: number, temperature: number) => {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const modelRef = genAI.getGenerativeModel({ model });
-  const result = await modelRef.generateContent({
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { maxOutputTokens: maxTokens, temperature }
-  });
-  return result.response.text();
 };
 
 const buildKnowledgeBlock = (audience?: string) => {
@@ -335,7 +286,7 @@ export const getAIConfig = async (_req: Request, res: Response) => {
         provider: 'scrolitha',
         runtime: runtime.provider,
         status: runtime.status,
-        acceleratorActive: Boolean(runtime.acceleratorActive),
+        backupEngineAvailable: true,
         model: SCROLITHA_MODEL_LABEL,
         allowGeminiFallback: Boolean(runtime.allowGeminiFallback)
       }
@@ -350,9 +301,8 @@ export const answerQuestion = async (req: Request, res: Response) => {
   try {
     const prompt = buildQaPrompt(req.body || {});
 
-    // Default + preferred: Scrolitha (Ollama).
     try {
-      const result = await askScrolithaOllama(prompt);
+      const result = await askScrolithaText(prompt, { routeKey: 'support_chat' });
       return res.json({
         success: true,
         data: {
@@ -361,46 +311,19 @@ export const answerQuestion = async (req: Request, res: Response) => {
           answer: result.text
         }
       });
-    } catch (scrolithaError) {
-      // Optional fallback to legacy providers when explicitly enabled.
-      const runtime = await resolveScrolithaLlmRuntime('user');
-      if (!runtime.allowGeminiFallback) {
-        return res.json({
-          success: true,
-          data: {
-            provider: 'scrolitha',
-            model: SCROLITHA_MODEL_LABEL,
-            answer: buildScrolithaFallbackAnswer(req.body || {})
-          }
-        });
-      }
-
-      const aiConfig = await getSystemAiConfig();
-      if (!aiConfig) return res.status(400).json({ success: false, error: 'AI settings not configured' });
-
-      const provider = pickProvider(aiConfig, 'support_chat');
-      if (!provider || provider === 'scrolitha') {
-        return res.status(400).json({ success: false, error: 'AI provider is disabled' });
-      }
-
-      const safety = getSafety(aiConfig);
-      if (provider === 'google') {
-        const apiKey = aiConfig?.providers?.google?.apiKey || aiConfig?.providers?.google?.api_key;
-        const model = aiConfig?.providers?.google?.model || 'gemini-pro';
-        if (!apiKey) return res.status(400).json({ success: false, error: 'Google AI API key missing' });
-        const text = await askGoogle(apiKey, model, prompt, safety.maxTokens, safety.temperature);
-        return res.json({ success: true, data: { provider, model, answer: text } });
-      }
-
-      const apiKey = aiConfig?.providers?.openai?.apiKey || aiConfig?.providers?.openai?.api_key;
-      const model = aiConfig?.providers?.openai?.model || 'gpt-4';
-      if (!apiKey) return res.status(400).json({ success: false, error: 'OpenAI API key missing' });
-      const text = await askOpenAI(apiKey, model, prompt, safety.maxTokens, safety.temperature);
-      return res.json({ success: true, data: { provider, model, answer: text } });
+    } catch {
+      return res.json({
+        success: true,
+        data: {
+          provider: 'scrolitha',
+          model: SCROLITHA_MODEL_LABEL,
+          answer: buildScrolithaFallbackAnswer(req.body || {})
+        }
+      });
     }
   } catch (error: any) {
     console.error('AI answer error:', error);
-    const msg = String(error?.message || 'AI request failed');
+    const msg = sanitizeScrolithaUserMessage(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
@@ -412,7 +335,7 @@ export const answerQuestionWithScrolitha = async (req: Request, res: Response) =
     const prompt = buildQaPrompt(req.body || {});
     let result;
     try {
-      result = await askScrolithaOllama(prompt);
+      result = await askScrolithaText(prompt, { routeKey: 'support_chat' });
     } catch {
       return res.json({
         success: true,
@@ -433,7 +356,7 @@ export const answerQuestionWithScrolitha = async (req: Request, res: Response) =
     });
   } catch (error: any) {
     console.error('Scrolitha-only answer error:', error);
-    const msg = String(error?.message || 'Scrolitha request failed');
+    const msg = sanitizeScrolithaUserMessage(error?.message || 'Scrolitha request failed');
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
@@ -444,9 +367,8 @@ export const generateGuide = async (req: Request, res: Response) => {
   try {
     const prompt = buildGuidePrompt(req.body || {});
 
-    // Default + preferred: Scrolitha (Ollama).
     try {
-      const result = await askScrolithaOllama(prompt);
+      const result = await askScrolithaText(prompt, { routeKey: 'seo_tags' });
       return res.json({
         success: true,
         data: {
@@ -455,44 +377,19 @@ export const generateGuide = async (req: Request, res: Response) => {
           guide: result.text
         }
       });
-    } catch (scrolithaError) {
-      // Optional fallback to legacy providers when explicitly enabled.
-      const runtime = await resolveScrolithaLlmRuntime('user');
-      if (!runtime.allowGeminiFallback) {
-        return res.json({
-          success: true,
-          data: {
-            provider: 'scrolitha',
-            model: SCROLITHA_MODEL_LABEL,
-            guide: buildScrolithaFallbackGuide(req.body || {})
-          }
-        });
-      }
-
-      const aiConfig = await getSystemAiConfig();
-      if (!aiConfig) return res.status(400).json({ success: false, error: 'AI settings not configured' });
-
-      const provider = pickProvider(aiConfig, 'seo_tags');
-      if (!provider || provider === 'scrolitha') return res.status(400).json({ success: false, error: 'AI provider is disabled' });
-
-      const safety = getSafety(aiConfig);
-      if (provider === 'google') {
-        const apiKey = aiConfig?.providers?.google?.apiKey || aiConfig?.providers?.google?.api_key;
-        const model = aiConfig?.providers?.google?.model || 'gemini-pro';
-        if (!apiKey) return res.status(400).json({ success: false, error: 'Google AI API key missing' });
-        const text = await askGoogle(apiKey, model, prompt, safety.maxTokens, safety.temperature);
-        return res.json({ success: true, data: { provider, model, guide: text } });
-      }
-
-      const apiKey = aiConfig?.providers?.openai?.apiKey || aiConfig?.providers?.openai?.api_key;
-      const model = aiConfig?.providers?.openai?.model || 'gpt-4';
-      if (!apiKey) return res.status(400).json({ success: false, error: 'OpenAI API key missing' });
-      const text = await askOpenAI(apiKey, model, prompt, safety.maxTokens, safety.temperature);
-      return res.json({ success: true, data: { provider, model, guide: text } });
+    } catch {
+      return res.json({
+        success: true,
+        data: {
+          provider: 'scrolitha',
+          model: SCROLITHA_MODEL_LABEL,
+          guide: buildScrolithaFallbackGuide(req.body || {})
+        }
+      });
     }
   } catch (error: any) {
     console.error('AI guide error:', error);
-    const msg = String(error?.message || 'AI request failed');
+    const msg = sanitizeScrolithaUserMessage(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
@@ -504,7 +401,7 @@ export const generateGuideWithScrolitha = async (req: Request, res: Response) =>
     const prompt = buildGuidePrompt(req.body || {});
     let result;
     try {
-      result = await askScrolithaOllama(prompt);
+      result = await askScrolithaText(prompt, { routeKey: 'seo_tags' });
     } catch {
       return res.json({
         success: true,
@@ -525,7 +422,7 @@ export const generateGuideWithScrolitha = async (req: Request, res: Response) =>
     });
   } catch (error: any) {
     console.error('Scrolitha-only guide error:', error);
-    const msg = String(error?.message || 'Scrolitha request failed');
+    const msg = sanitizeScrolithaUserMessage(error?.message || 'Scrolitha request failed');
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
@@ -561,7 +458,7 @@ export const supportChat = async (req: Request, res: Response) => {
       : `User: ${message}\nAgent:`;
 
     try {
-      const result = await askScrolithaOllama(prompt, { system });
+      const result = await askScrolithaText(prompt, { system, routeKey: 'support_chat' });
       return res.json({
         success: true,
         data: {
@@ -583,7 +480,7 @@ export const supportChat = async (req: Request, res: Response) => {
       });
     }
   } catch (error: any) {
-    const msg = String(error?.message || 'AI request failed');
+    const msg = sanitizeScrolithaUserMessage(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();
     const status = lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
@@ -646,11 +543,13 @@ export const postEnhance = async (req: Request, res: Response) => {
       data: {
         enhancedText: result.enhancedText,
         fallbackUsed: Boolean(result.fallbackUsed),
-        warning: result.warning
+        usedFallback: Boolean(result.fallbackUsed),
+        warning: result.warning,
+        warningCode: result.warningCode || null
       }
     });
   } catch (error: any) {
-    const message = String(error?.message || 'AI enhancement failed');
+    const message = sanitizeScrolithaUserMessage(error?.message || 'AI enhancement failed');
     await writeScrolithaAuditLog({
       actor,
       eventType: 'POST_AI_ENHANCE',
@@ -757,7 +656,7 @@ export const postInsight = async (req: Request, res: Response) => {
       }
     });
   } catch (error: any) {
-    const message = String(error?.message || 'AI insight generation failed');
+    const message = sanitizeScrolithaUserMessage(error?.message || 'AI insight generation failed');
     await writeScrolithaAuditLog({
       actor,
       eventType: 'POST_AI_INSIGHT_REQUEST',

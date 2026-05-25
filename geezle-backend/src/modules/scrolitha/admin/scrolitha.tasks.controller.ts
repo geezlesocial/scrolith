@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
+import { sanitizeScrolithaUserMessage } from '../../../services/scrolitha/scrolitha.ollama';
 import { ScrolithaService } from '../inference/scrolitha.service';
 import { enhancePostDraftWithAi, isValidPostEnhanceMode } from '../../../services/postAi.service';
 
@@ -19,10 +20,18 @@ const withError = (res: Response, message: string, error: any, status = 500) =>
     success: false,
     data: null,
     message,
-    error: String(error?.message || 'Unknown error')
+    error: sanitizeScrolithaUserMessage(String(error?.message || 'Unknown error'))
   });
 
 const asScrolithaModelLabel = (_value?: any) => 'Scrolitha';
+
+const buildScrolithaMeta = (result: any) => ({
+  provider: 'scrolitha',
+  model: asScrolithaModelLabel(result?.model),
+  usedFallback: Boolean(result?.usedFallback ?? result?.fallbackUsed),
+  warning: result?.warning || null,
+  warningCode: result?.warningCode || null
+});
 
 export const scrolithaRewriteController = async (req: Request, res: Response) => {
   try {
@@ -45,9 +54,8 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
         success: true,
         data: {
           rewrittenText: result.enhancedText,
-          provider: 'scrolitha',
-          model: asScrolithaModelLabel(result.model),
-          mode: result.mode
+          mode: result.mode,
+          ...buildScrolithaMeta(result)
         },
         message: 'Rewrite completed'
       });
@@ -64,8 +72,7 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
       success: true,
       data: {
         rewrittenText: result.text,
-        provider: result.provider,
-        model: asScrolithaModelLabel(result.model)
+        ...buildScrolithaMeta(result)
       },
       message: 'Rewrite completed'
     });
@@ -98,8 +105,7 @@ export const scrolithaHashtagsController = async (req: Request, res: Response) =
       success: true,
       data: {
         hashtags,
-        provider: result.provider,
-        model: asScrolithaModelLabel(result.model)
+        ...buildScrolithaMeta(result)
       },
       message: 'Hashtag suggestions ready'
     });
@@ -129,8 +135,7 @@ export const scrolithaCommentSuggestionsController = async (req: Request, res: R
       success: true,
       data: {
         suggestions,
-        provider: result.provider,
-        model: asScrolithaModelLabel(result.model)
+        ...buildScrolithaMeta(result)
       },
       message: 'Comment suggestions ready'
     });
@@ -166,8 +171,7 @@ export const scrolithaProposalDraftController = async (req: Request, res: Respon
       success: true,
       data: {
         draft: result.text,
-        provider: result.provider,
-        model: asScrolithaModelLabel(result.model)
+        ...buildScrolithaMeta(result)
       },
       message: 'Proposal draft ready'
     });
@@ -197,8 +201,7 @@ export const scrolithaGigImproveController = async (req: Request, res: Response)
       success: true,
       data: {
         improved: result.text,
-        provider: result.provider,
-        model: asScrolithaModelLabel(result.model)
+        ...buildScrolithaMeta(result)
       },
       message: 'Gig improvement generated'
     });
@@ -228,8 +231,7 @@ export const scrolithaJobImproveController = async (req: Request, res: Response)
       success: true,
       data: {
         improved: result.text,
-        provider: result.provider,
-        model: asScrolithaModelLabel(result.model)
+        ...buildScrolithaMeta(result)
       },
       message: 'Job improvement generated'
     });

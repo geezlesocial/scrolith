@@ -1,3 +1,6 @@
+import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import prisma from '../../utils/prismaClient';
 import { ensureScrolithaConfig } from './scrolitha.policy';
 import type { ScrolithaScope } from './scrolitha.types';
 
@@ -22,8 +25,17 @@ export type ScrolithaLlmRuntime = {
   allowGeminiFallback: boolean;
 };
 
+export const SCROLITHA_BACKUP_WARNING_CODE = 'SCROLITHA_BACKUP_ENGINE_USED';
+export const SCROLITHA_BACKUP_WARNING_MESSAGE =
+  'Scrolitha used backup processing for this suggestion. Please review before applying.';
+export const SCROLITHA_UNAVAILABLE_MESSAGE =
+  'Scrolitha is temporarily unavailable. Please try again shortly.';
+export const SCROLITHA_PRODUCTION_ENDPOINT_WARNING =
+  'Scrolitha Core endpoint is not configured for production.';
+
 const OLLAMA_MODEL_PULL_TIMEOUT_MS = 240_000;
 const ollamaPullsInFlight = new Map<string, Promise<void>>();
+const LOCAL_ENDPOINT_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
 
 const asBool = (value: unknown, fallback: boolean) => {
   const v = String(value ?? '').trim().toLowerCase();
@@ -53,6 +65,58 @@ const pickString = (...values: Array<unknown>) => {
   return '';
 };
 
+const isProductionRuntime = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
+
+const isLocalEndpoint = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    return LOCAL_ENDPOINT_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    const normalized = raw.toLowerCase();
+    return (
+      normalized.includes('localhost') ||
+      normalized.includes('127.0.0.1') ||
+      normalized.includes('0.0.0.0') ||
+      normalized.includes('::1')
+    );
+  }
+};
+
+const sanitizeText = (value: unknown) =>
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const sanitizeDiagnosticMessage = (value: unknown, fallback = 'Scrolitha request failed') => {
+  const source = sanitizeText(value);
+  if (!source) return fallback;
+  return source
+    .replace(/https?:\/\/[^\s]+/gi, '[endpoint]')
+    .replace(/\b(?:localhost|127\.0\.0\.1|0\.0\.0\.0|::1)\b/gi, '[local-endpoint]')
+    .slice(0, 220);
+};
+
+export const sanitizeScrolithaUserMessage = (
+  value: unknown,
+  fallback = SCROLITHA_UNAVAILABLE_MESSAGE
+) => {
+  const source = sanitizeText(value);
+  if (!source) return fallback;
+  if (
+    /\b(?:ollama|llama|localhost|127\.0\.0\.1|0\.0\.0\.0|::1|accelerator|local fallback|provider unavailable|provider failed)\b/i.test(
+      source
+    )
+  ) {
+    return fallback;
+  }
+  if (/not configured for production/i.test(source)) {
+    return SCROLITHA_PRODUCTION_ENDPOINT_WARNING;
+  }
+  return source;
+};
+
 const readResponseText = async (response: Response) => {
   try {
     return String((await response.text()) || '').trim();
@@ -79,6 +143,36 @@ const isMissingModelError = (status: number, bodyText: string) => {
     source.includes('model') && source.includes('not found') ||
     source.includes('pull') && source.includes('model') && source.includes('not found')
   );
+};
+
+type CoreProviderKind = 'google' | 'openai';
+
+type ScrolithaCoreProviderConfig = {
+  kind: CoreProviderKind;
+  apiKey: string;
+  model: string;
+  maxTokens: number;
+  temperature: number;
+};
+
+type ScrolithaGenerationInput = {
+  scope: ScrolithaScope;
+  routeKey?: string;
+  systemPrompt?: string;
+  userPrompt: string;
+  maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+};
+
+export type ScrolithaGenerationResult = {
+  text: string;
+  model: string;
+  engine: 'core' | 'ollama';
+  transport: 'google' | 'openai' | 'ollama';
+  usedBackupProcessing: boolean;
+  warning?: string;
+  warningCode?: string;
 };
 
 export const ollamaPullModel = async (host: string, model: string, timeoutMs = OLLAMA_MODEL_PULL_TIMEOUT_MS) => {
@@ -232,6 +326,151 @@ const withTimeout = async <T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs
   }
 };
 
+const getSystemAiConfig = async () => {
+  const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+  const system = (record?.data as any) || {};
+  return system.aiConfig || system?.system?.aiConfig || null;
+};
+
+const getMergedCoreAiConfig = async () => {
+  const [systemConfig] = await Promise.all([getSystemAiConfig()]);
+  const googleApiKey = pickString(
+    systemConfig?.providers?.google?.apiKey,
+    systemConfig?.providers?.google?.api_key,
+    process.env.GOOGLE_API_KEY,
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_GEMINI_KEY
+  );
+  const openAiApiKey = pickString(
+    systemConfig?.providers?.openai?.apiKey,
+    systemConfig?.providers?.openai?.api_key,
+    process.env.OPENAI_API_KEY
+  );
+
+  return {
+    routing: systemConfig?.routing || {},
+    safety: {
+      maxTokens: Number(systemConfig?.safety?.maxTokens ?? systemConfig?.safety?.max_tokens ?? 1024),
+      temperature: Number(systemConfig?.safety?.temperature ?? 0.35)
+    },
+    providers: {
+      google: {
+        enabled:
+          typeof systemConfig?.providers?.google?.enabled === 'boolean'
+            ? systemConfig.providers.google.enabled
+            : Boolean(googleApiKey),
+        apiKey: googleApiKey,
+        model: String(systemConfig?.providers?.google?.model || process.env.GOOGLE_MODEL || 'gemini-1.5-flash').trim()
+      },
+      openai: {
+        enabled:
+          typeof systemConfig?.providers?.openai?.enabled === 'boolean'
+            ? systemConfig.providers.openai.enabled
+            : Boolean(openAiApiKey),
+        apiKey: openAiApiKey,
+        model: String(systemConfig?.providers?.openai?.model || process.env.OPENAI_MODEL || 'gpt-4o-mini').trim()
+      }
+    }
+  };
+};
+
+const resolveCoreProviderCandidates = async (
+  routeKey?: string,
+  overrides?: { maxTokens?: number; temperature?: number }
+): Promise<ScrolithaCoreProviderConfig[]> => {
+  const config = await getMergedCoreAiConfig();
+  const ordered = new Set<CoreProviderKind>();
+  const preferred = String(config?.routing?.[String(routeKey || '').trim()] || '').trim().toLowerCase();
+  if (preferred === 'google' || preferred === 'openai') {
+    ordered.add(preferred);
+  }
+  ordered.add('google');
+  ordered.add('openai');
+
+  const safetyMaxTokens = Math.max(64, Math.min(4096, Math.floor(Number(overrides?.maxTokens ?? config?.safety?.maxTokens ?? 1024))));
+  const safetyTemperature = Math.max(
+    0,
+    Math.min(1.5, Number(overrides?.temperature ?? config?.safety?.temperature ?? 0.35))
+  );
+
+  const candidates: ScrolithaCoreProviderConfig[] = [];
+  ordered.forEach((kind) => {
+    const provider = config?.providers?.[kind];
+    if (!provider?.enabled) return;
+    const apiKey = String(provider.apiKey || '').trim();
+    if (!apiKey) return;
+    candidates.push({
+      kind,
+      apiKey,
+      model: String(provider.model || (kind === 'google' ? 'gemini-1.5-flash' : 'gpt-4o-mini')).trim(),
+      maxTokens: safetyMaxTokens,
+      temperature: safetyTemperature
+    });
+  });
+
+  return candidates;
+};
+
+const callGoogleProvider = async (
+  provider: ScrolithaCoreProviderConfig,
+  input: ScrolithaGenerationInput
+) => {
+  const modelRef = new GoogleGenerativeAI(provider.apiKey).getGenerativeModel({ model: provider.model });
+  const mergedPrompt = [sanitizeText(input.systemPrompt), sanitizeText(input.userPrompt)]
+    .filter(Boolean)
+    .join('\n\n');
+  const result = await withTimeout(async () => {
+    return modelRef.generateContent({
+      contents: [{ role: 'user', parts: [{ text: mergedPrompt }] }],
+      generationConfig: {
+        maxOutputTokens: provider.maxTokens,
+        temperature: provider.temperature
+      }
+    });
+  }, Math.max(5000, Math.min(120_000, Math.floor(Number(input.maxTokens || provider.maxTokens) * 25))));
+
+  return String(result.response.text() || '').trim();
+};
+
+const callOpenAiProvider = async (
+  provider: ScrolithaCoreProviderConfig,
+  input: ScrolithaGenerationInput
+) => {
+  const client = new OpenAI({ apiKey: provider.apiKey });
+  const response = await withTimeout(async () => {
+    return client.chat.completions.create({
+      model: provider.model,
+      messages: [
+        ...(sanitizeText(input.systemPrompt)
+          ? [{ role: 'system' as const, content: sanitizeText(input.systemPrompt) }]
+          : []),
+        { role: 'user' as const, content: sanitizeText(input.userPrompt) }
+      ],
+      max_tokens: provider.maxTokens,
+      temperature: provider.temperature
+    });
+  }, 25_000);
+
+  return String(response.choices?.[0]?.message?.content || '').trim();
+};
+
+const callCoreProvider = async (
+  provider: ScrolithaCoreProviderConfig,
+  input: ScrolithaGenerationInput
+) => {
+  if (provider.kind === 'google') {
+    return callGoogleProvider(provider, input);
+  }
+  return callOpenAiProvider(provider, input);
+};
+
+const logProviderFailure = (label: string, error: unknown, details?: Record<string, unknown>) => {
+  console.warn(`[scrolitha] ${label}`, {
+    ...details,
+    error: sanitizeDiagnosticMessage((error as any)?.message || error)
+  });
+};
+
 export const ollamaChat = async (input: {
   host: string;
   model: string;
@@ -294,6 +533,102 @@ export const ollamaChat = async (input: {
   return { text: content, raw: json };
 };
 
+export const generateScrolithaText = async (
+  input: ScrolithaGenerationInput
+): Promise<ScrolithaGenerationResult> => {
+  const runtime = await resolveScrolithaLlmRuntime(input.scope);
+  if (!runtime.enabled || runtime.provider === 'disabled') {
+    throw new Error('Scrolitha is disabled');
+  }
+
+  const safeInput: ScrolithaGenerationInput = {
+    ...input,
+    systemPrompt: sanitizeText(input.systemPrompt),
+    userPrompt: sanitizeText(input.userPrompt),
+    maxTokens: Math.max(64, Math.min(4096, Math.floor(Number(input.maxTokens || runtime.maxTokens || 1024)))),
+    temperature: Math.max(0, Math.min(1.5, Number(input.temperature ?? runtime.temperature ?? 0.35)))
+  };
+  const coreCandidates = await resolveCoreProviderCandidates(input.routeKey, {
+    maxTokens: safeInput.maxTokens,
+    temperature: safeInput.temperature
+  });
+
+  if (runtime.provider === 'ollama' && runtime.runtimeConfigured && runtime.host && runtime.model) {
+    try {
+      const result = await ollamaChat({
+        host: runtime.host,
+        model: runtime.model,
+        messages: [
+          ...(safeInput.systemPrompt ? [{ role: 'system' as const, content: safeInput.systemPrompt }] : []),
+          { role: 'user' as const, content: safeInput.userPrompt }
+        ],
+        maxTokens: safeInput.maxTokens,
+        temperature: safeInput.temperature,
+        topP: safeInput.topP ?? runtime.topP,
+        timeoutMs: runtime.timeoutMs
+      });
+      const text = String(result.text || '').trim();
+      if (!text) throw new Error('Scrolitha returned an empty response');
+      return {
+        text,
+        model: 'scrolitha-core',
+        engine: 'ollama',
+        transport: 'ollama',
+        usedBackupProcessing: false
+      };
+    } catch (error) {
+      logProviderFailure('primary self-hosted engine failed; attempting Scrolitha Core backup', error, {
+        scope: input.scope,
+        routeKey: input.routeKey || null
+      });
+    }
+  }
+
+  if (runtime.provider === 'ollama' && (!runtime.runtimeConfigured || (isProductionRuntime() && isLocalEndpoint(runtime.host)))) {
+    logProviderFailure('self-hosted engine is misconfigured for current runtime', new Error('Self-hosted endpoint unavailable'), {
+      scope: input.scope,
+      routeKey: input.routeKey || null,
+      production: isProductionRuntime()
+    });
+  }
+
+  let providerFailureCount = 0;
+  for (const candidate of coreCandidates) {
+    try {
+      const text = await callCoreProvider(candidate, safeInput);
+      if (!text) throw new Error('Scrolitha returned an empty response');
+      const usedBackupProcessing =
+        runtime.provider === 'ollama' || providerFailureCount > 0;
+      return {
+        text,
+        model: 'scrolitha-core',
+        engine: 'core',
+        transport: candidate.kind,
+        usedBackupProcessing,
+        ...(usedBackupProcessing
+          ? {
+              warning: SCROLITHA_BACKUP_WARNING_MESSAGE,
+              warningCode: SCROLITHA_BACKUP_WARNING_CODE
+            }
+          : {})
+      };
+    } catch (error) {
+      providerFailureCount += 1;
+      logProviderFailure('Scrolitha Core transport failed', error, {
+        scope: input.scope,
+        routeKey: input.routeKey || null,
+        transport: candidate.kind
+      });
+    }
+  }
+
+  throw new Error(
+    runtime.provider === 'core'
+      ? 'Scrolitha Core is not configured'
+      : 'Scrolitha primary engine is unavailable'
+  );
+};
+
 export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<string[]> => {
   const normalized = normalizeHost(host);
   if (!normalized) return [];
@@ -315,6 +650,8 @@ export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<
 
 export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
   const runtime = await resolveScrolithaLlmRuntime(scope);
+  const lastCheckedAt = new Date().toISOString();
+  const backupEngineStatus = 'available';
   if (!runtime.enabled) {
     return {
       ok: false,
@@ -322,41 +659,75 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
       runtime: runtime.provider,
       enabled: false,
       status: 'disabled',
-      host: runtime.host || null,
+      availability: 'unavailable',
+      host: null,
       model: runtime.model || null,
+      backupEngineStatus,
+      lastCheckedAt,
       error: 'Scrolitha is disabled by configuration.'
     };
   }
 
   if (runtime.provider === 'core') {
+    const candidates = await resolveCoreProviderCandidates('scrolitha_core');
+    if (!candidates.length) {
+      return {
+        ok: true,
+        provider: 'scrolitha',
+        runtime: 'core',
+        enabled: true,
+        status: 'degraded',
+        availability: 'misconfigured',
+        host: null,
+        model: 'scrolitha-core',
+        models: [],
+        modelPresent: false,
+        endpointConfigured: false,
+        backupEngineStatus,
+        lastCheckedAt,
+        warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING
+      };
+    }
     return {
       ok: true,
       provider: 'scrolitha',
       runtime: 'core',
       enabled: true,
       status: 'operational',
+      availability: 'online',
       host: null,
-      model: runtime.model || 'scrolitha-core',
+      model: 'scrolitha-core',
       models: [],
       modelPresent: true,
       autoPulled: false,
-      note: 'Scrolitha Core is active. Ollama is optional and can be enabled as an accelerator.'
+      endpointConfigured: true,
+      backupEngineStatus,
+      lastCheckedAt,
+      note: 'Scrolitha Core is online.'
     };
   }
 
-  if (!runtime.runtimeConfigured) {
+  if (!runtime.runtimeConfigured || (isProductionRuntime() && isLocalEndpoint(runtime.host))) {
     return {
       ok: true,
       provider: 'scrolitha',
       runtime: 'ollama',
       enabled: true,
       status: 'degraded',
+      availability: 'misconfigured',
       host: runtime.host || null,
-      model: runtime.model || 'llama3.1',
+      model: runtime.model || 'scrolitha-core',
       models: [],
       modelPresent: false,
       autoPulled: false,
-      warning: 'Ollama accelerator is not configured. Scrolitha Core remains active and will serve requests.'
+      endpointConfigured: false,
+      backupEngineStatus,
+      lastCheckedAt,
+      warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING,
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host || null
+      }
     };
   }
 
@@ -378,17 +749,25 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
       runtime: 'ollama',
       enabled: true,
       status: modelPresent ? 'accelerated' : 'degraded',
+      availability: modelPresent ? 'online' : 'unavailable',
       host: runtime.host,
-      model: runtime.model,
+      model: 'scrolitha-core',
       models,
       modelPresent,
       autoPulled,
+      endpointConfigured: true,
+      backupEngineStatus,
+      lastCheckedAt,
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host
+      },
       ...(modelPresent
         ? {
-            note: 'Scrolitha is running with the Ollama accelerator.'
+            note: 'Scrolitha Core is online.'
           }
         : {
-            warning: 'Ollama is reachable, but the selected model is not ready yet. Scrolitha Core remains active.'
+            warning: 'Scrolitha Core is unavailable. Backup processing remains available.'
           })
     };
   } catch (error: any) {
@@ -398,11 +777,18 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
       runtime: 'ollama',
       enabled: true,
       status: 'degraded',
+      availability: 'unavailable',
       host: runtime.host,
-      model: runtime.model,
-      warning: `Ollama health check failed. Scrolitha Core remains active. ${String(
-        error?.message || 'Health check failed'
-      )}`
+      model: 'scrolitha-core',
+      endpointConfigured: true,
+      backupEngineStatus,
+      lastCheckedAt,
+      warning: 'Scrolitha Core is unavailable. Backup processing remains available.',
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host,
+        error: sanitizeDiagnosticMessage(error?.message || 'Health check failed')
+      }
     };
   }
 };

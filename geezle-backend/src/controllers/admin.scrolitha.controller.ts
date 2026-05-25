@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
-import { getScrolithaRuntimeHealth } from '../services/scrolitha/scrolitha.ollama';
+import { getScrolithaRuntimeHealth, sanitizeScrolithaUserMessage } from '../services/scrolitha/scrolitha.ollama';
 import { clearPostInsights, regeneratePostInsightsBatch } from '../services/postAi.service';
 import {
   createScrolithaSkill,
@@ -35,6 +35,9 @@ const asScrolithaModelLabel = (value: any) => {
   return 'Scrolitha';
 };
 
+const sanitizeAdminError = (error: any, fallback: string) =>
+  sanitizeScrolithaUserMessage(String(error?.message || fallback), fallback);
+
 export const getAdminScrolithaConfigController = async (req: Request, res: Response) => {
   try {
     const data = await getScrolithaConfigForAdmin(req.query.scope);
@@ -44,7 +47,7 @@ export const getAdminScrolithaConfigController = async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha config',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha configuration.')
     });
   }
 };
@@ -54,12 +57,12 @@ export const getAdminScrolithaHealthController = async (req: Request, res: Respo
     const scope = String(req.query.scope || 'admin').trim().toLowerCase();
     const data = await getScrolithaRuntimeHealth(scope === 'user' ? 'user' : 'admin');
     const branded = data && typeof data === 'object' ? { ...data, model: asScrolithaModelLabel((data as any).model) } : data;
-    return res.json({ success: true, data: branded, message: 'Scrolitha LLM health loaded' });
+    return res.json({ success: true, data: branded, message: 'Scrolitha Core health loaded' });
   } catch (error: any) {
     return res.status(500).json({
       success: false,
-      message: 'Failed to load Scrolitha LLM health',
-      error: String(error?.message || 'Unknown error')
+      message: 'Failed to load Scrolitha Core health',
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha Core health.')
     });
   }
 };
@@ -90,7 +93,7 @@ export const getAdminScrolithaModelsController = async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha model list',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load the Scrolitha model list.')
     });
   }
 };
@@ -166,7 +169,11 @@ export const putAdminScrolithaConfigController = async (req: Request, res: Respo
     const msg = String(error?.message || 'Failed to update config');
     const status = msg.toLowerCase().includes('scope') ? 400 : 500;
     console.error('[admin/scrolitha] update config error', error);
-    return res.status(status).json({ success: false, message: 'Failed to update Scrolitha config', error: msg });
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to update Scrolitha config',
+      error: sanitizeAdminError(error, 'Unable to update Scrolitha configuration.')
+    });
   }
 };
 
@@ -179,7 +186,7 @@ export const getAdminScrolithaSkillsController = async (req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha skills',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha skills.')
     });
   }
 };
@@ -198,7 +205,11 @@ export const postAdminScrolithaSkillController = async (req: Request, res: Respo
     const msg = String(error?.message || 'Failed to create skill');
     const status = msg.toLowerCase().includes('required') ? 400 : 500;
     console.error('[admin/scrolitha] create skill error', error);
-    return res.status(status).json({ success: false, message: 'Failed to create Scrolitha skill', error: msg });
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to create Scrolitha skill',
+      error: sanitizeAdminError(error, 'Unable to create the Scrolitha skill.')
+    });
   }
 };
 
@@ -222,7 +233,11 @@ export const putAdminScrolithaSkillController = async (req: Request, res: Respon
     const lower = msg.toLowerCase();
     const status = lower.includes('not found') ? 404 : lower.includes('required') ? 400 : 500;
     console.error('[admin/scrolitha] update skill error', error);
-    return res.status(status).json({ success: false, message: 'Failed to update Scrolitha skill', error: msg });
+    return res.status(status).json({
+      success: false,
+      message: 'Failed to update Scrolitha skill',
+      error: sanitizeAdminError(error, 'Unable to update the Scrolitha skill.')
+    });
   }
 };
 
@@ -250,7 +265,7 @@ export const deleteAdminScrolithaSkillController = async (req: Request, res: Res
     return res.status(500).json({
       success: false,
       message: 'Failed to delete Scrolitha skill',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to delete the Scrolitha skill.')
     });
   }
 };
@@ -269,7 +284,7 @@ export const getAdminScrolithaAuditController = async (req: Request, res: Respon
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha audit',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha audit.')
     });
   }
 };
@@ -283,7 +298,7 @@ export const getAdminScrolithaAnalyticsController = async (_req: Request, res: R
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha analytics',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha analytics.')
     });
   }
 };
@@ -296,7 +311,7 @@ export const getAdminScrolithaToolsController = async (_req: Request, res: Respo
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha tool registry',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load the Scrolitha tool registry.')
     });
   }
 };
@@ -311,7 +326,7 @@ export const getAdminScrolithaLearningInsightsController = async (req: Request, 
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha learning insights',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha learning insights.')
     });
   }
 };
@@ -329,7 +344,7 @@ export const getAdminScrolithaChatRecordsController = async (req: Request, res: 
     return res.status(500).json({
       success: false,
       message: 'Failed to load Scrolitha chat records',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to load Scrolitha chat records.')
     });
   }
 };
@@ -366,7 +381,7 @@ export const postAdminScrolithaRegenerateInsightsController = async (req: Reques
     return res.status(500).json({
       success: false,
       message: 'Failed to regenerate post AI insights',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to regenerate post AI insights.')
     });
   }
 };
@@ -397,7 +412,7 @@ export const deleteAdminScrolithaPostInsightsController = async (req: Request, r
     return res.status(500).json({
       success: false,
       message: 'Failed to clear post AI insights',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to clear post AI insights.')
     });
   }
 };
@@ -435,7 +450,7 @@ export const postAdminScrolithaKnowledgeReindexController = async (req: Request,
     return res.status(500).json({
       success: false,
       message: 'Failed to queue knowledge reindex',
-      error: String(error?.message || 'Unknown error')
+      error: sanitizeAdminError(error, 'Unable to queue Scrolitha knowledge reindex.')
     });
   }
 };
