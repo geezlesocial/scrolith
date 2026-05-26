@@ -54,15 +54,15 @@ const resolveEnhanceMode = (mode: string): PostEnhanceMode | undefined => {
 
 const ENHANCE_PROMPTS: Record<PostEnhanceMode, string> = {
   grammar:
-    'You are an expert copy editor. Correct all grammar, spelling, and punctuation errors in the following text. Preserve the original tone and meaning. Do not add new information or change the core message. Only return the corrected text.',
+    'You are an expert copy editor. Correct all grammar, spelling, and punctuation errors in the following text. Preserve the original tone and meaning. Do not add new information or change the core message. Return only the corrected text.',
   rephrase:
-    'You are an expert writer. Rephrase the following text to make it clearer, more concise, and more natural-sounding. Preserve the exact original meaning. Do not add or remove information. Only return the rephrased text.',
+    'You are an expert writer. Rephrase the following text to make it clearer, more concise, and more natural-sounding. Preserve the exact original meaning. Do not add or remove information. Return only the rephrased text.',
   professional:
-    'You are an expert business writer. Rewrite the following text in a professional, formal, and business-appropriate tone. Ensure the meaning and factual content are preserved. The output should be ready for a corporate or client-facing communication. Only return the rewritten text.',
+    'You are an expert business writer. Rewrite the following text in a professional, formal, and business-appropriate tone. Ensure the meaning and factual content are preserved. The output should be ready for a corporate or client-facing communication. Return only the rewritten text. Do NOT include prefatory phrases such as "Here is", "Revised version", "Example", or any commentary. Do NOT wrap the result in quotes unless those quotes are present in the source text.',
   shorten:
-    'You are an expert editor. Shorten the following text significantly while preserving the key message, essential details, and original meaning. Remove filler words and redundant phrases. The result should be concise and clear. Only return the shortened text.',
+    'You are an expert editor. Shorten the following text while preserving the key message and essential details. Return only the shortened text. Maximum length: 140 characters. Do NOT add hashtags, commentary, or prefatory phrasing. Ensure the result is meaningfully shorter than the source.',
   expand:
-    'You are an expert content writer. Expand the following text by adding more detail, explanation, and structure, while keeping the original intent and facts. Do not invent new information. Create a more complete and comprehensive version of the text. Only return the expanded text.',
+    'You are an expert content writer. Expand the following text by adding one or more useful sentences that clarify or add supportive detail while keeping the original intent and facts. Do not invent new factual content. Return only the expanded text (no preamble, no explanations).',
 };
 
 type PostAiSettings = {
@@ -484,9 +484,10 @@ export const enhancePostDraftWithAi = async (input: {
         out = out.replace(/^["“”'‘’]+/, '').replace(/["“”'‘’]+$/, '');
       }
 
-      // Remove hashtags inserted by the model when source had none
+      // Remove hashtags inserted by the model when source had none.
+      // Additionally, do not allow hashtags for the `shorten` mode.
       const sourceHashtags = (String(source || '').match(/#[a-z0-9_]+/gi) || []).length;
-      if (sourceHashtags === 0 && mode !== 'shorten') {
+      if (mode === 'shorten' || sourceHashtags === 0) {
         out = out.replace(/#[a-z0-9_]+/gi, '');
       }
 
@@ -503,6 +504,21 @@ export const enhancePostDraftWithAi = async (input: {
       systemPrompt,
       `${systemPrompt}\nStrict requirement: output only the final rewritten text. Do not ask questions or add any extra words outside the rewritten text. Never wrap the answer in quotes. Do not add introductions, examples, or explanations.`
     ];
+
+    // Add an extra ultra-strict attempt for sensitive modes to reduce false positives
+    if (mode === 'shorten') {
+      attemptPrompts.push(
+        `${systemPrompt}\nSTRICT: Return only the shortened text. Maximum length: 140 characters. Do NOT include hashtags, quotes, or any commentary. If you cannot shorten without losing meaning, return the most concise version under 140 characters.`
+      );
+    } else if (mode === 'professional') {
+      attemptPrompts.push(
+        `${systemPrompt}\nSTRICT: Return only the final rewritten text. Do NOT include prefatory phrases like \"Here is\", \"Revised version\", \"Example\", or apologies. No quotes or commentary.`
+      );
+    } else if (mode === 'expand') {
+      attemptPrompts.push(
+        `${systemPrompt}\nSTRICT: Expand the text by adding at least one useful sentence. Return only the expanded text without explanation or preamble.`
+      );
+    }
 
     let accepted = false;
     for (let attempt = 0; attempt < attemptPrompts.length; attempt += 1) {
