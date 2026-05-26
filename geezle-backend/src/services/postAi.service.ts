@@ -250,6 +250,129 @@ const fallbackEnhanceText = (text: string, mode: PostEnhanceMode) => {
   return grammarFixed;
 };
 
+const buildEnhanceUserPrompt = (text: string, mode: PostEnhanceMode) => {
+  const modeInstruction =
+    mode === 'grammar'
+      ? 'Correct grammar, spelling, and punctuation only.'
+      : mode === 'rephrase'
+        ? 'Rewrite the text so it clearly uses different wording while preserving the same meaning.'
+        : mode === 'professional'
+          ? 'Rewrite the text as one polished final message in a professional, business-appropriate tone that is ready to send to a client, colleague, or stakeholder.'
+          : mode === 'shorten'
+            ? 'Shorten the text into a concise final message while preserving the key meaning.'
+            : 'Expand the text into a fuller version with at least one additional sentence while preserving the original meaning and facts.';
+
+  return [
+    'Task: transform the provided text.',
+    modeInstruction,
+    'Return only the transformed text.',
+    'Do not ask questions.',
+    'Do not mention being an assistant.',
+    'Do not describe what you are doing.',
+    'Do not add commentary, explanations, quotation marks, headings, or bullet points.',
+    'Do not mention missing context.',
+    'Do not introduce the rewrite with phrases like "Here is", "Revised version", or similar.',
+    'Do not add setup sentences such as thanking for feedback, explaining your approach, or saying you will improve the text.',
+    'Preserve the original language unless correction is required.',
+    'Source text:',
+    '"""',
+    text,
+    '"""'
+  ].join('\n');
+};
+
+const shouldRetryEnhanceResponse = (sourceText: string, mode: PostEnhanceMode, candidate: string) => {
+  const normalized = String(candidate || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return true;
+  const source = String(sourceText || '').replace(/\s+/g, ' ').trim();
+
+  const lower = normalized.toLowerCase();
+  const assistantPatterns = [
+    "i'd be happy to help",
+    'i would be happy to help',
+    'can you please',
+    'please provide more context',
+    'what specific',
+    'what can i help you with',
+    'let me know if you',
+    'here is a corrected version',
+    'here is a rewritten version',
+    "here's a revised version",
+    'here is an example',
+    'to get started',
+    'i appreciate your feedback',
+    'to refine my response',
+    'i will focus on',
+    'i would like to express my gratitude',
+    'this requires a structured approach'
+  ];
+
+  if (assistantPatterns.some((pattern) => lower.includes(pattern))) {
+    return true;
+  }
+
+  if (/["“”]/.test(normalized) || normalized.includes('\n\n')) {
+    return true;
+  }
+
+  const sourceHashtagCount = (source.match(/#[a-z0-9_]+/gi) || []).length;
+  const candidateHashtagCount = (normalized.match(/#[a-z0-9_]+/gi) || []).length;
+  if (!sourceHashtagCount && candidateHashtagCount) return true;
+
+  const sourceMentionCount = (source.match(/@[a-z0-9_.-]+/gi) || []).length;
+  const candidateMentionCount = (normalized.match(/@[a-z0-9_.-]+/gi) || []).length;
+  if (!sourceMentionCount && candidateMentionCount) return true;
+
+  const sourceLinkCount = (source.match(/https?:\/\/|www\./gi) || []).length;
+  const candidateLinkCount = (normalized.match(/https?:\/\/|www\./gi) || []).length;
+  if (!sourceLinkCount && candidateLinkCount) return true;
+
+  const sourceWords = new Set(
+    source
+      .toLowerCase()
+      .split(/[^a-z0-9]+/i)
+      .filter((entry) => entry.length > 2)
+  );
+  const overlap = normalized
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter((entry) => entry.length > 2 && sourceWords.has(entry)).length;
+
+  if (overlap < 3) return true;
+
+  const sourceLength = source.length;
+  const candidateLength = normalized.length;
+  const normalizedSource = source.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
+  const normalizedCandidate = normalized.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
+
+  if (mode === 'rephrase' && normalizedCandidate === normalizedSource) {
+    return true;
+  }
+
+  if (mode === 'expand' && candidateLength < Math.max(sourceLength + 20, Math.floor(sourceLength * 1.2))) {
+    return true;
+  }
+
+  if (mode === 'shorten' && candidateLength >= sourceLength) {
+    return true;
+  }
+
+  if (
+    mode === 'professional' &&
+    (/:\s*$/.test(normalized) ||
+      lower.includes('revised version') ||
+      lower.includes('example of how') ||
+      lower.includes('formal tone') ||
+      lower.startsWith('i appreciate your feedback') ||
+      lower.startsWith('to refine my response') ||
+      lower.startsWith('i would like to express my gratitude'))
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 const fallbackInsightText = (text: string, tone: string, maxLength: number) => {
   const preview = safePreview(text, Math.max(80, maxLength - 32));
   const lead =
@@ -329,6 +452,10 @@ export const enhancePostDraftWithAi = async (input: {
     'Never add fabricated facts.',
     'Keep hashtags, @mentions, links, and line breaks unless needed for correctness.',
     'Return only the improved text, without commentary or apologies.',
+    'This is a text transformation task, not a conversation.',
+    'Do not ask follow-up questions.',
+    'Do not say you need more context.',
+    'Do not mention being an assistant.',
     safeMode
       ? 'Safe mode is enabled: avoid unsafe, offensive, or policy-violating language and avoid risky instructions.'
       : '',
@@ -339,16 +466,82 @@ export const enhancePostDraftWithAi = async (input: {
   let warning: string | undefined = undefined;
 
   try {
-    response = await runScrolithaText({
-      scope,
-      routeKey: 'post_enhance',
+    const sanitizeCandidate = (candidate: string, mode: PostEnhanceMode, source: string) => {
+      let out = String(candidate || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/[ \t]+/g, ' ')
+        .trim();
+
+      // Remove common assistant/meta prefixes at the start
+      out = out.replace(/^\s*(?:here(?:'s| is)(?: an?| a)?(?: revised| rewritten| corrected| updated| reworked)?(?: version)?[:\-\s]*|the revised text is[:\-\s]*|the revised version is[:\-\s]*|revised version[:\-\s]*|updated version[:\-\s]*|here is an example[:\-\s]*|here is a corrected version[:\-\s]*|here is a rewritten version[:\-\s]*|here's a corrected version[:\-\s]*|here's a rewritten version[:\-\s]*|here is a corrected version[:\-\s]*|here is a rewritten version[:\-\s]*|here is[:\-\s]*|here's[:\-\s]*|sure[,\-:\s]+|i can help(?: with)?[,\-:\s]+|i would be happy to help[,\-:\s]+|i'd be happy to help[,\-:\s]+|the corrected text is[:\-\s]*|example[:\-\s]*|reworked text[:\-\s]*)/i, '');
+
+      // Strip surrounding code fences
+      out = out.replace(/^```[a-zA-Z0-9]*\n?/, '').replace(/\n?```$/, '').trim();
+
+      // If source contains no quotes, remove surrounding quotes from candidate
+      const sourceHasQuotes = /["“”'‘’]/.test(String(source || ''));
+      if (!sourceHasQuotes) {
+        out = out.replace(/^["“”'‘’]+/, '').replace(/["“”'‘’]+$/, '');
+      }
+
+      // Remove hashtags inserted by the model when source had none
+      const sourceHashtags = (String(source || '').match(/#[a-z0-9_]+/gi) || []).length;
+      if (sourceHashtags === 0 && mode !== 'shorten') {
+        out = out.replace(/#[a-z0-9_]+/gi, '');
+      }
+
+      // For shorten mode we must be particularly concise: collapse whitespace and trim length
+      out = out.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+
+      // Remove leftover assistant-like lead-ins that may appear after sentence breaks
+      out = out.replace(/^(?:the revised text is[:\-\s]*|revised version[:\-\s]*|updated version[:\-\s]*|here is[:\-\s]*|here's[:\-\s]*)/i, '').trim();
+
+      return out;
+    };
+
+    const attemptPrompts = [
       systemPrompt,
-      userPrompt: text,
-      maxTokens: 420
-    });
-    if (!response.text) {
-      throw new Error('LLM returned an empty response');
+      `${systemPrompt}\nStrict requirement: output only the final rewritten text. Do not ask questions or add any extra words outside the rewritten text. Never wrap the answer in quotes. Do not add introductions, examples, or explanations.`
+    ];
+
+    let accepted = false;
+    for (let attempt = 0; attempt < attemptPrompts.length; attempt += 1) {
+      const attemptPrompt = attemptPrompts[attempt];
+      response = await runScrolithaText({
+        scope,
+        routeKey: 'post_enhance',
+        systemPrompt: attemptPrompt,
+        userPrompt: buildEnhanceUserPrompt(text, mode),
+        maxTokens: 420
+      });
+
+      if (!response?.text) {
+        continue;
+      }
+
+      const sanitized = sanitizeCandidate(response.text, mode, text);
+
+      // If sanitized response still looks like assistant/meta, allow one more strict retry
+      if (shouldRetryEnhanceResponse(text, mode, sanitized)) {
+        // If this was the last allowed attempt, mark as rejected and fall through to fallback
+        if (attempt === attemptPrompts.length - 1) {
+          response = { ...response, text: sanitized };
+          break;
+        }
+        // otherwise continue to next (stricter) attempt
+        continue;
+      }
+
+      // Accept sanitized candidate
+      response.text = sanitized;
+      accepted = true;
+      break;
     }
+
+    if (!accepted || !response?.text) {
+      throw new Error('LLM did not return an acceptable transformed response');
+    }
+
     if (response.usedBackupProcessing) {
       fallbackUsed = true;
       warning = response.warning || SCROLITHA_BACKUP_WARNING_MESSAGE;
