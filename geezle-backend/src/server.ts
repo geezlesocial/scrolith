@@ -154,10 +154,17 @@ const normalizeOrigin = (value: string | undefined | null): string => {
   if (!raw) return '';
   return raw.replace(/\/+$/, '').toLowerCase();
 };
+const parseAllowedOrigins = (raw: string | undefined | null): string[] =>
+  String(raw || '')
+    .split(',')
+    .map((entry) => normalizeOrigin(entry))
+    .filter(Boolean);
 const allowedOrigins = new Set<string>(
   [
     process.env.FRONTEND_URL,
     process.env.PUBLIC_APP_URL,
+    ...parseAllowedOrigins(process.env.CORS_ALLOWED_ORIGINS),
+    'https://scrolith-frontend-ui2ik4yg6q-uc.a.run.app',
     'https://scrolitha-ui-8f10d0bf-fix1---scrolith-frontend-ui2ik4yg6q-uc.a.run.app',
     'https://scrolith.com',
     'https://www.scrolith.com',
@@ -180,8 +187,15 @@ const isAllowedOrigin = (origin: string | undefined): boolean => {
   return allowedOrigins.has(normalizeOrigin(origin));
 };
 const corsOrigin = (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-  if (isAllowedOrigin(origin)) return callback(null, true);
-  return callback(new Error('Not allowed by CORS'));
+  try {
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    // Do not throw an error for disallowed origins; signal disallowed by returning false.
+    // Returning an Error here caused Express to treat CORS rejections as server errors (500).
+    return callback(null, false);
+  } catch (error) {
+    console.warn('[CORS] Origin validation error:', error);
+    return callback(null, false);
+  }
 };
 const corsOptions = {
   origin: corsOrigin,
