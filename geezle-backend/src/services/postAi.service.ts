@@ -359,7 +359,8 @@ const shouldRetryEnhanceResponse = (sourceText: string, mode: PostEnhanceMode, c
     }
     const expandMinGrowth = sourceLength < 120 ? 8 : Math.max(12, Math.floor(sourceLength * 0.15));
     const addedSentence = candidateSentenceCount > sourceSentenceCount;
-    if (candidateLength < sourceLength + expandMinGrowth && !addedSentence) {
+    const materiallyLonger = candidateLength >= sourceLength + 5;
+    if (candidateLength < sourceLength + expandMinGrowth && !addedSentence && !materiallyLonger) {
       return true;
     }
   }
