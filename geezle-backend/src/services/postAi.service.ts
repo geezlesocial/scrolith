@@ -344,17 +344,36 @@ const shouldRetryEnhanceResponse = (sourceText: string, mode: PostEnhanceMode, c
   const candidateLength = normalized.length;
   const normalizedSource = source.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
   const normalizedCandidate = normalized.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
+  const sourceWordCount = source.split(/\s+/).filter(Boolean).length;
+  const candidateWordCount = normalized.split(/\s+/).filter(Boolean).length;
+  const sourceSentenceCount = (source.match(/[.!?]+/g) || []).length;
+  const candidateSentenceCount = (normalized.match(/[.!?]+/g) || []).length;
 
   if (mode === 'rephrase' && normalizedCandidate === normalizedSource) {
     return true;
   }
 
-  if (mode === 'expand' && candidateLength < Math.max(sourceLength + 20, Math.floor(sourceLength * 1.2))) {
-    return true;
+  if (mode === 'expand') {
+    if (normalizedCandidate === normalizedSource) {
+      return true;
+    }
+    const expandMinGrowth = sourceLength < 120 ? 8 : Math.max(12, Math.floor(sourceLength * 0.15));
+    const addedSentence = candidateSentenceCount > sourceSentenceCount;
+    if (candidateLength < sourceLength + expandMinGrowth && !addedSentence) {
+      return true;
+    }
   }
 
-  if (mode === 'shorten' && candidateLength >= sourceLength) {
-    return true;
+  if (mode === 'shorten') {
+    if (normalizedCandidate === normalizedSource) {
+      return true;
+    }
+    const shortInput = sourceLength <= 120;
+    const wordNotLonger = candidateWordCount <= sourceWordCount;
+    const smallLengthDelta = candidateLength <= sourceLength + 8;
+    if (candidateLength > sourceLength && !(shortInput && wordNotLonger && smallLengthDelta)) {
+      return true;
+    }
   }
 
   if (
