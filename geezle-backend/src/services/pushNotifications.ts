@@ -72,6 +72,8 @@ const INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
   'messaging/invalid-argument'
 ]);
+const SCROLITH_ANDROID_CHANNEL_ID = 'scrolith_alerts_v2';
+const SCROLITH_ANDROID_SOUND = 'scrolith';
 
 let firebaseApp: admin.app.App | null = null;
 let initAttempted = false;
@@ -364,6 +366,14 @@ const matchesPushTargetPlatform = (
 const uniqueTokens = (tokens: Array<{ token: string }>) =>
   Array.from(new Set(tokens.map((token) => token.token).filter(Boolean)));
 
+const buildAndroidPushConfig = (): admin.messaging.AndroidConfig => ({
+  priority: 'high',
+  notification: {
+    channelId: SCROLITH_ANDROID_CHANNEL_ID,
+    sound: SCROLITH_ANDROID_SOUND
+  }
+});
+
 const loadEligibleDeviceTokens = async (
   userIds: string[],
   targetPlatform: 'all' | 'android' | 'desktop'
@@ -406,7 +416,7 @@ const sendToTokens = async (
         tokens: batch,
         notification: { title: message.title, body: message.body },
         data: message.data,
-        android: { priority: 'high' },
+        android: buildAndroidPushConfig(),
         apns: { headers: { 'apns-priority': '10' } }
       });
 
