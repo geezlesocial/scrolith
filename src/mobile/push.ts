@@ -1,20 +1,30 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
-import { PushNotifications } from '@capacitor/push-notifications';
+import { PushNotifications, type Channel } from '@capacitor/push-notifications';
 import api from '../services/api';
 import { tokenStore } from '../services/tokenStore';
 import { type AppDistributionEvent } from '../services/appDistribution';
-import { extractPathFromUrl } from './deeplinks';
 import { trackMobileRuntimeEvent } from './mobileTelemetry';
+import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
 
 let initialized = false;
 let listenersAttached = false;
+const CUSTOM_SCHEME = 'scrolith';
 const TOKEN_KEY = 'push_device_token';
+const TOKEN_PROJECT_KEY = 'push_device_token_project';
 const DEVICE_ID_KEY = 'push_device_id';
+const PUSH_TOKEN_PROJECT_ID = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'scrolith-platform').trim();
 const REGISTER_RETRIES = 4;
 const REGISTER_RETRY_DELAY_MS = 1200;
 const MAX_NATIVE_REGISTER_RETRIES = 5;
 const NATIVE_REGISTER_RETRY_BASE_MS = 4000;
+export const ANDROID_NOTIFICATION_CHANNELS = {
+  alerts: 'scrolith_alerts_v2',
+  general: 'scrolith_alerts_v2',
+  messages: 'scrolith_alerts_v2',
+  posts: 'scrolith_alerts_v2',
+  campaigns: 'scrolith_alerts_v2'
+} as const;
 
 let nativeRegisterRetryCount = 0;
 let nativeRegisterRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -22,11 +32,139 @@ let lastReportedPushError = '';
 let lastReportedPushErrorAt = 0;
 let navigateToPath: ((path: string) => void) | undefined;
 
+const getAllowedHosts = () => {
+  const envHost = String(import.meta.env.VITE_APP_DOMAIN || '').trim();
+  const envAltHost = String(import.meta.env.VITE_PUBLIC_APP_DOMAIN || '').trim();
+  const base = ['scrolith.com', 'www.scrolith.com'];
+  if (envHost) base.push(envHost);
+  if (envAltHost) base.push(envAltHost);
+  return new Set(base.map((h) => String(h).trim().toLowerCase()).filter(Boolean));
+};
+
+const extractPushPathFromUrl = (url: string): string | null =>
+  extractPathFromAppUrl(url, getAllowedHosts(), CUSTOM_SCHEME);
+
+const normalizePushActionPath = (raw?: unknown): string | null => {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  if (value.startsWith('/')) return value;
+  return extractPushPathFromUrl(value);
+};
+
+const buildFallbackPathFromPushData = (data: any): string | null => {
+  const type = String(data?.type || data?.notificationType || '').trim().toLowerCase();
+  const conversationId = String(data?.conversationId || data?.conversation_id || '').trim();
+  const postId = String(data?.postId || data?.post_id || data?.entityId || data?.entity_id || '').trim();
+  const campaignId = String(data?.campaignId || data?.campaign_id || '').trim();
+
+  if ((type === 'message' || type === 'new_message') && conversationId) {
+    return `/messages/${encodeURIComponent(conversationId)}`;
+  }
+  if (type.includes('message') && conversationId) {
+    return `/messages/${encodeURIComponent(conversationId)}`;
+  }
+  if ((type.includes('post') || type.includes('comment') || type.includes('mention') || type.includes('reaction')) && postId) {
+    return `/post/${encodeURIComponent(postId)}`;
+  }
+  if (type === 'app_campaign' || type === 'campaign') {
+    return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
+  }
+  return null;
+};
+
+const ensureAndroidNotificationChannels = async () => {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
+
+  const channels: Channel[] = [
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.alerts,
+      name: 'Scrolith Alerts',
+      description: 'Notifications from Scrolith',
+      sound: 'scrolith.wav',
+      importance: 5,
+      visibility: 1,
+      vibration: true
+    },
+    // Keep legacy channels present for older installs/history, but route new notifications to alerts v2.
+    {
+      id: 'general',
+      name: 'Scrolith notifications (legacy)',
+      description: 'Legacy notification channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'messages',
+      name: 'Messages (legacy)',
+      description: 'Legacy messages channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'posts',
+      name: 'Posts and community (legacy)',
+      description: 'Legacy posts channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'campaigns_scrolith_v2',
+      name: 'Scrolith campaigns (legacy)',
+      description: 'Legacy campaigns channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    }
+  ];
+
+  for (const channel of channels) {
+    try {
+      await PushNotifications.createChannel(channel);
+    } catch (error) {
+      console.warn('Failed to create Android notification channel', {
+        channelId: channel.id,
+        error: (error as any)?.message || error
+      });
+    }
+  }
+};
+
 const storeToken = async (token: string) => {
   if (!Capacitor.isNativePlatform()) return;
   try {
     await Preferences.set({ key: TOKEN_KEY, value: token });
+    await Preferences.set({ key: TOKEN_PROJECT_KEY, value: PUSH_TOKEN_PROJECT_ID });
   } catch {}
+};
+
+const ensureStoredTokenProject = async () => {
+  if (!Capacitor.isNativePlatform()) return true;
+  try {
+    const { value } = await Preferences.get({ key: TOKEN_PROJECT_KEY });
+    if (!value) {
+      const existingToken = await Preferences.get({ key: TOKEN_KEY });
+      if (existingToken.value) {
+        await Preferences.remove({ key: TOKEN_KEY });
+        await reportPushTrackingEvent('push_token_project_reset', {
+          platform: Capacitor.getPlatform()
+        });
+      }
+      await Preferences.set({ key: TOKEN_PROJECT_KEY, value: PUSH_TOKEN_PROJECT_ID });
+      return !existingToken.value;
+    }
+    if (value === PUSH_TOKEN_PROJECT_ID) return true;
+    await Preferences.remove({ key: TOKEN_KEY });
+    await Preferences.set({ key: TOKEN_PROJECT_KEY, value: PUSH_TOKEN_PROJECT_ID });
+    await reportPushTrackingEvent('push_token_project_reset', {
+      platform: Capacitor.getPlatform()
+    });
+    return false;
+  } catch {
+    return true;
+  }
 };
 
 const readToken = async () => {
@@ -65,6 +203,7 @@ const clearToken = async () => {
   if (!Capacitor.isNativePlatform()) return;
   try {
     await Preferences.remove({ key: TOKEN_KEY });
+    await Preferences.remove({ key: TOKEN_PROJECT_KEY });
   } catch {}
 };
 
@@ -85,7 +224,10 @@ const registerTokenWithBackend = async (token: string) => {
     });
     return true;
   } catch (e) {
-    console.error('Failed to register device token', e);
+    console.error('Failed to register device token', {
+      status: (e as any)?.response?.status,
+      message: (e as any)?.message || 'registration request failed'
+    });
     await reportPushTrackingEvent('push_token_sync_failed', {
       platform: Capacitor.getPlatform(),
       tokenPrefix: String(token || '').slice(0, 12)
@@ -148,10 +290,12 @@ const buildForegroundPushPayload = (incoming: any) => {
     data.link ||
     data.actionUrl ||
     data.action_url ||
+    data.url ||
     notification?.link ||
     notification?.actionUrl ||
-    notification?.action_url;
-  const actionUrl = rawAction ? extractPathFromUrl(String(rawAction)) || String(rawAction) : undefined;
+    notification?.action_url ||
+    notification?.url;
+  const actionUrl = normalizePushActionPath(rawAction) || buildFallbackPathFromPushData(data) || undefined;
 
   return {
     id: notification?.id || data.notificationId,
@@ -224,18 +368,24 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
     const notificationData = (event.notification?.data as any) || {};
-    const deepLink =
-      notificationData?.deepLink || notificationData?.deeplink;
-    const path = deepLink ? extractPathFromUrl(String(deepLink)) : null;
+    const action =
+      notificationData?.deepLink ||
+      notificationData?.deeplink ||
+      notificationData?.link ||
+      notificationData?.actionUrl ||
+      notificationData?.action_url ||
+      notificationData?.url ||
+      event.notification?.link;
+    const path = normalizePushActionPath(action) || buildFallbackPathFromPushData(notificationData);
     void reportPushTrackingEvent('push_notification_opened', {
       notificationId: event.notification?.id || (event.notification?.data as any)?.notificationId || null,
-      path: path || deepLink || null
+      path: path || String(action || '') || null
     });
-    if (!deepLink || !path || !navigateToPath) {
+    if (!path || !navigateToPath) {
       void reportPushTrackingEvent('push_notification_open_failed', {
         notificationId: event.notification?.id || notificationData?.notificationId || null,
-        reason: !deepLink ? 'missing_deeplink' : !path ? 'invalid_path' : 'navigate_unavailable',
-        path: deepLink || null
+        reason: !action ? 'missing_deeplink' : !path ? 'invalid_path' : 'navigate_unavailable',
+        path: String(action || '') || null
       });
       return;
     }
@@ -245,6 +395,8 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
 export const syncStoredPushToken = async () => {
   if (!Capacitor.isNativePlatform()) return false;
+  const projectOk = await ensureStoredTokenProject();
+  if (!projectOk) return false;
   const stored = await readToken();
   if (!stored) return false;
   return registerTokenWithRetry(stored);
@@ -253,11 +405,16 @@ export const syncStoredPushToken = async () => {
 export const initPushNotifications = async (navigate?: (path: string) => void) => {
   if (!Capacitor.isNativePlatform()) return;
   attachPushListeners(navigate);
+  await ensureAndroidNotificationChannels();
 
   if (initialized) {
     await syncStoredPushToken();
     return;
   }
+
+  const authToken = await tokenStore.get();
+  if (!authToken) return;
+  await ensureStoredTokenProject();
 
   const perm = await PushNotifications.requestPermissions();
   if (perm.receive !== 'granted') {
@@ -280,7 +437,10 @@ export const unregisterPushNotifications = async () => {
       await api.post('/notifications/device/unregister', { token });
     }
   } catch (e) {
-    console.warn('Failed to unregister push token', e);
+    console.warn('Failed to unregister push token', {
+      status: (e as any)?.response?.status,
+      message: (e as any)?.message || 'unregister request failed'
+    });
   } finally {
     await clearToken();
     initialized = false;
