@@ -102,6 +102,7 @@ import cron from 'node-cron';
 import { reconcileAdPayments } from './scripts/reconcileAdPayments';
 import { registerInsightsJobs } from './modules/insights/jobs/insights.jobs';
 import { registerFxJobs } from './services/fx.service';
+import { startDemoAutomationScheduler } from './services/systemDemoAccounts.service';
 import fxAdminRoutes from './routes/admin/fx.routes';
 import { insightsActionTrackerMiddleware } from './modules/insights/realtime/insights.tracker.middleware';
 import {
@@ -3347,6 +3348,7 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
   registerFxJobs(app).catch((error) => {
     console.error('[fx] Failed to register FX jobs:', error);
   });
+  startDemoAutomationScheduler();
   server.listen(PORT, () => {
     console.log(`========================================`);
     console.log(`🚀 Scrolith Marketplace Backend Started`);
