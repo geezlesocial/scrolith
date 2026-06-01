@@ -125,6 +125,37 @@ interface UsersManagementTabProps {
 }
 
 type EditableUser = Partial<UserType> & { password?: string; status?: string };
+type DemoAutomationOverview = {
+  config?: {
+    enabled?: boolean;
+    aiEnabled?: boolean;
+    cadenceMinutes?: number;
+    maxPostsPerRun?: number;
+    maxLikesPerRun?: number;
+    lastRunAt?: string | null;
+    lastRunSummary?: {
+      postsCreated?: number;
+      likesCreated?: number;
+      skippedAccounts?: number;
+      notes?: string[];
+      finishedAt?: string;
+    } | null;
+  };
+  stats?: {
+    managedAccounts?: number;
+    activeAccounts?: number;
+    automationEnabledAccounts?: number;
+  };
+  accounts?: Array<{
+    id: string;
+    name?: string;
+    email?: string;
+    profession?: string | null;
+    country?: string | null;
+    automationEnabled?: boolean;
+    isActive?: boolean;
+  }>;
+};
 
 const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   onUserUpdated,
@@ -161,6 +192,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>('');
+  const [demoOverview, setDemoOverview] = useState<DemoAutomationOverview | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -176,16 +209,18 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     setRefreshing(true);
     setError(null);
     try {
-      const [uData, wData, sData, gData] = await Promise.all([
+      const [uData, wData, sData, gData, demoData] = await Promise.all([
         AdminService.getUsers(),
         WalletService.getAllWallets(),
         AdminService.getSubscribers(),
-        GcoinService.getAllWallets()
+        GcoinService.getAllWallets(),
+        AdminService.getSystemDemoAccountsOverview().catch(() => null)
       ]);
       setUsers(uData || []);
       setWallets(wData || []);
       setSubscribers(sData || []);
       setGcoinWallets(gData || []);
+      setDemoOverview(demoData);
       showNotification('success', 'Data Loaded', 'User data refreshed successfully.');
     } catch (error) {
       console.error('Failed to load users/subscribers data:', error);
@@ -312,6 +347,72 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
         console.error('Failed to delete user:', error);
         showNotification('error', 'Deletion Error', 'Failed to delete user account.');
       }
+    }
+  };
+
+  const handleSeedDemoAccounts = async () => {
+    const countInput = window.prompt('How many system demo accounts should be seeded?', '50');
+    const count = Number(countInput || '50');
+    if (!Number.isFinite(count) || count <= 0) return;
+    setDemoBusy(true);
+    try {
+      const result = await AdminService.seedSystemDemoAccounts(count);
+      showNotification(
+        'success',
+        'Demo Accounts Seeded',
+        `Created ${Number(result?.createdCount || 0)} account(s), existing ${Number(result?.existingCount || 0)}.`
+      );
+      await loadData();
+    } catch (error) {
+      console.error('Failed to seed demo accounts:', error);
+      showNotification('error', 'Seed Failed', 'Unable to seed demo accounts right now.');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleRunDemoCycle = async () => {
+    setDemoBusy(true);
+    try {
+      const result = await AdminService.runSystemDemoAccountsCycle();
+      const summary = result?.summary || {};
+      showNotification(
+        'success',
+        'Automation Run Complete',
+        `Posts: ${Number(summary.postsCreated || 0)}, Likes: ${Number(summary.likesCreated || 0)}`
+      );
+      await loadData();
+    } catch (error: any) {
+      const message = String(error?.response?.data?.error || error?.message || 'Failed to run automation cycle');
+      showNotification('error', 'Automation Run Failed', message);
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleUpdateDemoConfig = async (patch: Partial<NonNullable<DemoAutomationOverview['config']>>) => {
+    setDemoBusy(true);
+    try {
+      await AdminService.updateSystemDemoAccountsConfig(patch);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to update demo config:', error);
+      showNotification('error', 'Update Failed', 'Unable to update demo automation settings.');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleToggleDemoAccount = async (accountId: string, enabled: boolean) => {
+    setDemoBusy(true);
+    try {
+      await AdminService.toggleSystemDemoAccountAutomation(accountId, enabled);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to toggle demo account automation:', error);
+      showNotification('error', 'Update Failed', 'Unable to toggle demo account automation state.');
+    } finally {
+      setDemoBusy(false);
     }
   };
 
@@ -484,6 +585,128 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
       {subTab === 'users' && (
         <>
+          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">System Demo Accounts (Admin Controlled)</h3>
+                <p className="text-sm text-gray-600">
+                  Labeled demo profiles for internal or controlled enterprise simulations. Use with platform policy controls.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSeedDemoAccounts}
+                  disabled={demoBusy}
+                  className="px-3 py-2 rounded-lg bg-gray-100 text-gray-800 text-sm font-medium hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Seed Accounts
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunDemoCycle}
+                  disabled={demoBusy || !demoOverview?.config?.enabled}
+                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Run Cycle Now
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-gray-500">Managed Accounts</div>
+                <div className="font-semibold text-gray-900">{Number(demoOverview?.stats?.managedAccounts || 0)}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-gray-500">Automation Enabled</div>
+                <div className="font-semibold text-gray-900">{Number(demoOverview?.stats?.automationEnabledAccounts || 0)}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-gray-500">Last Run</div>
+                <div className="font-semibold text-gray-900">
+                  {demoOverview?.config?.lastRunAt ? new Date(demoOverview.config.lastRunAt).toLocaleString() : 'Never'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(demoOverview?.config?.enabled)}
+                  onChange={(event) => handleUpdateDemoConfig({ enabled: event.target.checked })}
+                  disabled={demoBusy}
+                />
+                Enable Automation
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(demoOverview?.config?.aiEnabled)}
+                  onChange={(event) => handleUpdateDemoConfig({ aiEnabled: event.target.checked })}
+                  disabled={demoBusy}
+                />
+                Use Scrolitha for Post Drafting
+              </label>
+              <label className="inline-flex items-center gap-2">
+                Cadence (minutes)
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  defaultValue={Number(demoOverview?.config?.cadenceMinutes || 15)}
+                  onBlur={(event) =>
+                    handleUpdateDemoConfig({ cadenceMinutes: Number(event.target.value || 15) })
+                  }
+                  className="w-20 px-2 py-1 border border-gray-300 rounded"
+                  disabled={demoBusy}
+                />
+              </label>
+            </div>
+
+            {Array.isArray(demoOverview?.accounts) && demoOverview!.accounts!.length > 0 && (
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Demo Account</th>
+                      <th className="px-3 py-2 text-left">Profession</th>
+                      <th className="px-3 py-2 text-left">Country</th>
+                      <th className="px-3 py-2 text-left">Automation</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {demoOverview!.accounts!.slice(0, 20).map((entry) => (
+                      <tr key={entry.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2">
+                          <div className="font-medium text-gray-900">{entry.name || 'Unnamed'}</div>
+                          <div className="text-xs text-gray-500">{entry.email}</div>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{entry.profession || '-'}</td>
+                        <td className="px-3 py-2 text-gray-700">{entry.country || '-'}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            disabled={demoBusy || !entry.isActive}
+                            onClick={() => handleToggleDemoAccount(entry.id, !Boolean(entry.automationEnabled))}
+                            className={`px-2.5 py-1 rounded text-xs font-medium ${
+                              entry.automationEnabled
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {entry.automationEnabled ? 'Enabled' : 'Disabled'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {selectedUsers.length > 0 && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
               <div className="flex items-center">

@@ -300,6 +300,32 @@ const normalizeFraudLog = (log: any): FraudLog => {
 };
 
 export const AdminService = {
+  getSystemDemoAccountsOverview: async (): Promise<any> => {
+    return adminGet<any>('/system-demo-accounts/overview');
+  },
+
+  seedSystemDemoAccounts: async (count = 50): Promise<any> => {
+    return adminPost<any>('/system-demo-accounts/seed', { count });
+  },
+
+  updateSystemDemoAccountsConfig: async (payload: {
+    enabled?: boolean;
+    aiEnabled?: boolean;
+    cadenceMinutes?: number;
+    maxPostsPerRun?: number;
+    maxLikesPerRun?: number;
+  }): Promise<any> => {
+    return adminPut<any>('/system-demo-accounts/config', payload);
+  },
+
+  toggleSystemDemoAccountAutomation: async (accountId: string, enabled: boolean): Promise<any> => {
+    return adminPost<any>(`/system-demo-accounts/accounts/${encodeURIComponent(accountId)}/toggle`, { enabled });
+  },
+
+  runSystemDemoAccountsCycle: async (): Promise<any> => {
+    return adminPost<any>('/system-demo-accounts/run-once', {});
+  },
+
   getMessengerVoiceConfig: async (): Promise<MessengerVoiceConfig> => {
     const data = await adminGet<MessengerVoiceConfig>('/messenger/voice/config');
     return {
