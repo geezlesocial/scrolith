@@ -66,6 +66,7 @@ type MobileHomeSheetsProps = {
   onRefreshMessages: () => void;
   onOpenConversation: (conversationId: string) => void;
   onOpenAllMessages: () => void;
+  onOpenNotifications: () => void;
   normalizedRole: string;
   isFreelancerMode: boolean;
   onDashboard: () => void;
@@ -176,17 +177,42 @@ const Sheet = ({
 const SummaryChip = ({
   label,
   value,
-  tone = 'slate'
+  tone = 'slate',
+  onClick,
+  ariaLabel
 }: {
   label: string;
   value: string;
   tone?: MenuItemTone;
-}) => (
-  <div className={['rounded-2xl border border-transparent px-3 py-2', toneClassMap[tone]].join(' ')}>
-    <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
-    <p className="mt-1 text-sm font-semibold">{value}</p>
-  </div>
-);
+  onClick?: () => void;
+  ariaLabel?: string;
+}) => {
+  const className = [
+    'rounded-2xl border border-transparent px-3 py-2 text-left',
+    toneClassMap[tone],
+    onClick ? 'w-full touch-manipulation transition active:scale-[0.99]' : ''
+  ].join(' ');
+  const content = (
+    <>
+      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
+      <p className="mt-1 text-sm font-semibold">{value}</p>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} aria-label={ariaLabel || label} className={className}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={className}>
+      {content}
+    </div>
+  );
+};
 
 const SectionTitle = ({
   title,
@@ -278,6 +304,7 @@ export default function MobileHomeSheets({
   onRefreshMessages,
   onOpenConversation,
   onOpenAllMessages,
+  onOpenNotifications,
   normalizedRole,
   isFreelancerMode,
   onDashboard,
@@ -511,8 +538,20 @@ export default function MobileHomeSheets({
             <div className="mt-4 grid grid-cols-2 gap-2">
               <SummaryChip label="Connection" value={socketConnected ? 'Live' : 'Sync'} tone={socketConnected ? 'green' : 'amber'} />
               <SummaryChip label="Currency" value={currencyCode || 'USD'} tone="indigo" />
-              <SummaryChip label="Messages" value={messagesUnread > 0 ? (messagesUnread > 99 ? '99+' : String(messagesUnread)) : 'Clear'} tone="slate" />
-              <SummaryChip label="Alerts" value={notificationsUnread > 0 ? (notificationsUnread > 99 ? '99+' : String(notificationsUnread)) : 'Clear'} tone="slate" />
+              <SummaryChip
+                label="Messages"
+                value={messagesUnread > 0 ? (messagesUnread > 99 ? '99+' : String(messagesUnread)) : 'Clear'}
+                tone="slate"
+                onClick={onOpenAllMessages}
+                ariaLabel="Open messages"
+              />
+              <SummaryChip
+                label="Alerts"
+                value={notificationsUnread > 0 ? (notificationsUnread > 99 ? '99+' : String(notificationsUnread)) : 'Clear'}
+                tone="slate"
+                onClick={onOpenNotifications}
+                ariaLabel="Open notifications"
+              />
             </div>
           </section>
 

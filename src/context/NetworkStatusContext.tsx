@@ -1,8 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Capacitor } from '@capacitor/core';
-import { App as CapacitorApp } from '@capacitor/app';
 import type { PluginListenerHandle } from '@capacitor/core';
-import { trackMobileRuntimeEvent } from '../mobile/mobileTelemetry';
 import {
   isRecentlyRestoredOnline,
   shouldAttemptRealtimeConnections
@@ -33,11 +30,13 @@ const getInitialVisibilityState = () => {
 };
 
 const detectNativePlatform = () => {
-  try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    return false;
-  }
+  return typeof window !== 'undefined' && Boolean((window as any).Capacitor);
+};
+
+const trackRuntimeEvent = (eventName: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => {
+  void import('../mobile/mobileTelemetry')
+    .then(({ trackMobileRuntimeEvent }) => trackMobileRuntimeEvent(eventName, payload, options))
+    .catch(() => {});
 };
 
 export const NetworkStatusProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -87,13 +86,14 @@ export const NetworkStatusProvider: React.FC<{ children: React.ReactNode }> = ({
 
     let cancelled = false;
     let listenerHandle: PluginListenerHandle | null = null;
-    const handlePromise = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+    const handlePromise = import('@capacitor/app').then(({ App: CapacitorApp }) =>
+      CapacitorApp.addListener('appStateChange', ({ isActive }) => {
       setIsAppActive(isActive);
       const wasActive = lastAppActiveRef.current;
       lastAppActiveRef.current = isActive;
       if (!isActive && wasActive) {
         appBackgroundedAtRef.current = Date.now();
-        void trackMobileRuntimeEvent(
+        trackRuntimeEvent(
           'app_backgrounded',
           { online: lastOnlineRef.current },
           { dedupeMs: 1_000, sourcePath: '/runtime/app-state' }
@@ -107,7 +107,7 @@ export const NetworkStatusProvider: React.FC<{ children: React.ReactNode }> = ({
           ? Math.max(0, Date.now() - appBackgroundedAtRef.current)
           : 0;
         appBackgroundedAtRef.current = null;
-        void trackMobileRuntimeEvent(
+        trackRuntimeEvent(
           'app_resumed',
           {
             online: lastOnlineRef.current,
@@ -116,7 +116,7 @@ export const NetworkStatusProvider: React.FC<{ children: React.ReactNode }> = ({
           { dedupeMs: 1_000, sourcePath: '/runtime/app-state' }
         );
       }
-    });
+    }));
 
     void handlePromise
       .then((handle) => {

@@ -34,6 +34,7 @@ import PostVideoActionBar from '../components/media/PostVideoActionBar';
 import OverlayActionRailButton from '../components/media/OverlayActionRailButton';
 import PostExpandModal from '../components/post/PostExpandModal';
 import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
+import EnterpriseStoryViewer from '../features/stories/components/StoryViewer';
 import LiveFeaturedRail from '../features/live/components/LiveFeaturedRail';
 import ExpandablePreviewText from '../components/common/ExpandablePreviewText';
 import StaticPreviewText from '../components/common/StaticPreviewText';
@@ -74,7 +75,7 @@ import AdCard from '../components/AdCard';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryAuthorAvatar from '../components/stories/StoryAuthorAvatar';
 import StoryReplySheet from '../components/stories/StoryReplySheet';
-import { pickInterestSurveyCandidateId } from '../components/recommendation/ContentInterestSurvey';
+import { pickInterestSurveyCandidateIds } from '../components/recommendation/ContentInterestSurvey';
 import { RecoService } from '../services/reco';
 import {
   postAiInsightPreferenceToBoolean,
@@ -2508,16 +2509,19 @@ const CommunityHome = () => {
     };
   }, [heroBackgroundImage, showHero]);
 
-  const interestSurveyPostId = useMemo(
+  const interestSurveyPostIds = useMemo(
     () =>
-      pickInterestSurveyCandidateId(
-        posts.map((post: any) => ({
-          id: post?.id,
-          authorId: post?.authorUserId || post?.authorId,
-          initialSignal: post?.userState?.interestSignal
-        })),
-        user?.id,
-        'post'
+      new Set(
+        pickInterestSurveyCandidateIds(
+          posts.map((post: any) => ({
+            id: post?.id,
+            authorId: post?.authorUserId || post?.authorId,
+            initialSignal: post?.userState?.interestSignal
+          })),
+          user?.id,
+          'post',
+          5
+        )
       ),
     [posts, user?.id]
   );
@@ -3540,7 +3544,7 @@ const CommunityHome = () => {
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
                             initialUserReaction={post.userState?.reaction}
-                            interestSurveyEnabled={post.id === interestSurveyPostId}
+                            interestSurveyEnabled={interestSurveyPostIds.has(post.id)}
                             initialInterestSignal={post.userState?.interestSignal}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
@@ -4063,6 +4067,23 @@ const CommunityHome = () => {
       )}
 
       {activeStory && (
+        <EnterpriseStoryViewer
+          story={activeStory}
+          stories={stories}
+          viewer={user}
+          onClose={() => setActiveStory(null)}
+          onNavigate={(nextStory) => {
+            if (!nextStory?.id) return;
+            openStory(nextStory);
+          }}
+          onEdit={() => openStoryEditor(activeStory)}
+          onDelete={() => void handleStoryDelete(activeStory)}
+          canManage={canManageStory(activeStory)}
+          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+        />
+      )}
+
+      {false && activeStory && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-6">
           <div
             className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl"

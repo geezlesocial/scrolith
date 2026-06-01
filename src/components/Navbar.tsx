@@ -35,7 +35,7 @@ import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
 import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
-import { resolveResponsiveAssetUrl } from "../utils/assetUrl";
+import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 
@@ -151,7 +151,7 @@ const Navbar = () => {
   const [showGuestPrimaryDropdown, setShowGuestPrimaryDropdown] = useState(false);
   const [showGuestExploreDropdown, setShowGuestExploreDropdown] = useState(false);
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const notificationListRef = useRef<HTMLDivElement>(null);
@@ -718,10 +718,19 @@ const Navbar = () => {
     | "xl";
 
   const headerWrapperClass = `${isHome ? "relative" : "sticky top-0"} z-40 bg-white border-b border-gray-200`;
-  const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? '');
-  const brandLogoSrc = resolveResponsiveAssetUrl(
-    String((headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl || ''),
-    { width: 320, height: 64 }
+  const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? 'Scrolith');
+  const rawBrandLogo = String(
+    (headerConfig as any)?.logoUrl ||
+    (headerConfig as any)?.logo_url ||
+    settings?.logoUrl ||
+    settings?.logo_url ||
+    '/logo.webp'
+  );
+  const brandLogoSrc = resolveOptimizedStaticImageUrl(
+    resolveResponsiveAssetUrl(
+      rawBrandLogo,
+      { width: 320, height: 64 }
+    )
   );
   const avatarName = String(pick(uobj, 'name', 'username', 'email') ?? '');
   const avatarUrl = resolveResponsiveAssetUrl(
@@ -1228,6 +1237,10 @@ const Navbar = () => {
                           className="h-8 w-8 rounded-full object-cover border border-indigo-200"
                           src={avatarUrl}
                           alt={avatarName || ""}
+                          width={32}
+                          height={32}
+                          loading="lazy"
+                          decoding="async"
                         />
                       ) : (
                         <div className="h-8 w-8 rounded-full bg-gray-200" aria-hidden="true" />

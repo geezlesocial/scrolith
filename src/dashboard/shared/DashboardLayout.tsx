@@ -83,7 +83,13 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       briefs: 'project-briefs',
       brief: 'project-briefs',
       projectbriefs: 'project-briefs',
-      'project-briefs': 'project-briefs'
+      'project-briefs': 'project-briefs',
+      resume: 'resume-reviewer',
+      resumes: 'resume-reviewer',
+      cv: 'resume-reviewer',
+      cvs: 'resume-reviewer',
+      reviewer: 'resume-reviewer',
+      'resume-reviewer': 'resume-reviewer'
     };
     return employerMap[tab] || tab;
   }
@@ -93,7 +99,12 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       gigs: 'my-gigs',
       gig: 'my-gigs',
       proposals: 'my-proposals',
-      proposal: 'my-proposals'
+      proposal: 'my-proposals',
+      resume: 'resume-builder',
+      resumes: 'resume-builder',
+      cv: 'resume-builder',
+      cvs: 'resume-builder',
+      'resume-builder': 'resume-builder'
     };
     return freelancerMap[tab] || tab;
   }
@@ -269,7 +280,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Campaign visibility and promotion controls' },
             { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Delivery queue, milestones, and deadlines' },
             { tab: 'contracts', label: 'Contracts', icon: ClipboardList, description: 'Running engagements and commercial terms' },
-            { tab: 'my-proposals', label: 'My Proposals', icon: FileText, description: 'Pipeline follow-up and proposal outcomes' }
+            { tab: 'my-proposals', label: 'My Proposals', icon: FileText, description: 'Pipeline follow-up and proposal outcomes' },
+            { tab: 'resume-builder', label: 'Resume/CV Builder', icon: FileText, description: 'Generate, edit, preview, and export resumes with Scrolitha AI' }
           ]
         },
         { id: 'finance', title: 'Finance', description: 'Payments, rewards, and monetization readiness.', items: financeItems },
@@ -319,6 +331,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             { tab: 'my-jobs', label: 'My Jobs', icon: BriefcaseBusiness, description: 'Open roles, pipeline depth, and response rates' },
             { tab: 'project-briefs', label: 'Project Briefs', icon: FileText, description: 'AI briefs, requirement drafts, and client-side scoping' },
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Promotion campaigns for hiring visibility' },
+            { tab: 'resume-reviewer', label: 'Resume/CV Reviewer', icon: ClipboardList, description: 'Analyze resumes and public profiles against role criteria' },
             { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Purchased services, delivery progress, and order status' },
             { tab: 'proposals-offers', label: 'Proposals & Offers', icon: FileText, description: 'Applicant review, shortlist, and offers' },
             { tab: 'contracts', label: 'Contracts', icon: ClipboardList, description: 'Active engagements, milestones, and escrow' }

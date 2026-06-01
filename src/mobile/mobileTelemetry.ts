@@ -1,4 +1,3 @@
-import { Capacitor } from '@capacitor/core';
 import {
   AppDistributionService,
   type AppDistributionEvent,
@@ -10,10 +9,23 @@ const DEFAULT_DEDUPE_MS = 30_000;
 
 const isNativeRuntime = () => {
   try {
-    return Capacitor.isNativePlatform();
+    const runtime = typeof window !== 'undefined' ? (window as any)?.Capacitor : null;
+    return Boolean(runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform());
   } catch {
     return false;
   }
+};
+
+const getRuntimePlatform = () => {
+  try {
+    const runtime = typeof window !== 'undefined' ? (window as any)?.Capacitor : null;
+    if (runtime && typeof runtime.getPlatform === 'function') {
+      return String(runtime.getPlatform() || 'web');
+    }
+  } catch {
+    // Ignore runtime platform detection failures.
+  }
+  return 'web';
 };
 
 const hasCoarseTouchPointer = () => {
@@ -91,13 +103,7 @@ export const trackMobileRuntimeEvent = async (
         runtimeCategory: getRuntimeCategory(),
         native: isNativeRuntime(),
         coarseTouch: hasCoarseTouchPointer(),
-        capacitorPlatform: (() => {
-          try {
-            return Capacitor.getPlatform();
-          } catch {
-            return 'web';
-          }
-        })(),
+        capacitorPlatform: getRuntimePlatform(),
         href: typeof window !== 'undefined' ? window.location.href : sourcePath
       }
     });

@@ -30,7 +30,7 @@ export type MemberHomeHighlightItem = {
   tone?: HighlightTone;
 };
 
-const BRAND_LOGO_URL = '/logo.png';
+const BRAND_LOGO_URL = '/logo.webp';
 const isVideoUrl = (value?: string | null) => {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) return false;

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
@@ -14,8 +14,9 @@ import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { FileService } from '../services/files';
 import { Capacitor } from '@capacitor/core';
 import { captureAndUpload } from '../mobile/uploads';
-import LocationPicker from '../components/common/LocationPicker';
 import { getPublicAppOrigin } from '../utils/siteUrl';
+
+const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 
 interface EditProfileProps {
     isEmbedded?: boolean;
@@ -782,12 +783,14 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                             />
                                         </div>
                                         <div>
-                                            <LocationPicker
-                                                value={profile}
-                                                onChange={handleLocationChange}
-                                                label="Location"
-                                                placeholder="Search your city, state, or country"
-                                            />
+                                            <Suspense fallback={<div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Loading map...</div>}>
+                                                <LocationPicker
+                                                    value={profile}
+                                                    onChange={handleLocationChange}
+                                                    label="Location"
+                                                    placeholder="Search your city, state, or country"
+                                                />
+                                            </Suspense>
                                         </div>
                                         {genderEnabled && (
                                             <div>

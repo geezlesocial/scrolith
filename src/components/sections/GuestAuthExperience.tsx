@@ -30,6 +30,20 @@ export const isInlineGuestAuthUrl = (url?: string): boolean => {
 
 const isExternalUrl = (url?: string): boolean => /^https?:\/\//i.test(String(url || "").trim());
 
+const scheduleGuestIdleTask = (callback: () => void, timeout = 1200) => {
+  if (typeof window === "undefined") return () => {};
+  const idleCallback = (window as any).requestIdleCallback;
+  if (typeof idleCallback === "function") {
+    const id = idleCallback(callback, { timeout });
+    return () => {
+      const cancelIdleCallback = (window as any).cancelIdleCallback;
+      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
+    };
+  }
+  const timer = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(timer);
+};
+
 const useCompactGuestSurface = () => {
   const [compact, setCompact] = React.useState(false);
 
@@ -102,21 +116,22 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
 
   React.useEffect(() => {
     let mounted = true;
-    const loadAuthConfig = async () => {
-      try {
-        const data = await CMSService.getAuthPagesConfig();
-        if (mounted) setAuthConfig(data || null);
-      } catch {
-        if (mounted) setAuthConfig(null);
-      }
-    };
-    void loadAuthConfig();
+    const cancel = scheduleGuestIdleTask(() => {
+      void CMSService.getAuthPagesConfig()
+        .then((data) => {
+          if (mounted) setAuthConfig(data || null);
+        })
+        .catch(() => {
+          if (mounted) setAuthConfig(null);
+        });
+    }, 1200);
     return () => {
       mounted = false;
+      cancel();
     };
   }, []);
 
-  const socialConfig = authConfig?.social_auth;
+  const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
   const signupContent = authConfig?.signup;
 
   const validateSignup = () => {
@@ -278,13 +293,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               Forgot password?
             </Link>
           </div>
-          <div
-            className={
-              embeddedModalSurface
-                ? "sticky bottom-0 z-20 -mx-1 bg-white/95 px-1 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-white/85"
-                : ""
-            }
-          >
+          <div className={embeddedModalSurface ? "pt-1" : ""}>
             <button
               type="submit"
               disabled={loginLoading}
@@ -439,13 +448,7 @@ export const GuestAuthCard: React.FC<GuestAuthCardProps> = ({
               </Link>
             ) : null}
           </div>
-          <div
-            className={
-              embeddedModalSurface
-                ? "sticky bottom-0 z-20 -mx-1 bg-white/95 px-1 pb-1 pt-2 backdrop-blur supports-[backdrop-filter]:bg-white/85"
-                : ""
-            }
-          >
+          <div className={embeddedModalSurface ? "pt-1" : ""}>
             <button
               type="submit"
               disabled={signupLoading}
@@ -616,20 +619,28 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
   return (
     <div
       className={`fixed inset-0 z-[120] flex bg-slate-950/72 backdrop-blur-sm ${
-        compactSurface ? "items-end justify-center overflow-y-auto px-2 py-2" : "items-center justify-center overflow-y-auto px-4 py-3"
+        compactSurface ? "items-start justify-center overflow-y-auto px-2" : "items-center justify-center overflow-y-auto px-4 py-3"
       }`}
+      style={
+        compactSurface
+          ? {
+              paddingTop: "calc(env(safe-area-inset-top, 0px) + 0.5rem)",
+              paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1rem)"
+            }
+          : undefined
+      }
       onClick={onClose}
     >
       <div
         className={`grid w-full gap-4 border border-white/10 bg-white shadow-[0_40px_120px_rgba(15,23,42,0.45)] ${
           compactSurface
-            ? "mx-auto max-h-[min(92dvh,48rem)] max-w-[34rem] grid-cols-1 overflow-hidden rounded-[28px]"
+            ? "mx-auto max-w-[34rem] grid-cols-1 overflow-y-auto overscroll-contain rounded-[28px]"
             : "h-[calc(100dvh-1.5rem)] max-h-[54rem] max-w-5xl grid-rows-[minmax(0,1fr)] overflow-hidden rounded-[32px] p-3 md:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)] md:p-4"
         }`}
         style={
           compactSurface
             ? {
-                paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 0.5rem)",
+                maxHeight: "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 1.25rem)",
                 WebkitOverflowScrolling: "touch"
               }
             : undefined
@@ -639,7 +650,7 @@ export const GuestAuthModal: React.FC<GuestAuthModalProps> = ({ open, onClose, c
         <div
           className={`relative min-h-0 ${
             compactSurface
-              ? "order-1 overflow-y-auto px-3 pb-3 pt-3"
+              ? "order-1 overflow-visible px-3 pb-4 pt-3"
               : "order-2 flex max-h-full min-h-0 flex-col overflow-y-auto overscroll-contain pr-1"
           }`}
           style={{ WebkitOverflowScrolling: "touch", scrollbarGutter: "stable" }}

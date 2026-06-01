@@ -14,10 +14,6 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
     patterns: ['/node_modules/react-router/', '/node_modules/react-router-dom/']
   },
   {
-    name: 'capacitor',
-    patterns: ['/node_modules/@capacitor/', '/node_modules/@aparajita/capacitor-biometric-auth/']
-  },
-  {
     name: 'realtime',
     patterns: ['/node_modules/socket.io-client/', '/node_modules/engine.io-client/']
   },

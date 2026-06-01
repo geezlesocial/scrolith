@@ -10,6 +10,7 @@ export type AppDistributionEvent =
   | 'campaign_opened'
   | 'push_registration_error'
   | 'push_token_registered'
+  | 'push_token_project_reset'
   | 'mobile_runtime_error'
   | 'chunk_load_recovery'
   | 'route_sync_recovery'

@@ -29,7 +29,7 @@ const FAVORITES_STALE_MS = 5 * 60 * 1000;
 const FAVORITES_RATE_LIMIT_NOTICE_MS = 60 * 1000;
 
 export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user, isAuthenticated } = useUser();
+  const { user, isAuthenticated, isLoading: authLoading } = useUser();
   const { showNotification } = useNotification();
   const { socket } = useSocket();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
@@ -39,7 +39,7 @@ export const FavoritesProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const lastRateLimitNoticeAtRef = useRef(0);
   const retryAfterUntilRef = useRef(0);
   const eventRefreshTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
-  const canLoadFavorites = isAuthenticated && Boolean(user?.id);
+  const canLoadFavorites = !authLoading && isAuthenticated && Boolean(user?.id);
 
   const refreshFavorites = useCallback(async (options: RefreshFavoritesOptions = {}) => {
     const { force = false, silent = false } = options;

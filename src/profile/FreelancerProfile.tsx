@@ -1,5 +1,5 @@
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { MapPin, Star, PlayCircle, Briefcase, GraduationCap, Award, CheckCircle, ShieldCheck, TrendingUp, X, Users, Heart } from 'lucide-react';
 import { useUser } from '../context/UserContext';
@@ -17,7 +17,8 @@ import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
 import { getPublicAppOrigin } from '../utils/siteUrl';
-import EditProfile from './EditProfile';
+
+const EditProfile = lazy(() => import('./EditProfile'));
 
 type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
 
@@ -783,11 +784,19 @@ const FreelancerProfile = () => {
                     </div>
                 </div>
 
-                {isOwner && showInlineEditor && (
-                  <div className="border-t border-gray-100 bg-gray-50 p-6">
-                    <EditProfile isEmbedded={true} />
-                  </div>
-                )}
+        {isOwner && showInlineEditor && (
+          <div className="border-t border-gray-100 bg-gray-50 p-6">
+            <Suspense
+              fallback={
+                <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
+                  Loading profile editor...
+                </div>
+              }
+            >
+              <EditProfile isEmbedded={true} />
+            </Suspense>
+          </div>
+        )}
 
                 {activeTab === 'overview' && (
                   <div className="bg-gray-50 p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">

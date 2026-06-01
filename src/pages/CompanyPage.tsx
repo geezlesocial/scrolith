@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   BarChart3,
@@ -35,11 +35,12 @@ import OfferTagSelector from '../components/commerce/OfferTagSelector';
 import ContentOfferTags from '../components/commerce/ContentOfferTags';
 import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import OpportunityStudioPanel from '../components/dashboard/OpportunityStudioPanel';
-import LocationPicker from '../components/common/LocationPicker';
 import PostOriginPreview from '../components/post/PostOriginPreview';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { StructuredLocationFields } from '../types';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../utils/contentOffers';
+
+const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 
 type PageState = StructuredLocationFields & {
   id: string;
@@ -2000,12 +2001,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
                 />
                 <div className="md:col-span-2">
-                  <LocationPicker
-                    value={pageForm}
-                    onChange={handleLocationChange}
-                    label="Business location"
-                    placeholder="Search office city, state, or country"
-                  />
+                  <Suspense fallback={<div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">Loading map...</div>}>
+                    <LocationPicker
+                      value={pageForm}
+                      onChange={handleLocationChange}
+                      label="Business location"
+                      placeholder="Search office city, state, or country"
+                    />
+                  </Suspense>
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">

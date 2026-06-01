@@ -144,3 +144,26 @@ export const resolveResponsiveAssetUrl = (
     return resolved;
   }
 };
+
+export const resolveOptimizedStaticImageUrl = (value?: string | null) => {
+  const resolved = resolveAssetUrl(value);
+  if (!resolved) return resolved ?? '';
+
+  const isAbsolute = /^https?:\/\//i.test(resolved);
+  const fallbackOrigin =
+    getBackendOrigin() ||
+    (typeof window !== 'undefined' ? window.location.origin : 'https://scrolith.com');
+
+  try {
+    const url = new URL(resolved, fallbackOrigin);
+    if (url.pathname.toLowerCase() === '/logo.png') {
+      url.pathname = '/logo.webp';
+      url.search = '';
+      return isAbsolute ? url.toString() : `${url.pathname}${url.hash}`;
+    }
+  } catch {
+    if (String(resolved).trim().toLowerCase() === '/logo.png') return '/logo.webp';
+  }
+
+  return resolved;
+};

@@ -37,7 +37,7 @@ import {
 } from '../../utils/postVideoScrollBridge';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
-import { pickInterestSurveyCandidateId } from '../../components/recommendation/ContentInterestSurvey';
+import { pickInterestSurveyCandidateIds } from '../../components/recommendation/ContentInterestSurvey';
 import { postOptionsApi } from '../../services/postOptions';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
@@ -1617,16 +1617,19 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const headlinePreviewLimit = Math.max(40, Number(config?.headlinePreviewCharacters || 72));
   const descriptionPreviewLimit = Math.max(60, Number(config?.descriptionPreviewCharacters || 120));
-  const interestSurveyScrollId = useMemo(
+  const interestSurveyScrollIds = useMemo(
     () =>
-      pickInterestSurveyCandidateId(
-        items.map((scroll) => ({
-          id: String(scroll?.id || '').startsWith('post-video:') ? '' : scroll?.id,
-          authorId: scroll?.authorId,
-          initialSignal: scroll?.viewer?.feedbackSignal
-        })),
-        user?.id,
-        'scroll'
+      new Set(
+        pickInterestSurveyCandidateIds(
+          items.map((scroll) => ({
+            id: String(scroll?.id || '').startsWith('post-video:') ? '' : scroll?.id,
+            authorId: scroll?.authorId,
+            initialSignal: scroll?.viewer?.feedbackSignal
+          })),
+          user?.id,
+          'scroll',
+          4
+        )
       ),
     [items, user?.id]
   );
@@ -1850,7 +1853,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   onOpenSeries={handleOpenSeries}
                   headlinePreviewLimit={headlinePreviewLimit}
                   descriptionPreviewLimit={descriptionPreviewLimit}
-                  interestSurveyEnabled={scroll.id === interestSurveyScrollId}
+                  interestSurveyEnabled={interestSurveyScrollIds.has(scroll.id)}
                   reactionTargetType={getPostBridgeSource(scroll) ? 'POST' : 'SCROLL'}
                   reactionTargetId={getPostBridgeSource(scroll)?.postId || scroll.id}
                 />

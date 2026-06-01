@@ -20,7 +20,7 @@ type ContentInterestSurveyProps = {
   onSubmit: (signal: ContentInterestSignal) => Promise<void> | void;
 };
 
-const SURVEY_SAMPLE_MODULO = 4;
+const DEFAULT_SURVEY_CANDIDATE_LIMIT = 4;
 
 const stableHash = (value: string) => {
   let hash = 0;
@@ -45,24 +45,26 @@ const SURVEY_COPY: Record<
   }
 > = {
   post: {
-    prompt: 'Are you interested in this post',
+    prompt: 'Are you interested in this post?',
     interested: 'Sounds good! Expect more Posts like this coming your way.',
     notInterested: "Sounds good! We'll show you fewer posts like this for now."
   },
   scroll: {
-    prompt: 'Are you interested in this Scroll',
+    prompt: 'Are you interested in this Scroll?',
     interested: 'Sounds good! Expect more Scrolls like this coming your way.',
     notInterested: "Sounds good! We'll show you fewer Scrolls like this for now."
   }
 };
 
-export const pickInterestSurveyCandidateId = (
+export const pickInterestSurveyCandidateIds = (
   items: SurveyCandidateItem[],
   viewerId?: string | null,
-  contentType: ContentInterestType = 'post'
+  contentType: ContentInterestType = 'post',
+  limit = DEFAULT_SURVEY_CANDIDATE_LIMIT
 ) => {
   const normalizedViewerId = String(viewerId || '').trim();
-  if (!normalizedViewerId) return null;
+  if (!normalizedViewerId) return [];
+  const maxCount = Math.max(1, Math.min(12, Math.floor(Number(limit) || DEFAULT_SURVEY_CANDIDATE_LIMIT)));
 
   const eligible = (Array.isArray(items) ? items : [])
     .map((item) => ({
@@ -70,26 +72,25 @@ export const pickInterestSurveyCandidateId = (
       authorId: String(item?.authorId || '').trim(),
       signal: normalizeSignal(item?.initialSignal)
     }))
-    .filter((item) => item.id && item.authorId !== normalizedViewerId && !item.signal);
+    .filter((item) => item.id && (!item.authorId || item.authorId !== normalizedViewerId) && !item.signal);
 
-  if (!eligible.length) return null;
+  if (!eligible.length) return [];
 
   const ranked = eligible
-    .map((item) => {
-      const hash = stableHash(`${normalizedViewerId}:${contentType}:${item.id}`);
-      return {
-        id: item.id,
-        hash,
-        sampled: hash % SURVEY_SAMPLE_MODULO === 0
-      };
-    })
-    .sort((left, right) => {
-      if (left.sampled !== right.sampled) return Number(right.sampled) - Number(left.sampled);
-      return left.hash - right.hash;
-    });
+    .map((item) => ({
+      id: item.id,
+      hash: stableHash(`${normalizedViewerId}:${contentType}:${item.id}`)
+    }))
+    .sort((left, right) => left.hash - right.hash);
 
-  return ranked[0]?.id || null;
+  return ranked.slice(0, maxCount).map((item) => item.id);
 };
+
+export const pickInterestSurveyCandidateId = (
+  items: SurveyCandidateItem[],
+  viewerId?: string | null,
+  contentType: ContentInterestType = 'post'
+) => pickInterestSurveyCandidateIds(items, viewerId, contentType, 1)[0] || null;
 
 const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
   entityId,

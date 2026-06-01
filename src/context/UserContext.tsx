@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { AuthService } from '../services/authService';
-import { unregisterPushNotifications } from '../mobile/push';
+import { FOLLOW_ONBOARDING_PATH, hasPendingFollowOnboarding } from '../utils/authRedirect';
+import { Capacitor } from '@capacitor/core';
 
 interface UserContextType {
   user: User | null;
@@ -9,7 +10,7 @@ interface UserContextType {
   isLoading: boolean;
   getAdminProfile: () => any;
   updateAdminProfile: (data: any) => void;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string, options?: { redirect?: boolean }) => Promise<boolean>;
   logout: () => void;
   register: (email: string, name: string, password: string, role?: any, recaptchaToken?: string) => Promise<boolean>;
   updateUser: (updates: any) => void;
@@ -17,6 +18,104 @@ interface UserContextType {
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
+
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 8000;
+const MOBILE_POST_AUTH_BREAKPOINT = 1180;
+const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
+const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
+
+const isNativeRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  if (IS_MOBILE_APP_BUILD) return true;
+  try {
+    if (Capacitor.isNativePlatform()) return true;
+    const runtime = (window as any)?.Capacitor;
+    if (runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform()) {
+      return true;
+    }
+    if (runtime && typeof runtime.getPlatform === 'function') {
+      const platform = String(runtime.getPlatform() || '').toLowerCase();
+      if (platform && platform !== 'web') return true;
+    }
+    const ua = String(window.navigator?.userAgent || '');
+    return /Android/i.test(ua) && /;\s*wv\)|\bwv\b/i.test(ua);
+  } catch {
+    return false;
+  }
+};
+
+const shouldUseMobilePostAuthRoute = () => {
+  if (typeof window === 'undefined') return false;
+  if (isNativeRuntime()) return true;
+  try {
+    const ua = String(window.navigator?.userAgent || '');
+    if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
+    const coarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const maxTouchPoints = Number(window.navigator?.maxTouchPoints || 0);
+    const viewportWidth = Math.min(
+      window.innerWidth || Number.POSITIVE_INFINITY,
+      document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
+      window.visualViewport?.width || Number.POSITIVE_INFINITY
+    );
+    const screenWidth = Math.min(
+      window.screen?.width || Number.POSITIVE_INFINITY,
+      window.screen?.availWidth || Number.POSITIVE_INFINITY,
+      window.screen?.height || Number.POSITIVE_INFINITY,
+      window.screen?.availHeight || Number.POSITIVE_INFINITY
+    );
+    const touchDevice = coarsePointer || maxTouchPoints > 0;
+    return (
+      viewportWidth < MOBILE_POST_AUTH_BREAKPOINT ||
+      (touchDevice && viewportWidth <= 1366) ||
+      (touchDevice && screenWidth <= 900)
+    );
+  } catch {
+    return window.innerWidth < MOBILE_POST_AUTH_BREAKPOINT;
+  }
+};
+
+const resolvePostAuthPath = (user: User | null) => {
+  const role = String(user?.role || '').toLowerCase();
+  const useMobileHome = shouldUseMobilePostAuthRoute() && !role.includes('admin');
+  if (useMobileHome) return '/m/home';
+
+  if (hasPendingFollowOnboarding(user)) return FOLLOW_ONBOARDING_PATH;
+
+  if (role.includes('admin')) return '/admin/dashboard';
+  if (role.includes('freelancer') || role.includes('seller')) return '/freelancer/dashboard';
+  if (role.includes('employer') || role.includes('client') || role.includes('buyer')) return '/client/dashboard';
+  return shouldUseMobilePostAuthRoute() ? '/m/home' : '/';
+};
+
+const redirectAfterAuth = (user: User | null) => {
+  if (typeof window === 'undefined') return;
+  const target = resolvePostAuthPath(user);
+  if (target.startsWith('/m/')) {
+    try {
+      window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+      window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+    } catch {
+      // Session storage is best-effort; the direct redirect below is primary.
+    }
+  }
+  window.location.replace(new URL(target, window.location.origin).href);
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+  let timeoutId: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = window.setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+};
 
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -60,7 +159,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setIsAuthenticated(true);
         }
 
-        const { user: me, unauthorized } = await AuthService.getCurrentUserWithStatus();
+        const { user: me, unauthorized } = await withTimeout(
+          AuthService.getCurrentUserWithStatus(),
+          AUTH_BOOTSTRAP_TIMEOUT_MS,
+          { user: cachedUser, unauthorized: false }
+        );
         if (me && mounted) {
           setUser(me);
           setIsAuthenticated(true);
@@ -138,7 +241,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateUser(data);
   };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string, options?: { redirect?: boolean }): Promise<boolean> => {
     setIsLoading(true);
     
     try {
@@ -190,16 +293,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }));
         }
 
-        // Redirect based on role - but only if they explicitly want to go to dashboard
-        // Add a query parameter to indicate coming from login
-        if (userWithRole.role === UserRole.ADMIN) {
-          window.location.href = '/admin/dashboard';
-        } else if (userWithRole.role === UserRole.FREELANCER) {
-          window.location.href = '/freelancer/dashboard';
-        } else if (userWithRole.role === UserRole.EMPLOYER) {
-          window.location.href = '/client/dashboard';
-        } else {
-          window.location.href = '/';
+        if (options?.redirect !== false) {
+          redirectAfterAuth(userWithRole);
         }
         return true;
       }
@@ -251,19 +346,23 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    setUser(null);
+    setIsAuthenticated(false);
+    try {
+      localStorage.removeItem('admin_profile');
+      localStorage.removeItem('user');
+    } catch {}
+
+    void AuthService.clearToken();
     void (async () => {
       try {
+        const { unregisterPushNotifications } = await import('../mobile/push');
         await unregisterPushNotifications();
       } catch {}
       await AuthService.logout();
-      // Update React state after logout
-      setUser(null);
-      setIsAuthenticated(false);
-      // Clear admin profile
-      localStorage.removeItem('admin_profile');
-      // Redirect to login page
-      window.location.href = '/auth/login';
     })();
+
+    window.location.assign('/auth/login');
   };
 
   const updateUser = (updates: Partial<User>) => {
@@ -296,12 +395,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.setItem('activeRole', String(newRole));
     } catch {}
 
-    // Redirect to appropriate dashboard
-    if (newRole === UserRole.FREELANCER) {
-      window.location.href = '/freelancer/dashboard';
-    } else if (newRole === UserRole.EMPLOYER) {
-      window.location.href = '/client/dashboard';
-    }
+    redirectAfterAuth(updatedUser);
   };
 
   return (

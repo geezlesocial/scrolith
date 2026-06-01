@@ -13,7 +13,7 @@ interface ContentContextType {
 }
 
 const ContentContext = createContext<ContentContextType | undefined>(undefined);
-const DEFAULT_LOGO_URL = 'https://scrolith.com/logo.png';
+const DEFAULT_LOGO_URL = 'https://scrolith.com/logo.webp';
 const DEFAULT_FAVICON_URL = 'https://scrolith.com/favicon.png';
 
 export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

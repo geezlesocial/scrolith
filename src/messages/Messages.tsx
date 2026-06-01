@@ -2,9 +2,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { MessagingService } from '../services/messaging';
+import { MessagingService, MessageSearchResult } from '../services/messaging';
+import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -163,7 +164,7 @@ const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user } = useUser();
+  const { user, isAuthenticated, isLoading: authLoading } = useUser();
   const { showNotification } = useNotification();
   const { refreshMessages } = useMessages();
   const { socket } = useSocket();
@@ -222,6 +223,12 @@ const Messages = () => {
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [reactionPanelMessageId, setReactionPanelMessageId] = useState<string | null>(null);
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+  const [messageSearchInput, setMessageSearchInput] = useState('');
+  const [debouncedMessageSearch, setDebouncedMessageSearch] = useState('');
+  const [messageSearchResults, setMessageSearchResults] = useState<MessageSearchResult[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [messageSearchError, setMessageSearchError] = useState('');
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
       () => (typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   );
@@ -246,6 +253,8 @@ const Messages = () => {
   const typingStopTimerRef = useRef<number | null>(null);
   const typingIndicatorTimerRef = useRef<number | null>(null);
   const typingActiveRef = useRef(false);
+  const messageSearchAbortRef = useRef<AbortController | null>(null);
+  const pendingSearchMessageFocusRef = useRef<string | null>(null);
   const messageMediaObjectUrlRef = useRef<Map<string, string>>(new Map());
   const pendingMediaFetchRef = useRef<Set<string>>(new Set());
   const [conversationScrollTop, setConversationScrollTop] = useState(0);
@@ -457,7 +466,7 @@ const Messages = () => {
       const observer = new ResizeObserver(syncMetrics);
       observer.observe(node);
       return () => observer.disconnect();
-  }, [conversations.length, showStarredOnly, isMobileViewport]);
+  }, [conversations.length, messageSearchResults.length, showStarredOnly, isMobileViewport, debouncedMessageSearch]);
 
   useEffect(() => {
       userIdRef.current = user?.id || null;
@@ -469,6 +478,72 @@ const Messages = () => {
           MessagingService.getAllConversations(user.id, user.role).then(setConversations);
       }
   }, [user]);
+
+  useEffect(() => {
+      const timer = window.setTimeout(() => {
+          setDebouncedMessageSearch(messageSearchInput.replace(/\s+/g, ' ').trim());
+      }, 300);
+      return () => window.clearTimeout(timer);
+  }, [messageSearchInput]);
+
+  useEffect(() => {
+      const query = debouncedMessageSearch.trim();
+      messageSearchAbortRef.current?.abort();
+      messageSearchAbortRef.current = null;
+
+      if (authLoading || !isAuthenticated || !user?.id || query.length < 2) {
+          setMessageSearchResults([]);
+          setMessageSearchLoading(false);
+          setMessageSearchError('');
+          return;
+      }
+
+      const controller = new AbortController();
+      messageSearchAbortRef.current = controller;
+      setMessageSearchLoading(true);
+      setMessageSearchError('');
+
+      void (async () => {
+          const token = await tokenStore.get();
+          if (controller.signal.aborted) return;
+          if (!token) {
+              setMessageSearchResults([]);
+              setMessageSearchError('Please sign in to search messages.');
+              setMessageSearchLoading(false);
+              return;
+          }
+
+          return MessagingService.searchConversations(query, {
+              limit: 30,
+              signal: controller.signal,
+              adminScope: user.role === UserRole.ADMIN
+          });
+      })()
+          .then((payload) => {
+              if (controller.signal.aborted) return;
+              if (!payload) return;
+              const { results } = payload;
+              setMessageSearchResults(results);
+              setConversationScrollTop(0);
+              conversationListRef.current?.scrollTo({ top: 0 });
+          })
+          .catch((error: any) => {
+              if (controller.signal.aborted || error?.code === 'ERR_CANCELED') return;
+              setMessageSearchResults([]);
+              if (error?.response?.status === 401) {
+                  setMessageSearchError('Please sign in to search messages.');
+              } else {
+                  setMessageSearchError(error?.response?.data?.error || error?.message || 'Search is temporarily unavailable.');
+              }
+          })
+          .finally(() => {
+              if (!controller.signal.aborted) {
+                  setMessageSearchLoading(false);
+              }
+          });
+
+      return () => controller.abort();
+  }, [debouncedMessageSearch, authLoading, isAuthenticated, user?.id, user?.role]);
 
   useEffect(() => {
       if (!user) return;
@@ -574,6 +649,50 @@ const Messages = () => {
   }, []);
 
   const activeConvo = conversations.find(c => c.id === activeConvoId);
+  useEffect(() => {
+      const targetMessageId = searchParams.get('messageId') || pendingSearchMessageFocusRef.current;
+      if (!activeConvoId || !targetMessageId || !activeConvo?.messages?.some((msg) => msg.id === targetMessageId)) return;
+
+      const timer = window.setTimeout(() => {
+          const node = document.getElementById(`message-${targetMessageId}`);
+          if (!node) return;
+          node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightedMessageId(targetMessageId);
+          pendingSearchMessageFocusRef.current = null;
+          window.setTimeout(() => {
+              setHighlightedMessageId((current) => (current === targetMessageId ? null : current));
+          }, 2400);
+      }, 120);
+
+      return () => window.clearTimeout(timer);
+  }, [activeConvoId, activeConvo?.messages?.length, searchParams]);
+  const activeMessageSearchQuery = debouncedMessageSearch.trim();
+  const isMessageSearchActive = activeMessageSearchQuery.length >= 2;
+  const searchResultByConversationId = useMemo(() => {
+      const map = new Map<string, MessageSearchResult>();
+      messageSearchResults.forEach((result) => {
+          if (result.conversationId) map.set(result.conversationId, result);
+      });
+      return map;
+  }, [messageSearchResults]);
+  const searchConversations = useMemo(() => {
+      const seen = new Set<string>();
+      return messageSearchResults
+          .map((result) => {
+              const conversation = result.conversation;
+              if (!conversation?.id || seen.has(conversation.id)) return null;
+              seen.add(conversation.id);
+              return {
+                  ...conversation,
+                  participants: conversation.participants?.length ? conversation.participants : result.participants,
+                  lastMessage: result.lastMessage || conversation.lastMessage || conversation.last_message,
+                  last_message: result.lastMessage || conversation.last_message || conversation.lastMessage,
+                  unreadCount: result.unreadCount ?? conversation.unreadCount ?? conversation.unread_count,
+                  unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
+              } as Conversation;
+          })
+          .filter(Boolean) as Conversation[];
+  }, [messageSearchResults]);
   const isMobileConversationMode = Boolean(isMobileViewport && activeConvo);
   const isMobileKeyboardOpen = Boolean(isMobileViewport && mobileKeyboardInset > 96);
   const mobileConversationViewportStyle: React.CSSProperties | undefined = isMobileConversationMode
@@ -582,7 +701,8 @@ const Messages = () => {
             height: `${Math.max(mobileViewportHeight || 0, 280)}px`
         }
       : undefined;
-  const visibleConversations = [...conversations]
+  const conversationListSource = isMessageSearchActive ? searchConversations : conversations;
+  const visibleConversations = [...conversationListSource]
       .sort((a, b) => {
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
           const bStar = Number(Boolean(b.isStarred ?? b.is_starred));
@@ -811,6 +931,23 @@ const Messages = () => {
       return {
           ...dealFlow,
           eventType
+      };
+  };
+
+  const extractStoryReference = (message: Message) => {
+      const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+      const storyReference = metadata?.storyReference && typeof metadata.storyReference === 'object'
+          ? metadata.storyReference
+          : null;
+      const storyId = String(storyReference?.storyId || metadata?.storyId || '').trim();
+      if (!storyId) return null;
+      return {
+          storyId,
+          mediaPreview: String(storyReference?.mediaPreview || '').trim(),
+          caption: String(storyReference?.caption || '').trim(),
+          reactionType: String(storyReference?.reactionType || metadata?.reactionType || '').trim(),
+          category: String(metadata?.category || '').trim(),
+          actionUrl: String(metadata?.actionUrl || metadata?.action_url || `/community?story=${encodeURIComponent(storyId)}`).trim()
       };
   };
 
@@ -1732,7 +1869,21 @@ const Messages = () => {
   };
   // Typing indicator can be wired to real-time events later.
 
-  const handleConversationClick = (id: string) => {
+  const handleConversationClick = (id: string, matchedMessageId?: string | null) => {
+      const searchResult = searchResultByConversationId.get(id);
+      if (searchResult?.conversation) {
+          setConversations((prev) => {
+              if (prev.some((conversation) => conversation.id === id)) return prev;
+              return [searchResult.conversation, ...prev];
+          });
+      }
+      setActiveConvoId(id);
+      if (matchedMessageId) {
+          pendingSearchMessageFocusRef.current = matchedMessageId;
+          navigate(`/messages/${id}?messageId=${encodeURIComponent(matchedMessageId)}`);
+          return;
+      }
+      pendingSearchMessageFocusRef.current = null;
       navigate(`/messages/${id}`);
   };
 
@@ -1742,6 +1893,23 @@ const Messages = () => {
       setReactionPanelMessageId(null);
       setShowConversationMenu(false);
       navigate('/messages', { replace: true });
+  };
+
+  const renderHighlightedText = (value: string, query: string) => {
+      const text = String(value || '');
+      const needle = String(query || '').trim();
+      if (!needle) return text;
+      const index = text.toLowerCase().indexOf(needle.toLowerCase());
+      if (index < 0) return text;
+      return (
+          <>
+              {text.slice(0, index)}
+              <mark className="rounded bg-yellow-100 px-0.5 font-semibold text-gray-900">
+                  {text.slice(index, index + needle.length)}
+              </mark>
+              {text.slice(index + needle.length)}
+          </>
+      );
   };
 
   const openConversationBriefComposer = useCallback(async () => {
@@ -2407,6 +2575,34 @@ const Messages = () => {
                         </div>
                         {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
                     </div>
+                    <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="search"
+                            value={messageSearchInput}
+                            onChange={(event) => setMessageSearchInput(event.target.value)}
+                            placeholder="Search messages, people, or usernames..."
+                            className="h-10 w-full rounded-2xl border border-gray-200 bg-white pl-9 pr-10 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            aria-label="Search messages, people, or usernames"
+                        />
+                        {messageSearchInput ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMessageSearchInput('');
+                                    setDebouncedMessageSearch('');
+                                    setMessageSearchResults([]);
+                                    setMessageSearchError('');
+                                    messageSearchAbortRef.current?.abort();
+                                    messageSearchAbortRef.current = null;
+                                }}
+                                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                aria-label="Clear message search"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        ) : null}
+                    </div>
                     <div className="flex gap-2">
                         <button
                             type="button"
@@ -2434,8 +2630,17 @@ const Messages = () => {
                     className="flex-1 overflow-y-auto"
                     onScroll={(event) => setConversationScrollTop(event.currentTarget.scrollTop)}
                 >
-                    {visibleConversations.length === 0 ? (
-                        <li className="p-4 text-center text-gray-500 text-sm">No conversations yet.</li>
+                    {messageSearchLoading ? (
+                        <li className="flex items-center justify-center gap-2 p-4 text-center text-sm text-gray-500">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Searching...
+                        </li>
+                    ) : messageSearchError ? (
+                        <li className="p-4 text-center text-sm text-red-500">{messageSearchError}</li>
+                    ) : visibleConversations.length === 0 ? (
+                        <li className="p-4 text-center text-gray-500 text-sm">
+                            {isMessageSearchActive ? 'No conversations or messages found.' : 'No conversations yet.'}
+                        </li>
                     ) : (
                         <>
                         {conversationWindow.top > 0 ? (
@@ -2443,13 +2648,21 @@ const Messages = () => {
                         ) : null}
                         {virtualConversations.map((convo) => {
                             const participant = convo.participants.find(p => p.id !== user?.id) || convo.participants[0];
+                            const searchMeta = isMessageSearchActive ? searchResultByConversationId.get(convo.id) : null;
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
                             const convoStarred = Boolean(convo.isStarred ?? convo.is_starred);
+                            const previewText = String(
+                                searchMeta?.matchedMessageSnippet ||
+                                searchMeta?.lastMessage ||
+                                convo.lastMessage ||
+                                convo.last_message ||
+                                ''
+                            );
                             return (
                                 <li 
                                     key={convo.id} 
-                                    onClick={() => handleConversationClick(convo.id)}
+                                    onClick={() => handleConversationClick(convo.id, searchMeta?.matchedMessageId || null)}
                                     className={`mx-2 my-1.5 w-auto cursor-pointer overflow-hidden rounded-2xl border px-4 py-3 shadow-sm transition-all ${
                                         activeConvoId === convo.id
                                             ? 'border-blue-200 bg-gradient-to-r from-blue-50 via-white to-indigo-50 shadow-md ring-1 ring-blue-100'
@@ -2489,11 +2702,16 @@ const Messages = () => {
                                                         }}
                                                         className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
                                                     >
-                                                        {participant?.name}
+                                                        {renderHighlightedText(participant?.name || 'Conversation', activeMessageSearchQuery)}
                                                     </button>
                                                     {participantRole && (
                                                         <ProBadge role={participantRole} isPro={participantIsPro} />
                                                     )}
+                                                    {searchMeta?.matchType ? (
+                                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                                            {searchMeta.matchType === 'message' ? 'Message' : searchMeta.matchType === 'username' ? 'Username' : 'Person'}
+                                                        </span>
+                                                    ) : null}
                                                     {participant?.gender && (
                                                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                                                             {participant.gender}
@@ -2511,8 +2729,20 @@ const Messages = () => {
                                                     </span>
                                                 )}
                                             </div>
+                                            {isMessageSearchActive && participant?.username ? (
+                                                <p className="min-w-0 truncate text-[11px] text-gray-400">
+                                                    @{renderHighlightedText(participant.username, activeMessageSearchQuery)}
+                                                </p>
+                                            ) : null}
                                             <p className={`min-w-0 truncate text-xs ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
-                                                {convo.lastMessage || <span className="italic text-gray-400">No messages</span>}
+                                                {previewText ? (
+                                                    <>
+                                                        {searchMeta?.matchType === 'message' ? <span className="font-semibold text-gray-600">... </span> : null}
+                                                        {renderHighlightedText(previewText, activeMessageSearchQuery)}
+                                                    </>
+                                                ) : (
+                                                    <span className="italic text-gray-400">No messages</span>
+                                                )}
                                             </p>
                                         </div>
                                         {convo.unreadCount > 0 && (
@@ -2792,6 +3022,7 @@ const Messages = () => {
                                 const showMessageControls = expandedMessageId === msg.id;
                                 const showReactionPanel = reactionPanelMessageId === msg.id && !isDeleted;
                                 const voiceCallRecord = extractVoiceCallRecord(msg);
+                                const storyReference = extractStoryReference(msg);
                                 const messageReactions = Array.isArray(msg.reactions) ? msg.reactions : [];
                                 const myReaction = messageReactions.find(
                                     (reaction) => String(reaction.userId || reaction.user_id) === String(user?.id || '')
@@ -2804,7 +3035,7 @@ const Messages = () => {
                                 }, {});
                                 if (dealFlowEvent) {
                                     return (
-                                        <div id={`message-${msg.id}`} key={msg.id} className="flex min-w-0 justify-center">
+                                        <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 justify-center rounded-2xl transition ${highlightedMessageId === msg.id ? 'ring-4 ring-yellow-200 ring-offset-2' : ''}`}>
                                             <div className="w-full max-w-3xl">
                                                 {renderDealFlowCard(msg)}
                                             </div>
@@ -2812,7 +3043,7 @@ const Messages = () => {
                                     );
                                 }
                                 return (
-                                <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 rounded-2xl transition ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'} ${highlightedMessageId === msg.id ? 'ring-4 ring-yellow-200 ring-offset-2' : ''}`}>
                                     <div className="min-w-0 max-w-[90%] md:max-w-[70%]">
                                     {/* Message Bubble */}
                                     <div className={`relative max-w-full min-w-0 rounded-2xl px-4 py-2.5 text-sm shadow-sm transition ${
@@ -2834,6 +3065,47 @@ const Messages = () => {
                                         setReactionPanelMessageId(msg.id);
                                     }}>
                                         {renderReplyPreview(msg)}
+                                        {storyReference ? (
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    navigate(storyReference.actionUrl || `/community?story=${encodeURIComponent(storyReference.storyId)}`);
+                                                }}
+                                                className={`mb-2 flex w-full max-w-sm items-center gap-2 rounded-xl border p-2 text-left transition ${
+                                                    msg.senderId === user?.id
+                                                        ? 'border-white/25 bg-white/10 text-white hover:bg-white/15'
+                                                        : 'border-gray-200 bg-gray-50 text-gray-800 hover:bg-gray-100'
+                                                }`}
+                                                aria-label="Open referenced story"
+                                            >
+                                                {storyReference.mediaPreview ? (
+                                                    <img
+                                                        src={storyReference.mediaPreview}
+                                                        alt=""
+                                                        className="h-12 w-9 shrink-0 rounded-lg object-cover"
+                                                        loading="lazy"
+                                                    />
+                                                ) : (
+                                                    <span className={`flex h-12 w-9 shrink-0 items-center justify-center rounded-lg text-base ${
+                                                        msg.senderId === user?.id ? 'bg-white/15' : 'bg-gray-200'
+                                                    }`}>
+                                                        {storyReference.reactionType || 'S'}
+                                                    </span>
+                                                )}
+                                                <span className="min-w-0">
+                                                    <span className="block text-xs font-semibold">
+                                                        {storyReference.reactionType ? 'Story reaction' : 'Story message'}
+                                                    </span>
+                                                    <span className={`line-clamp-1 text-[11px] ${
+                                                        msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'
+                                                    }`}>
+                                                        {storyReference.caption || 'Tap to open story context'}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                        ) : null}
                                         {isEditing ? (
                                             <div className="space-y-2">
                                                 <textarea

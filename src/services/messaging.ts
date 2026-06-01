@@ -179,6 +179,45 @@ const normalizeList = (raw: any): Conversation[] => {
   return list.map(normalizeConversation);
 };
 
+export type MessageSearchMatchType = 'user' | 'username' | 'message';
+
+export interface MessageSearchResult {
+  conversationId: string;
+  conversation: Conversation;
+  participant?: Conversation['participants'][number] | null;
+  participants: Conversation['participants'];
+  lastMessage: string;
+  matchedMessageSnippet?: string | null;
+  matchedMessageId?: string | null;
+  matchType: MessageSearchMatchType;
+  unreadCount: number;
+  updatedAt?: string;
+  searchScope?: 'user' | 'admin' | string;
+}
+
+const normalizeSearchResult = (raw: any): MessageSearchResult => {
+  const conversation = normalizeConversation(raw?.conversation ?? raw);
+  const participant = raw?.participant ? normalizeParticipant(raw.participant) : undefined;
+  const participants = safeArray<any>(raw?.participants).length
+    ? safeArray<any>(raw.participants).map(normalizeParticipant)
+    : conversation.participants;
+  const matchType = safeString(raw?.matchType ?? raw?.match_type, 'user') as MessageSearchMatchType;
+
+  return {
+    conversationId: safeString(raw?.conversationId ?? raw?.conversation_id ?? conversation.id),
+    conversation,
+    participant: participant || participants.find((entry) => entry.id !== '') || null,
+    participants,
+    lastMessage: safeString(raw?.lastMessage ?? raw?.last_message ?? conversation.lastMessage ?? conversation.last_message),
+    matchedMessageSnippet: raw?.matchedMessageSnippet ?? raw?.matched_message_snippet ?? null,
+    matchedMessageId: raw?.matchedMessageId ?? raw?.matched_message_id ?? null,
+    matchType: ['user', 'username', 'message'].includes(matchType) ? matchType : 'user',
+    unreadCount: safeNumber(raw?.unreadCount ?? raw?.unread_count ?? conversation.unreadCount ?? conversation.unread_count),
+    updatedAt: safeString(raw?.updatedAt ?? raw?.updated_at ?? conversation.lastMessageAt ?? conversation.last_message_at),
+    searchScope: safeString(raw?.searchScope ?? raw?.search_scope)
+  };
+};
+
 const conversationCache = new Map<string, { timestamp: number; data: Conversation[] }>();
 const inFlight = new Map<string, Promise<Conversation[]>>();
 const CACHE_TTL_MS = 5000;
@@ -253,6 +292,39 @@ export const MessagingService = {
 
     inFlight.set(cacheKey, requestPromise);
     return requestPromise;
+  },
+
+  searchConversations: async (
+    query: string,
+    options?: { limit?: number; cursor?: string; signal?: AbortSignal; adminScope?: boolean }
+  ): Promise<{ results: MessageSearchResult[]; nextCursor?: string | null; hasMore: boolean }> => {
+    const trimmed = String(query || '').replace(/\s+/g, ' ').trim();
+    if (trimmed.length < 2) {
+      return { results: [], nextCursor: null, hasMore: false };
+    }
+
+    const response = await api.get('/messages/search', {
+      signal: options?.signal,
+      params: {
+        q: trimmed,
+        limit: Math.max(1, Math.min(50, Number(options?.limit || 20))),
+        ...(options?.cursor ? { cursor: options.cursor } : {}),
+        ...(options?.adminScope ? { scope: 'admin' } : {})
+      },
+      __suppressAuthRedirect: true,
+      __skipRetry: true
+    } as any);
+    const data = extractData<any>(response);
+    const results = Array.isArray(data)
+      ? data
+      : safeArray<any>(data?.results ?? data?.items ?? []);
+    const pagination = response?.data?.pagination ?? data?.pagination ?? {};
+
+    return {
+      results: results.map(normalizeSearchResult),
+      nextCursor: pagination?.nextCursor ?? pagination?.next_cursor ?? null,
+      hasMore: Boolean(pagination?.hasMore ?? pagination?.has_more ?? false)
+    };
   },
 
   getConversationById: async (id: string): Promise<Conversation | null> => {

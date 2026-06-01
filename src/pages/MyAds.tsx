@@ -43,6 +43,8 @@ const toNumber = (value: any): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const CAMPAIGN_DAY_MS = 24 * 60 * 60 * 1000;
+
 const formatCurrency = (amount: number, code?: string) => {
   const currency = code || 'USD';
   try {
@@ -368,6 +370,18 @@ const getDeliveryTone = (delivery?: AdCampaign['delivery'] | null) => {
   };
 };
 
+const isCampaignFlightEnded = (ad?: AdCampaign | null) => {
+  if (!ad) return false;
+  const status = normalizeCampaignStatus(ad.status);
+  if (status === 'ended' || status === 'completed') return true;
+  const blockers = Array.isArray(ad.delivery?.blockers) ? ad.delivery.blockers : [];
+  if (blockers.some((reason) => String(reason || '').toLowerCase().includes('flight has ended'))) {
+    return true;
+  }
+  const endTime = ad.endAt ? new Date(ad.endAt).getTime() : null;
+  return Boolean(endTime && Number.isFinite(endTime) && endTime <= Date.now());
+};
+
 const AdDeliveryMatrix: React.FC<{ ad: AdCampaign; compact?: boolean }> = ({ ad, compact = false }) => {
   const delivery = ad.delivery || null;
   const tone = getDeliveryTone(delivery);
@@ -506,6 +520,8 @@ const MyAds = () => {
   const [ads, setAds] = useState<AdCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [restartingId, setRestartingId] = useState<string | null>(null);
+  const [restartDraft, setRestartDraft] = useState<{ ad: AdCampaign; durationDays: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [formActionMode, setFormActionMode] = useState<'draft' | 'submit' | 'pay' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -1461,6 +1477,40 @@ const MyAds = () => {
     }
   };
 
+  const openRestart = (ad: AdCampaign) => {
+    const durationDays = Math.max(1, Math.floor(toNumber(ad.durationDays) || 90));
+    setRestartDraft({ ad, durationDays });
+  };
+
+  const handleRestart = async (ad: AdCampaign, requestedDurationDays: number) => {
+    const durationDays = Math.max(1, Math.floor(toNumber(requestedDurationDays)));
+    if (!Number.isFinite(durationDays) || durationDays <= 0) {
+      showNotification('warning', 'Invalid duration', 'Enter a valid number of days to restart this campaign.');
+      return;
+    }
+    setRestartingId(ad.id);
+    try {
+      const result = await AdService.restartOwnAd(ad.id, { durationDays });
+      const nextAd = result?.ad
+        ? ({ ...(result.ad as AdCampaign), delivery: result?.delivery || (result.ad as AdCampaign).delivery } as AdCampaign)
+        : null;
+      if (nextAd?.id) {
+        setAds((prev) => prev.map((entry) => (entry.id === nextAd.id ? { ...entry, ...nextAd } : entry)));
+        setSelectedCampaignId(nextAd.id);
+      }
+      showNotification('success', 'Campaign restarted', `Ad flight restarted for ${durationDays} days.`);
+      setRestartDraft(null);
+      await load();
+    } catch (e: any) {
+      const blockers = Array.isArray(e?.response?.data?.data?.blockers)
+        ? e.response.data.data.blockers.join(' ')
+        : '';
+      showNotification('error', 'Restart failed', blockers || e?.message || 'Unable to restart ad.');
+    } finally {
+      setRestartingId(null);
+    }
+  };
+
   const handleFormAction = async (mode: 'draft' | 'submit' | 'pay') => {
     if (!form.title.trim()) {
       showNotification('warning', 'Missing title', 'Please add a title for your ad.');
@@ -1825,6 +1875,7 @@ const MyAds = () => {
 
   const getCampaignCapabilities = useCallback((ad: AdCampaign) => {
     const status = normalizeCampaignStatus(ad.status);
+    const flightEnded = isCampaignFlightEnded(ad);
     const canEdit = [
       'draft',
       'rejected',
@@ -1848,9 +1899,10 @@ const MyAds = () => {
       'submitted_for_review',
       'approved'
     ].includes(status);
-    const canPause = status === 'active';
-    const canResume = status === 'paused';
-    const needsAction = ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
+    const canRestart = flightEnded || ['ended', 'completed'].includes(status);
+    const canPause = status === 'active' && !canRestart;
+    const canResume = status === 'paused' && !canRestart;
+    const needsAction = canRestart || ['draft', 'rejected', 'awaiting_payment', 'paid'].includes(status);
 
     return {
       status,
@@ -1860,9 +1912,12 @@ const MyAds = () => {
       canDelete,
       canPause,
       canResume,
+      canRestart,
       needsAction,
       actionLabel:
-        status === 'awaiting_payment'
+        canRestart
+          ? 'Restart flight'
+          : status === 'awaiting_payment'
           ? 'Funding required'
           : status === 'paid'
             ? 'Ready to submit'
@@ -2071,6 +2126,10 @@ const MyAds = () => {
     .map((placement) => placementOptions.find((option) => option.value === placement)?.label || placement)
     .slice(0, maxPlacements);
   const averageDailyBudget = form.durationDays > 0 ? toNumber(form.budget) / Math.max(1, toNumber(form.durationDays)) : toNumber(form.budget);
+  const restartProjectedEndLabel = restartDraft
+    ? new Date(Date.now() + Math.max(1, Math.floor(toNumber(restartDraft.durationDays) || 1)) * CAMPAIGN_DAY_MS)
+        .toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+    : '';
   const policySignals = [
     { label: 'Placement limit', value: `${maxPlacements} surfaces` },
     { label: 'Budget guardrail', value: `${formatCurrency(minBudget, form.currency)} to ${formatCurrency(maxBudget, form.currency)}` },
@@ -2528,6 +2587,19 @@ const MyAds = () => {
                               Resume
                             </button>
                           ) : null}
+                          {capabilities.canRestart ? (
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openRestart(ad);
+                              }}
+                              disabled={restartingId === ad.id}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              <RefreshCw className={`h-4 w-4 ${restartingId === ad.id ? 'animate-spin' : ''}`} />
+                              {restartingId === ad.id ? 'Restarting...' : 'Restart'}
+                            </button>
+                          ) : null}
                           {capabilities.canDelete ? (
                             <button
                               onClick={(event) => {
@@ -2743,6 +2815,16 @@ const MyAds = () => {
                     <BarChart3 className="h-4 w-4" />
                     Performance
                   </button>
+                  {selectedCapabilities?.canRestart ? (
+                    <button
+                      onClick={() => openRestart(selectedAd)}
+                      disabled={restartingId === selectedAd.id}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${restartingId === selectedAd.id ? 'animate-spin' : ''}`} />
+                      {restartingId === selectedAd.id ? 'Restarting...' : 'Restart flight'}
+                    </button>
+                  ) : null}
                   {selectedCapabilities?.canEdit ? (
                     <button
                       onClick={() => openEdit(selectedAd)}
@@ -3433,6 +3515,73 @@ const MyAds = () => {
                 className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-slate-300"
               >
                 {saving && formActionMode === 'pay' ? 'Processing payment...' : 'Pay now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restartDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-[2rem] bg-white p-6 shadow-[0_32px_120px_rgba(15,23,42,0.24)]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-950">Restart campaign flight</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {restartDraft.ad.title || 'Campaign'} will restart immediately with a refreshed delivery window.
+                </p>
+              </div>
+              <button
+                onClick={() => setRestartDraft(null)}
+                className="text-sm font-medium text-slate-400 transition hover:text-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <FieldLabel label="Run time" help="Number of days this campaign should run from today." />
+                <input
+                  type="number"
+                  min={1}
+                  value={restartDraft.durationDays}
+                  onChange={(event) =>
+                    setRestartDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            durationDays: Math.max(1, Math.floor(toNumber(event.target.value || 1)))
+                          }
+                        : current
+                    )
+                  }
+                  className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm"
+                />
+              </div>
+
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">New flight window</p>
+                <p className="mt-2 text-sm text-emerald-900">
+                  Starts now and runs through <strong>{restartProjectedEndLabel}</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => setRestartDraft(null)}
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-950"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRestart(restartDraft.ad, restartDraft.durationDays)}
+                disabled={restartingId === restartDraft.ad.id}
+                className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                <RefreshCw className={`h-4 w-4 ${restartingId === restartDraft.ad.id ? 'animate-spin' : ''}`} />
+                {restartingId === restartDraft.ad.id ? 'Restarting...' : 'Restart campaign'}
               </button>
             </div>
           </div>

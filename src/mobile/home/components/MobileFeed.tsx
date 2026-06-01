@@ -46,7 +46,7 @@ import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
-import { pickInterestSurveyCandidateId } from '../../../components/recommendation/ContentInterestSurvey';
+import { pickInterestSurveyCandidateIds } from '../../../components/recommendation/ContentInterestSurvey';
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -107,7 +107,7 @@ const relativeTime = (iso?: string | null) => {
 
 const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
-const BRAND_LOGO_URL = '/logo.png';
+const BRAND_LOGO_URL = '/logo.webp';
 const toPreviewMedia = (media: any): PreviewMedia | null => {
   const url = String(media?.url || '').trim();
   if (!url) return null;
@@ -438,6 +438,16 @@ export default function MobileFeed({
   const constrainedForFeed = isConstrainedConnection || profile.lowBandwidth || profile.dataSaver;
   const initialRenderCount = constrainedForFeed ? 4 : 6;
   const renderStep = constrainedForFeed ? 3 : 5;
+  const feedItemPerformanceStyle = useMemo(
+    () =>
+      ({
+        contentVisibility: 'auto',
+        containIntrinsicSize: constrainedForFeed ? '680px' : '760px',
+        transform: 'translateZ(0)'
+      }) as React.CSSProperties,
+    [constrainedForFeed]
+  );
+  const priorityMediaPostLimit = constrainedForFeed ? 1 : 2;
   const listingCardEveryPosts = clamp(Number((feedSettings as any).listingCardEveryPosts ?? 2) || 2, 1, 6);
   const maxListingCardsPerFeed = clamp(Number((feedSettings as any).maxListingCardsPerFeed ?? 8) || 8, 1, 16);
   const listingPoolLimit = Math.max(
@@ -476,16 +486,19 @@ export default function MobileFeed({
     () => deferredPosts.slice(0, Math.min(renderedPostCount, deferredPosts.length)),
     [deferredPosts, renderedPostCount]
   );
-  const interestSurveyPostId = useMemo(
+  const interestSurveyPostIds = useMemo(
     () =>
-      pickInterestSurveyCandidateId(
-        visiblePosts.map((post: any) => ({
-          id: post?.id,
-          authorId: post?.authorUserId || post?.authorId,
-          initialSignal: post?.userState?.interestSignal
-        })),
-        user?.id,
-        'post'
+      new Set(
+        pickInterestSurveyCandidateIds(
+          visiblePosts.map((post: any) => ({
+            id: post?.id,
+            authorId: post?.authorUserId || post?.authorId,
+            initialSignal: post?.userState?.interestSignal
+          })),
+          user?.id,
+          'post',
+          5
+        )
       ),
     [visiblePosts, user?.id]
   );
@@ -810,7 +823,7 @@ export default function MobileFeed({
       badge: 'AI',
       ctaLabel: 'Open coach',
       onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
-      mediaUrl: '/logo.png',
+      mediaUrl: '/logo.webp',
       icon: <Sparkles className="h-4 w-4" />,
       tone: 'violet'
     });
@@ -864,7 +877,7 @@ export default function MobileFeed({
         ctaLabel: topOfficeHour.isRegistered ? 'View session' : 'Open office hours',
         onClick: () => openInsightsSection('live-office-hours', 'opportunity'),
         mediaUrl: topOfficeHour.image || '',
-        fallbackMediaUrl: '/logo.png',
+        fallbackMediaUrl: '/logo.webp',
         icon: <CalendarDays className="h-4 w-4" />,
         tone: 'amber'
       });
@@ -2210,6 +2223,8 @@ export default function MobileFeed({
             <React.Fragment key={postId || `post_${idx}`}>
               <article
                 className="cursor-pointer rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]"
+                data-feed-post-id={postId || undefined}
+                style={feedItemPerformanceStyle}
                 onClick={(event) => {
                   if (isIgnoredSurfaceTarget(event.target)) return;
                   openPostCard(post);
@@ -2230,8 +2245,9 @@ export default function MobileFeed({
                             height={96}
                             sizes="48px"
                             className="h-full w-full object-cover"
-                            loading="lazy"
+                            loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
                             decoding="async"
+                            fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
                             onError={(event) => {
                               (event.currentTarget as HTMLImageElement).style.display = 'none';
                             }}
@@ -2438,6 +2454,7 @@ export default function MobileFeed({
                                     controls={false}
                                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                                     preload="metadata"
+                                    preloadRootMargin={constrainedForFeed ? '80px 0px 80px 0px' : '260px 0px 260px 0px'}
                                     loadingLabel="Video loading"
                                     overlay={(videoElement) => (
                                       <PostVideoActionBar
@@ -2474,8 +2491,9 @@ export default function MobileFeed({
                                     height={400}
                                     sizes="(max-width: 768px) 100vw, 640px"
                                     className="h-[17.5rem] w-full object-cover sm:h-[20rem]"
-                                    loading="lazy"
+                                    loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
                                     decoding="async"
+                                    fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
                                   />
                                 </button>
                               ) : (
@@ -2520,7 +2538,7 @@ export default function MobileFeed({
                   viewCount={post?.interactions?.views ?? post?.viewsCount ?? 0}
                   initialReactionCounts={reactionCounts}
                   initialUserReaction={post?.userState?.reaction}
-                  interestSurveyEnabled={postId === interestSurveyPostId}
+                  interestSurveyEnabled={interestSurveyPostIds.has(postId)}
                   initialInterestSignal={post?.userState?.interestSignal}
                   onCommentCountChange={syncCommentCount}
                   features={{

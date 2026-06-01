@@ -15,6 +15,7 @@ import {
   User
 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
+import OptimizedImage from '../components/media/OptimizedImage';
 import { useCurrency } from '../context/CurrencyContext';
 import { SearchService } from '../services/search';
 
@@ -303,7 +304,15 @@ function ResultCard({
       <div className="flex items-start gap-3">
         <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-slate-100">
           {image ? (
-            <img src={image} alt={title} className="h-full w-full object-cover" />
+            <OptimizedImage
+              src={image}
+              alt={title}
+              width={96}
+              height={96}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
           ) : (
             <div className="flex h-full w-full items-center justify-center">
               <Icon className="h-6 w-6 text-slate-500" />

@@ -28,6 +28,7 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import FollowButton from '../../../community/components/FollowButton';
 import { UploadedFile } from '../../../types';
 import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
+import EnterpriseStoryViewer from '../../../features/stories/components/StoryViewer';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import StaticPreviewText from '../../../components/common/StaticPreviewText';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
@@ -1802,7 +1803,7 @@ export default function MobileStoriesStrip({
       </div>
 
       {activeStory ? (
-        <StoryViewer
+        <EnterpriseStoryViewer
           story={activeStory}
           stories={visibleStories}
           viewer={user}
@@ -1814,12 +1815,7 @@ export default function MobileStoriesStrip({
           }}
           onEdit={() => openEdit(activeStory)}
           onDelete={() => void deleteStory(activeStory)}
-          onComment={() => handleStoryCommentAction(activeStory)}
-          onRepost={() => handleStoryRepostAction(activeStory)}
-          onDash={() => handleStoryDashAction(activeStory)}
-          onSend={() => handleStorySendAction(activeStory)}
-          onLike={() => void likeStoryAndSync(activeStory)}
-          storyBusy={Boolean(storyActionBusy[String(activeStory?.id || '')])}
+          canManage={canManageStory(activeStory, user)}
           autoplayEnabled={profile.autoplayEnabled}
         />
       ) : null}

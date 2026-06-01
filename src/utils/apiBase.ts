@@ -1,5 +1,3 @@
-import { Capacitor } from '@capacitor/core';
-
 const normalizeBase = (value: string) => value.replace(/\/+$/, '');
 const ensureApiSuffix = (value: string) => (value.endsWith('/api') ? value : `${value}/api`);
 const parseBool = (value: unknown, fallback = false) => {
@@ -90,24 +88,46 @@ const resolveMobileBase = () => {
   return '';
 };
 
-const resolveNativeDevBase = () => {
+const getCapacitorRuntime = () => {
+  if (typeof window === 'undefined') return null;
   try {
-    if (!Capacitor.isNativePlatform()) return '';
+    return (window as any)?.Capacitor || null;
   } catch {
-    return '';
+    return null;
   }
-  const platform = Capacitor.getPlatform();
+};
+
+const isRuntimeNativePlatform = () => {
+  const runtime = getCapacitorRuntime();
+  try {
+    return Boolean(runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform());
+  } catch {
+    return false;
+  }
+};
+
+const getRuntimePlatform = () => {
+  const runtime = getCapacitorRuntime();
+  try {
+    if (runtime && typeof runtime.getPlatform === 'function') {
+      return String(runtime.getPlatform() || '').toLowerCase();
+    }
+  } catch {
+    // ignore runtime platform failures
+  }
+  return '';
+};
+
+const resolveNativeDevBase = () => {
+  if (!isRuntimeNativePlatform()) return '';
+  const platform = getRuntimePlatform();
   if (platform === 'android') return 'http://10.0.2.2:5000/api';
   if (platform === 'ios') return 'http://localhost:5000/api';
   return 'http://localhost:5000/api';
 };
 
 const isNativePlatform = () => {
-  try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    return false;
-  }
+  return isRuntimeNativePlatform();
 };
 
 const isCapacitorRuntime = () => {
@@ -128,7 +148,7 @@ const isCapacitorRuntime = () => {
   }
 
   try {
-    const runtime = (window as any)?.Capacitor;
+    const runtime = getCapacitorRuntime();
     if (runtime && typeof runtime.isNativePlatform === 'function') {
       return Boolean(runtime.isNativePlatform());
     }

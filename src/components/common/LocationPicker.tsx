@@ -5,7 +5,6 @@ import React, {
   useRef,
   useState
 } from 'react';
-import 'maplibre-gl/dist/maplibre-gl.css';
 import { Loader2, LocateFixed, MapPin, Search } from 'lucide-react';
 import { LocationService } from '../../services/location';
 import { LocationSuggestion, StructuredLocationFields } from '../../types';
@@ -27,6 +26,17 @@ const DEFAULT_TILE_URL =
   'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const DEFAULT_ATTRIBUTION =
   String(import.meta.env.VITE_MAP_ATTRIBUTION || '').trim() || '&copy; OpenStreetMap contributors';
+
+let maplibreCssPromise: Promise<unknown> | null = null;
+
+const loadMaplibre = async () => {
+  maplibreCssPromise ||= import('maplibre-gl/dist/maplibre-gl.css');
+  const [maplibre] = await Promise.all([
+    import('maplibre-gl'),
+    maplibreCssPromise
+  ]);
+  return maplibre;
+};
 
 const toNullableNumber = (value: unknown) => {
   if (value === null || value === undefined || value === '') return null;
@@ -209,7 +219,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     if (!container || mapRef.current) return;
 
     const setupMap = async () => {
-      const maplibre = await import('maplibre-gl');
+      const maplibre = await loadMaplibre();
       if (cancelled || !mapContainerRef.current) return;
 
       const map = new maplibre.Map({

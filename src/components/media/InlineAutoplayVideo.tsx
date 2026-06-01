@@ -17,8 +17,14 @@ type InlineAutoplayVideoProps = {
   threshold?: number;
   rootMargin?: string;
   preloadRootMargin?: string;
+  eagerLoad?: boolean;
   onDoubleTapLike?: () => void;
   onEnded?: () => void;
+  onLoadStart?: () => void;
+  onLoadedData?: () => void;
+  onCanPlay?: () => void;
+  onPlaying?: () => void;
+  onError?: () => void;
   overlay?: React.ReactNode | ((video: HTMLVideoElement | null) => React.ReactNode);
   loadingLabel?: string | false;
 };
@@ -40,8 +46,14 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   threshold = 0.35,
   rootMargin = '0px 0px -10% 0px',
   preloadRootMargin = '160px 0px 160px 0px',
+  eagerLoad = false,
   onDoubleTapLike,
   onEnded,
+  onLoadStart,
+  onLoadedData,
+  onCanPlay,
+  onPlaying,
+  onError,
   overlay,
   loadingLabel = false
 }) => {
@@ -49,7 +61,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   const [videoNode, setVideoNode] = useState<HTMLVideoElement | null>(null);
   const [internalMuted, setInternalMuted] = useState(defaultMuted);
   const [isInView, setIsInView] = useState(false);
-  const [shouldLoadSource, setShouldLoadSource] = useState(() => !autoplayEnabled || controls);
+  const [shouldLoadSource, setShouldLoadSource] = useState(() => eagerLoad || !autoplayEnabled || controls);
   const [isLoadingVideo, setIsLoadingVideo] = useState(() => Boolean(src));
   const userPausedRef = useRef(false);
   const lastTapAtRef = useRef(0);
@@ -120,7 +132,12 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     userPausedRef.current = false;
     internalPauseUntilRef.current = 0;
     setIsLoadingVideo(Boolean(src));
-  }, [src]);
+    if (eagerLoad) setShouldLoadSource(Boolean(src));
+  }, [eagerLoad, src]);
+
+  useEffect(() => {
+    if (eagerLoad && src) setShouldLoadSource(true);
+  }, [eagerLoad, src]);
 
   useEffect(() => {
     const node = videoRef.current;
@@ -239,17 +256,32 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       setIsLoadingVideo(Boolean(hasSource && !ready && !node.ended));
     };
 
-    const handleLoadStart = () => setIsLoadingVideo(Boolean(src));
+    const handleLoadStart = () => {
+      setIsLoadingVideo(Boolean(src));
+      onLoadStart?.();
+    };
     const handleWaiting = () => {
       if (!node.ended) setIsLoadingVideo(true);
     };
-    const handleLoadedData = () => setIsLoadingVideo(false);
-    const handleCanPlay = () => setIsLoadingVideo(false);
-    const handlePlaying = () => setIsLoadingVideo(false);
+    const handleLoadedData = () => {
+      setIsLoadingVideo(false);
+      onLoadedData?.();
+    };
+    const handleCanPlay = () => {
+      setIsLoadingVideo(false);
+      onCanPlay?.();
+    };
+    const handlePlaying = () => {
+      setIsLoadingVideo(false);
+      onPlaying?.();
+    };
     const handleSeeked = () => setIsLoadingVideo(false);
     const handleEnded = () => setIsLoadingVideo(false);
     const handleEmptied = () => setIsLoadingVideo(Boolean(src));
-    const handleError = () => setIsLoadingVideo(false);
+    const handleError = () => {
+      setIsLoadingVideo(false);
+      onError?.();
+    };
 
     syncLoadingState();
 
@@ -274,7 +306,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       node.removeEventListener('emptied', handleEmptied);
       node.removeEventListener('error', handleError);
     };
-  }, [src, shouldLoadSource]);
+  }, [onCanPlay, onError, onLoadStart, onLoadedData, onPlaying, src, shouldLoadSource]);
 
   const effectivePreload: 'none' | 'metadata' | 'auto' =
     shouldLoadSource && active && isInView ? preload : shouldLoadSource ? 'metadata' : 'none';
@@ -320,6 +352,20 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       node.removeEventListener('play', onPlay);
     };
   }, [isMuted, muted, onMutedChange]);
+
+  useEffect(() => {
+    return () => {
+      const node = videoRef.current;
+      if (!node) return;
+      try {
+        node.pause();
+        node.removeAttribute('src');
+        node.load();
+      } catch {
+        // Best-effort cleanup so offscreen story/feed videos do not keep buffers alive.
+      }
+    };
+  }, []);
 
   const overlayContent = typeof overlay === 'function' ? overlay(videoNode) : overlay;
 

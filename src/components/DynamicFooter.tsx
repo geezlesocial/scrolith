@@ -6,7 +6,7 @@ import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { useSocket } from '../context/SocketContext';
 
-const FOOTER_CACHE_KEY = 'scrolith.footer.config.v1';
+const FOOTER_CACHE_KEY = 'scrolith.footer.config.v3';
 const FOOTER_CACHE_TTL_MS = 5 * 60 * 1000;
 
 type FooterCacheEntry = {
@@ -55,6 +55,8 @@ const isExternalUrl = (item: any, url: string) => {
   return url.startsWith('http');
 };
 
+const cleanFooterText = (value: any) => String(value ?? '').replace(/Â©/g, '(c)').trim();
+
 const readCachedFooter = (): FooterCacheEntry | null => {
   if (footerCache && Date.now() - footerCache.cachedAt < FOOTER_CACHE_TTL_MS) {
     return footerCache;
@@ -91,9 +93,44 @@ const writeCachedFooter = (config: FooterConfig) => {
   }
 };
 
+const hasRenderableFooterConfig = (config: any) => {
+  if (!config) return false;
+  if (isFooterDisabled(config)) return false;
+  const contact = config.contact || {};
+  const hasColumnLinks = ensureArray<any>(config.columns).some((column) =>
+    ensureArray<any>(column?.links).some((link) => link?.label && resolveUrl(link))
+  );
+  const hasSocials = ensureArray<any>(config.socials).some((social) => social?.url && social?.enabled !== false);
+  return Boolean(
+    config.description ||
+    config.copyright ||
+    config.footerCopyright ||
+    hasColumnLinks ||
+    hasSocials ||
+    contact.support_email ||
+    contact.supportEmail ||
+    contact.admin_email ||
+    contact.adminEmail ||
+    contact.ticket_route ||
+    contact.ticketRoute
+  );
+};
+
+const isFooterDisabled = (config: any) => {
+  if (!config) return false;
+  return (
+    config.enabled === false ||
+    config.isEnabled === false ||
+    config.is_enabled === false ||
+    config.active === false ||
+    config.isActive === false ||
+    config.is_active === false
+  );
+};
+
 const getFooterConfigCached = async (force = false): Promise<FooterConfig> => {
   const cached = !force ? readCachedFooter() : null;
-  if (cached?.config) {
+  if (cached?.config && (isFooterDisabled(cached.config) || hasRenderableFooterConfig(cached.config))) {
     return cached.config;
   }
 
@@ -112,21 +149,6 @@ const getFooterConfigCached = async (force = false): Promise<FooterConfig> => {
 
   return footerRequest;
 };
-
-const buildFallbackFooter = (): FooterConfig =>
-  ({
-    id: 'default',
-    description: '',
-    copyright: '',
-    columns: [],
-    contact: {
-      admin_email: '',
-      support_email: '',
-      ticket_route: ''
-    },
-    socials: [],
-    logo_url: ''
-  } as any);
 
 const DynamicFooter = () => {
   const cachedEntry = readCachedFooter();
@@ -155,7 +177,7 @@ const DynamicFooter = () => {
       } catch (error) {
         console.error('Failed to load footer config:', error);
         if (mounted) {
-          setConfig(buildFallbackFooter());
+          setConfig(null);
         }
       } finally {
         if (mounted) setLoading(false);
@@ -195,69 +217,62 @@ const DynamicFooter = () => {
   }, [socialOffsetEnabled]);
 
   if (loading && !config) {
-    return (
-      <footer className="bg-slate-950 text-white">
-        <div className="mx-auto max-w-7xl px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))] pt-10 sm:px-6 lg:px-8">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.85fr)]">
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-6 sm:p-8">
-              <div className="h-8 w-40 animate-pulse rounded-full bg-white/10" />
-              <div className="mt-4 h-4 max-w-md animate-pulse rounded-full bg-white/10" />
-              <div className="mt-2 h-4 max-w-sm animate-pulse rounded-full bg-white/10" />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {[0, 1, 2].map((index) => (
-                <div key={index} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-                  <div className="h-4 w-24 animate-pulse rounded-full bg-white/10" />
-                  <div className="mt-4 space-y-3">
-                    <div className="h-3 w-full animate-pulse rounded-full bg-white/10" />
-                    <div className="h-3 w-4/5 animate-pulse rounded-full bg-white/10" />
-                    <div className="h-3 w-3/5 animate-pulse rounded-full bg-white/10" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </footer>
-    );
+    return null;
   }
 
   if (!config) {
     return null;
   }
 
-  const footerDescription = config.description || '';
+  if (isFooterDisabled(config)) {
+    return null;
+  }
+
+  const footerDescription = cleanFooterText(
+    config.description ||
+    (config as any).footer_description ||
+    (config as any).footerDescription ||
+    (settings as any)?.footerAboutText ||
+    (settings as any)?.footer_about_text ||
+    ''
+  );
+  const footerCopyright = cleanFooterText(
+    config.copyright || (config as any).footerCopyright || (config as any).footer_copyright || ''
+  );
   const footerLogo =
-    config.logo_url || (config as any).logoUrl || settings?.logo_url || settings?.logoUrl || '';
-  const brandName = (settings as any)?.siteName || (settings as any)?.site_name || '';
-  const baseColumns = ensureArray<any>(config.columns);
+    config.logo_url || (config as any).logoUrl || (settings as any)?.logo_url || (settings as any)?.logoUrl || '/logo.webp';
+  const brandName = (settings as any)?.siteName || (settings as any)?.site_name || 'Scrolith';
+  const baseColumns = ensureArray<any>((config as any).columns ?? (config as any).footer_columns ?? (config as any).footerColumns);
   const contact = (config as any).contact || {};
+  const supportEmail = contact.support_email ?? contact.supportEmail ?? (config as any).support_email ?? (config as any).supportEmail ?? '';
+  const adminContact = contact.admin_email ?? contact.adminEmail ?? (config as any).admin_email ?? (config as any).adminEmail ?? '';
+  const ticketRoute = contact.ticket_route ?? contact.ticketRoute ?? (config as any).ticket_route ?? (config as any).ticketRoute ?? '';
 
   const contactLinks = [
-    contact.support_email
+    supportEmail
       ? {
           id: 'contact-support',
-          label: contact.support_email,
-          url: `mailto:${contact.support_email}`,
+          label: supportEmail,
+          url: supportEmail.includes('@') ? `mailto:${supportEmail}` : supportEmail,
           type: 'external',
           visibility: []
         }
       : null,
-    contact.admin_email
+    adminContact
       ? {
           id: 'contact-admin',
-          label: contact.admin_email,
-          url: `mailto:${contact.admin_email}`,
-          type: 'external',
+          label: adminContact,
+          url: adminContact.includes('@') ? `mailto:${adminContact}` : adminContact,
+          type: adminContact.includes('@') || adminContact.startsWith('http') ? 'external' : 'internal',
           visibility: []
         }
       : null,
-    contact.ticket_route
+    ticketRoute
       ? {
           id: 'contact-ticket',
-          label: contact.ticket_route,
-          url: contact.ticket_route,
-          type: contact.ticket_route.startsWith('http') ? 'external' : 'internal',
+          label: ticketRoute,
+          url: ticketRoute,
+          type: String(ticketRoute).startsWith('http') ? 'external' : 'internal',
           visibility: []
         }
       : null
@@ -267,7 +282,7 @@ const DynamicFooter = () => {
     ? [...baseColumns, { id: 'footer-contact', title: '', links: contactLinks }]
     : baseColumns;
 
-  const socials = ensureArray<any>(config.socials).filter(
+  const socials = ensureArray<any>((config as any).socials ?? (config as any).social_links ?? (config as any).socialLinks).filter(
     (social: any) => social && social.url && social.enabled !== false
   );
   const hasSocialArea = socials.length > 0;
@@ -278,7 +293,7 @@ const DynamicFooter = () => {
     Boolean(brandName) ||
     columns.length > 0 ||
     hasSocialArea ||
-    Boolean(config.copyright);
+    Boolean(footerCopyright);
 
   if (!hasContent) {
     return null;
@@ -323,7 +338,7 @@ const DynamicFooter = () => {
   };
 
   const renderSocial = (social: any) => {
-    const icon = String(social.icon || '');
+    const icon = String(social.icon || social.iconUrl || social.icon_url || '');
     const showImage = icon.startsWith('http') || icon.startsWith('/');
     const label = social.platform || social.name || social.url || '';
     const fallbackLabel = label ? label.slice(0, 1) : '';
@@ -403,8 +418,10 @@ const DynamicFooter = () => {
         </div>
 
         <div className="mt-8 flex flex-col gap-4 border-t border-white/10 pt-6 sm:flex-row sm:items-end sm:justify-between">
-          {config.copyright ? (
-            <p className="max-w-2xl text-center text-xs leading-6 text-slate-400 sm:text-left sm:text-sm">{config.copyright}</p>
+          {footerCopyright ? (
+            <p className="max-w-2xl text-center text-xs leading-6 text-slate-400 sm:text-left sm:text-sm">
+              {footerCopyright}
+            </p>
           ) : (
             <span />
           )}

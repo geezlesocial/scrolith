@@ -26,7 +26,7 @@ const DEFAULT_PRELOADER: PreloaderConfig = {
   subText: 'Please wait while we prepare your experience.',
   loaderType: 'spinner',
   logoFileId: null,
-  logoUrl: '/logo.png',
+  logoUrl: '/logo.webp',
   backgroundFileId: null,
   backgroundImageUrl: null,
   backgroundType: 'solid',
@@ -41,6 +41,8 @@ const DEFAULT_PRELOADER: PreloaderConfig = {
   position: 'center',
   customCss: null,
 };
+
+const PRELOADER_FORCE_HIDE_CAP_MS = 8000;
 
 type Reason = 'boot' | 'route' | 'api' | 'manual' | string;
 
@@ -87,10 +89,29 @@ const normalizeConfig = (incoming?: Partial<PreloaderConfig> | null): PreloaderC
 };
 
 const shouldTrackApiRequest = (url?: string) => {
+  if (typeof window !== 'undefined' && /^\/m(\/|$)/.test(window.location.pathname || '')) return false;
   const normalized = String(url || '').toLowerCase();
   if (!normalized) return false;
   if (normalized.includes('/public/preloader/active')) return false;
   if (normalized.includes('/socket.io')) return false;
+  if (
+    [
+      '/auth/login',
+      '/auth/me',
+      '/cms/',
+      '/community/',
+      '/messages',
+      '/notifications',
+      '/favorites',
+      '/reco',
+      '/insights',
+      '/gigs',
+      '/jobs',
+      '/scroll'
+    ].some((fragment) => normalized.includes(fragment))
+  ) {
+    return false;
+  }
   return true;
 };
 
@@ -138,7 +159,7 @@ export const PreloaderProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       clearForceHideTimer();
       shownAtRef.current = null;
       setIsVisible(false);
-    }, maxDuration);
+    }, Math.min(maxDuration, PRELOADER_FORCE_HIDE_CAP_MS));
   }, []);
 
   const show = useCallback((reason: Reason = 'manual') => {
@@ -200,6 +221,22 @@ export const PreloaderProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       forceHide();
     };
   }, [forceHide, hide, refreshConfig, show]);
+
+  // The static boot fallback already listens for this event. Mirror that for
+  // the managed preloader so native WebView startup cannot remain covered if a
+  // slow optional config request or platform pause interrupts the boot hide.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const releaseInitialPreloader = () => forceHide();
+    window.addEventListener('scrolith:app-ready', releaseInitialPreloader);
+
+    const hardTimeout = window.setTimeout(releaseInitialPreloader, 8000);
+    return () => {
+      window.removeEventListener('scrolith:app-ready', releaseInitialPreloader);
+      window.clearTimeout(hardTimeout);
+    };
+  }, [forceHide]);
 
   // Route transitions
   useEffect(() => {

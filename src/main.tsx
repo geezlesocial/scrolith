@@ -1,23 +1,52 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { Capacitor } from '@capacitor/core'
 import App from './App'
 import './index.css'
-import { installMobileObservability } from './mobile/runtime/mobileObservability'
 
 const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v5'
+
+const runWhenIdle = (callback: () => void, timeout = 1200) => {
+  const idleCallback = (window as any).requestIdleCallback;
+  if (typeof idleCallback === 'function') {
+    const id = idleCallback(callback, { timeout });
+    return () => {
+      const cancelIdleCallback = (window as any).cancelIdleCallback;
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(id);
+    };
+  }
+
+  const id = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(id);
+};
+
+const runAfterLoadIdle = (callback: () => void, timeout = 1200) => {
+  const run = () => {
+    runWhenIdle(callback, timeout);
+  };
+
+  if (document.readyState === 'complete') {
+    run();
+    return;
+  }
+
+  window.addEventListener('load', run, { once: true });
+};
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
 )
-
-installMobileObservability()
 
 root.render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 )
+
+runWhenIdle(() => {
+  void import('./mobile/runtime/mobileObservability')
+    .then(({ installMobileObservability }) => installMobileObservability())
+    .catch(() => {});
+}, 900);
 
 const isNative = () => {
   try {
@@ -34,18 +63,14 @@ const isNative = () => {
   }
 
   try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    try {
-      const runtime = (window as any)?.Capacitor;
-      if (runtime && typeof runtime.isNativePlatform === 'function') {
-        return Boolean(runtime.isNativePlatform());
-      }
-    } catch {
-      // ignore runtime checks
+    const runtime = (window as any)?.Capacitor;
+    if (runtime && typeof runtime.isNativePlatform === 'function') {
+      return Boolean(runtime.isNativePlatform());
     }
-    return false;
+  } catch {
+    // ignore runtime checks
   }
+  return false;
 };
 
 const clearBrowserCaches = async () => {
@@ -77,16 +102,20 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       // Ignore storage failures and continue with cleanup.
     }
 
-    void clearBrowserCaches().finally(() => {
-      try {
-        window.localStorage.setItem(WEB_CACHE_RESET_KEY, '1');
-      } catch {
-        // Ignore storage failures.
-      }
+    runWhenIdle(() => {
+      void clearBrowserCaches().finally(() => {
+        try {
+          window.localStorage.setItem(WEB_CACHE_RESET_KEY, '1');
+        } catch {
+          // Ignore storage failures.
+        }
+      });
     });
   });
 }
 
 if (isNative()) {
-  void clearBrowserCaches();
+  runAfterLoadIdle(() => {
+    void clearBrowserCaches();
+  }, 1800);
 }

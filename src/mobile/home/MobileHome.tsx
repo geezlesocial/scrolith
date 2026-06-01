@@ -517,14 +517,36 @@ const MobileHome = () => {
   const isFreelancerMode = normalizedRole.includes('freelancer') || normalizedRole.includes('seller');
   const isClientMode = normalizedRole.includes('employer') || normalizedRole.includes('client') || normalizedRole.includes('buyer');
 
-  const dashboardPath =
-    normalizedRole.includes('admin')
-      ? '/admin/dashboard'
+  const accountDashboardPath = normalizedRole.includes('admin')
+    ? '/admin/dashboard'
+    : isClientMode
+      ? '/client/dashboard'
       : isFreelancerMode
         ? '/freelancer/dashboard'
-        : isClientMode
-          ? '/client/dashboard'
-          : '/';
+        : '/dashboard';
+
+  const accountProfilePath = useMemo(() => {
+    const userRecord = (user || {}) as any;
+    const username = [
+      userRecord.username,
+      userRecord.profileUsername,
+      userRecord.profile_username,
+      userRecord.handle,
+      userRecord.slug
+    ]
+      .map((value) => String(value || '').trim())
+      .find(Boolean);
+
+    if (username) {
+      return `/u/${encodeURIComponent(username)}`;
+    }
+
+    const id = [userRecord.id, userRecord.userId, userRecord.user_id, userRecord._id]
+      .map((value) => String(value || '').trim())
+      .find(Boolean);
+
+    return id ? `/profile/${encodeURIComponent(id)}` : '/profile/edit';
+  }, [user]);
 
   const postProjectPath = isClientMode ? '/create-job' : '/create-gig';
 
@@ -807,19 +829,16 @@ const MobileHome = () => {
           onOpenAllMessages={() => {
             navigateFromShell('/messages');
           }}
+          onOpenNotifications={() => {
+            openPanelFromShell('notifications');
+          }}
           normalizedRole={normalizedRole}
           isFreelancerMode={isFreelancerMode}
           onDashboard={() => {
-            navigateFromShell(dashboardPath);
+            navigateFromShell(accountDashboardPath);
           }}
           onViewAs={() => {
-            if (user?.username) {
-              navigateFromShell(`/u/${encodeURIComponent(String(user.username))}`);
-              return;
-            }
-            if (user?.id) {
-              navigateFromShell(`/profile/${encodeURIComponent(String(user.id))}`);
-            }
+            navigateFromShell(accountProfilePath);
           }}
           onSwitchCurrency={() => {
             setProfileOpen(false);

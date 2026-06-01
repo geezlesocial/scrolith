@@ -1182,6 +1182,14 @@ class CommunityService {
     return response?.data ?? response;
   }
 
+  static async sendStoryDirectMessage(
+    id: string,
+    payload: { text?: string; reactionType?: string }
+  ): Promise<any> {
+    const response = await this.post(`/community/stories/${encodeURIComponent(id)}/direct-message`, payload);
+    return response?.data ?? response;
+  }
+
   static async getStoryReplies(id: string): Promise<StoryRepliesPayload> {
     const response = await api.get(`/community/stories/${encodeURIComponent(id)}/replies`);
     const data = extractData<any>(response) || {};

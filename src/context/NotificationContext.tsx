@@ -242,6 +242,50 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
   }, [addNotification, getRoleBasePath, user?.role]);
 
+  const showForegroundPushNotification = useCallback((payload: any) => {
+    const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+    const normalizedType = String(
+      payload?.type ??
+      data?.type ??
+      payload?.notificationType ??
+      'info'
+    ).trim().toLowerCase();
+
+    if (normalizedType === 'message' || normalizedType === 'new_message') {
+      showMessageReceiptNotification(payload, { persist: true });
+      return;
+    }
+
+    const notificationId =
+      payload?.id ||
+      data?.notificationId ||
+      data?.id ||
+      (data?.campaignId ? `local-campaign-${data.campaignId}` : undefined) ||
+      (data?.postId ? `local-post-${normalizedType}-${data.postId}` : undefined);
+    const actionUrl =
+      payload?.actionUrl ||
+      payload?.action_url ||
+      payload?.link ||
+      data?.actionUrl ||
+      data?.action_url ||
+      data?.link ||
+      data?.deepLink ||
+      data?.deeplink ||
+      data?.url;
+
+    addNotification({
+      id: notificationId,
+      type: normalizedType || 'info',
+      title: payload?.title || data?.title || 'Scrolith',
+      message: payload?.message || payload?.body || data?.body || data?.message || 'You have a new notification.',
+      actionUrl,
+      metadata: data,
+      toast: true,
+      persist: true,
+      localOnly: true
+    });
+  }, [addNotification, showMessageReceiptNotification]);
+
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
       if (pollRef.current) {
@@ -454,15 +498,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         payload?.notificationType ??
         ''
       ).trim().toLowerCase();
-      if (type !== 'message' && type !== 'new_message') return;
-      showMessageReceiptNotification(payload);
+      if (!type) return;
+      showForegroundPushNotification(payload);
     };
 
     window.addEventListener('mobile:push-notification-received', onMobilePushReceived as EventListener);
     return () => {
       window.removeEventListener('mobile:push-notification-received', onMobilePushReceived as EventListener);
     };
-  }, [isAuthenticated, user?.id, showMessageReceiptNotification]);
+  }, [isAuthenticated, user?.id, showForegroundPushNotification]);
 
   const contextValue = useMemo(() => ({
     notifications,

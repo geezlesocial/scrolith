@@ -6,7 +6,12 @@ import { useNetworkStatus } from './NetworkStatusContext'
 import { socketService } from '../utils/socket'
 import { tokenStore } from '../services/tokenStore'
 import { getBackendOrigin } from '../utils/apiBase'
-import { trackMobileRuntimeEvent } from '../mobile/mobileTelemetry'
+
+const trackRuntimeEvent = (eventName: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => {
+  void import('../mobile/mobileTelemetry')
+    .then(({ trackMobileRuntimeEvent }) => trackMobileRuntimeEvent(eventName, payload, options))
+    .catch(() => {})
+}
 
 export interface SocketContextType {
   socket: Socket | null
@@ -211,7 +216,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     }
 
-    if (!shouldAttemptLiveConnections) {
+    if (!isAuthenticated || !user?.id || !shouldAttemptLiveConnections) {
       if (socketService.getSocket()) {
         cleanupSocket()
       }
@@ -277,7 +282,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           setIsConnected(true)
           setSocket(connectedSocket)
           if (hasEverConnectedRef.current || pendingReconnectTelemetryRef.current) {
-            void trackMobileRuntimeEvent(
+            trackRuntimeEvent(
               'socket_reconnected',
               {
                 namespace: '/community',
@@ -314,7 +319,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
           setIsConnected(false)
           pendingReconnectTelemetryRef.current = true
-          void trackMobileRuntimeEvent(
+          trackRuntimeEvent(
             'socket_connect_error',
             {
               namespace: '/community',

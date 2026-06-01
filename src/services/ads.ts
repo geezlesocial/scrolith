@@ -271,6 +271,14 @@ export const AdService = {
     return extractData<any>(response);
   },
 
+  restartOwnAd: async (
+    id: string,
+    payload?: { durationDays?: number; startAt?: string; endAt?: string }
+  ): Promise<any> => {
+    const response = await api.post(`/community/ads/${id}/restart`, payload || {});
+    return extractData<any>(response);
+  },
+
   submitAd: async (
     id: string,
     payload?: Record<string, any>

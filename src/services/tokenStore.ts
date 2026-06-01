@@ -1,16 +1,38 @@
-import { Capacitor } from '@capacitor/core';
-import { Preferences } from '@capacitor/preferences';
-
 let memoryToken: string | null = null;
 
 const cookieName = 'Scrolith_token';
 const tokenKey = 'token';
+const NATIVE_PREFERENCES_TIMEOUT_MS = 1200;
+
+const hasCapacitorBridge = () =>
+  typeof window !== 'undefined' && Boolean((window as any).Capacitor);
 
 const isNative = () => {
+  if (!hasCapacitorBridge()) return false;
   try {
-    return Capacitor.isNativePlatform();
+    const runtime = (window as any).Capacitor;
+    return Boolean(runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform());
   } catch {
     return false;
+  }
+};
+
+const getPreferences = async () => {
+  const { Preferences } = await import('@capacitor/preferences');
+  return Preferences;
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, fallback: T, timeoutMs = NATIVE_PREFERENCES_TIMEOUT_MS): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 };
 
@@ -71,49 +93,74 @@ const safeRemove = (key: string) => {
 export const tokenStore = {
   async get(): Promise<string | null> {
     if (memoryToken) return memoryToken;
+
+    const stored = safeGet(tokenKey);
+    if (stored) {
+      memoryToken = stored;
+      return stored;
+    }
+
+    const cookieToken = readCookie();
+    if (cookieToken) {
+      memoryToken = cookieToken;
+      return cookieToken;
+    }
+
     if (isNative()) {
       try {
-        const { value } = await Preferences.get({ key: tokenKey });
+        const { value } = await withTimeout(
+          (async () => {
+            const Preferences = await getPreferences();
+            return Preferences.get({ key: tokenKey });
+          })(),
+          { value: null as string | null }
+        );
         if (value) memoryToken = value;
         return value || null;
       } catch {
         return null;
       }
     }
-    const stored = safeGet(tokenKey);
-    if (stored) {
-      memoryToken = stored;
-      return stored;
-    }
-    const cookieToken = readCookie();
-    if (cookieToken) memoryToken = cookieToken;
-    return cookieToken;
+
+    return null;
   },
   async set(token: string): Promise<void> {
     memoryToken = token;
+    safeSet(tokenKey, token);
+    writeCookie(token);
+
     if (isNative()) {
       try {
-        await Preferences.set({ key: tokenKey, value: token });
+        await withTimeout(
+          (async () => {
+            const Preferences = await getPreferences();
+            return Preferences.set({ key: tokenKey, value: token });
+          })(),
+          undefined
+        );
       } catch {
         // If the native Preferences plugin isn't available, keep in memory.
       }
-      return;
     }
-    safeSet(tokenKey, token);
-    writeCookie(token);
   },
   async clear(): Promise<void> {
     memoryToken = null;
+    safeRemove(tokenKey);
+    clearCookie();
+
     if (isNative()) {
       try {
-        await Preferences.remove({ key: tokenKey });
+        await withTimeout(
+          (async () => {
+            const Preferences = await getPreferences();
+            return Preferences.remove({ key: tokenKey });
+          })(),
+          undefined
+        );
       } catch {
         // Ignore if native Preferences plugin isn't available.
       }
-      return;
     }
-    safeRemove(tokenKey);
-    clearCookie();
   }
 };
 

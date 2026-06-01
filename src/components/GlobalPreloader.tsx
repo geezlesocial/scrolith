@@ -1,7 +1,8 @@
 import React from 'react';
 import { usePreloader } from '../context/PreloaderContext';
+import { resolveOptimizedStaticImageUrl } from '../utils/assetUrl';
 
-const BRAND_LOGO_URL = '/logo.png';
+const BRAND_LOGO_URL = '/logo.webp';
 
 const hexToRgb = (hex: string) => {
   const raw = String(hex || '').replace('#', '').trim();
@@ -77,7 +78,9 @@ const GlobalPreloader: React.FC = () => {
     color: config.textColor,
     ...parseCustomCss(config.customCss),
   };
-  const logoUrl = String(config.logoUrl || BRAND_LOGO_URL).trim() || BRAND_LOGO_URL;
+  const logoUrl = resolveOptimizedStaticImageUrl(
+    String(config.logoUrl || BRAND_LOGO_URL).trim() || BRAND_LOGO_URL
+  );
 
   return (
     <>
@@ -106,6 +109,9 @@ const GlobalPreloader: React.FC = () => {
             <img
               src={logoUrl}
               alt="Scrolith preloader logo"
+              width={80}
+              height={80}
+              decoding="async"
               className="h-20 w-20 object-contain"
               onError={(event) => {
                 const target = event.currentTarget as HTMLImageElement;
