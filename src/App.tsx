@@ -10,7 +10,6 @@ import {
 import Navbar from './components/Navbar';
 import ToastContainer from './components/ToastContainer';
 import OfflineBanner from './components/OfflineBanner';
-import AppDistributionPrompt from './components/AppDistributionPrompt';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
@@ -27,37 +26,10 @@ import { RealtimeProvider } from './dashboard/shared/RealtimeProvider';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
 import { AlertTriangleIcon } from './components/icons/ShellIcons';
-import IntegrationsManager from './components/IntegrationsManager';
-import { registerDeepLinks } from './mobile/deeplinks';
-import { initPushNotifications, syncStoredPushToken } from './mobile/push';
-import { App as CapacitorApp } from '@capacitor/app';
-import {
-  authenticateBiometrics,
-  checkBiometrics,
-  getBiometricPreference,
-  getBiometryLabel,
-  isNativePlatform,
-  setBiometricPreference
-} from './mobile/biometrics';
 import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
 import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
-import { trackMobileRuntimeEvent } from './mobile/mobileTelemetry';
 import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
-import BrowseTalent from './main/BrowseTalent';
-import BrowseJobs from './main/BrowseJobs';
-import SearchResults from './pages/SearchResults';
-import Messages from './messages/Messages';
-import FreelancerProfile from './profile/FreelancerProfile';
-import CompanyPage from './pages/CompanyPage';
-import ContactPage from './pages/ContactPage';
-import AffiliateProgram from './pages/AffiliateProgram';
-import Favorites from './pages/Favorites';
-import Cart from './pages/Cart';
-import SettingsModule from './dashboard/shared/SettingsModule';
-import { DashboardRouter } from './dashboard/DashboardRouter';
-import CommunityLayout from './community/CommunityLayout';
-import CommunityHome from './community/CommunityHome';
 import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
 import {
   FOLLOW_ONBOARDING_PATH,
@@ -65,10 +37,90 @@ import {
   resolveAuthenticatedEntryPath,
   resolveDashboardPath
 } from './utils/authRedirect';
+import { Capacitor } from '@capacitor/core';
 
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
 const ROUTE_SYNC_RELOAD_GUARD_KEY = 'scrolith:route-sync-reload-target';
+const BIOMETRIC_PREF_KEY = 'Scrolith.pref.biometric.enabled';
+const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
+const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
+
+const getCapacitorRuntime = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return (window as any)?.Capacitor || null;
+  } catch {
+    return null;
+  }
+};
+
+const hasNativeRuntime = () => {
+  if (IS_MOBILE_APP_BUILD) return true;
+  try {
+    if (Capacitor.isNativePlatform()) return true;
+  } catch {
+    // Fall back to runtime globals below.
+  }
+  const runtime = getCapacitorRuntime();
+  if (!runtime || typeof runtime.isNativePlatform !== 'function') return false;
+  try {
+    return Boolean(runtime.isNativePlatform());
+  } catch {
+    return false;
+  }
+};
+
+const isCompactTouchRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  try {
+    const coarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const maxTouchPoints = Number(window.navigator?.maxTouchPoints || 0);
+    const touchDevice = coarsePointer || maxTouchPoints > 0;
+    if (!touchDevice) return false;
+    const widths = [
+      window.innerWidth,
+      document.documentElement?.clientWidth,
+      window.visualViewport?.width,
+      window.screen?.width,
+      window.screen?.availWidth,
+      window.screen?.height,
+      window.screen?.availHeight
+    ].filter((value): value is number => Number.isFinite(value) && value > 0);
+    if (!widths.length) return false;
+    return Math.min(...widths) <= 900;
+  } catch {
+    return false;
+  }
+};
+
+const readBiometricPreference = () =>
+  typeof localStorage !== 'undefined' && localStorage.getItem(BIOMETRIC_PREF_KEY) === 'true';
+
+const writeBiometricPreference = (enabled: boolean) => {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(BIOMETRIC_PREF_KEY, enabled ? 'true' : 'false');
+};
+
+const trackRuntimeEvent = (eventName: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => {
+  void import('./mobile/mobileTelemetry')
+    .then(({ trackMobileRuntimeEvent }) => trackMobileRuntimeEvent(eventName, payload, options))
+    .catch(() => {});
+};
+
+const getBiometryLabel = (value: unknown) => {
+  const normalized =
+    typeof value === 'string'
+      ? value.toLowerCase()
+      : value === undefined || value === null
+        ? ''
+        : String(value).toLowerCase();
+  if (normalized.includes('face')) return 'Face ID';
+  if (normalized.includes('touch')) return 'Touch ID';
+  if (normalized.includes('finger')) return 'Fingerprint';
+  if (normalized.includes('iris')) return 'Iris';
+  return 'Biometric';
+};
 
 const getCurrentBrowserRoute = () =>
   typeof window === 'undefined'
@@ -88,7 +140,7 @@ const scheduleChunkRecoveryReload = (targetHref?: string) => {
     // Ignore session storage failures and still attempt reload.
   }
 
-  void trackMobileRuntimeEvent(
+  trackRuntimeEvent(
     'chunk_load_recovery',
     {
       targetRoute: nextRoute
@@ -118,7 +170,7 @@ const scheduleRouteSyncReload = (targetHref?: string) => {
     // Ignore session storage failures and still attempt reload.
   }
 
-  void trackMobileRuntimeEvent(
+  trackRuntimeEvent(
     'route_sync_recovery',
     {
       targetRoute: nextRoute
@@ -306,6 +358,8 @@ const ResetPassword = React.lazy(() => import('./auth/ResetPassword'));
 const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
 const FollowOnboarding = React.lazy(() => import('./auth/FollowOnboarding'));
 const DynamicFooter = React.lazy(() => import('./components/DynamicFooter'));
+const IntegrationsManager = React.lazy(() => import('./components/IntegrationsManager'));
+const AppDistributionPrompt = React.lazy(() => import('./components/AppDistributionPrompt'));
 const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
 const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
 const AdminDashboard = React.lazy(() => import('./dashboard/AdminDashboard'));
@@ -327,6 +381,22 @@ const HirePage = React.lazy(() => import('./pages/HirePage'));
 const FreelancerPage = React.lazy(() => import('./pages/FreelancerPage'));
 const Support = React.lazy(() => import('./pages/Support'));
 const PostDetailView = React.lazy(() => import('./pages/PostDetailView'));
+const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
+const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
+const SearchResults = React.lazy(() => import('./pages/SearchResults'));
+const Messages = React.lazy(() => import('./messages/Messages'));
+const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
+const CompanyPage = React.lazy(() => import('./pages/CompanyPage'));
+const ContactPage = React.lazy(() => import('./pages/ContactPage'));
+const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
+const Favorites = React.lazy(() => import('./pages/Favorites'));
+const Cart = React.lazy(() => import('./pages/Cart'));
+const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
+const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
+const CommunityHome = React.lazy(() => import('./community/CommunityHome'));
+const DashboardRouter = React.lazy(() =>
+  import('./dashboard/DashboardRouter').then((module) => ({ default: module.DashboardRouter }))
+);
 
 // Mobile (LinkedIn-style) logged-in home shell
 const MobileHome = React.lazy(() => import('./mobile/home/MobileHome'));
@@ -388,7 +458,7 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
   }
 
   componentDidCatch(error: unknown, info: unknown) {
-    void trackMobileRuntimeEvent(
+    trackRuntimeEvent(
       'mobile_runtime_error',
       {
         message:
@@ -418,8 +488,11 @@ const RouteLoadingFallback = () => (
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-50 shadow-sm">
           <img
-            src="/logo.png"
+            src="/logo.webp"
             alt="Scrolith logo"
+            width={56}
+            height={56}
+            decoding="async"
             className="h-14 w-14 object-contain"
             onError={(event) => {
               (event.currentTarget as HTMLImageElement).style.display = 'none';
@@ -436,7 +509,7 @@ const RouteLoadingFallback = () => (
 );
 
 const normalizeRouteRule = (value: string) => {
-  let normalized = String(value || '').trim();
+  let normalized = String(value || '').trim().split('#')[0].split('?')[0].trim();
   if (!normalized) return '';
 
   if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
@@ -501,6 +574,29 @@ const matchesRouteRule = (pathname: string, ruleValue: string) => {
 const matchesAnyRouteRule = (pathname: string, rules: string[]) =>
   rules.some((rule) => matchesRouteRule(pathname, rule));
 
+const DEFAULT_FOOTER_HIDDEN_ROUTES = [
+  '/',
+  '/messages',
+  '/client/dashboard/*',
+  '/freelancer/dashboard',
+  '/dashboard',
+  '/auth/signup',
+  '/auth/login',
+  '/community',
+  '/create-gig'
+];
+
+const DEFAULT_SUPPORT_WIDGET_HIDDEN_ROUTES = [
+  '/',
+  '/messages',
+  '/client/dashboard/*',
+  '/freelancer/dashboard',
+  '/dashboard',
+  '/developer',
+  '/community',
+  '/create-gig'
+];
+
 const MOBILE_STANDALONE_ROUTE_RULES = [
   '/dashboard*',
   '/freelancer/dashboard*',
@@ -537,6 +633,7 @@ const AppContent = () => {
   const navigate = useNavigate();
   const canonicalRedirectUrl = getCanonicalRedirectUrl();
   const isHomeRoute = location.pathname === '/';
+  const isGuestLandingRoute = isHomeRoute && !isAuthenticated;
   const themeKey = 'Scrolith.pref.theme';
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricVerified, setBiometricVerified] = useState(false);
@@ -553,7 +650,27 @@ const AppContent = () => {
   const appWasBackgroundedRef = useRef(false);
   const lastBiometricSuccessAtRef = useRef(0);
   const lastBiometricPromptAtRef = useRef(0);
-  const isNative = isNativePlatform();
+  const [isNative, setIsNative] = useState(() => hasNativeRuntime());
+
+  useEffect(() => {
+    if (!hasNativeRuntime()) {
+      setIsNative(false);
+      return;
+    }
+
+    let cancelled = false;
+    void import('@capacitor/core')
+      .then(({ Capacitor }) => {
+        if (!cancelled) setIsNative(Boolean(Capacitor.isNativePlatform()));
+      })
+      .catch(() => {
+        if (!cancelled) setIsNative(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!canonicalRedirectUrl || typeof window === 'undefined') return;
@@ -585,38 +702,29 @@ const AppContent = () => {
 
     let disposed = false;
     let timeoutId: number | null = null;
-    let idleId: number | null = null;
     const complete = () => {
       if (disposed) return;
       disposed = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
       setNonCriticalUiReady(true);
       window.removeEventListener('pointerdown', complete);
       window.removeEventListener('keydown', complete);
       window.removeEventListener('touchstart', complete);
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-      if (idleId !== null && 'cancelIdleCallback' in window) {
-        (window as any).cancelIdleCallback(idleId);
-      }
+      window.removeEventListener('scroll', complete);
     };
 
     window.addEventListener('pointerdown', complete, { once: true, passive: true });
     window.addEventListener('keydown', complete, { once: true });
     window.addEventListener('touchstart', complete, { once: true, passive: true });
-
-    if ('requestIdleCallback' in window) {
-      idleId = (window as any).requestIdleCallback(complete, { timeout: 1800 });
-    } else {
-      timeoutId = window.setTimeout(complete, 1800);
-    }
+    window.addEventListener('scroll', complete, { once: true, passive: true });
+    timeoutId = window.setTimeout(complete, 1800);
 
     return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
       window.removeEventListener('pointerdown', complete);
       window.removeEventListener('keydown', complete);
       window.removeEventListener('touchstart', complete);
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-      if (idleId !== null && 'cancelIdleCallback' in window) {
-        (window as any).cancelIdleCallback(idleId);
-      }
+      window.removeEventListener('scroll', complete);
       disposed = true;
     };
   }, [isHomeRoute]);
@@ -796,7 +904,7 @@ const AppContent = () => {
   }, []);
 
   useEffect(() => {
-    setBiometricEnabled(Boolean(isNative && getBiometricPreference()));
+    setBiometricEnabled(Boolean(isNative && readBiometricPreference()));
     if (!isNative) {
       updateBiometricVerified(true);
     }
@@ -814,10 +922,11 @@ const AppContent = () => {
       updateBiometricChecking(true);
       setBiometricError(null);
 
+      const { authenticateBiometrics, checkBiometrics } = await import('./mobile/biometrics');
       const info = await checkBiometrics();
       if (!info.available) {
         setBiometricEnabled(false);
-        setBiometricPreference(false);
+        writeBiometricPreference(false);
         updateBiometricVerified(true);
         updateBiometricChecking(false);
         showNotification('alert', 'Biometrics Unavailable', 'No biometric hardware detected on this device.');
@@ -848,15 +957,28 @@ const AppContent = () => {
   );
 
   useEffect(() => {
-    const cleanup = registerDeepLinks((path) => navigate(path, { replace: true }));
+    if (!isNative) return;
+    let disposed = false;
+    let cleanup: void | (() => void | Promise<void>);
+
+    void import('./mobile/deeplinks')
+      .then(({ registerDeepLinks }) => {
+        if (disposed) return;
+        cleanup = registerDeepLinks((path) => navigate(path, { replace: true }));
+      })
+      .catch(() => {});
+
     return () => {
+      disposed = true;
       void cleanup?.();
     };
-  }, [navigate]);
+  }, [navigate, isNative]);
 
   useEffect(() => {
+    if (!isNative) return;
     let isCancelled = false;
     const bootstrapNativePush = async () => {
+      const { initPushNotifications, syncStoredPushToken } = await import('./mobile/push');
       await initPushNotifications((path) => navigate(path, { replace: true }));
       if (!isCancelled) {
         await syncStoredPushToken();
@@ -866,19 +988,21 @@ const AppContent = () => {
     return () => {
       isCancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, isNative]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !isNative) return;
     let isCancelled = false;
     const bootstrapPush = async () => {
-      if (!isCancelled) await syncStoredPushToken();
+      const { forcePushRegistrationAfterAuth } = await import('./mobile/push');
+      if (isCancelled) return;
+      await forcePushRegistrationAfterAuth((path) => navigate(path, { replace: true }));
     };
     void bootstrapPush();
     return () => {
       isCancelled = true;
     };
-  }, [isAuthenticated, navigate, user?.id]);
+  }, [isAuthenticated, isNative, navigate, user?.id]);
 
   useEffect(() => {
     if (!biometricEnabled || !isAuthenticated || !user) {
@@ -894,33 +1018,38 @@ const AppContent = () => {
     if (!isNative || !biometricEnabled) return;
     let isMounted = true;
     let listenerHandle: { remove: () => Promise<void> } | null = null;
-    void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) {
-        appBackgroundAtRef.current = Date.now();
-        appWasBackgroundedRef.current = true;
+
+    void import('@capacitor/app').then(({ App: CapacitorApp }) => {
+      return CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (!isActive) {
+          appBackgroundAtRef.current = Date.now();
+          appWasBackgroundedRef.current = true;
+          updateBiometricVerified(false);
+          return;
+        }
+
+        const backgroundAt = appBackgroundAtRef.current;
+        const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
+        const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1000;
+        appWasBackgroundedRef.current = false;
+        appBackgroundAtRef.current = null;
+
+        if (!resumedFromBackground) return;
+
+        // Avoid immediate re-prompts caused by OEM app-state callbacks around biometric dialogs.
+        if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) return;
         updateBiometricVerified(false);
-        return;
-      }
-
-      const backgroundAt = appBackgroundAtRef.current;
-      const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
-      const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1000;
-      appWasBackgroundedRef.current = false;
-      appBackgroundAtRef.current = null;
-
-      if (!resumedFromBackground) return;
-
-      // Avoid immediate re-prompts caused by OEM app-state callbacks around biometric dialogs.
-      if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) return;
-      updateBiometricVerified(false);
-      void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
+        void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
+      });
     }).then((handle) => {
+      if (!handle) return;
       if (!isMounted) {
         void handle.remove();
         return;
       }
       listenerHandle = handle;
-    });
+    }).catch(() => {});
+
     return () => {
       isMounted = false;
       if (listenerHandle) {
@@ -943,7 +1072,7 @@ const AppContent = () => {
       uiVisibility.footer_hidden_routes ??
       (settings as any)?.footerHiddenRoutes ??
       (settings as any)?.footer_hidden_routes ??
-      []
+      DEFAULT_FOOTER_HIDDEN_ROUTES
   );
   const supportWidgetHiddenRoutes = parseRouteRules(
     uiVisibility.supportWidgetHiddenRoutes ??
@@ -952,7 +1081,7 @@ const AppContent = () => {
       uiVisibility.chat_widget_hidden_routes ??
       (settings as any)?.supportWidgetHiddenRoutes ??
       (settings as any)?.support_widget_hidden_routes ??
-      []
+      DEFAULT_SUPPORT_WIDGET_HIDDEN_ROUTES
   );
 
   const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
@@ -960,30 +1089,116 @@ const AppContent = () => {
   const memberHomeDesktopOverride =
     new URLSearchParams(location.search).get('desktop') === '1' ||
     new URLSearchParams(location.search).get('view') === 'desktop';
-  const isMobileViewport = shouldUseMobileShellViewport();
+  const isMobileUserAgent =
+    typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(String(navigator.userAgent || ''));
+  const isMobileViewport =
+    isNative || isMobileUserAgent || shouldUseMobileShellViewport() || isCompactTouchRuntime();
   const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isMobileShellRoute) {
+      try {
+        window.sessionStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+        window.localStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+      } catch {
+        // Ignore cleanup failures.
+      }
+      return;
+    }
+    if (!isAuthenticated || !user) return;
+    if (String(user.role || '').toLowerCase().includes('admin')) return;
+
+    let target = '';
+    try {
+      target =
+        window.sessionStorage.getItem(MOBILE_POST_AUTH_TARGET_KEY) ||
+        window.localStorage.getItem(MOBILE_POST_AUTH_TARGET_KEY) ||
+        '';
+    } catch {
+      target = '';
+    }
+
+    if (!target) return;
+    const safeTarget = target.startsWith('/') ? target : '/member-home';
+    const absoluteTarget = new URL(safeTarget, window.location.origin).href;
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    const targetPath = new URL(safeTarget, window.location.origin).pathname.replace(/\/+$/, '') || '/';
+    if (currentPath === targetPath) {
+      try {
+        window.sessionStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+        window.localStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+      } catch {
+        // Ignore cleanup failures.
+      }
+      return;
+    }
+    const redirect = () => {
+      if ((window.location.pathname.replace(/\/+$/, '') || '/') === targetPath) return;
+      window.location.replace(absoluteTarget);
+    };
+    redirect();
+    const retryTimers = [750, 2_500, 6_000, 12_000, 18_000].map((delay) =>
+      window.setTimeout(redirect, delay)
+    );
+    return () => {
+      retryTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [isAuthenticated, isMobileShellRoute, user]);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !user || !shouldUseMobileMemberHome) return;
+    if (String(user.role || '').toLowerCase().includes('admin')) return;
+    if (isMobileShellRoute) return;
+
+    const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+    const shouldNormalizeToMobileHome =
+      normalizedPath === '/' ||
+      normalizedPath === '/home' ||
+      normalizedPath === '/auth/login' ||
+      normalizedPath === '/auth/signup' ||
+      normalizedPath === '/auth/follow-onboarding';
+
+    if (shouldNormalizeToMobileHome) {
+      navigate('/member-home', { replace: true });
+    }
+  }, [
+    isAuthenticated,
+    isLoading,
+    isMobileShellRoute,
+    location.pathname,
+    navigate,
+    shouldUseMobileMemberHome,
+    user
+  ]);
   const isMobileStandaloneRoute =
     shouldUseMobileMemberHome &&
     !isMobileShellRoute &&
     !isAdminRoute &&
     !isMessagesRoute &&
     matchesAnyRouteRule(location.pathname, MOBILE_STANDALONE_ROUTE_RULES);
+  const normalizedAppPath = location.pathname.replace(/\/+$/, '') || '/';
+  const shouldRenderForcedMobileHome = false;
   const shouldHideAppDistributionPrompt =
+    shouldRenderForcedMobileHome ||
     isMobileShellRoute ||
     isMessagesRoute ||
     isMessagesTabRoute ||
     isGigDetailRoute ||
     isScrollRoute;
   const shouldHideSupportWidget =
+    shouldRenderForcedMobileHome ||
     isAdminRoute ||
     isMobileShellRoute ||
     isMobileStandaloneRoute ||
+    (isMobileViewport && isGuestLandingRoute) ||
     isMessagesRoute ||
     isMessagesTabRoute ||
     isGigDetailRoute ||
     isScrollRoute ||
     isSupportWidgetSuppressedByRule;
   const shouldHideFooter =
+    shouldRenderForcedMobileHome ||
     isMobileShellRoute ||
     isMobileStandaloneRoute ||
     isAdminRoute ||
@@ -1005,23 +1220,48 @@ const AppContent = () => {
     <Landing />
   ) : hasPendingFollowOnboarding(user) ? (
     <Navigate to={FOLLOW_ONBOARDING_PATH} replace />
-  ) : shouldUseMobileMemberHome ? (
-    <Navigate to="/m/home" replace />
   ) : (
     <MemberHomeSection />
   );
+  const unmatchedRouteElement =
+    isAuthenticated && user ? (
+      <Navigate to={resolveAuthenticatedEntryPath(user)} replace />
+    ) : (
+      <Navigate to="/" replace />
+    );
   
   return (
     <div className="flex flex-col min-h-screen relative">
-      <IntegrationsManager />
+      {nonCriticalUiReady && (
+        <Suspense fallback={null}>
+          <IntegrationsManager />
+        </Suspense>
+      )}
       <OfflineBanner />
-      {!shouldHideAppDistributionPrompt && !isMobileStandaloneRoute && nonCriticalUiReady && <AppDistributionPrompt />}
-      {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && !isMobileStandaloneRoute && <Navbar />}
+      {!shouldHideAppDistributionPrompt && !isMobileStandaloneRoute && nonCriticalUiReady && (
+        <Suspense fallback={null}>
+          <AppDistributionPrompt />
+        </Suspense>
+      )}
+      {!shouldRenderForcedMobileHome &&
+        !isAdminRoute &&
+        !isMobileShellRoute &&
+        !isScrollRoute &&
+        !isMobileStandaloneRoute && <Navbar />}
       <main className="flex-grow">
-        <ErrorBoundary key={routeRenderKey}>
-          <Suspense key={routeRenderKey} fallback={<RouteLoadingFallback />}>
-            <Routes location={location} key={routeRenderKey}>
+        {shouldRenderForcedMobileHome ? (
+          <ErrorBoundary key="forced-mobile-home">
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <MobileHome />
+            </Suspense>
+          </ErrorBoundary>
+        ) : (
+          <ErrorBoundary key={routeRenderKey}>
+            <Suspense key={routeRenderKey} fallback={<RouteLoadingFallback />}>
+              <Routes location={location} key={routeRenderKey}>
               <Route path="/" element={signedInHomepageElement} />
+              <Route path="/home" element={signedInHomepageElement} />
+              <Route path="/member-home" element={signedInHomepageElement} />
               <Route
                 path="/member_home"
                 element={
@@ -1056,6 +1296,8 @@ const AppContent = () => {
                   </PublicOnlyRoute>
                 }
               />
+              <Route path="/login" element={<Navigate to="/auth/login" replace />} />
+              <Route path="/signin" element={<Navigate to="/auth/login" replace />} />
               <Route
                 path="/auth/forgot-password"
                 element={
@@ -1080,6 +1322,8 @@ const AppContent = () => {
                   </PublicOnlyRoute>
                 }
               />
+              <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
+              <Route path="/join" element={<Navigate to="/auth/signup" replace />} />
               <Route
                 path="/auth/follow-onboarding"
                 element={
@@ -1419,10 +1663,12 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route path="*" element={unmatchedRouteElement} />
               
-            </Routes>
-          </Suspense>
-        </ErrorBoundary>
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
+        )}
       </main>
       {!shouldHideFooter && nonCriticalUiReady && (
         <Suspense fallback={null}>
@@ -1516,18 +1762,22 @@ const DashboardAliasRedirect: React.FC = () => {
 
 const LegacyMemberHomeRedirect: React.FC = () => {
   const location = useLocation();
-  return <Navigate to={{ pathname: '/', search: location.search, hash: location.hash }} replace />;
+  return <Navigate to={{ pathname: '/member-home', search: location.search, hash: location.hash }} replace />;
 };
 
 const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, isLoading } = useUser();
 
-  if (isLoading) {
-    return null;
+  if (isAuthenticated && user) {
+    const target = hasPendingFollowOnboarding(user) ? FOLLOW_ONBOARDING_PATH : resolveAuthenticatedEntryPath(user);
+    return <Navigate to={target} replace />;
   }
 
-  if (isAuthenticated && user) {
-    return <Navigate to={hasPendingFollowOnboarding(user) ? FOLLOW_ONBOARDING_PATH : '/'} replace />;
+  // Public auth pages should remain usable while session bootstrap is checking
+  // native storage. Returning null here caused Android WebView to show only the
+  // global header/search shell on /auth/login and /auth/signup.
+  if (isLoading) {
+    return <>{children}</>;
   }
 
   return <>{children}</>;
@@ -1554,7 +1804,7 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
     const location = useLocation();
 
   if (isLoading) {
-    return null;
+    return <RouteLoadingFallback />;
   }
 
   if (!isAuthenticated || !user) {

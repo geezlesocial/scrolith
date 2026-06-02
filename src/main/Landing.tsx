@@ -4,7 +4,6 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { useSocket } from '../context/SocketContext';
-import { shouldUseMobileShellViewport } from '../mobile/home/mobileShellLayout';
 import { useT } from '../i18n/useT';
 import { CMSService } from '../services/cms';
 import {
@@ -288,13 +287,6 @@ const Landing = () => {
   const location = useLocation();
 
   if (user) {
-    const searchParams = new URLSearchParams(location.search);
-    const memberHomeDesktopOverride =
-      searchParams.get('desktop') === '1' || searchParams.get('view') === 'desktop';
-    const isMobileViewport = shouldUseMobileShellViewport();
-    if (isMobileViewport && !memberHomeDesktopOverride) {
-      return <Navigate to="/m/home" replace />;
-    }
     return <MemberHomeSection />;
   }
 

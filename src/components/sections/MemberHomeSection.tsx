@@ -93,6 +93,7 @@ import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { StructuredLocationFields } from '../../types';
 import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
+import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
 
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
 const PostShareModal = React.lazy(() => import('../../community/components/PostShareModal'));
@@ -900,6 +901,31 @@ const GRAPHIC_WARNING_LABEL = 'Graphic warning';
 const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
 const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
 const BRAND_LOGO_URL = '/logo.png';
+
+const buildPostScrolithaPrompt = (title: string, content: string) => {
+  const safeTitle = String(title || '').trim();
+  const safeContent = String(content || '').replace(/\s+/g, ' ').trim();
+  const excerpt = safeContent.slice(0, 280);
+  if (safeTitle && excerpt) {
+    return `Improve this Scrolith post for clarity, reach, and conversion.\nTitle: ${safeTitle}\nBody: ${excerpt}`;
+  }
+  if (safeTitle) {
+    return `Improve this Scrolith post title and suggest a stronger body copy:\n${safeTitle}`;
+  }
+  if (excerpt) {
+    return `Improve this Scrolith post and suggest better engagement hooks:\n${excerpt}`;
+  }
+  return 'Help me draft a high-performing Scrolith post for global professional audience.';
+};
+
+const buildListingScrolithaPrompt = (kind: 'job' | 'gig', title: string, category: string) => {
+  const safeTitle = String(title || '').trim() || (kind === 'job' ? 'Job opportunity' : 'Service offer');
+  const safeCategory = String(category || '').trim() || (kind === 'job' ? 'Hiring' : 'Services');
+  if (kind === 'job') {
+    return `Improve this job card copy for better applicant quality.\nTitle: ${safeTitle}\nCategory: ${safeCategory}\nReturn concise, enterprise-grade wording.`;
+  }
+  return `Improve this gig card copy for better conversion and trust.\nTitle: ${safeTitle}\nCategory: ${safeCategory}\nReturn concise, enterprise-grade wording.`;
+};
 
 const toPreviewMedia = (media: any): PreviewMedia | null => {
   const url = String(media?.url || '').trim();
@@ -4996,6 +5022,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setListingImageErrors((prev) => (prev[imageKey] ? prev : { ...prev, [imageKey]: true }));
   }, []);
 
+  const openScrolithaFromMemberHome = useCallback(
+    (prompt: string) => {
+      const params = new URLSearchParams(location.search);
+      ['post', 'postId', 'story', 'storyId', 'scroll', 'edit', 'modal', 'focus'].forEach((key) => {
+        params.delete(key);
+      });
+      const query = params.toString();
+      const base = `${location.pathname}${query ? `?${query}` : ''}`;
+      navigate(buildScrolithaPath(base, prompt));
+    },
+    [location.pathname, location.search, navigate]
+  );
+
   const renderInlineListingCard = useCallback(
     (entry: { kind: 'job' | 'gig'; item: any }, slotIndex: number) => {
       const listingId = String(entry?.item?.id || '').trim();
@@ -5012,7 +5051,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         return (
           <article
             key={`feed_listing_job_${slotIndex}_${listingId}`}
-            className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-4 shadow-sm"
+            className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-5 shadow-sm"
           >
             <div className="flex items-center justify-between gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600">Featured Job</p>
@@ -5038,12 +5077,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               </p>
               <p className="mt-2 text-sm text-slate-600">Budget: {formatListingAmount(job?.budget)}</p>
             </Link>
+            <div className="mt-3 rounded-2xl border border-indigo-100 bg-white/80 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-700">Scrolitha recommendation</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    openScrolithaFromMemberHome(
+                      buildListingScrolithaPrompt('job', String(job?.title || ''), String(job?.category || ''))
+                    )
+                  }
+                  className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 transition hover:bg-indigo-100"
+                >
+                  Enhance copy
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">Optimize title, clarity, and action intent for stronger applications.</p>
+            </div>
             <Link to={`/jobs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-indigo-100 bg-white">
               {hasListingImage ? (
                 <img
                   src={listingImageUrl}
                   alt={job?.title || 'Featured job'}
-                  className="h-40 w-full object-cover"
+                  className="h-48 w-full object-cover"
                   loading="lazy"
                   onError={() => markListingImageError(listingImageKey)}
                 />
@@ -5099,7 +5155,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       return (
         <article
           key={`feed_listing_gig_${slotIndex}_${listingId}`}
-          className="rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-4 shadow-sm"
+          className="rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-5 shadow-sm"
         >
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Featured Gig</p>
@@ -5125,12 +5181,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </p>
             <p className="mt-2 text-sm text-slate-600">From {formatListingAmount(gig?.price, '$0')}</p>
           </Link>
+          <div className="mt-3 rounded-2xl border border-emerald-100 bg-white/80 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Scrolitha recommendation</p>
+              <button
+                type="button"
+                onClick={() =>
+                  openScrolithaFromMemberHome(
+                    buildListingScrolithaPrompt('gig', String(gig?.title || ''), String(gig?.category || ''))
+                  )
+                }
+                className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-100"
+              >
+                Enhance copy
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-600">Refine offer positioning and trust signals for better conversion.</p>
+          </div>
           <Link to={`/gigs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-emerald-100 bg-white">
             {hasListingImage ? (
               <img
                 src={listingImageUrl}
                 alt={gig?.title || 'Featured gig'}
-                className="h-40 w-full object-cover"
+                className="h-48 w-full object-cover"
                 loading="lazy"
                 onError={() => markListingImageError(listingImageKey)}
               />
@@ -6613,7 +6686,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <button
                       type="button"
                       onClick={() => storyDeviceInputRef.current?.click()}
-                      className="flex h-48 min-w-[120px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-52 sm:min-w-[132px]"
+                      className="flex h-56 min-w-[132px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-60 sm:min-w-[148px]"
                       disabled={storyPosting}
                     >
                       <Plus className="h-5 w-5 mb-2" />
@@ -6629,7 +6702,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           key={story.id}
                           type="button"
                           onClick={() => openStory(story)}
-                          className="relative h-48 min-w-[120px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:h-52 sm:min-w-[132px]"
+                          className="relative h-56 min-w-[132px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:h-60 sm:min-w-[148px]"
                         >
                           {(() => {
                             const media = resolveStoryMedia(story);
@@ -6734,7 +6807,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <button
                       type="button"
                       onClick={() => setScrollCreateOpen(true)}
-                      className="flex h-48 min-w-[120px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-52 sm:min-w-[132px]"
+                      className="flex h-56 min-w-[132px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-60 sm:min-w-[148px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Create Scroll
@@ -6749,7 +6822,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           key={scroll.id}
                           type="button"
                           onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
-                          className="relative h-48 min-w-[120px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:h-52 sm:min-w-[132px]"
+                          className="relative h-56 min-w-[132px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:h-60 sm:min-w-[148px]"
                         >
                           {(() => {
                             const media = resolveReelMedia(scroll);
@@ -6991,7 +7064,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   return (
                     <React.Fragment key={post.id}>
                       <article
-                        className={`rise-fade overflow-hidden rounded-[32px] border border-slate-200/85 bg-gradient-to-b from-white via-white to-slate-50/75 shadow-[0_20px_44px_-30px_rgba(15,23,42,0.38)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_26px_56px_-30px_rgba(15,23,42,0.44)] ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
+                        className={`rise-fade overflow-hidden rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 shadow-[0_22px_52px_-34px_rgba(15,23,42,0.42)] ring-1 ring-slate-100/70 transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_30px_70px_-36px_rgba(15,23,42,0.5)] ${postDensity === 'compact' ? 'p-5' : 'p-7'}`}
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -7250,8 +7323,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 viewerUsername={user?.username}
                                 mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                                 expandable
-                                titleClassName="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
-                                contentWrapperClassName="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                                titleClassName="text-left text-[1.45rem] font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
+                                contentWrapperClassName="cursor-pointer text-base leading-[1.82] text-slate-700 [overflow-wrap:anywhere]"
                                 buttonClassName="text-slate-900"
                                 translationRowClassName="text-slate-500"
                                 onTitleClick={postTitle ? () => openPostCard(post) : undefined}
@@ -7281,6 +7354,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 ))}
                               </div>
                             ) : null}
+                            <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-indigo-50 px-3 py-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  Scrolitha coach
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    openScrolithaFromMemberHome(buildPostScrolithaPrompt(postTitle, postContent));
+                                  }}
+                                  className="inline-flex items-center rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 transition hover:bg-violet-100"
+                                >
+                                  Enhance post
+                                </button>
+                              </div>
+                              <p className="mt-1 text-xs text-slate-600">Get recommendation prompts for stronger reach, clarity, and conversion.</p>
+                            </div>
                             <ContentOfferTags offerTags={post.offerTags} />
                             {post.aiInsightGenerated && post.aiInsightText ? (
                               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">

@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { AuthService } from '../services/authService';
 import { FOLLOW_ONBOARDING_PATH, hasPendingFollowOnboarding } from '../utils/authRedirect';
-import { Capacitor } from '@capacitor/core';
 
 interface UserContextType {
   user: User | null;
@@ -20,83 +19,24 @@ interface UserContextType {
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 const AUTH_BOOTSTRAP_TIMEOUT_MS = 8000;
-const MOBILE_POST_AUTH_BREAKPOINT = 1180;
 const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
-const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
-
-const isNativeRuntime = () => {
-  if (typeof window === 'undefined') return false;
-  if (IS_MOBILE_APP_BUILD) return true;
-  try {
-    if (Capacitor.isNativePlatform()) return true;
-    const runtime = (window as any)?.Capacitor;
-    if (runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform()) {
-      return true;
-    }
-    if (runtime && typeof runtime.getPlatform === 'function') {
-      const platform = String(runtime.getPlatform() || '').toLowerCase();
-      if (platform && platform !== 'web') return true;
-    }
-    const ua = String(window.navigator?.userAgent || '');
-    return /Android/i.test(ua) && /;\s*wv\)|\bwv\b/i.test(ua);
-  } catch {
-    return false;
-  }
-};
-
-const shouldUseMobilePostAuthRoute = () => {
-  if (typeof window === 'undefined') return false;
-  if (isNativeRuntime()) return true;
-  try {
-    const ua = String(window.navigator?.userAgent || '');
-    if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return true;
-    const coarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
-    const maxTouchPoints = Number(window.navigator?.maxTouchPoints || 0);
-    const viewportWidth = Math.min(
-      window.innerWidth || Number.POSITIVE_INFINITY,
-      document.documentElement?.clientWidth || Number.POSITIVE_INFINITY,
-      window.visualViewport?.width || Number.POSITIVE_INFINITY
-    );
-    const screenWidth = Math.min(
-      window.screen?.width || Number.POSITIVE_INFINITY,
-      window.screen?.availWidth || Number.POSITIVE_INFINITY,
-      window.screen?.height || Number.POSITIVE_INFINITY,
-      window.screen?.availHeight || Number.POSITIVE_INFINITY
-    );
-    const touchDevice = coarsePointer || maxTouchPoints > 0;
-    return (
-      viewportWidth < MOBILE_POST_AUTH_BREAKPOINT ||
-      (touchDevice && viewportWidth <= 1366) ||
-      (touchDevice && screenWidth <= 900)
-    );
-  } catch {
-    return window.innerWidth < MOBILE_POST_AUTH_BREAKPOINT;
-  }
-};
 
 const resolvePostAuthPath = (user: User | null) => {
   const role = String(user?.role || '').toLowerCase();
-  const useMobileHome = shouldUseMobilePostAuthRoute() && !role.includes('admin');
-  if (useMobileHome) return '/m/home';
-
   if (hasPendingFollowOnboarding(user)) return FOLLOW_ONBOARDING_PATH;
 
   if (role.includes('admin')) return '/admin/dashboard';
-  if (role.includes('freelancer') || role.includes('seller')) return '/freelancer/dashboard';
-  if (role.includes('employer') || role.includes('client') || role.includes('buyer')) return '/client/dashboard';
-  return shouldUseMobilePostAuthRoute() ? '/m/home' : '/';
+  return '/member-home';
 };
 
 const redirectAfterAuth = (user: User | null) => {
   if (typeof window === 'undefined') return;
   const target = resolvePostAuthPath(user);
-  if (target.startsWith('/m/')) {
-    try {
-      window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
-      window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
-    } catch {
-      // Session storage is best-effort; the direct redirect below is primary.
-    }
+  try {
+    window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+    window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+  } catch {
+    // Session storage is best-effort; the direct redirect below is primary.
   }
   window.location.replace(new URL(target, window.location.origin).href);
 };

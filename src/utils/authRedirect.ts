@@ -21,4 +21,11 @@ export const resolveDashboardPath = (role?: UserRole | string) => {
 
 export const resolveAuthenticatedEntryPath = (
   user?: Pick<User, 'role' | 'followOnboardingRequired' | 'follow_onboarding_required'> | null
-) => (hasPendingFollowOnboarding(user) ? FOLLOW_ONBOARDING_PATH : resolveDashboardPath(user?.role));
+) => {
+  if (hasPendingFollowOnboarding(user)) return FOLLOW_ONBOARDING_PATH;
+
+  const normalizedRole = String(user?.role || '').trim().toLowerCase();
+  if (normalizedRole === UserRole.ADMIN) return resolveDashboardPath(user?.role);
+
+  return '/member-home';
+};

@@ -137,15 +137,15 @@ const Login = () => {
         // Native/mobile auth pages must not race back to the desktop root shell.
         if (shouldUseMobilePostLoginRoute() && !isStoredAdminUser()) {
           try {
-            window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, '/m/home');
-            window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, '/m/home');
+            window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, '/member-home');
+            window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, '/member-home');
           } catch {
             // Best-effort route recovery for Android WebView.
           }
-          navigate('/m/home', { replace: true });
+          navigate('/member-home', { replace: true });
           window.setTimeout(() => {
-            if (!/^\/m(\/|$)/.test(window.location.pathname)) {
-              window.location.replace(new URL('/m/home', window.location.origin).href);
+            if (window.location.pathname.replace(/\/+$/, '') !== '/member-home') {
+              window.location.replace(new URL('/member-home', window.location.origin).href);
             }
           }, 1_500);
         }
