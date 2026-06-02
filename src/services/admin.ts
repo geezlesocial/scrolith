@@ -376,6 +376,30 @@ export const AdminService = {
     await adminPost(`/users/${userId}/status`, { status, adminId });
   },
 
+  getUserModerationStatus: async (userId: string): Promise<any> => {
+    return adminGet<any>(`/users/${encodeURIComponent(userId)}/moderation`);
+  },
+
+  applyUserModerationAction: async (
+    userId: string,
+    payload: {
+      action: 'warning' | 'strike' | 'restriction' | 'ban';
+      reason?: string;
+      userMessage?: string;
+      severity?: string;
+      restrictedFeatures?: string[];
+      restrictionHours?: number;
+      source?: string;
+      sourceId?: string;
+      sourceLabel?: string;
+      reportId?: string;
+      postId?: string;
+    },
+    adminId: string
+  ): Promise<any> => {
+    return adminPost<any>(`/users/${encodeURIComponent(userId)}/moderation`, { ...payload, adminId });
+  },
+
   updateUserPassword: async (userId: string, password: string, adminId: string): Promise<void> => {
     await adminPost(`/users/${userId}/password`, { password, adminId });
   },

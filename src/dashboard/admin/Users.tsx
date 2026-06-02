@@ -191,8 +191,17 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isAdjustingBalance, setIsAdjustingBalance] = useState(false);
   const [isAdjustingGcoin, setIsAdjustingGcoin] = useState(false);
+  const [isModerating, setIsModerating] = useState(false);
   const [balanceAdjustment, setBalanceAdjustment] = useState({ amount: '', reason: '' });
   const [gcoinAdjustment, setGcoinAdjustment] = useState({ amount: '', reason: '' });
+  const [moderationAction, setModerationAction] = useState({
+    action: 'warning' as 'warning' | 'strike' | 'restriction' | 'ban',
+    reason: '',
+    userMessage: '',
+    restrictedFeatures: 'post, comment, react',
+    restrictionHours: '24'
+  });
+  const [userModeration, setUserModeration] = useState<any | null>(null);
 
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>('');
@@ -208,6 +217,27 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
       loadAnalytics();
     }
   }, [subTab]);
+
+  useEffect(() => {
+    if (!isEditModalOpen || !editingUser?.id) {
+      setUserModeration(null);
+      return;
+    }
+
+    let active = true;
+    AdminService.getUserModerationStatus(editingUser.id)
+      .then((data) => {
+        if (active) setUserModeration(data || null);
+      })
+      .catch((error) => {
+        console.error('Failed to load user moderation summary:', error);
+        if (active) setUserModeration(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [editingUser?.id, isEditModalOpen]);
 
   const loadData = async () => {
     setRefreshing(true);
@@ -267,6 +297,14 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     });
     setBalanceAdjustment({ amount: '', reason: '' });
     setGcoinAdjustment({ amount: '', reason: '' });
+    setModerationAction({
+      action: 'warning',
+      reason: '',
+      userMessage: '',
+      restrictedFeatures: 'post, comment, react',
+      restrictionHours: '24'
+    });
+    setUserModeration(null);
     setIsEditModalOpen(true);
   };
 
@@ -373,6 +411,45 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
       showNotification('error', 'Adjustment Error', 'Failed to adjust Gcoin balance.');
     } finally {
       setIsAdjustingGcoin(false);
+    }
+  };
+
+  const handleApplyModeration = async () => {
+    if (!editingUser?.id) return;
+    const restrictedFeatures = moderationAction.restrictedFeatures
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+    const restrictionHours = Number(moderationAction.restrictionHours || 0);
+    if (moderationAction.action === 'restriction' && restrictedFeatures.length === 0) {
+      showNotification('warning', 'Missing Features', 'Select at least one restricted feature or keep the default set.');
+      return;
+    }
+    setIsModerating(true);
+    try {
+      const result = await AdminService.applyUserModerationAction(
+        editingUser.id,
+        {
+          action: moderationAction.action,
+          reason: moderationAction.reason || undefined,
+          userMessage: moderationAction.userMessage || undefined,
+          severity: moderationAction.action === 'ban' ? 'high' : moderationAction.action === 'restriction' ? 'medium' : 'low',
+          restrictedFeatures: restrictedFeatures.length ? restrictedFeatures : ['post', 'comment', 'react'],
+          restrictionHours: Number.isFinite(restrictionHours) ? Math.max(0, restrictionHours) : 0,
+          source: 'admin_users_dashboard',
+          sourceLabel: 'Users dashboard'
+        },
+        adminId
+      );
+      const actionLabel = String(result?.action || moderationAction.action);
+      showNotification('success', 'Moderation Applied', `Account ${actionLabel} saved successfully.`);
+      setUserModeration(result || null);
+      await loadData();
+    } catch (error: any) {
+      console.error('Failed to apply moderation action:', error);
+      showNotification('error', 'Moderation Error', error?.response?.data?.error || 'Failed to apply moderation action.');
+    } finally {
+      setIsModerating(false);
     }
   };
 
@@ -1380,6 +1457,116 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     placeholder="Leave blank to keep current password"
                   />
                   <p className="text-xs text-gray-500 mt-1">Leave blank if you don't want to change the password.</p>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">Account moderation</div>
+                      <div className="text-xs text-gray-600">Apply warning, strike, temporary restrictions, or ban.</div>
+                    </div>
+                    <div className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 border border-amber-200">
+                      Real-time notice
+                    </div>
+                  </div>
+
+                  {userModeration?.activeViolationCount ? (
+                    <div className="rounded-lg border border-amber-200 bg-white p-3 text-xs text-gray-700">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-gray-900">Current active violations</span>
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-700">
+                          {Number(userModeration.activeViolationCount || 0)}
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {(userModeration.activeViolations || []).slice(0, 2).map((violation: any) => (
+                          <div key={violation.id} className="rounded-md bg-gray-50 px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-gray-900 capitalize">{violation.action || violation.type}</span>
+                              <span className="text-[11px] text-gray-500">{violation.expiresAt ? `until ${new Date(violation.expiresAt).toLocaleString()}` : 'active'}</span>
+                            </div>
+                            <div className="text-[11px] text-gray-600">{violation.reason || 'No reason provided'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-white/80 bg-white p-3 text-xs text-gray-500">
+                      No active warning, strike, or restriction is currently applied.
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Action</label>
+                      <select
+                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        value={moderationAction.action}
+                        onChange={(e) => setModerationAction(prev => ({ ...prev, action: e.target.value as any }))}
+                      >
+                        <option value="warning">Warning</option>
+                        <option value="strike">Strike</option>
+                        <option value="restriction">Restrict features</option>
+                        <option value="ban">Ban</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Restriction hours</label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        value={moderationAction.restrictionHours}
+                        onChange={(e) => setModerationAction(prev => ({ ...prev, restrictionHours: e.target.value }))}
+                        placeholder="24"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Restricted features</label>
+                    <input
+                      type="text"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      value={moderationAction.restrictedFeatures}
+                      onChange={(e) => setModerationAction(prev => ({ ...prev, restrictedFeatures: e.target.value }))}
+                      placeholder="post, comment, react"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">Use post, comment, and react to block posting, commenting, or reactions.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Reason</label>
+                    <textarea
+                      rows={2}
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      value={moderationAction.reason}
+                      onChange={(e) => setModerationAction(prev => ({ ...prev, reason: e.target.value }))}
+                      placeholder="Explain why this moderation action is being applied."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">User message</label>
+                    <textarea
+                      rows={2}
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      value={moderationAction.userMessage}
+                      onChange={(e) => setModerationAction(prev => ({ ...prev, userMessage: e.target.value }))}
+                      placeholder="Message shown in app and email"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleApplyModeration}
+                      disabled={isModerating}
+                      className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {isModerating ? 'Applying...' : 'Apply Moderation'}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="mt-6 border-t pt-4 space-y-4">

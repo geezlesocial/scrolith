@@ -2616,7 +2616,8 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
     const [severity, setSeverity] = useState('medium');
     const [flagPost, setFlagPost] = useState(true);
     const [removePost, setRemovePost] = useState(false);
-    const [sanctionAccount, setSanctionAccount] = useState(true);
+    const [warnAccount, setWarnAccount] = useState(true);
+    const [sanctionAccount, setSanctionAccount] = useState(false);
     const [banAccount, setBanAccount] = useState(false);
     const [restrictPostingHours, setRestrictPostingHours] = useState(0);
     const [restrictedFeaturesInput, setRestrictedFeaturesInput] = useState('');
@@ -2668,6 +2669,14 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
                 setDecisionReason(resolved.actionSummary || '');
                 setComplainantMessage(resolved.reporterReply || '');
                 setSeverity(resolved.severity || 'medium');
+                setWarnAccount(true);
+                setSanctionAccount(false);
+                setBanAccount(false);
+                setRestrictPostingHours(0);
+                setRestrictedFeaturesInput('');
+                setRestrictFeaturesHours(0);
+                setFlagPost(true);
+                setRemovePost(false);
             }
         } catch (error) {
             console.error('Failed to load post report detail:', error);
@@ -2736,6 +2745,7 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
                     ? {
                         flagPost,
                         removePost,
+                        warnAccount,
                         sanctionAccount,
                         banAccount,
                         restrictPostingHours: Math.max(0, Number(restrictPostingHours || 0)),
@@ -2929,7 +2939,8 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                         <label className="flex items-center gap-2"><input type="checkbox" checked={flagPost} onChange={(e) => setFlagPost(e.target.checked)} /> Flag Post</label>
                                         <label className="flex items-center gap-2"><input type="checkbox" checked={removePost} onChange={(e) => setRemovePost(e.target.checked)} /> Remove Post</label>
-                                        <label className="flex items-center gap-2"><input type="checkbox" checked={sanctionAccount} onChange={(e) => setSanctionAccount(e.target.checked)} /> Sanction Account</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={warnAccount} onChange={(e) => setWarnAccount(e.target.checked)} /> Warning</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={sanctionAccount} onChange={(e) => setSanctionAccount(e.target.checked)} /> Strike Account</label>
                                         <label className="flex items-center gap-2"><input type="checkbox" checked={banAccount} onChange={(e) => setBanAccount(e.target.checked)} /> Ban Account</label>
                                     </div>
                                 ) : null}

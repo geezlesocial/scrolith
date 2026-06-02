@@ -1666,7 +1666,9 @@ class CommunityService {
       actions?: {
         flagPost?: boolean;
         removePost?: boolean;
+        warnAccount?: boolean;
         sanctionAccount?: boolean;
+        strikeAccount?: boolean;
         banAccount?: boolean;
         restrictPostingHours?: number;
         restrictedFeatures?: string[];
