@@ -47,6 +47,7 @@ import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 import { pickInterestSurveyCandidateIds } from '../../../components/recommendation/ContentInterestSurvey';
+import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -108,6 +109,18 @@ const relativeTime = (iso?: string | null) => {
 const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
 const BRAND_LOGO_URL = '/logo.webp';
+const buildPostScrolithaPrompt = (title: string, content: string) => {
+  const safeTitle = String(title || '').trim();
+  const safeContent = String(content || '').replace(/\s+/g, ' ').trim();
+  const excerpt = safeContent.slice(0, 280);
+  if (safeTitle && excerpt) {
+    return `Improve this Scrolith post for clarity, engagement, and relevance.\nTitle: ${safeTitle}\nBody: ${excerpt}`;
+  }
+  if (safeTitle) return `Improve this Scrolith post title and suggest stronger supporting copy:\n${safeTitle}`;
+  if (excerpt) return `Improve this Scrolith post and suggest better engagement hooks:\n${excerpt}`;
+  return 'Help me draft a high-performing Scrolith post for mobile audience.';
+};
+
 const toPreviewMedia = (media: any): PreviewMedia | null => {
   const url = String(media?.url || '').trim();
   if (!url) return null;
@@ -1221,6 +1234,22 @@ export default function MobileFeed({
     [openPostCard]
   );
 
+  const openScrolithaFromMobile = useCallback(
+    (prompt: string) => {
+      let base = '/m/home';
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        ['post', 'postId', 'story', 'storyId', 'scroll', 'edit', 'modal', 'focus'].forEach((key) => {
+          params.delete(key);
+        });
+        const query = params.toString();
+        base = `${window.location.pathname}${query ? `?${query}` : ''}`;
+      }
+      navigate(buildScrolithaPath(base, prompt));
+    },
+    [navigate]
+  );
+
   const triggerPostDoubleTapLike = useCallback(
     async (post: any) => {
       const postId = String(post?.id || '').trim();
@@ -2222,7 +2251,7 @@ export default function MobileFeed({
           return (
             <React.Fragment key={postId || `post_${idx}`}>
               <article
-                className="cursor-pointer rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]"
+                className="cursor-pointer rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_20px_48px_-30px_rgba(15,23,42,0.48)] ring-1 ring-slate-100/70"
                 data-feed-post-id={postId || undefined}
                 style={feedItemPerformanceStyle}
                 onClick={(event) => {
@@ -2258,7 +2287,7 @@ export default function MobileFeed({
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           to={profileUrl}
-                          className="min-w-0 text-[15px] font-semibold text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
+                          className="min-w-0 text-base font-semibold text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
                         >
                           {authorName}
                         </Link>
@@ -2349,7 +2378,7 @@ export default function MobileFeed({
                     viewerUsername={user?.username}
                     expandable
                     titleClassName="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
-                    contentWrapperClassName="cursor-pointer text-[15px] leading-7 text-slate-700 break-words [overflow-wrap:anywhere]"
+                    contentWrapperClassName="cursor-pointer text-base leading-8 text-slate-700 break-words [overflow-wrap:anywhere]"
                     buttonClassName="text-slate-900"
                     translationRowClassName="text-slate-500"
                     onTitleClick={post?.title ? () => openPostCard(post) : undefined}
@@ -2375,6 +2404,32 @@ export default function MobileFeed({
                       ))}
                     </div>
                   ) : null}
+
+                  <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-indigo-50 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                        <Sparkles className="h-3 w-3" />
+                        Scrolitha coach
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openScrolithaFromMobile(
+                            buildPostScrolithaPrompt(
+                              String(post?.title || ''),
+                              String(post?.content || post?.body || '')
+                            )
+                          );
+                        }}
+                        className="inline-flex items-center rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 transition hover:bg-violet-100"
+                      >
+                        Enhance post
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">Use AI suggestions to improve clarity and engagement before publishing.</p>
+                  </div>
 
                   {hasAiInsight ? (
                     <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
@@ -2450,7 +2505,7 @@ export default function MobileFeed({
                                   <InlineAutoplayVideo
                                     src={resolvePostAttachmentMediaUrl(file)}
                                     poster={resolvePostAttachmentPosterUrl(file)}
-                                    className="h-[17.5rem] w-full object-cover sm:h-[20rem]"
+                                    className="h-[19rem] w-full object-cover sm:h-[22rem]"
                                     controls={false}
                                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                                     preload="metadata"
@@ -2481,7 +2536,7 @@ export default function MobileFeed({
                                   onClick={() => handlePostMediaPrimaryAction(post, file)}
                                   onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                  className="block h-[17.5rem] w-full text-left sm:h-[20rem]"
+                                  className="block h-[19rem] w-full text-left sm:h-[22rem]"
                                 >
                                   <OptimizedImage
                                     src={resolvePostAttachmentMediaUrl(file)}
@@ -2490,7 +2545,7 @@ export default function MobileFeed({
                                     width={640}
                                     height={400}
                                     sizes="(max-width: 768px) 100vw, 640px"
-                                    className="h-[17.5rem] w-full object-cover sm:h-[20rem]"
+                                    className="h-[19rem] w-full object-cover sm:h-[22rem]"
                                     loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
                                     decoding="async"
                                     fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
