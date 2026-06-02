@@ -1255,7 +1255,7 @@ export default function MobileFeed({
       const postId = String(post?.id || '').trim();
       if (!postId) return;
       if (!user?.id) {
-        if (confirm('Log in to like posts?')) window.location.href = '/auth/login';
+        if (confirm('Log in to like posts?')) navigate('/auth/login');
         return;
       }
       try {

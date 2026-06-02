@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { AuthService } from '../services/authService';
-import { FOLLOW_ONBOARDING_PATH, hasPendingFollowOnboarding } from '../utils/authRedirect';
+import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 interface UserContextType {
   user: User | null;
@@ -22,11 +22,7 @@ const AUTH_BOOTSTRAP_TIMEOUT_MS = 8000;
 const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
 
 const resolvePostAuthPath = (user: User | null) => {
-  const role = String(user?.role || '').toLowerCase();
-  if (hasPendingFollowOnboarding(user)) return FOLLOW_ONBOARDING_PATH;
-
-  if (role.includes('admin')) return '/admin/dashboard';
-  return '/member-home';
+  return resolveAuthenticatedEntryPath(user);
 };
 
 const redirectAfterAuth = (user: User | null) => {

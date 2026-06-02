@@ -200,7 +200,7 @@ const ScrolithaManagement: React.FC = () => {
   }, [normalizedMetadata]);
 
   const llmProvider = String(llmMetadata.provider || 'core');
-  const coreEndpointValue = String(llmMetadata.ollamaHost || llmMetadata.host || '').trim();
+  const coreEndpointValue = String(llmMetadata.coreEndpoint || llmMetadata.ollamaHost || llmMetadata.host || '').trim();
   const coreEndpointConfigured = Boolean(coreEndpointValue);
   const coreEndpointLooksLocalhost = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?/i.test(coreEndpointValue);
 
@@ -773,14 +773,14 @@ const ScrolithaManagement: React.FC = () => {
                   </label>
 
                   <label className="text-xs font-medium uppercase text-slate-500">
-                    Provider
+                    Scrolitha Engine
                     <select
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
                       value={llmProvider}
                       onChange={(event) => updateLlmMetadata({ provider: event.target.value })}
                     >
-                      <option value="core">Scrolitha Core (recommended)</option>
-                      <option value="ollama">Self-hosted engine</option>
+                      <option value="core">Self-hosted Scrolitha Engine (recommended)</option>
+                      <option value="ollama">Legacy self-hosted compatibility</option>
                       <option value="disabled">Disabled</option>
                     </select>
                   </label>
@@ -792,7 +792,13 @@ const ScrolithaManagement: React.FC = () => {
                       placeholder="https://scrolitha-core.example.com"
                       disabled={llmProvider === 'disabled'}
                       value={coreEndpointValue}
-                      onChange={(event) => updateLlmMetadata({ ollamaHost: event.target.value, host: event.target.value })}
+                      onChange={(event) =>
+                        updateLlmMetadata({
+                          coreEndpoint: event.target.value,
+                          ollamaHost: event.target.value,
+                          host: event.target.value
+                        })
+                      }
                     />
                   </label>
 
@@ -802,15 +808,27 @@ const ScrolithaManagement: React.FC = () => {
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
                       placeholder="scrolitha-core"
                       disabled={llmProvider === 'disabled'}
-                      value={String(llmMetadata.ollamaModel || llmMetadata.model || '')}
-                      onChange={(event) => updateLlmMetadata({ ollamaModel: event.target.value, model: event.target.value })}
+                      value={String(llmMetadata.coreModel || llmMetadata.ollamaModel || llmMetadata.model || '')}
+                      onChange={(event) =>
+                        updateLlmMetadata({
+                          coreModel: event.target.value,
+                          ollamaModel: event.target.value,
+                          model: event.target.value
+                        })
+                      }
                     />
                     {llmModels.length ? (
                       <select
                         className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
                         disabled={llmProvider === 'disabled'}
-                        value={String(llmMetadata.ollamaModel || llmMetadata.model || '')}
-                        onChange={(event) => updateLlmMetadata({ ollamaModel: event.target.value, model: event.target.value })}
+                        value={String(llmMetadata.coreModel || llmMetadata.ollamaModel || llmMetadata.model || '')}
+                        onChange={(event) =>
+                          updateLlmMetadata({
+                            coreModel: event.target.value,
+                            ollamaModel: event.target.value,
+                            model: event.target.value
+                          })
+                        }
                       >
                         <option value="">Select configured runtime model...</option>
                         {llmModels.map((m, index) => (
@@ -888,7 +906,7 @@ const ScrolithaManagement: React.FC = () => {
                   engine is unavailable.
                 </div>
 
-                {llmProvider === 'ollama' && (!coreEndpointConfigured || coreEndpointLooksLocalhost) ? (
+                {llmProvider !== 'disabled' && (!coreEndpointConfigured || coreEndpointLooksLocalhost) ? (
                   <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                     Scrolitha Core endpoint is not configured for production.
                   </div>
@@ -918,7 +936,7 @@ const ScrolithaManagement: React.FC = () => {
                         ? 'Disabled'
                         : coreEndpointConfigured
                           ? coreEndpointLooksLocalhost
-                            ? 'Local endpoint configured'
+                            ? 'Scrolitha Core endpoint requires sidecar mode'
                             : 'Configured'
                           : 'Not configured'}
                     </div>

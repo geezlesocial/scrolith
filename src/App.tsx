@@ -430,6 +430,10 @@ const MemberHomeSection = React.lazy(() => import('./components/sections/MemberH
 
 const preloadAuthenticatedRouteModules = () =>
   Promise.allSettled([
+    import('./mobile/home/MobileHome'),
+    import('./mobile/home/screens/MobileFeedScreen'),
+    import('./mobile/home/screens/MobileNetworkScreen'),
+    import('./mobile/home/screens/MobilePostScreen'),
     import('./mobile/home/components/MobileAppRouteFrame'),
     import('./mobile/home/screens/MobileNotificationsScreen'),
     import('./mobile/home/screens/MobileJobsScreen'),
@@ -1160,7 +1164,7 @@ const AppContent = () => {
       normalizedPath === '/auth/follow-onboarding';
 
     if (shouldNormalizeToMobileHome) {
-      navigate('/member-home', { replace: true });
+      navigate(resolveAuthenticatedEntryPath(user), { replace: true });
     }
   }, [
     isAuthenticated,
@@ -1220,6 +1224,8 @@ const AppContent = () => {
     <Landing />
   ) : hasPendingFollowOnboarding(user) ? (
     <Navigate to={FOLLOW_ONBOARDING_PATH} replace />
+  ) : resolveAuthenticatedEntryPath(user) !== '/member-home' ? (
+    <Navigate to={resolveAuthenticatedEntryPath(user)} replace />
   ) : (
     <MemberHomeSection />
   );
@@ -1761,8 +1767,10 @@ const DashboardAliasRedirect: React.FC = () => {
 };
 
 const LegacyMemberHomeRedirect: React.FC = () => {
+  const { user } = useUser();
   const location = useLocation();
-  return <Navigate to={{ pathname: '/member-home', search: location.search, hash: location.hash }} replace />;
+  const target = resolveAuthenticatedEntryPath(user);
+  return <Navigate to={{ pathname: target, search: location.search, hash: location.hash }} replace />;
 };
 
 const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {

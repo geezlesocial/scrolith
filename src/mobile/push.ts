@@ -9,6 +9,8 @@ import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
 
 let initialized = false;
 let listenersAttached = false;
+let forceRegisterInFlight: Promise<boolean> | null = null;
+let lastForceRegisterAt = 0;
 const CUSTOM_SCHEME = 'scrolith';
 const TOKEN_KEY = 'push_device_token';
 const TOKEN_PROJECT_KEY = 'push_device_token_project';
@@ -18,6 +20,8 @@ const REGISTER_RETRIES = 4;
 const REGISTER_RETRY_DELAY_MS = 1200;
 const MAX_NATIVE_REGISTER_RETRIES = 5;
 const NATIVE_REGISTER_RETRY_BASE_MS = 4000;
+const FORCE_REGISTER_COOLDOWN_MS = 15000;
+const PUSH_LOG_PREFIX = '[ScrolithPush]';
 export const ANDROID_NOTIFICATION_CHANNELS = {
   alerts: 'scrolith_alerts_v2',
   general: 'scrolith_alerts_v2',
@@ -31,6 +35,14 @@ let nativeRegisterRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let lastReportedPushError = '';
 let lastReportedPushErrorAt = 0;
 let navigateToPath: ((path: string) => void) | undefined;
+
+const summarizeToken = (token: string) => {
+  const value = String(token || '');
+  if (!value) return 'none';
+  const prefix = value.slice(0, 8);
+  const suffix = value.slice(-6);
+  return `${prefix}...${suffix} (len=${value.length})`;
+};
 
 const getAllowedHosts = () => {
   const envHost = String(import.meta.env.VITE_APP_DOMAIN || '').trim();
@@ -211,8 +223,16 @@ const registerTokenWithBackend = async (token: string) => {
   if (!token) return false;
   try {
     const authToken = await tokenStore.get();
-    if (!authToken) return false;
+    if (!authToken) {
+      console.info(`${PUSH_LOG_PREFIX} registerDeviceToken skipped: missing auth token`);
+      return false;
+    }
     const deviceId = await getOrCreateDeviceId();
+    console.info(`${PUSH_LOG_PREFIX} registerDeviceToken start`, {
+      platform: Capacitor.getPlatform(),
+      token: summarizeToken(token),
+      hasDeviceId: Boolean(deviceId)
+    });
     await api.post('/notifications/device/register', {
       platform: Capacitor.getPlatform(),
       token,
@@ -222,11 +242,23 @@ const registerTokenWithBackend = async (token: string) => {
         Authorization: `Bearer ${authToken}`
       }
     });
+    console.info(`${PUSH_LOG_PREFIX} registerDeviceToken success`, {
+      platform: Capacitor.getPlatform(),
+      token: summarizeToken(token)
+    });
     return true;
   } catch (e) {
+    const status = (e as any)?.response?.status;
+    const message = (e as any)?.message || 'registration request failed';
+    console.error(`${PUSH_LOG_PREFIX} registerDeviceToken failed`, {
+      status,
+      message,
+      platform: Capacitor.getPlatform(),
+      token: summarizeToken(token)
+    });
     console.error('Failed to register device token', {
-      status: (e as any)?.response?.status,
-      message: (e as any)?.message || 'registration request failed'
+      status,
+      message
     });
     await reportPushTrackingEvent('push_token_sync_failed', {
       platform: Capacitor.getPlatform(),
@@ -320,6 +352,10 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('registration', async (token) => {
     try {
+      console.info(`${PUSH_LOG_PREFIX} PushNotifications registration event`, {
+        platform: Capacitor.getPlatform(),
+        token: summarizeToken(token.value)
+      });
       nativeRegisterRetryCount = 0;
       if (nativeRegisterRetryTimer) {
         clearTimeout(nativeRegisterRetryTimer);
@@ -394,12 +430,29 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 };
 
 export const syncStoredPushToken = async () => {
-  if (!Capacitor.isNativePlatform()) return false;
+  if (!Capacitor.isNativePlatform()) {
+    console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken skipped: non-native platform`);
+    return false;
+  }
   const projectOk = await ensureStoredTokenProject();
-  if (!projectOk) return false;
+  if (!projectOk) {
+    console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken skipped: token project reset`);
+    return false;
+  }
   const stored = await readToken();
-  if (!stored) return false;
-  return registerTokenWithRetry(stored);
+  if (!stored) {
+    console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken skipped: no stored token`);
+    return false;
+  }
+  console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken start`, {
+    token: summarizeToken(stored)
+  });
+  const synced = await registerTokenWithRetry(stored);
+  console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken result`, {
+    synced,
+    token: summarizeToken(stored)
+  });
+  return synced;
 };
 
 export const initPushNotifications = async (navigate?: (path: string) => void) => {
@@ -427,6 +480,80 @@ export const initPushNotifications = async (navigate?: (path: string) => void) =
   await PushNotifications.register();
   initialized = true;
   await syncStoredPushToken();
+};
+
+export const forcePushRegistrationAfterAuth = async (navigate?: (path: string) => void) => {
+  if (!Capacitor.isNativePlatform()) {
+    console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth skipped: non-native platform`);
+    return false;
+  }
+
+  if (forceRegisterInFlight) {
+    console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth skipped: in-flight`);
+    return forceRegisterInFlight;
+  }
+
+  const now = Date.now();
+  if (lastForceRegisterAt && now - lastForceRegisterAt < FORCE_REGISTER_COOLDOWN_MS) {
+    console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth skipped: cooldown active`, {
+      cooldownMs: FORCE_REGISTER_COOLDOWN_MS
+    });
+    return syncStoredPushToken();
+  }
+
+  forceRegisterInFlight = (async () => {
+    try {
+      console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth start`, {
+        platform: Capacitor.getPlatform()
+      });
+      attachPushListeners(navigate);
+      await ensureAndroidNotificationChannels();
+
+      const authToken = await tokenStore.get();
+      if (!authToken) {
+        console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth aborted: missing auth token`);
+        return false;
+      }
+      console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth auth token present`);
+
+      await ensureStoredTokenProject();
+      const checkedPerm = await PushNotifications.checkPermissions();
+      console.info(`${PUSH_LOG_PREFIX} push permission check`, { receive: checkedPerm.receive });
+
+      let perm = checkedPerm;
+      if (perm.receive !== 'granted') {
+        perm = await PushNotifications.requestPermissions();
+        console.info(`${PUSH_LOG_PREFIX} push permission request result`, { receive: perm.receive });
+      }
+
+      if (perm.receive !== 'granted') {
+        console.warn(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth aborted: permission denied`, {
+          receive: perm.receive
+        });
+        return false;
+      }
+
+      try {
+        console.info(`${PUSH_LOG_PREFIX} PushNotifications.register start`);
+        await PushNotifications.register();
+        initialized = true;
+        console.info(`${PUSH_LOG_PREFIX} PushNotifications.register success`);
+      } catch (error) {
+        const message = (error as any)?.message || String(error);
+        console.error(`${PUSH_LOG_PREFIX} PushNotifications.register failed`, {
+          message
+        });
+        await scheduleNativeRegisterRetry('force_register_after_auth');
+      }
+
+      return syncStoredPushToken();
+    } finally {
+      lastForceRegisterAt = Date.now();
+      forceRegisterInFlight = null;
+    }
+  })();
+
+  return forceRegisterInFlight;
 };
 
 export const unregisterPushNotifications = async () => {

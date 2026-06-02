@@ -12,6 +12,7 @@ import OptimizedImage from '../../../components/media/OptimizedImage';
 import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
+import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
 
 type JobLike = {
   id: string;
@@ -183,6 +184,15 @@ const isNestedInteractiveTarget = (target: EventTarget | null) => {
   return Boolean(element.closest('a, button, input, textarea, select, label'));
 };
 
+const buildListingScrolithaPrompt = (kind: 'jobs' | 'gigs', title: string, category: string) => {
+  const safeTitle = String(title || '').trim() || (kind === 'jobs' ? 'Job opportunity' : 'Service offer');
+  const safeCategory = String(category || '').trim() || (kind === 'jobs' ? 'Hiring' : 'Services');
+  if (kind === 'jobs') {
+    return `Improve this job listing summary for better applicant quality.\nTitle: ${safeTitle}\nCategory: ${safeCategory}`;
+  }
+  return `Improve this gig offer summary for better conversion and trust.\nTitle: ${safeTitle}\nCategory: ${safeCategory}`;
+};
+
 export default function RecommendedListingCard({
   kind,
   title,
@@ -210,8 +220,21 @@ export default function RecommendedListingCard({
     [kind, failedImages]
   );
 
+  const openScrolitha = (prompt: string) => {
+    let base = '/m/home';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      ['post', 'postId', 'story', 'storyId', 'scroll', 'edit', 'modal', 'focus'].forEach((key) => {
+        params.delete(key);
+      });
+      const query = params.toString();
+      base = `${window.location.pathname}${query ? `?${query}` : ''}`;
+    }
+    navigate(buildScrolithaPath(base, prompt));
+  };
+
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.45)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -260,7 +283,7 @@ export default function RecommendedListingCard({
             return (
               <div
                 key={id}
-                className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-3"
+                className="cursor-pointer rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/80 p-4 shadow-sm"
                 onClick={(event) => {
                   if (isNestedInteractiveTarget(event.target)) return;
                   navigate(href);
@@ -270,7 +293,7 @@ export default function RecommendedListingCard({
                   <div className="min-w-0">
                     <Link
                       to={href}
-                      className="block text-sm font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
+                  className="block text-base font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
                     >
                       {job.title || 'Job opportunity'}
                     </Link>
@@ -311,11 +334,11 @@ export default function RecommendedListingCard({
                       width={320}
                       height={128}
                       alt={job.title || 'Featured job'}
-                      className="h-32 w-full object-cover"
+                      className="h-40 w-full object-cover"
                       onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
                     />
                   ) : (
-                    <div className="flex h-32 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
+                    <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
                       <ImageIcon className="h-4 w-4" />
                       <span className="text-xs font-semibold uppercase tracking-wide">Job Image</span>
                     </div>
@@ -342,6 +365,18 @@ export default function RecommendedListingCard({
                   >
                     Contact
                   </button>
+                </div>
+                <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Scrolitha recommendation</p>
+                    <button
+                      type="button"
+                      onClick={() => openScrolitha(buildListingScrolithaPrompt('jobs', String(job.title || ''), String(job.category || '')))}
+                      className="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-indigo-700"
+                    >
+                      Enhance
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -376,7 +411,7 @@ export default function RecommendedListingCard({
           return (
             <div
               key={id}
-              className="cursor-pointer rounded-2xl border border-slate-200 bg-white p-3"
+              className="cursor-pointer rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/80 p-4 shadow-sm"
               onClick={(event) => {
                 if (isNestedInteractiveTarget(event.target)) return;
                 navigate(href);
@@ -386,7 +421,7 @@ export default function RecommendedListingCard({
                 <div className="min-w-0">
                   <Link
                     to={href}
-                    className="block text-sm font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
+                    className="block text-base font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
                   >
                     {gig.title || 'Service offer'}
                   </Link>
@@ -442,11 +477,11 @@ export default function RecommendedListingCard({
                     width={320}
                     height={128}
                     alt={gig.title || 'Featured gig'}
-                    className="h-32 w-full object-cover"
+                    className="h-40 w-full object-cover"
                     onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
                   />
                 ) : (
-                  <div className="flex h-32 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
+                  <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
                     <ImageIcon className="h-4 w-4" />
                     <span className="text-xs font-semibold uppercase tracking-wide">Gig Image</span>
                   </div>
@@ -473,6 +508,18 @@ export default function RecommendedListingCard({
                 >
                   Contact
                 </button>
+              </div>
+              <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/60 px-2.5 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Scrolitha recommendation</p>
+                  <button
+                    type="button"
+                    onClick={() => openScrolitha(buildListingScrolithaPrompt('gigs', String(gig.title || ''), String(gig.category || '')))}
+                    className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700"
+                  >
+                    Enhance
+                  </button>
+                </div>
               </div>
             </div>
           );

@@ -6,6 +6,7 @@ import {
   type LiveFeatureStatus
 } from '../services/live';
 import { tokenStore } from '../services/tokenStore';
+import { useUser } from './UserContext';
 
 type LiveFeatureContextValue = {
   loading: boolean;
@@ -23,6 +24,14 @@ const DEFAULT_LIVE_FEATURE_STATUS: LiveFeatureStatus = {
   rateLimitReactionsPerMinute: 80,
   rateLimitChatPerMinute: 40,
   experienceConfig: DEFAULT_LIVE_EXPERIENCE_CONFIG
+};
+
+const GUEST_LIVE_FEATURE_STATUS: LiveFeatureStatus = {
+  ...DEFAULT_LIVE_FEATURE_STATUS,
+  enabled: false,
+  enableConference: false,
+  enableGifts: false,
+  enableRecording: false
 };
 
 const normalizeLiveFeatureStatus = (input: Partial<LiveFeatureStatus> | null | undefined): LiveFeatureStatus => {
@@ -48,10 +57,22 @@ const normalizeLiveFeatureStatus = (input: Partial<LiveFeatureStatus> | null | u
 const LiveFeatureContext = createContext<LiveFeatureContextValue | undefined>(undefined);
 
 export const LiveFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading: authLoading } = useUser();
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<LiveFeatureStatus>(DEFAULT_LIVE_FEATURE_STATUS);
 
   const refresh = useCallback(async () => {
+    if (authLoading) {
+      setLoading(true);
+      return;
+    }
+
+    if (!isAuthenticated) {
+      setStatus(GUEST_LIVE_FEATURE_STATUS);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       const token = await tokenStore.get();
@@ -70,7 +91,7 @@ export const LiveFeatureProvider: React.FC<{ children: React.ReactNode }> = ({ c
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [authLoading, isAuthenticated]);
 
   useEffect(() => {
     void refresh();

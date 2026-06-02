@@ -7,6 +7,7 @@ import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { useT } from '../i18n/useT';
 import { Capacitor } from '@capacitor/core';
+import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 
@@ -136,16 +137,17 @@ const Login = () => {
       if (success) {
         // Native/mobile auth pages must not race back to the desktop root shell.
         if (shouldUseMobilePostLoginRoute() && !isStoredAdminUser()) {
+          const target = resolveAuthenticatedEntryPath(null);
           try {
-            window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, '/member-home');
-            window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, '/member-home');
+            window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+            window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
           } catch {
             // Best-effort route recovery for Android WebView.
           }
-          navigate('/member-home', { replace: true });
+          navigate(target, { replace: true });
           window.setTimeout(() => {
-            if (window.location.pathname.replace(/\/+$/, '') !== '/member-home') {
-              window.location.replace(new URL('/member-home', window.location.origin).href);
+            if (window.location.pathname.replace(/\/+$/, '') !== target) {
+              window.location.replace(new URL(target, window.location.origin).href);
             }
           }, 1_500);
         }

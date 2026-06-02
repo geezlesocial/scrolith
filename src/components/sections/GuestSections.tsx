@@ -34,6 +34,7 @@ import {
 } from "./GuestAuthExperience";
 
 const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
+const SCROLITH_LOGO = "/logo.webp";
 
 const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
 
@@ -427,6 +428,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   const sideImageUrl = responsiveImageUrl(String((content as any)?.sideImageUrl || '').trim(), 640, 360, 'cover');
   const sideImageAlt = String((content as any)?.sideImageAlt || 'Scrolith platform preview').trim();
   const brandLogos = ensureArray<any>((content as any)?.brandLogos);
+  const showHeroBrandFallback = !sideImageUrl && brandLogos.length === 0;
   const compactMode = (content as any)?.compactMode !== false;
   const displayedTrustPoints = (trustPoints.length ? trustPoints : ['Realtime marketplace', 'Secure payments', 'Verified talent'])
     .slice(0, compactMode ? 3 : 6);
@@ -519,12 +521,17 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
 
   return (
     <>
-      <section className="overflow-x-clip py-6 sm:py-10" style={{ background: style?.background }}>
+      <section
+        className="overflow-x-clip py-8 sm:py-12"
+        style={{ background: style?.background || "linear-gradient(180deg, #f8fafc 0%, #ffffff 55%, #f8fafc 100%)" }}
+      >
       <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
         <div
-          className="relative min-w-0 overflow-hidden rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:rounded-3xl sm:p-7"
+          className="relative min-w-0 overflow-hidden rounded-[28px] border border-slate-200/90 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-3xl sm:p-7"
           style={!backgroundImageUrl ? undefined : { backgroundColor: 'rgba(255,255,255,0.92)' }}
         >
+          <div className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-indigo-200/35 blur-3xl motion-safe:animate-pulse" />
+          <div className="pointer-events-none absolute -bottom-16 right-0 h-48 w-48 rounded-full bg-cyan-200/35 blur-3xl motion-safe:animate-pulse" />
           {backgroundImageUrl ? (
             <img
               src={backgroundImageUrl}
@@ -538,7 +545,16 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
-          <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-2xl bg-white/90 p-4 backdrop-blur sm:p-5' : 'min-w-0'}>
+          <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-2xl border border-white/70 bg-white/92 p-4 backdrop-blur-sm sm:p-5' : 'min-w-0'}>
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                <img src={SCROLITH_LOGO} alt="Scrolith" className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
+                Scrolith Enterprise
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                Global work graph
+              </span>
+            </div>
             <h1 className="max-w-[14ch] text-2xl font-bold leading-tight text-slate-900 sm:max-w-none sm:text-3xl xl:text-4xl">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
@@ -552,14 +568,14 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               <button
                 type="button"
                 onClick={() => handleHeroAction(content?.primaryCtaUrl, "signup")}
-                className="inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-300/70 transition hover:bg-slate-800 sm:w-auto"
               >
                 {content?.primaryCtaLabel || "Create account"}
               </button>
               <button
                 type="button"
                 onClick={() => handleHeroAction(content?.secondaryCtaUrl, "login")}
-                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
               >
                 {content?.secondaryCtaLabel || "Log in"}
               </button>
@@ -571,17 +587,14 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
             ) : null}
             <div className="mt-5 grid gap-2 min-[480px]:grid-cols-2 sm:grid-cols-3">
               {displayedTrustPoints.map((point, index) => (
-                <div key={`trust-point-${index}`} className="min-w-0 rounded-xl border border-white/60 bg-white/75 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-sm">
+                <div key={`trust-point-${index}`} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs font-semibold text-slate-700">
                   {point}
                 </div>
               ))}
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {displayedBanners.map((banner, index) => (
-                <div
-                  key={banner.id || `side-banner-${index}`}
-                  className="min-w-0 rounded-2xl border border-slate-200/70 bg-white/80 p-3.5 backdrop-blur-sm"
-                >
+                <div key={banner.id || `side-banner-${index}`} className="min-w-0 rounded-2xl border border-slate-200 bg-white/85 p-3.5 transition hover:-translate-y-0.5 hover:shadow-md">
                   {banner.image ? (
                     <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
                       <img
@@ -641,8 +654,41 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 </div>
               </div>
             ) : null}
+            {showHeroBrandFallback ? (
+              <div className="mt-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-4">
+                <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                  <img
+                    src={SCROLITH_LOGO}
+                    alt="Scrolith"
+                    width={16}
+                    height={16}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-4 w-4 rounded-full object-contain"
+                  />
+                  Scrolith Enterprise Label
+                </p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {["Trusted by global teams", "Realtime collaboration", "Enterprise-grade delivery"].map((label) => (
+                    <div key={label} className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-2.5 py-2">
+                      <img
+                        src={SCROLITH_LOGO}
+                        alt=""
+                        aria-hidden="true"
+                        width={14}
+                        height={14}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-3.5 w-3.5 rounded-full object-contain"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-700">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
-          {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
+          {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/55 via-white/20 to-transparent" /> : null}
         </div>
 
         <div className="min-w-0 space-y-4 sm:space-y-5 lg:sticky lg:top-24 lg:self-start">
@@ -673,19 +719,21 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
   const visibleCards = compactMode ? cards.slice(0, maxCards) : cards;
   if (!content?.title && !content?.subtitle && visibleCards.length === 0) return null;
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-8 text-center">
+          <div className="mb-8 text-center sm:mb-10">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Why teams choose Scrolith</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {visibleCards.map((card, index) => (
-            <div key={card.id || `guest-card-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div key={card.id || `guest-card-${index}`} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div className="mb-3 h-1.5 w-14 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" />
               {card.icon || card.image ? (
-                <div className="mb-3 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                <div className="mb-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
                   <img
                     src={responsiveImageUrl(card.icon || card.image, 48, 48, 'contain')}
                     alt={card.title || `Feature ${index + 1}`}
@@ -698,7 +746,7 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
                 </div>
               ) : null}
               {card.title ? <h3 className="text-sm font-semibold text-slate-900">{card.title}</h3> : null}
-              {card.description ? <p className="mt-2 text-sm text-slate-600">{card.description}</p> : null}
+              {card.description ? <p className="mt-2 text-sm leading-6 text-slate-600">{card.description}</p> : null}
             </div>
           ))}
         </div>
@@ -711,16 +759,18 @@ export const GuestPathsSection: React.FC<{ content: GuestPathsContent; style?: a
   const freelancerBullets = ensureArray<string>(content?.freelancerBullets);
   const employerBullets = ensureArray<string>(content?.employerBullets);
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "#ffffff" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
           <div className="mb-8 text-center">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Onboarding paths</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+          <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-sm">
+            <p className="mb-3 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Talent track</p>
             <h3 className="text-lg font-semibold text-emerald-900">{content?.freelancerTitle || 'Freelancer'}</h3>
             <ul className="mt-3 space-y-2 text-sm text-emerald-900">
               {freelancerBullets.map((bullet, index) => (
@@ -736,7 +786,8 @@ export const GuestPathsSection: React.FC<{ content: GuestPathsContent; style?: a
               className="mt-5 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
             />
           </div>
-          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-6 shadow-sm">
+          <div className="rounded-3xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm">
+            <p className="mb-3 inline-flex rounded-full bg-blue-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">Business track</p>
             <h3 className="text-lg font-semibold text-blue-900">{content?.employerTitle || 'Employer'}</h3>
             <ul className="mt-3 space-y-2 text-sm text-blue-900">
               {employerBullets.map((bullet, index) => (
@@ -1037,23 +1088,30 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
 
   if (!content?.title && visibleTabs.length === 0) return null;
   return (
-    <section ref={sectionRef} className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section
+      ref={sectionRef}
+      className="py-12 sm:py-16"
+      style={{ background: style?.background || "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)" }}
+    >
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-6 text-center">
+          <div className="mb-6 text-center sm:mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live product tour</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
-        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-wrap gap-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-200/60 sm:p-6">
+          <div className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-slate-100 bg-slate-50 p-2">
             {visibleTabs.map((tab, index) => (
               <button
                 key={tab.id || `showcase-tab-${index}`}
                 type="button"
                 onClick={() => setActiveIndex(index)}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                  index === activeIndex ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  index === activeIndex
+                    ? 'bg-slate-900 text-white shadow-md shadow-slate-300'
+                    : 'bg-white text-slate-600 hover:bg-slate-100'
                 }`}
               >
                 {tab.label || tab.title || `Feature ${index + 1}`}
@@ -1061,14 +1119,29 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
             ))}
           </div>
           {activeTab ? (
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-center">
-              <div>
+            <div className="grid gap-4 lg:grid-cols-5 lg:items-stretch">
+              <div className="lg:col-span-2">
+                <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-5 sm:p-6">
+                  <p className="mb-3 inline-flex rounded-full bg-slate-900/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Real-time preview
+                  </p>
                 <h3 className="text-xl font-semibold text-slate-900">{activeTab.title || activeTab.label}</h3>
-                {activeTab.description ? <p className="mt-2 text-sm text-slate-600">{activeTab.description}</p> : null}
+                {activeTab.description ? <p className="mt-2 text-sm leading-7 text-slate-600">{activeTab.description}</p> : null}
+                  <div className="mt-5 space-y-2 text-xs text-slate-500">
+                    <p>Data updates from live platform endpoints.</p>
+                    <p>Preview stays aligned with admin-managed homepage settings.</p>
+                  </div>
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">Live endpoints</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">CMS controlled</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">Enterprise ready</span>
+                  </div>
+                </div>
               </div>
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 lg:col-span-3">
                 {showMarketplacePreview ? (
-                  <div className="min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-blue-50 p-3 sm:min-h-[16rem] sm:p-4">
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-blue-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-blue-200/40 blur-2xl motion-safe:animate-pulse" />
                     {!shouldLoadMarketplacePreview || marketplacePreview.loading ? (
                       <div className="grid h-full gap-3 sm:grid-cols-3">
                         {[0, 1, 2].map((item) => (
@@ -1090,7 +1163,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                             <Link
                               key={gig.id || `marketplace-preview-gig-${index}`}
                               to={url}
-                              className="group min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md"
+                              className="group min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-100"
                             >
                               <div className="relative h-24 overflow-hidden bg-slate-100 sm:h-28">
                                 <MarketplacePreviewImage image={image} title={gig.title || "Marketplace service"} />
@@ -1127,7 +1200,8 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     )}
                   </div>
                 ) : showCommunityPreview ? (
-                  <div className="min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-3 sm:min-h-[16rem] sm:p-4">
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    <div className="pointer-events-none absolute -left-10 -bottom-10 h-24 w-24 rounded-full bg-indigo-200/40 blur-2xl motion-safe:animate-pulse" />
                     {(!shouldLoadMarketplacePreview || communityPreview.loading) ? (
                       <div className="space-y-3">
                         {[0, 1, 2].map((item) => (
@@ -1157,7 +1231,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     )}
                   </div>
                 ) : showMessagingPreview ? (
-                  <div className="min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-violet-50 p-3 sm:min-h-[16rem] sm:p-4">
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-violet-50 p-3 sm:min-h-[16rem] sm:p-4">
                     {(!shouldLoadMarketplacePreview || messagingPreview.loading) ? (
                       <div className="space-y-3">
                         {[0, 1, 2].map((item) => (
@@ -1189,7 +1263,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     )}
                   </div>
                 ) : showAiPreview ? (
-                  <div className="min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-cyan-50 p-3 sm:min-h-[16rem] sm:p-4">
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-cyan-50 p-3 sm:min-h-[16rem] sm:p-4">
                     {(!shouldLoadMarketplacePreview || aiPreview.loading) ? (
                       <div className="space-y-3">
                         <div className="h-10 animate-pulse rounded-xl bg-white" />
@@ -1223,7 +1297,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     )}
                   </div>
                 ) : showPaymentsPreview ? (
-                  <div className="min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-3 sm:min-h-[16rem] sm:p-4">
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-3 sm:min-h-[16rem] sm:p-4">
                     {(!shouldLoadMarketplacePreview || paymentsPreview.loading) ? (
                       <div className="space-y-3">
                         <div className="h-10 animate-pulse rounded-xl bg-white" />
@@ -1299,16 +1373,17 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
   if (!hasData && !showEmptyState) return null;
 
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "#ffffff" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-6 text-center">
+          <div className="mb-6 text-center sm:mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live opportunities</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <h3 className="text-sm font-semibold text-slate-900">{content?.jobsTitle || 'Trending Jobs'}</h3>
             <div className="mt-3 space-y-3">
               {jobs.slice(0, compactMode ? maxItems : 6).map((job, index) => (
@@ -1321,7 +1396,7 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <h3 className="text-sm font-semibold text-slate-900">{content?.gigsTitle || 'Trending Gigs'}</h3>
             <div className="mt-3 space-y-3">
               {gigs.slice(0, compactMode ? maxItems : 6).map((gig, index) => (
@@ -1337,7 +1412,7 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <h3 className="text-sm font-semibold text-slate-900">{content?.postsTitle || 'Popular Posts'}</h3>
             <div className="mt-3 space-y-3">
               {posts.slice(0, compactMode ? maxItems : 6).map((post, index) => (
@@ -1368,17 +1443,18 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
   if (posts.length === 0 && !showEmptyState) return null;
 
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-6 text-center">
+          <div className="mb-6 text-center sm:mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Community momentum</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-4 md:grid-cols-2">
           {posts.slice(0, compactMode ? maxItems : 8).map((post, index) => (
-            <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-3 flex items-center gap-3">
                 {post.author?.avatar ? (
                   <img
@@ -1435,9 +1511,16 @@ export const GuestFinalCtaSection: React.FC<{ content: GuestFinalCtaContent; sty
     <section className="py-12 sm:py-16">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <div
-          className="rounded-3xl border border-slate-200 px-6 py-10 text-center shadow-sm sm:px-10"
-          style={{ background: style?.background || 'linear-gradient(120deg, #0f172a 0%, #1d4ed8 100%)' }}
+          className="rounded-3xl border border-slate-200 px-6 py-10 text-center shadow-xl shadow-indigo-300/30 sm:px-10"
+          style={{ background: style?.background || 'linear-gradient(120deg, #0f172a 0%, #4f46e5 60%, #7c3aed 100%)' }}
         >
+          <div className="mb-4 flex items-center justify-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-50">
+              <img src={SCROLITH_LOGO} alt="Scrolith" className="h-4 w-4 rounded-full object-contain" loading="lazy" decoding="async" />
+              Scrolith global platform
+            </span>
+          </div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-100">Ready to scale globally</p>
           {content?.title ? <h2 className="text-2xl font-bold text-white sm:text-3xl">{content.title}</h2> : null}
           {content?.subtitle ? <p className="mx-auto mt-2 max-w-3xl text-sm text-blue-100 sm:text-base">{content.subtitle}</p> : null}
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">

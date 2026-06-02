@@ -136,7 +136,10 @@ export default function MobileNotificationsScreen({
   const openTarget = (targetUrl: string) => {
     if (!targetUrl) return;
     if (isExternalNotificationUrl(targetUrl)) {
-      window.location.href = targetUrl;
+      const externalWindow = window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      if (!externalWindow) {
+        window.location.assign(targetUrl);
+      }
       return;
     }
     if (onNavigate) {

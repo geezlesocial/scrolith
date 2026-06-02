@@ -3,11 +3,41 @@ import { tokenStore } from './tokenStore';
 import { FollowOnboardingStatus, User, UserRole } from '../types';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 
-type AuthResponse = { token?: string; user?: User; success?: boolean; error?: string };
+type AuthResponse = {
+  token?: string;
+  accessToken?: string;
+  access_token?: string;
+  user?: User;
+  data?: any;
+  success?: boolean;
+  error?: string;
+  message?: string;
+};
 type CurrentUserResult = { user: User | null; unauthorized: boolean };
 type FollowOnboardingResponse = {
   user?: User;
   onboarding?: FollowOnboardingStatus;
+};
+
+const AUTH_REQUEST_TIMEOUT_MS = 24_000;
+
+const withAuthRequestTimeout = async <T,>(
+  request: Promise<T>,
+  fallbackMessage: string
+): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      request,
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(fallbackMessage));
+        }, AUTH_REQUEST_TIMEOUT_MS);
+      })
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 };
 
 const extractData = <T>(response: any): T => {
@@ -15,6 +45,41 @@ const extractData = <T>(response: any): T => {
   if (response?.data !== undefined) return response.data as T;
   return response as T;
 };
+
+const extractAuthPayload = (response: any): AuthResponse => {
+  const root = response?.data ?? response ?? {};
+  const nested = root?.data && typeof root.data === 'object' ? root.data : {};
+  const token =
+    root?.token ??
+    root?.accessToken ??
+    root?.access_token ??
+    nested?.token ??
+    nested?.accessToken ??
+    nested?.access_token;
+  const user =
+    root?.user ??
+    nested?.user ??
+    (nested && typeof nested === 'object' && nested.id ? nested : null) ??
+    (root && typeof root === 'object' && root.id ? root : null);
+
+  return {
+    ...root,
+    ...nested,
+    token,
+    user,
+    error: root?.error ?? root?.message ?? nested?.error ?? nested?.message,
+    message: root?.message ?? nested?.message ?? root?.error ?? nested?.error,
+    success: root?.success ?? nested?.success
+  };
+};
+
+const extractErrorMessage = (error: any, fallback: string) =>
+  error?.response?.data?.error ||
+  error?.response?.data?.message ||
+  error?.response?.data?.data?.error ||
+  error?.response?.data?.data?.message ||
+  error?.message ||
+  fallback;
 
 const mapRole = (role?: any): UserRole => {
   if (!role) return UserRole.GUEST;
@@ -38,8 +103,14 @@ const normalizeUser = (user?: User): User | null => {
 class AuthService {
   static async login(credentials: { email: string; password: string }) {
     try {
-      const response = await api.post('/auth/login', credentials);
-      const payload = extractData<AuthResponse>(response);
+      const response = await withAuthRequestTimeout(
+        api.post('/auth/login', credentials, {
+          timeout: AUTH_REQUEST_TIMEOUT_MS,
+          __skipRetry: true
+        } as any),
+        'Login request timed out. Please check your connection and try again.'
+      );
+      const payload = extractAuthPayload(response);
       if (payload?.token && payload?.user) {
         const user = normalizeUser(payload.user);
         if (user) {
@@ -54,19 +125,20 @@ class AuthService {
       }
       return { success: false, error: payload?.error || payload?.message || 'Login failed' };
     } catch (error: any) {
-      const message =
-        error?.response?.data?.error ||
-        error?.response?.data?.message ||
-        error?.message ||
-        'Login failed';
-      return { success: false, error: message };
+      return { success: false, error: extractErrorMessage(error, 'Login failed') };
     }
   }
 
   static async register(userData: any) {
     try {
-      const response = await api.post('/auth/register', userData);
-      const payload = extractData<AuthResponse>(response);
+      const response = await withAuthRequestTimeout(
+        api.post('/auth/register', userData, {
+          timeout: AUTH_REQUEST_TIMEOUT_MS,
+          __skipRetry: true
+        } as any),
+        'Signup request timed out. Please check your connection and try again.'
+      );
+      const payload = extractAuthPayload(response);
       if (payload?.token && payload?.user) {
         const user = normalizeUser(payload.user);
         if (user) {
@@ -80,12 +152,7 @@ class AuthService {
       }
       return { success: false, error: payload?.error || 'Registration failed' };
     } catch (error: any) {
-      const message =
-        error?.response?.data?.error ||
-        error?.response?.data?.message ||
-        error?.message ||
-        'Registration failed';
-      return { success: false, error: message };
+      return { success: false, error: extractErrorMessage(error, 'Registration failed') };
     }
   }
 
@@ -93,11 +160,14 @@ class AuthService {
     try {
       const token = await tokenStore.get();
       if (!token) {
-        return { user: null, unauthorized: false };
+        const cached = AuthService.getStoredUser();
+        return { user: null, unauthorized: Boolean(cached) };
       }
-      const response = token
-        ? await api.get('/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-        : await api.get('/auth/me');
+      const response = await api.get('/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+        __authValidation: true,
+        __skipRetry: true
+      } as any);
       const payload = extractData<any>(response);
       const candidateUser =
         payload?.user ||
@@ -156,7 +226,10 @@ class AuthService {
 
   static async logout() {
     try {
-      await api.post('/auth/logout');
+      await api.post('/auth/logout', undefined, {
+        timeout: 6000,
+        __skipRetry: true
+      } as any);
     } catch {
       // Ignore logout errors
     } finally {
