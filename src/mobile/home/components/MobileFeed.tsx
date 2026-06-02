@@ -417,6 +417,37 @@ const resolveHighlightPostFallback = (post: any) => {
   return authorAvatar || BRAND_LOGO_URL;
 };
 
+const resolveSyntheticVideoAttachment = (post: any) => {
+  const videoUrl = String(
+    post?.videoUrl ||
+      post?.video_url ||
+      post?.mediaUrl ||
+      post?.media_url ||
+      post?.sourceVideoUrl ||
+      post?.source_video_url ||
+      ''
+  ).trim();
+  if (!videoUrl) return null;
+  return {
+    id: String(post?.videoAttachmentId || post?.video_attachment_id || videoUrl).trim() || videoUrl,
+    url: videoUrl,
+    name: String(post?.title || post?.videoTitle || post?.video_title || 'Video post').trim() || 'Video post',
+    type: 'video',
+    kind: 'video',
+    mimeType: 'video/mp4',
+    thumbnailUrl:
+      String(
+        post?.thumbnailUrl ||
+          post?.thumbnail_url ||
+          post?.posterUrl ||
+          post?.poster_url ||
+          post?.previewUrl ||
+          post?.preview_url ||
+          ''
+      ).trim() || null
+  };
+};
+
 const isIgnoredSurfaceTarget = (target: EventTarget | null) => {
   const element = target as HTMLElement | null;
   if (!element) return false;
@@ -1191,7 +1222,12 @@ export default function MobileFeed({
   }, []);
 
   const findPrimaryVideoAttachment = useCallback((post: any) => {
-    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    const baseAttachments = Array.isArray(post?.attachments) ? post.attachments : Array.isArray(post?.media) ? post.media : [];
+    const syntheticVideoAttachment = resolveSyntheticVideoAttachment(post);
+    const attachments =
+      syntheticVideoAttachment && !baseAttachments.some((entry: any) => isVideo(entry))
+        ? [syntheticVideoAttachment, ...baseAttachments]
+        : baseAttachments;
     return (
       attachments.find(
         (entry: any) =>
@@ -2528,7 +2564,7 @@ export default function MobileFeed({
                                   <InlineAutoplayVideo
                                     src={resolvePostAttachmentMediaUrl(file)}
                                     poster={resolvePostAttachmentPosterUrl(file)}
-                                    className="h-[19rem] w-full object-cover sm:h-[22rem]"
+                                    className="h-[22rem] w-full object-cover sm:h-[26rem] md:h-[30rem]"
                                     controls={false}
                                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                                     preload="metadata"
@@ -2559,7 +2595,7 @@ export default function MobileFeed({
                                   onClick={() => handlePostMediaPrimaryAction(post, file)}
                                   onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                  className="block h-[19rem] w-full text-left sm:h-[22rem]"
+                                  className="block h-[22rem] w-full text-left sm:h-[26rem] md:h-[30rem]"
                                 >
                                   <OptimizedImage
                                     src={resolvePostAttachmentMediaUrl(file)}
@@ -2568,7 +2604,7 @@ export default function MobileFeed({
                                     width={640}
                                     height={400}
                                     sizes="(max-width: 768px) 100vw, 640px"
-                                    className="h-[19rem] w-full object-cover sm:h-[22rem]"
+                                    className="h-[22rem] w-full object-cover sm:h-[26rem] md:h-[30rem]"
                                     loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
                                     decoding="async"
                                     fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}

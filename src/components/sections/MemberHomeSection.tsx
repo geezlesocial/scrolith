@@ -918,8 +918,8 @@ const formatMediaDuration = (duration?: number | null) => {
 };
 
 const GRAPHIC_WARNING_LABEL = 'Graphic warning';
-const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
-const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[24rem] sm:h-[30rem] lg:h-[36rem]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[18rem] sm:h-[22rem] lg:h-[26rem]';
 const BRAND_LOGO_URL = '/logo.png';
 
 const buildPostScrolithaPrompt = (title: string, content: string) => {
@@ -1141,6 +1141,37 @@ const resolveHighlightPostFallback = (post: any): string => {
     BRAND_LOGO_URL
   ]);
   return raw ? resolveAssetUrl(raw) : BRAND_LOGO_URL;
+};
+
+const resolveSyntheticVideoAttachment = (post: any) => {
+  const videoUrl = String(
+    post?.videoUrl ||
+      post?.video_url ||
+      post?.mediaUrl ||
+      post?.media_url ||
+      post?.sourceVideoUrl ||
+      post?.source_video_url ||
+      ''
+  ).trim();
+  if (!videoUrl) return null;
+  return {
+    id: String(post?.videoAttachmentId || post?.video_attachment_id || videoUrl).trim() || videoUrl,
+    url: videoUrl,
+    name: String(post?.title || post?.videoTitle || post?.video_title || 'Video post').trim() || 'Video post',
+    type: 'video',
+    kind: 'video',
+    mimeType: 'video/mp4',
+    thumbnailUrl:
+      String(
+        post?.thumbnailUrl ||
+          post?.thumbnail_url ||
+          post?.posterUrl ||
+          post?.poster_url ||
+          post?.previewUrl ||
+          post?.preview_url ||
+          ''
+      ).trim() || null
+  };
 };
 
 const extractJobsFromPayload = (payload: any): Job[] => {
@@ -2093,11 +2124,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       aiInsightTextRaw === null || aiInsightTextRaw === undefined
         ? null
         : String(aiInsightTextRaw).trim() || null;
-    const attachments = Array.isArray(post.attachments)
+    const baseAttachments = Array.isArray(post.attachments)
       ? post.attachments
       : Array.isArray(post.media)
         ? post.media
         : [];
+    const syntheticVideoAttachment = resolveSyntheticVideoAttachment(post);
+    const attachments =
+      syntheticVideoAttachment && !baseAttachments.some((entry: any) => inferMediaType(entry || {}) === 'video')
+        ? [syntheticVideoAttachment, ...baseAttachments]
+        : baseAttachments;
     const tags = Array.isArray(post.tags) ? post.tags : [];
     const mentions = Array.isArray(post.mentions) ? post.mentions : [];
 
