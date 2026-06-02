@@ -1,6 +1,10 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../../utils/prismaClient';
+import {
+  applyUserModerationActionController,
+  getUserModerationSummaryController
+} from '../../controllers/accountModeration.controller';
 
 const router = express.Router();
 const getPrisma = () => prisma;
@@ -225,6 +229,10 @@ router.put('/:id', async (req, res) => {
     return res.status(500).json({ success: false, error: 'Failed to update user' });
   }
 });
+
+router.get('/:id/moderation', getUserModerationSummaryController);
+
+router.post('/:id/moderation', applyUserModerationActionController);
 
 router.post('/:id/password', async (req, res) => {
   const userId = req.params.id;

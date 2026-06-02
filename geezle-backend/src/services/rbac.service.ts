@@ -35,6 +35,7 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'community.comments.moderate', label: 'Moderate community comments', groupName: 'Community & Forum' },
   { key: 'community.reports.read', label: 'View community reports', groupName: 'Community & Forum' },
   { key: 'community.reports.resolve', label: 'Resolve community reports', groupName: 'Community & Forum' },
+  { key: 'community.accounts.moderate', label: 'Warn, strike, and restrict community accounts', groupName: 'Community & Forum' },
 
   { key: 'chat.read_any', label: 'Read all chats', groupName: 'Messaging Moderation' },
   { key: 'chat.message_any', label: 'Send moderator chat messages', groupName: 'Messaging Moderation' },
@@ -113,6 +114,7 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'community.comments.moderate',
       'community.reports.read',
       'community.reports.resolve',
+      'community.accounts.moderate',
       'chat.read_any',
       'chat.message_any',
       'chat.warn_user',

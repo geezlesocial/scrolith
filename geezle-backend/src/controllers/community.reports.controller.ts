@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { applyAccountModerationAction } from '../services/accountModeration.service';
 
 type AuthRequest = Request & {
   user?: {
@@ -328,7 +329,9 @@ export const actionPostReportAdmin = async (req: AuthRequest, res: Response) => 
     const actions = (req.body?.actions || {}) as {
       flagPost?: boolean;
       removePost?: boolean;
+      warnAccount?: boolean;
       sanctionAccount?: boolean;
+      strikeAccount?: boolean;
       banAccount?: boolean;
       restrictPostingHours?: number;
       restrictedFeatures?: string[];
@@ -347,34 +350,6 @@ export const actionPostReportAdmin = async (req: AuthRequest, res: Response) => 
           where: { id: report.post.id },
           data: { status: nextPostStatus }
         });
-      }
-
-      if (decision === 'violation' && report.post?.authorId) {
-        if (actions.sanctionAccount || actions.banAccount) {
-          await tx.accountViolation
-            .create({
-              data: {
-                userId: report.post.authorId,
-                type: actions.banAccount ? 'community_post_report_ban' : 'community_post_report_sanction',
-                severity: normalizeText(req.body?.severity || 'medium').toLowerCase() || 'medium',
-                reason: normalizeText(req.body?.reason || report.reason || 'Community report moderation action'),
-                metadata: {
-                  reportId: report.id,
-                  postId: report.postId,
-                  decision,
-                  actions
-                }
-              }
-            })
-            .catch(() => null);
-        }
-
-        if (actions.banAccount) {
-          await tx.user.update({
-            where: { id: report.post.authorId },
-            data: { isActive: false }
-          });
-        }
       }
 
       await tx.communityPostReport.update({
@@ -438,6 +413,63 @@ export const actionPostReportAdmin = async (req: AuthRequest, res: Response) => 
         }
       }
     });
+
+    if (decision === 'violation' && report.post?.authorId) {
+      const restrictedFeatures = Array.isArray(actions.restrictedFeatures)
+        ? actions.restrictedFeatures
+            .map((entry) => normalizeText(entry).toLowerCase())
+            .filter(Boolean)
+        : [];
+      const normalizedFeatureSet = new Set<string>();
+      restrictedFeatures.flatMap((entry) => {
+        if (entry === 'post' || entry === 'posting' || entry === 'content') return ['post'];
+        if (entry === 'comment' || entry === 'commenting' || entry === 'reply' || entry === 'replies') return ['comment'];
+        if (entry === 'react' || entry === 'reaction' || entry === 'reactions' || entry === 'like' || entry === 'likes' || entry === 'repost' || entry === 'reposts' || entry === 'share' || entry === 'shares') {
+          return ['react'];
+        }
+        return [entry];
+      }).forEach((entry) => normalizedFeatureSet.add(entry));
+      if (Number(actions.restrictPostingHours || 0) > 0) {
+        normalizedFeatureSet.add('post');
+      }
+      if (Number(actions.restrictFeaturesHours || 0) > 0 && normalizedFeatureSet.size === 0) {
+        ['post', 'comment', 'react'].forEach((entry) => normalizedFeatureSet.add(entry));
+      }
+      const actionType = actions.banAccount
+        ? 'ban'
+        : (actions.restrictPostingHours || actions.restrictFeaturesHours || normalizedFeatureSet.size > 0)
+          ? 'restriction'
+          : actions.strikeAccount || actions.sanctionAccount
+            ? 'strike'
+            : actions.warnAccount
+              ? 'warning'
+              : 'warning';
+      await applyAccountModerationAction({
+        userId: report.post.authorId,
+        actorId: req.user?.id || null,
+        actorEmail: req.user?.email || null,
+        actorRole: req.user?.role || null,
+        action: actionType,
+        severity: normalizeText(req.body?.severity || 'medium').toLowerCase() || 'medium',
+        reason: normalizeText(req.body?.reason || report.reason || 'Community report moderation action'),
+        userMessage: normalizeText(req.body?.ownerMessage || ''),
+        restrictedFeatures: Array.from(normalizedFeatureSet),
+        restrictionHours: Math.max(
+          0,
+          Number(actions.restrictFeaturesHours || 0),
+          Number(actions.restrictPostingHours || 0)
+        ),
+        source: 'community_report',
+        sourceId: report.id,
+        sourceLabel: report.reason || 'Community report',
+        meta: {
+          reportId: report.id,
+          postId: report.postId,
+          decision,
+          actions
+        }
+      });
+    }
 
     if (!refreshed) return res.status(404).json({ success: false, error: 'Report not found after update' });
 

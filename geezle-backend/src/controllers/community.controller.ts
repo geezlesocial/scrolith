@@ -24,6 +24,7 @@ import {
   buildVideoIntegrityUpdate,
   isVideoMonetizationBlocked
 } from '../services/videoIntegrity.service';
+import { checkAccountActionAllowed } from '../services/accountModeration.service';
 import { getPostDashTotal, getPostDashTotals } from '../services/gcoinDonationTotals.service';
 import {
   ensureTopics,
@@ -1613,6 +1614,12 @@ export const postRepost = async (req: Request, res: Response) => {
     const actorId = req.user?.id;
     const io = getAppIo(req);
     const sessionHash = req.body?.sessionHash || req.header('X-Session-Hash') || undefined;
+    if (actorId) {
+      const moderationGate = await checkAccountActionAllowed(actorId, 'post', req.user?.role);
+      if (!moderationGate.allowed) {
+        return res.status(403).json({ error: moderationGate.message || 'Your account is restricted from posting.' });
+      }
+    }
     const originalPost = await prisma.communityPost.findUnique({
       where: { id: postId },
       select: {
@@ -1849,6 +1856,10 @@ export const postLike = async (req: Request, res: Response) => {
     const actorId = req.user?.id;
     const io = getAppIo(req);
     if (!actorId) return res.status(401).json({ error: 'Unauthorized' });
+    const moderationGate = await checkAccountActionAllowed(actorId, 'react', req.user?.role);
+    if (!moderationGate.allowed) {
+      return res.status(403).json({ error: moderationGate.message || 'Your account is restricted from reacting.' });
+    }
     const post = await prisma.communityPost.findUnique({
       where: { id: postId },
       select: { id: true, authorId: true, status: true }
@@ -2957,6 +2968,11 @@ export const createPost = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    const moderationGate = await checkAccountActionAllowed(userId, 'post', req.user?.role);
+    if (!moderationGate.allowed) {
+      return res.status(403).json({ error: moderationGate.message || 'Your account is restricted from posting.' });
+    }
+
     const {
       title,
       content,
@@ -3875,6 +3891,10 @@ export const createPostReaction = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const moderationGate = await checkAccountActionAllowed(userId, 'react', req.user?.role);
+    if (!moderationGate.allowed) {
+      return res.status(403).json({ success: false, error: moderationGate.message || 'Your account is restricted from reacting.' });
+    }
     const postId = req.params.id;
     const type = (req.body?.type || '').toString().trim().toLowerCase();
     if (!postId || !type) return res.status(400).json({ success: false, error: 'Missing reaction type' });
@@ -4015,6 +4035,10 @@ export const createPostComment = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const moderationGate = await checkAccountActionAllowed(userId, 'comment', req.user?.role);
+    if (!moderationGate.allowed) {
+      return res.status(403).json({ success: false, error: moderationGate.message || 'Your account is restricted from commenting.' });
+    }
     const postId = req.params.id;
     const { content, parentId, attachments, attachmentFileIds } = req.body || {};
     const normalizedAttachmentIds = await resolveValidatedAttachmentIds(

@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { applyAccountModerationAction } from '../services/accountModeration.service';
 
 export const takeModerationAction = async (req: Request, res: Response) => {
   try {
@@ -35,21 +36,28 @@ export const takeModerationAction = async (req: Request, res: Response) => {
       try { io?.emit('community:thread_deleted', { id: targetId }); } catch (e) {}
     }
 
-    if (targetType === 'user' && action === 'ban') {
-      await prisma.user.update({ where: { id: targetId }, data: { isActive: false } });
-    }
-
-    if (targetType === 'user' && action === 'warn') {
-      await prisma.notification.create({
-        data: {
-          userId: targetId,
-          actorId: req.user?.id || null,
-          type: 'moderation_warning',
-          title: 'Community warning',
-          body: note || 'Your account received a community warning.',
-          meta: { action, note }
-        }
-      }).catch(() => null);
+    if (targetType === 'user' && ['warn', 'warning', 'strike', 'restrict', 'restriction', 'ban'].includes(String(action || '').toLowerCase())) {
+      await applyAccountModerationAction({
+        userId: targetId,
+        actorId: req.user?.id || null,
+        actorEmail: req.user?.email || null,
+        actorRole: req.user?.role || null,
+        action: String(action || '').toLowerCase() === 'ban'
+          ? 'ban'
+          : String(action || '').toLowerCase() === 'strike'
+            ? 'strike'
+            : String(action || '').toLowerCase() === 'restrict' || String(action || '').toLowerCase() === 'restriction'
+              ? 'restriction'
+              : 'warning',
+        reason: note || 'Community moderation action',
+        userMessage: note || null,
+        restrictedFeatures: Array.isArray(req.body?.restrictedFeatures)
+          ? req.body.restrictedFeatures
+          : String(req.body?.restrictedFeatures || '').split(','),
+        restrictionHours: Number(req.body?.restrictionHours || req.body?.durationHours || 0),
+        source: 'community_moderation',
+        sourceId: String(targetId || '')
+      });
     }
 
     return res.json({ success: true });
