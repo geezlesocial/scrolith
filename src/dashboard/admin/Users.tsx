@@ -70,6 +70,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
+import FilePickerModal from '../shared/FilePickerModal';
 import { resolveVerificationLevel } from '../../utils/verification';
 
 interface Wallet {
@@ -150,6 +151,9 @@ type DemoAutomationOverview = {
     id: string;
     name?: string;
     email?: string;
+    username?: string | null;
+    avatar?: string | null;
+    profilePhotoFileId?: string | null;
     profession?: string | null;
     country?: string | null;
     automationEnabled?: boolean;
@@ -253,11 +257,31 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     return Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
   };
 
-  const handleEditUser = (user: UserType) => {
-    setEditingUser({ ...user, password: '' });
+  const handleEditUser = (user: Partial<UserType> & { id: string }) => {
+    setEditingUser({
+      ...user,
+      username: user.username ?? '',
+      avatar: user.avatar ?? '',
+      profilePhotoFileId: user.profilePhotoFileId ?? undefined,
+      password: ''
+    });
     setBalanceAdjustment({ amount: '', reason: '' });
     setGcoinAdjustment({ amount: '', reason: '' });
     setIsEditModalOpen(true);
+  };
+
+  const handleEditDemoAccount = (entry: NonNullable<DemoAutomationOverview['accounts']>[number]) => {
+    handleEditUser({
+      id: entry.id,
+      name: entry.name || '',
+      email: entry.email || '',
+      username: entry.username || '',
+      avatar: entry.avatar || '',
+      profilePhotoFileId: entry.profilePhotoFileId || undefined,
+      role: 'user',
+      status: entry.isActive ? 'active' : 'inactive',
+      isActive: Boolean(entry.isActive)
+    } as Partial<UserType> & { id: string });
   };
 
   const handleStatusUpdate = async (userId: string, status: string) => {
@@ -278,7 +302,23 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     setIsSaving(true);
     try {
       const { password, ...userPayload } = editingUser;
-      await AdminService.updateUserDetail(editingUser.id, userPayload, adminId);
+      const payload: Record<string, any> = { ...userPayload };
+      if (typeof payload.name === 'string') payload.name = payload.name.trim();
+      if (typeof payload.email === 'string') payload.email = payload.email.trim();
+      if (typeof payload.username === 'string') {
+        const nextUsername = payload.username.trim();
+        if (nextUsername) payload.username = nextUsername;
+        else delete payload.username;
+      }
+      if (typeof payload.avatar === 'string') {
+        const nextAvatar = payload.avatar.trim();
+        if (nextAvatar) payload.avatar = nextAvatar;
+        else delete payload.avatar;
+      }
+      if (payload.profilePhotoFileId === undefined || payload.profilePhotoFileId === null || payload.profilePhotoFileId === '') {
+        delete payload.profilePhotoFileId;
+      }
+      await AdminService.updateUserDetail(editingUser.id, payload as Partial<UserType>, adminId);
       if (password && password.trim()) {
         await AdminService.updateUserPassword(editingUser.id, password.trim(), adminId);
       }
@@ -671,18 +711,30 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <thead className="bg-gray-50 text-gray-600">
                     <tr>
                       <th className="px-3 py-2 text-left">Demo Account</th>
+                      <th className="px-3 py-2 text-left">Username</th>
                       <th className="px-3 py-2 text-left">Profession</th>
                       <th className="px-3 py-2 text-left">Country</th>
                       <th className="px-3 py-2 text-left">Automation</th>
+                      <th className="px-3 py-2 text-left">Profile</th>
                     </tr>
                   </thead>
                   <tbody>
                     {demoOverview!.accounts!.slice(0, 20).map((entry) => (
                       <tr key={entry.id} className="border-t border-gray-100">
                         <td className="px-3 py-2">
-                          <div className="font-medium text-gray-900">{entry.name || 'Unnamed'}</div>
-                          <div className="text-xs text-gray-500">{entry.email}</div>
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={entry.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(entry.name || 'Demo')}&background=0D8ABC&color=fff`}
+                              alt={entry.name || 'Demo account'}
+                              className="h-10 w-10 rounded-full border border-gray-200 object-cover"
+                            />
+                            <div>
+                              <div className="font-medium text-gray-900">{entry.name || 'Unnamed'}</div>
+                              <div className="text-xs text-gray-500">{entry.email}</div>
+                            </div>
+                          </div>
                         </td>
+                        <td className="px-3 py-2 text-gray-700">{entry.username || '-'}</td>
                         <td className="px-3 py-2 text-gray-700">{entry.profession || '-'}</td>
                         <td className="px-3 py-2 text-gray-700">{entry.country || '-'}</td>
                         <td className="px-3 py-2">
@@ -697,6 +749,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                             }`}
                           >
                             {entry.automationEnabled ? 'Enabled' : 'Disabled'}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditDemoAccount(entry)}
+                            className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                            Edit
                           </button>
                         </td>
                       </tr>
@@ -1158,6 +1220,37 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
             </div>
             <form onSubmit={handleSaveUser}>
               <div className="space-y-4">
+                <div className="flex items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsFilePickerOpen(true)}
+                    className="group relative h-20 w-20 overflow-hidden rounded-full border-4 border-white bg-gray-200 shadow-sm"
+                    aria-label="Change profile photo"
+                  >
+                    <img
+                      src={editingUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(editingUser.name || editingUser.username || 'User')}&background=0D8ABC&color=fff`}
+                      alt={editingUser.name || editingUser.username || 'User'}
+                      className="h-full w-full object-cover"
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                      <Camera className="h-5 w-5 text-white" />
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-gray-900">Profile photo</div>
+                    <div className="text-xs text-gray-500">
+                      Update the account avatar and profile photo file reference.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsFilePickerOpen(true)}
+                      className="mt-2 inline-flex items-center rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-white"
+                    >
+                      <Camera className="mr-1.5 h-3.5 w-3.5" />
+                      Change Photo
+                    </button>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Name</label>
                   <input
@@ -1166,6 +1259,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     value={editingUser.name || ''}
                     onChange={e => setEditingUser({ ...editingUser, name: e.target.value })}
                     placeholder="Enter full name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Username</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={editingUser.username || ''}
+                    onChange={e => setEditingUser({ ...editingUser, username: e.target.value })}
+                    placeholder="demo.username"
                   />
                 </div>
                 <div>
@@ -1379,6 +1482,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
           </div>
         </div>
       )}
+
+      <FilePickerModal
+        isOpen={isFilePickerOpen}
+        onClose={() => setIsFilePickerOpen(false)}
+        onSelect={handleFileSelect}
+        acceptedTypes="image/*"
+        filterType="image"
+        title="Update Demo Account Photo"
+        role="admin"
+      />
     </div>
   );
 };
