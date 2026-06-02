@@ -35,7 +35,8 @@ import {
   FOLLOW_ONBOARDING_PATH,
   hasPendingFollowOnboarding,
   resolveAuthenticatedEntryPath,
-  resolveDashboardPath
+  resolveDashboardPath,
+  resolveSignedInHomepagePath
 } from './utils/authRedirect';
 import { Capacitor } from '@capacitor/core';
 
@@ -1224,10 +1225,8 @@ const AppContent = () => {
     <Landing />
   ) : hasPendingFollowOnboarding(user) ? (
     <Navigate to={FOLLOW_ONBOARDING_PATH} replace />
-  ) : resolveAuthenticatedEntryPath(user) !== '/member-home' ? (
-    <Navigate to={resolveAuthenticatedEntryPath(user)} replace />
   ) : (
-    <MemberHomeSection />
+    <>{shouldUseMobileMemberHome ? <MobileHome /> : <MemberHomeSection />}</>
   );
   const unmatchedRouteElement =
     isAuthenticated && user ? (
@@ -1769,7 +1768,7 @@ const DashboardAliasRedirect: React.FC = () => {
 const LegacyMemberHomeRedirect: React.FC = () => {
   const { user } = useUser();
   const location = useLocation();
-  const target = resolveAuthenticatedEntryPath(user);
+  const target = resolveSignedInHomepagePath();
   return <Navigate to={{ pathname: target, search: location.search, hash: location.hash }} replace />;
 };
 

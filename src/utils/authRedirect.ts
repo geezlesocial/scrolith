@@ -54,6 +54,9 @@ export const resolveDashboardPath = (role?: UserRole | string) => {
   }
 };
 
+export const resolveSignedInHomepagePath = () =>
+  shouldUseMobileAuthenticatedHome() ? '/m/home' : '/member-home';
+
 export const resolveAuthenticatedEntryPath = (
   user?: Pick<User, 'role' | 'followOnboardingRequired' | 'follow_onboarding_required'> | null
 ) => {
