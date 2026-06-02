@@ -284,7 +284,16 @@ const listManagedAccounts = async (config: DemoAutomationConfig) => {
   if (!config.accountIds.length) return [];
   return prisma.user.findMany({
     where: { id: { in: config.accountIds } },
-    include: {
+    select: {
+      id: true,
+      email: true,
+      username: true,
+      name: true,
+      avatar: true,
+      profilePhotoFileId: true,
+      isActive: true,
+      country: true,
+      createdAt: true,
       profile: {
         select: {
           title: true,
@@ -302,6 +311,7 @@ export const seedDemoAccounts = async (input?: { count?: number; updatedById?: s
   const count = toSafeNumber(input?.count, 50, 1, 200);
   const selectedSeeds = DEMO_PROFILE_SEEDS.slice(0, count);
   const passwordHash = await bcrypt.hash(DEFAULT_DEMO_PASSWORD, 10);
+  const config = await getDemoAutomationConfig();
   const createdIds: string[] = [];
   const existingIds: string[] = [];
 
@@ -309,6 +319,16 @@ export const seedDemoAccounts = async (input?: { count?: number; updatedById?: s
     const seed = selectedSeeds[index];
     const email = buildDemoEmail(seed, index);
     const username = buildDemoUsername(seed, index);
+    const managedAccountId = config.accountIds[index];
+
+    if (managedAccountId) {
+      const managed = await prisma.user.findUnique({ where: { id: managedAccountId }, select: { id: true } });
+      if (managed?.id) {
+        existingIds.push(managed.id);
+        continue;
+      }
+    }
+
     const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (existing?.id) {
       existingIds.push(existing.id);
@@ -338,7 +358,6 @@ export const seedDemoAccounts = async (input?: { count?: number; updatedById?: s
     createdIds.push(created.id);
   }
 
-  const config = await getDemoAutomationConfig();
   const accountIds = uniq([...config.accountIds, ...createdIds, ...existingIds]);
   const next = await updateDemoAutomationConfig({ accountIds }, input?.updatedById);
   return {
@@ -358,6 +377,8 @@ export const getDemoAccountsOverview = async () => {
     name: account.name,
     email: account.email,
     username: account.username,
+    avatar: account.avatar || null,
+    profilePhotoFileId: account.profilePhotoFileId || null,
     isActive: Boolean(account.isActive),
     automationEnabled: !disabled.has(account.id),
     country: account.profile?.country || account.country || null,

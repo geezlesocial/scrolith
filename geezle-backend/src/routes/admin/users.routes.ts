@@ -116,8 +116,10 @@ router.get('/', async (req, res) => {
           id: true,
           email: true,
           name: true,
+          username: true,
           role: true,
           avatar: true,
+          profilePhotoFileId: true,
           kycStatus: true,
           isVerified: true,
           freelancerPlanActive: true,
@@ -142,14 +144,40 @@ router.get('/', async (req, res) => {
 
 router.put('/:id', async (req, res) => {
   const userId = req.params.id;
-  const { name, email, role, avatar, status, isActive, isVerified, kycStatus } = req.body || {};
+  const { name, username, email, role, avatar, profilePhotoFileId, status, isActive, isVerified, kycStatus } = req.body || {};
   const prismaClient = getPrisma();
 
   try {
     const updates: any = {};
-    if (name !== undefined) updates.name = name;
-    if (email !== undefined) updates.email = email;
+    if (name !== undefined) updates.name = String(name).trim() || null;
+    if (email !== undefined) {
+      const nextEmail = String(email).trim();
+      if (nextEmail) {
+        const existingEmail = prismaClient
+          ? await prismaClient.user.findUnique({ where: { email: nextEmail }, select: { id: true } })
+          : null;
+        if (existingEmail && existingEmail.id !== userId) {
+          return res.status(400).json({ success: false, error: 'Email already in use' });
+        }
+        updates.email = nextEmail;
+      }
+    }
+    if (username !== undefined) {
+      const nextUsername = String(username).trim();
+      if (nextUsername) {
+        const existingUsername = prismaClient
+          ? await prismaClient.user.findUnique({ where: { username: nextUsername }, select: { id: true } })
+          : null;
+        if (existingUsername && existingUsername.id !== userId) {
+          return res.status(400).json({ success: false, error: 'Username already in use' });
+        }
+        updates.username = nextUsername;
+      } else {
+        updates.username = null;
+      }
+    }
     if (avatar !== undefined) updates.avatar = avatar;
+    if (profilePhotoFileId !== undefined) updates.profilePhotoFileId = profilePhotoFileId || null;
     if (role) updates.role = role.toString().toUpperCase();
     if (isVerified !== undefined) updates.isVerified = Boolean(isVerified);
 
@@ -180,8 +208,7 @@ router.put('/:id', async (req, res) => {
       ensureMemoryUser(req);
       const idx = memoryUsers.findIndex(u => u.id === userId);
       if (idx < 0) {
-        res.status(404).json({ success: false, error: 'User not found' });
-        return;
+        return res.status(404).json({ success: false, error: 'User not found' });
       }
       memoryUsers[idx] = {
         ...memoryUsers[idx],
@@ -193,9 +220,9 @@ router.put('/:id', async (req, res) => {
       updated = memoryUsers[idx];
     }
 
-    res.json({ success: true, data: toResponseUser(updated) });
+    return res.json({ success: true, data: toResponseUser(updated) });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to update user' });
+    return res.status(500).json({ success: false, error: 'Failed to update user' });
   }
 });
 
