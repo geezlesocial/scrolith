@@ -877,14 +877,34 @@ const getApiErrorMessage = (error: any, fallback: string) => {
   return message;
 };
 
-const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
-  const explicit = String(media.type || '').toLowerCase();
+const inferMediaType = (media: {
+  url?: string;
+  mimeType?: string;
+  mime_type?: string;
+  type?: string;
+  kind?: string;
+  mediaType?: string;
+  media_type?: string;
+  contentType?: string;
+  content_type?: string;
+  videoUrl?: string;
+  video_url?: string;
+}) => {
+  const explicit = String(
+    media.type ||
+      media.kind ||
+      media.mediaType ||
+      media.media_type ||
+      media.contentType ||
+      media.content_type ||
+      ''
+  ).toLowerCase();
   if (explicit === 'image' || explicit === 'video' || explicit === 'document') return explicit;
-  const mime = String(media.mimeType || '').toLowerCase();
+  const mime = String(media.mimeType || media.mime_type || '').toLowerCase();
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
-  const url = String(media.url || '').toLowerCase();
-  if (/\.(mp4|webm|mov|m4v|ogg)$/.test(url)) return 'video';
+  const url = String(media.url || media.videoUrl || media.video_url || '').toLowerCase();
+  if (/\.(mp4|webm|mov|m4v|ogg|avi|mkv)(\?|$)/.test(url) || url.includes('/video/')) return 'video';
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
   return 'document';
 };
@@ -1079,6 +1099,10 @@ const resolveHighlightPostMedia = (post: any): string => {
     if (!attachment) continue;
     const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
     if (posterUrl) return posterUrl;
+    if (inferMediaType(attachment) === 'video') {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
     const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
     const type = String(attachment?.type || '').trim().toLowerCase();
     if (mime.startsWith('image/') || type === 'image') {
@@ -1093,9 +1117,7 @@ const resolveHighlightPostVideo = (post: any): string => {
   const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
   for (const attachment of attachments) {
     if (!attachment) continue;
-    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
-    const type = String(attachment?.type || '').trim().toLowerCase();
-    if (!mime.startsWith('video/') && type !== 'video') continue;
+    if (inferMediaType(attachment) !== 'video') continue;
     const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
     if (mediaUrl) return mediaUrl;
   }

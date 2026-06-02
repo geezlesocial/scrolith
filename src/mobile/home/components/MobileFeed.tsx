@@ -106,7 +106,28 @@ const relativeTime = (iso?: string | null) => {
   return `${days}d`;
 };
 
-const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
+const isVideo = (value?: any) => {
+  const mimeOrKind = String(
+    typeof value === 'string'
+      ? value
+      : value?.mimeType ||
+          value?.mime_type ||
+          value?.mediaType ||
+          value?.media_type ||
+          value?.contentType ||
+          value?.content_type ||
+          value?.type ||
+          value?.kind ||
+          ''
+  ).trim().toLowerCase();
+  if (mimeOrKind === 'video' || mimeOrKind.startsWith('video/')) return true;
+  const url = String(
+    typeof value === 'string'
+      ? value
+      : value?.url || value?.path || value?.downloadUrl || value?.download_url || value?.videoUrl || value?.video_url || ''
+  ).trim().toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(\?|$)/.test(url) || url.includes('/video/');
+};
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
 const BRAND_LOGO_URL = '/logo.webp';
 const buildPostScrolithaPrompt = (title: string, content: string) => {
@@ -356,6 +377,10 @@ const resolveHighlightPostMedia = (post: any) => {
     if (!attachment) continue;
     const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
     if (posterUrl) return posterUrl;
+    if (isVideo(attachment)) {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
     const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
     const type = String(attachment?.type || '').trim().toLowerCase();
     if (isImage(mime) || type === 'image') {
@@ -370,9 +395,7 @@ const resolveHighlightPostVideo = (post: any) => {
   const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
   for (const attachment of attachments) {
     if (!attachment) continue;
-    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
-    const type = String(attachment?.type || '').trim().toLowerCase();
-    if (!isVideo(mime) && type !== 'video') continue;
+    if (!isVideo(attachment)) continue;
     const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
     if (mediaUrl) return mediaUrl;
   }
@@ -692,7 +715,7 @@ export default function MobileFeed({
         url: resolvePostAttachmentMediaUrl(item),
         name: item?.name || item?.originalName || item?.filename || '',
         mimeType: item?.mimeType || item?.mime_type || '',
-        type: item?.type || (isVideo(item?.mimeType || item?.mime_type) ? 'video' : isImage(item?.mimeType || item?.mime_type) ? 'image' : 'document'),
+      type: item?.type || (isVideo(item) ? 'video' : isImage(item?.mimeType || item?.mime_type) ? 'image' : 'document'),
         thumbnailUrl: resolvePostAttachmentPosterUrl(item),
         duration: item?.duration,
         width: item?.width,
@@ -1173,7 +1196,7 @@ export default function MobileFeed({
       attachments.find(
         (entry: any) =>
           Boolean(entry) &&
-          (isVideo(entry?.mimeType) || String(entry?.type || '').toLowerCase() === 'video')
+          isVideo(entry)
       ) || null
     );
   }, []);
@@ -1279,7 +1302,7 @@ export default function MobileFeed({
 
   const handlePostMediaPrimaryAction = useCallback(
     (post: any, media: any) => {
-      if (isVideo(media?.mimeType) || String(media?.type || '').toLowerCase() === 'video') {
+      if (isVideo(media)) {
         openVideoPostInScroll(post, media);
         return;
       }
@@ -2235,7 +2258,7 @@ export default function MobileFeed({
           const reactionCounts = post?.interactions?.reactions ?? {};
 
           const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
-          const showMedia = postCardSettings.mediaPreviewEnabled !== false;
+          const showMedia = postCardSettings.mediaPreviewEnabled !== false || attachments.some((attachment: any) => isVideo(attachment));
 
           const hasGraphicWarning = Boolean(post?.graphicWarning) && graphicWarningEnabled;
           const shouldBlurMedia = hasGraphicWarning && graphicWarningBlurMedia && !revealedGraphic[postId];
@@ -2481,7 +2504,7 @@ export default function MobileFeed({
                               key={`${postId}_att_${file.id || file.url}`}
                               className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                             >
-                              {isVideo(file.mimeType) ? (
+                              {isVideo(file) ? (
                                 <div
                                   role="button"
                                   tabIndex={0}
