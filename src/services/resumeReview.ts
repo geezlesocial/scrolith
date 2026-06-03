@@ -52,7 +52,12 @@ const getReviewRequestConfig = (scopeOverride?: string) => {
   const scope = normalizeReviewScope(scopeOverride) || resolveDashboardRoleScope();
   return {
     timeout: RESUME_REVIEW_TIMEOUT_MS,
-    ...(scope ? { params: { as: scope } } : {})
+    ...(scope
+      ? {
+          params: { as: scope },
+          headers: { 'X-Scrolith-Dashboard-Role': scope }
+        }
+      : {})
   };
 };
 
