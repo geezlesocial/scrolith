@@ -76,20 +76,20 @@ const Report: React.FC<{ analysis: ResumeAnalysis | null }> = ({ analysis }) => 
           </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className={softCardClass}>
+      <div className="grid gap-4 xl:grid-cols-1 2xl:grid-cols-2">
+          <div className={`${softCardClass} min-w-0`}>
             <h3 className="font-semibold tracking-tight text-slate-950">Strengths</h3>
             <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
               {(result.strengths || []).map((item: string) => <li key={item}>{item}</li>)}
             </ul>
           </div>
-          <div className={softCardClass}>
+          <div className={`${softCardClass} min-w-0`}>
             <h3 className="font-semibold tracking-tight text-slate-950">Gaps</h3>
             <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-700">
               {(result.weaknesses || []).map((item: string) => <li key={item}>{item}</li>)}
             </ul>
           </div>
-          <div className={softCardClass}>
+          <div className={`${softCardClass} min-w-0 2xl:col-span-2`}>
             <h3 className="font-semibold tracking-tight text-slate-950">Missing requirements</h3>
             <div className="mt-3 space-y-3">
               {(result.missingRequirements || []).map((item: any) => (
@@ -101,7 +101,7 @@ const Report: React.FC<{ analysis: ResumeAnalysis | null }> = ({ analysis }) => 
               ))}
             </div>
           </div>
-          <div className={softCardClass}>
+          <div className={`${softCardClass} min-w-0 2xl:col-span-2`}>
             <h3 className="font-semibold tracking-tight text-slate-950">Interview questions</h3>
             <ol className="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-700">
               {(result.suggestedInterviewQuestions || []).map((item: string) => <li key={item}>{item}</li>)}
