@@ -104,6 +104,7 @@ import { reconcileAdPayments } from './scripts/reconcileAdPayments';
 import { registerInsightsJobs } from './modules/insights/jobs/insights.jobs';
 import { registerFxJobs } from './services/fx.service';
 import { startDemoAutomationScheduler } from './services/systemDemoAccounts.service';
+import { clientResumeReviewRoutes, freelancerResumeRoutes, resumePublicRoutes } from './modules/resume/resume.routes';
 import fxAdminRoutes from './routes/admin/fx.routes';
 import { insightsActionTrackerMiddleware } from './modules/insights/realtime/insights.tracker.middleware';
 import {
@@ -2882,6 +2883,9 @@ app.use('/api/gigs', gigRoutes);
 app.use('/api/jobs', jobsRoutes);
 app.use('/api/freelancer', freelancerRoutes);
 app.use('/api/employer', employerRoutes);
+app.use('/api/freelancer/resumes', freelancerResumeRoutes);
+app.use('/api/client/resume-reviews', clientResumeReviewRoutes);
+app.use('/api/resume', resumePublicRoutes);
 app.use('/api/categories', categoriesRoutes);
 app.use('/api/admin/gigs-jobs', adminGigsJobsRoutes);
 app.use('/api/wallet', walletRoutes);

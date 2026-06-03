@@ -229,6 +229,10 @@ model User {
   // Developer platform (https://scrolith.com/developer)
   developerProfile   DeveloperUser?
   developerOwnedApps DeveloperApp[] @relation("DeveloperOwnedApps")
+
+  // Resume / CV builder and reviewer
+  resumeDocuments ResumeDocument[] @relation("ResumeDocuments")
+  resumeAnalyses  ResumeAnalysis[]  @relation("ResumeAnalyses")
 }
 
 model Profile {
@@ -274,6 +278,81 @@ model Profile {
   updatedAt               DateTime  @updatedAt
 
   user User @relation(fields: [userId], references: [id])
+}
+
+model ResumeDocument {
+  id              String   @id @default(cuid())
+  userId          String
+  freelancerId    String?
+  title           String
+  targetRole      String?
+  targetIndustry  String?
+  template        String   @default("professional")
+  includePhoto    Boolean  @default(false)
+  photoUrl        String?
+  status          String   @default("draft")
+  sourceSnapshot  Json?
+  editableData    Json?
+  aiOutput        Json?
+  pdfUrl          String?
+  pdfStorageKey   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user     User           @relation("ResumeDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  versions ResumeVersion[]
+
+  @@index([userId])
+  @@index([freelancerId])
+  @@index([status])
+}
+
+model ResumeVersion {
+  id             String   @id @default(cuid())
+  resumeId       String
+  versionNumber  Int
+  changeReason   String?
+  prompt         String?
+  editableData   Json?
+  aiOutput       Json?
+  pdfUrl         String?
+  pdfStorageKey  String?
+  createdAt      DateTime @default(now())
+
+  resume ResumeDocument @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@index([resumeId])
+  @@unique([resumeId, versionNumber])
+}
+
+model ResumeAnalysis {
+  id                  String   @id @default(cuid())
+  clientId            String
+  jobTitle            String?
+  jobDescription      String
+  requiredSkills      Json?
+  preferredSkills     Json?
+  seniorityLevel      String?
+  sourceType          String
+  sourceFileUrl       String?
+  sourceFileName      String?
+  sourceMimeType      String?
+  profileUrl          String?
+  extractedText       String?
+  normalizedCandidate Json?
+  analysisResult      Json?
+  overallScore        Int?
+  roleFitScore        Int?
+  status              String   @default("pending")
+  errorMessage        String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  client User @relation("ResumeAnalyses", fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model ProfileView {
