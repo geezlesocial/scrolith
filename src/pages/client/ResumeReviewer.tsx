@@ -130,6 +130,7 @@ const Report: React.FC<{ analysis: ResumeAnalysis | null }> = ({ analysis }) => 
 };
 
 const ResumeReviewer: React.FC = () => {
+  const reviewScope = 'employer';
   const [history, setHistory] = useState<ResumeAnalysis[]>([]);
   const [active, setActive] = useState<ResumeAnalysis | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -157,7 +158,7 @@ const ResumeReviewer: React.FC = () => {
   );
 
   const loadHistory = async () => {
-    const items = await ResumeReviewService.list();
+    const items = await ResumeReviewService.list(reviewScope);
     setHistory(items);
     if (!active && items[0]) setActive(items[0]);
   };
@@ -175,10 +176,10 @@ const ResumeReviewer: React.FC = () => {
           setMessage('Choose a resume/CV file first.');
           return;
         }
-        const next = await ResumeReviewService.upload(file, payload);
+        const next = await ResumeReviewService.upload(file, payload, reviewScope);
         setActive(next);
       } else {
-        const next = await ResumeReviewService.analyzeProfileUrl({ ...payload, profileUrl });
+        const next = await ResumeReviewService.analyzeProfileUrl({ ...payload, profileUrl }, reviewScope);
         setActive(next);
       }
       await loadHistory();

@@ -41,8 +41,15 @@ const resolveDashboardRoleScope = () => {
   }
 };
 
-const getReviewRequestConfig = () => {
-  const scope = resolveDashboardRoleScope();
+const normalizeReviewScope = (scope?: string) => {
+  const normalized = String(scope || '').trim().toLowerCase();
+  if (normalized === 'client' || normalized === 'buyer' || normalized === 'employer') return 'employer';
+  if (normalized === 'freelancer' || normalized === 'seller' || normalized === 'user') return 'freelancer';
+  return '';
+};
+
+const getReviewRequestConfig = (scopeOverride?: string) => {
+  const scope = normalizeReviewScope(scopeOverride) || resolveDashboardRoleScope();
   return {
     timeout: RESUME_REVIEW_TIMEOUT_MS,
     ...(scope ? { params: { as: scope } } : {})
@@ -50,11 +57,11 @@ const getReviewRequestConfig = () => {
 };
 
 export const ResumeReviewService = {
-  async list() {
-    return unwrap<ResumeAnalysis[]>(await api.get('/client/resume-reviews', getReviewRequestConfig()));
+  async list(scopeOverride?: string) {
+    return unwrap<ResumeAnalysis[]>(await api.get('/client/resume-reviews', getReviewRequestConfig(scopeOverride)));
   },
 
-  async upload(file: File, payload: any) {
+  async upload(file: File, payload: any, scopeOverride?: string) {
     const form = new FormData();
     form.append('file', file);
     Object.entries(payload || {}).forEach(([key, value]) => {
@@ -64,18 +71,18 @@ export const ResumeReviewService = {
         form.append(key, String(value));
       }
     });
-    return unwrap<ResumeAnalysis>(await api.post('/client/resume-reviews/upload', form, getReviewRequestConfig()));
+    return unwrap<ResumeAnalysis>(await api.post('/client/resume-reviews/upload', form, getReviewRequestConfig(scopeOverride)));
   },
 
-  async analyzeProfileUrl(payload: any) {
-    return unwrap<ResumeAnalysis>(await api.post('/client/resume-reviews/profile-url', payload, getReviewRequestConfig()));
+  async analyzeProfileUrl(payload: any, scopeOverride?: string) {
+    return unwrap<ResumeAnalysis>(await api.post('/client/resume-reviews/profile-url', payload, getReviewRequestConfig(scopeOverride)));
   },
 
-  async get(id: string) {
-    return unwrap<ResumeAnalysis>(await api.get(`/client/resume-reviews/${id}`, getReviewRequestConfig()));
+  async get(id: string, scopeOverride?: string) {
+    return unwrap<ResumeAnalysis>(await api.get(`/client/resume-reviews/${id}`, getReviewRequestConfig(scopeOverride)));
   },
 
-  async remove(id: string) {
-    return unwrap<{ deleted: boolean }>(await api.delete(`/client/resume-reviews/${id}`, getReviewRequestConfig()));
+  async remove(id: string, scopeOverride?: string) {
+    return unwrap<{ deleted: boolean }>(await api.delete(`/client/resume-reviews/${id}`, getReviewRequestConfig(scopeOverride)));
   }
 };
