@@ -40,8 +40,14 @@ const isClientDashboardRole = (role?: string) => {
   return normalized.includes('CLIENT') || normalized.includes('EMPLOYER') || normalized.includes('BUYER');
 };
 
+const resolveRequestedDashboardRole = (req: Request) => {
+  const headerRole = normalizeRole((req.header('X-Scrolith-Dashboard-Role') as string) || (req.header('X-Scrolith-Resume-Scope') as string));
+  if (headerRole) return headerRole;
+  return normalizeRole((req.query?.role as string) || (req.query?.as as string));
+};
+
 const resolveEffectiveRole = (req: Request, userRole?: string) => {
-  const queryRole = normalizeRole((req.query?.role as string) || (req.query?.as as string));
+  const queryRole = resolveRequestedDashboardRole(req);
   if (!queryRole) return normalizeRole(userRole);
   if (queryRole.includes('ADMIN') || queryRole.includes('SUPERADMIN')) return normalizeRole(userRole);
   if (isFreelancerDashboardRole(queryRole)) return 'FREELANCER';
@@ -146,7 +152,7 @@ const requireClient = (req: Request, res: Response) => {
     failure(res, 403, 'Resume/CV Reviewer is disabled by an administrator.');
     return null;
   }
-  if (isClientRole(effectiveRole)) return user;
+  if (isClientRole(effectiveRole) || isClientDashboardRole(resolveRequestedDashboardRole(req))) return user;
   failure(res, 403, 'Client access required.');
   return null;
 };
