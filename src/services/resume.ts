@@ -34,6 +34,7 @@ export type ResumeDocument = {
 };
 
 const unwrap = <T>(response: { data: { data: T } }) => response.data.data;
+const RESUME_REQUEST_TIMEOUT_MS = 120000;
 
 export const ResumeService = {
   async getProfileSource() {
@@ -45,7 +46,9 @@ export const ResumeService = {
   },
 
   async generate(payload: any) {
-    return unwrap<ResumeDocument>(await api.post('/freelancer/resumes/generate', payload));
+    return unwrap<ResumeDocument>(
+      await api.post('/freelancer/resumes/generate', payload, { timeout: RESUME_REQUEST_TIMEOUT_MS })
+    );
   },
 
   async update(id: string, payload: any) {
@@ -53,17 +56,22 @@ export const ResumeService = {
   },
 
   async regenerate(id: string, payload: any) {
-    return unwrap<ResumeDocument>(await api.post(`/freelancer/resumes/${id}/regenerate`, payload));
+    return unwrap<ResumeDocument>(
+      await api.post(`/freelancer/resumes/${id}/regenerate`, payload, { timeout: RESUME_REQUEST_TIMEOUT_MS })
+    );
   },
 
   async renderPdf(id: string) {
     return unwrap<{ resume: ResumeDocument; pdfStorageKey: string; fileName: string }>(
-      await api.post(`/freelancer/resumes/${id}/render-pdf`)
+      await api.post(`/freelancer/resumes/${id}/render-pdf`, undefined, { timeout: RESUME_REQUEST_TIMEOUT_MS })
     );
   },
 
   async downloadPdf(id: string) {
-    return api.get(`/freelancer/resumes/${id}/download`, { responseType: 'blob' });
+    return api.get(`/freelancer/resumes/${id}/download`, {
+      responseType: 'blob',
+      timeout: RESUME_REQUEST_TIMEOUT_MS
+    });
   },
 
   async remove(id: string) {
