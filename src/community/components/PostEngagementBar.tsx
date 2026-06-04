@@ -162,6 +162,7 @@ const PostEngagementBar: React.FC<Props> = ({
   commentCount,
   repostCount = 0,
   shareCount = 0,
+  viewCount = 0,
   initialReactionCounts,
   initialUserReaction,
   focusCommentId,
