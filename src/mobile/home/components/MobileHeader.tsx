@@ -4,6 +4,7 @@ import {
   MoreHorizontalIcon as MoreHorizontal,
   SearchIcon as Search
 } from '../../../components/icons/ShellIcons';
+import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 import { MOBILE_HEADER_CONTAINER_CLASS } from '../mobileShellLayout';
 
 export type MobileHomeLayoutSettings = {
@@ -40,6 +41,7 @@ export default function MobileHeader({
   const searchEnabled = settings?.search?.enabled ?? true;
   const unread = Number(messagesUnread || 0);
   const recentActionRef = useRef<{ key: string; at: number } | null>(null);
+  const resolvedUserAvatar = resolveUserAvatarUrl(user);
 
   const triggerAction = useCallback((key: string, action: () => void) => {
     const now = Date.now();
@@ -63,8 +65,8 @@ export default function MobileHeader({
           aria-label="Open profile"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
-          {user?.avatar ? (
-            <img src={user.avatar} alt="Profile" className="h-full w-full object-cover" />
+          {resolvedUserAvatar ? (
+            <img src={resolvedUserAvatar} alt="Profile" className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-600">
               {(user?.name?.[0] ?? user?.username?.[0] ?? 'U').toUpperCase()}

@@ -8,6 +8,7 @@ import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
+import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import type { ScrollVideo } from '../../services/scroll';
 import type { PendingPostVideoScrollViewerSource } from '../../utils/postVideoScrollBridge';
 
@@ -236,6 +237,7 @@ const MobileHome = () => {
   const isMobileViewport = useViewportIsMobile();
 
   const { user, logout, updateUser } = useUser();
+  const resolvedUserAvatar = resolveUserAvatarUrl(user);
   const { settings, loading } = useContent();
   const { isConnected } = useSocket();
   const { currency, availableCurrencies, setCurrency } = useCurrency();
@@ -821,7 +823,7 @@ const MobileHome = () => {
           previewConversations={previewConversations}
           currentUserId={user?.id ? String(user.id) : null}
           userName={user?.name || null}
-          userAvatar={user?.avatar || null}
+          userAvatar={resolvedUserAvatar || null}
           onRefreshMessages={() => void refreshMessages({ force: true })}
           onOpenConversation={(conversationId: string) => {
             if (conversationId) navigateFromShell(`/messages/${encodeURIComponent(conversationId)}`);

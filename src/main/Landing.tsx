@@ -274,6 +274,54 @@ const createInitialGuestHomepageState = () => {
   }
 };
 
+class MemberHomeShellBoundary extends React.Component<
+  React.PropsWithChildren<{}>,
+  { hasError: boolean }
+> {
+  public state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Signed-in homepage render failed:', error);
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    return (
+      <div className="relative min-h-screen flex flex-col bg-[#f7f4ee] text-[#0b0b0a]">
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute -top-32 left-[-10%] h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,#ffe9c7,transparent_65%)] opacity-70" />
+          <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
+        </div>
+        <div className="mx-auto flex w-full max-w-2xl flex-1 items-center justify-center px-4 py-16">
+          <div className="w-full rounded-[32px] border border-white/80 bg-white/95 p-8 text-center shadow-[0_24px_48px_-36px_rgba(15,23,42,0.32)]">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
+              <img src="/logo.png" alt="Scrolith" className="h-10 w-10 object-contain" />
+            </div>
+            <h1 className="text-2xl font-semibold text-slate-900">Home is reloading</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              The signed-in homepage hit a render issue. Reload the page to try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-6 inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 const Landing = () => {
   const t = useT();
   const [initialGuestHomepage] = useState(createInitialGuestHomepageState);
@@ -285,10 +333,6 @@ const Landing = () => {
   const [guestSeo, setGuestSeo] = useState<Record<string, any> | null>(initialGuestHomepage.seo);
   const [loadError, setLoadError] = useState('');
   const location = useLocation();
-
-  if (user) {
-    return <MemberHomeSection />;
-  }
 
   const normalizeSections = useCallback((data: HomepageSection[]) => {
     return data
@@ -573,6 +617,14 @@ const Landing = () => {
       upsertImagePreloadLink('landing-lcp-image', null);
     };
   }, [landingHeroImage]);
+
+  if (user) {
+    return (
+      <MemberHomeShellBoundary>
+        <MemberHomeSection />
+      </MemberHomeShellBoundary>
+    );
+  }
 
   if (loading) {
     return (

@@ -1837,6 +1837,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const currentUsername = String((user as any)?.username || (user as any)?.user_name || '').trim();
   const userHeadline = user?.title || (user as any)?.headline || (user as any)?.tagline || user?.role || 'Member';
   const userLocation = user?.location || (user as any)?.country || '';
+  const resolvedUserAvatar = resolveUserAvatarUrl(user);
   const composerTitle = content?.composerTitle || 'Share a quick update or idea with your network.';
   const userPostAuthorOption = useMemo<PostAuthorOption>(
     () => ({
@@ -1844,11 +1845,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       type: 'user',
       label: String(user?.name || currentUsername || 'You').trim() || 'You',
       subtitle: userHeadline || 'Post as yourself',
-      avatarUrl: String(user?.avatar || '').trim() || null,
+      avatarUrl: resolvedUserAvatar || null,
       pageId: null,
       slug: null
     }),
-    [currentUsername, user?.avatar, user?.name, userHeadline]
+    [currentUsername, resolvedUserAvatar, user?.name, userHeadline]
   );
   const desktopPostAuthorOptions = useMemo(
     () => [userPostAuthorOption, ...ownedBusinessPages],
@@ -5066,7 +5067,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (!user) return;
     try {
       const id = await MessagingService.createConversation([
-        { id: user.id, name: user.name || 'You', avatar: user.avatar, role: user.role },
+        { id: user.id, name: user.name || 'You', avatar: resolvedUserAvatar || undefined, role: user.role },
         { id: target.id, name: target.name, avatar: target.avatar || undefined }
       ]);
       window.location.href = `/messages/${id}`;
@@ -5463,8 +5464,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         >
           <div className="flex items-center gap-4">
             <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 shadow-sm">
-              {user?.avatar ? (
-                <img src={user.avatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
+              {resolvedUserAvatar ? (
+                <img src={resolvedUserAvatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
               ) : (
                 <Users className="mx-auto mt-3.5 h-5 w-5 text-slate-400" />
               )}
@@ -5980,7 +5981,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     showComposer,
     startCamera,
     topics,
-    user?.avatar,
+    resolvedUserAvatar,
     user?.country,
     user?.id,
     user?.location,
@@ -6446,8 +6447,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               <div className="p-4 sm:p-5">
                 <div className="-mt-10 flex items-end gap-3">
                   <div className="h-16 w-16 rounded-2xl bg-slate-100 overflow-hidden ring-4 ring-white">
-                    {user?.avatar ? (
-                      <img src={user.avatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
+                    {resolvedUserAvatar ? (
+                      <img src={resolvedUserAvatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
                     ) : (
                       <Users className="mx-auto mt-4 h-6 w-6 text-slate-400" />
                     )}

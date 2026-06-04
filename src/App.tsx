@@ -487,13 +487,80 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
   }
 }
 
+class SignedInHomepageBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
+  public props: React.PropsWithChildren<{}>;
+  public state: ErrorBoundaryState;
+
+  constructor(props: React.PropsWithChildren<{}>) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: unknown) {
+    trackRuntimeEvent(
+      'mobile_runtime_error',
+      {
+        message:
+          (error as { message?: string } | null)?.message ||
+          'signed_in_home_error_boundary',
+        componentStack:
+          (info as { componentStack?: string } | null)?.componentStack || ''
+      },
+      {
+        dedupeMs: 15_000
+      }
+    );
+    console.error(error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
+              <img
+                src="/logo.png"
+                alt="Scrolith logo"
+                width={44}
+                height={44}
+                decoding="async"
+                className="h-11 w-11 object-contain"
+                onError={(event) => {
+                  (event.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            </div>
+            <h2 className="mt-4 text-xl font-semibold text-slate-900">Home is reloading</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              The signed-in homepage hit a render issue. Reload to try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children as React.ReactElement;
+  }
+}
+
 const RouteLoadingFallback = () => (
   <div className="flex min-h-[48vh] items-center justify-center px-4">
     <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-50 shadow-sm">
           <img
-            src="/logo.webp"
+            src="/logo.png"
             alt="Scrolith logo"
             width={56}
             height={56}
@@ -1226,7 +1293,9 @@ const AppContent = () => {
   ) : hasPendingFollowOnboarding(user) ? (
     <Navigate to={FOLLOW_ONBOARDING_PATH} replace />
   ) : (
-    <>{shouldUseMobileMemberHome ? <MobileHome /> : <MemberHomeSection />}</>
+    <SignedInHomepageBoundary>
+      {shouldUseMobileMemberHome ? <MobileHome /> : <MemberHomeSection />}
+    </SignedInHomepageBoundary>
   );
   const unmatchedRouteElement =
     isAuthenticated && user ? (
@@ -1257,7 +1326,9 @@ const AppContent = () => {
         {shouldRenderForcedMobileHome ? (
           <ErrorBoundary key="forced-mobile-home">
             <Suspense fallback={<RouteLoadingFallback />}>
-              <MobileHome />
+              <SignedInHomepageBoundary>
+                <MobileHome />
+              </SignedInHomepageBoundary>
             </Suspense>
           </ErrorBoundary>
         ) : (
@@ -1281,7 +1352,9 @@ const AppContent = () => {
                 path="/m"
                 element={
                   <ProtectedRoute>
-                    <MobileHome />
+                    <SignedInHomepageBoundary>
+                      <MobileHome />
+                    </SignedInHomepageBoundary>
                   </ProtectedRoute>
                 }
               >
