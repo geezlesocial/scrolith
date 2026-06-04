@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Heart, MessageCircle, Repeat, Loader2, Coins, Send } from 'lucide-react';
+import { Heart, MessageCircle, Repeat, Loader2, Coins, Send, Eye } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { CommunityService } from '../services/community';
 import { useNotification } from '../context/NotificationContext';
@@ -120,14 +120,26 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
     };
 
     const buttonBase =
-        'group relative inline-flex min-h-[58px] flex-1 items-center justify-center rounded-2xl border border-slate-200 bg-white px-2 py-2 text-slate-600 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm';
+        'group relative inline-flex aspect-square min-h-[64px] flex-1 items-center justify-center rounded-[28px] border border-slate-200/60 bg-white/90 px-2 py-2 text-slate-600 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm';
     const iconWrap =
-        'inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white';
+        'inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white';
     const badgeBase =
         'absolute -right-2 -top-2 inline-flex min-w-5 items-center justify-center rounded-full border border-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm';
+    const viewCount = Math.max(0, Number(counts.views || 0));
 
     return (
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-5">
+        <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-end">
+                <div
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm"
+                    title={`${viewCount.toLocaleString()} views`}
+                    aria-label={`${viewCount.toLocaleString()} views`}
+                >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>{viewCount.toLocaleString()} views</span>
+                </div>
+            </div>
+            <div className="grid grid-cols-5 gap-2 rounded-[32px] border border-slate-200/80 bg-slate-50/75 p-2 shadow-sm">
             <button 
                 onClick={handleLike}
                 disabled={isProcessing}
@@ -236,6 +248,7 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
             />
 
             <SendGcoinModal isOpen={isSendModalOpen} onClose={() => setIsSendModalOpen(false)} donatePostId={type === 'post' ? id : undefined} />
+            </div>
         </div>
     );
 };
