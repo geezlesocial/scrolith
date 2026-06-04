@@ -20,7 +20,6 @@ import { MessagingService } from '../../../services/messaging';
 import { ScrollService, type ScrollSeriesDiscovery } from '../../../services/scroll';
 import MentionText from '../../../community/components/MentionText';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
-import FollowButton from '../../../community/components/FollowButton';
 import PostOptionsButton from '../../../community/components/post-options/PostOptionsButton';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
@@ -2322,31 +2321,31 @@ export default function MobileFeed({
                   <div className="flex min-w-0 items-center gap-3">
                     <Link
                       to={profileUrl}
-                      className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm"
-                        aria-label={`View ${authorName} profile`}
-                      >
-                        {authorAvatar ? (
-                          <OptimizedImage
-                            src={authorAvatar}
-                            alt={authorName}
-                            width={96}
-                            height={96}
-                            sizes="48px"
-                            className="h-full w-full object-cover"
-                            loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
-                            decoding="async"
-                            fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
-                            onError={(event) => {
-                              (event.currentTarget as HTMLImageElement).style.display = 'none';
-                            }}
-                          />
-                        ) : null}
+                      className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm ring-1 ring-white"
+                      aria-label={`View ${authorName} profile`}
+                    >
+                      {authorAvatar ? (
+                        <OptimizedImage
+                          src={authorAvatar}
+                          alt={authorName}
+                          width={96}
+                          height={96}
+                          sizes="48px"
+                          className="h-full w-full object-cover"
+                          loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
+                          decoding="async"
+                          fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
+                          onError={(event) => {
+                            (event.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                      ) : null}
                     </Link>
                     <div className="min-w-0 pt-0.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           to={profileUrl}
-                          className="min-w-0 text-base font-semibold text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
+                          className="min-w-0 text-[15px] font-semibold leading-5 text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
                         >
                           {authorName}
                         </Link>
@@ -2391,21 +2390,7 @@ export default function MobileFeed({
                     </div>
                   </div>
 
-                  <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
-                    {authorId && String(authorId) !== String(user?.id || '') ? (
-                      <FollowButton
-                        targetUserId={String(authorId)}
-                        currentUserId={user?.id}
-                        initialIsFollowing={
-                          typeof post?.viewer?.isFollowingAuthor === 'boolean'
-                            ? Boolean(post.viewer.isFollowingAuthor)
-                            : undefined
-                        }
-                        onRequireLogin={() => navigate('/auth/login')}
-                        className="h-9 border-slate-200 bg-white px-3.5 text-[11px] uppercase tracking-[0.16em] text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
-                      />
-                    ) : null}
-
+                  <div className="flex min-w-fit items-center gap-2 whitespace-nowrap self-start">
                     <PostOptionsButton
                       post={post}
                       icon={<MoreVertical className="h-4 w-4" />}
