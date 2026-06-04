@@ -7172,24 +7172,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           </>
                         }
                         rightSlot={
+                          <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
                             <PostOptionsButton
                               post={post}
                               icon={<MoreHorizontal className="h-4 w-4" />}
                               buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                            onHideFromFeed={(hiddenPostId) => {
-                              setFeedItems((prev) => prev.filter((item) => item.id !== hiddenPostId));
-                              setCommentCounts((prev) => {
-                                const next = { ...prev };
-                                delete next[hiddenPostId];
-                                return next;
-                              });
-                              if (editingPostId === hiddenPostId) cancelEditPost();
-                            }}
-                            onEditPost={beginEditPost}
-                            onDeletePost={handleDeletePost}
-                            onTogglePin={handleTogglePin}
-                            onToggleHighlight={handleToggleHighlight}
-                          />
+                              onHideFromFeed={(hiddenPostId) => {
+                                setFeedItems((prev) => prev.filter((item) => item.id !== hiddenPostId));
+                                setCommentCounts((prev) => {
+                                  const next = { ...prev };
+                                  delete next[hiddenPostId];
+                                  return next;
+                                });
+                                if (editingPostId === hiddenPostId) cancelEditPost();
+                              }}
+                              onEditPost={beginEditPost}
+                              onDeletePost={handleDeletePost}
+                              onTogglePin={handleTogglePin}
+                              onToggleHighlight={handleToggleHighlight}
+                            />
+                          </div>
                         }
                       />
                       {isEditing ? (

@@ -131,7 +131,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           {metaBadges ? <div className="mt-2 flex flex-wrap items-center gap-2">{metaBadges}</div> : null}
         </div>
       </div>
-      <div className="flex w-full shrink-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:items-start">
+      <div className="flex w-full min-w-fit shrink-0 items-center justify-end gap-2 sm:w-auto sm:flex-nowrap sm:items-start">
         {canShowFollow ? (
           <FollowButton
             targetUserId={author.id}

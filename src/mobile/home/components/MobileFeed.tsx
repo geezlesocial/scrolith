@@ -129,7 +129,7 @@ const isVideo = (value?: any) => {
   return /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(\?|$)/.test(url) || url.includes('/video/');
 };
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
-const BRAND_LOGO_URL = '/logo.webp';
+const BRAND_LOGO_URL = '/logo.png';
 const buildPostScrolithaPrompt = (title: string, content: string) => {
   const safeTitle = String(title || '').trim();
   const safeContent = String(content || '').replace(/\s+/g, ' ').trim();
@@ -890,7 +890,7 @@ export default function MobileFeed({
       badge: 'AI',
       ctaLabel: 'Open coach',
       onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
-      mediaUrl: '/logo.webp',
+      mediaUrl: '/logo.png',
       icon: <Sparkles className="h-4 w-4" />,
       tone: 'violet'
     });
@@ -944,7 +944,7 @@ export default function MobileFeed({
         ctaLabel: topOfficeHour.isRegistered ? 'View session' : 'Open office hours',
         onClick: () => openInsightsSection('live-office-hours', 'opportunity'),
         mediaUrl: topOfficeHour.image || '',
-        fallbackMediaUrl: '/logo.webp',
+        fallbackMediaUrl: '/logo.png',
         icon: <CalendarDays className="h-4 w-4" />,
         tone: 'amber'
       });
@@ -2391,7 +2391,7 @@ export default function MobileFeed({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
                     {authorId && String(authorId) !== String(user?.id || '') ? (
                       <FollowButton
                         targetUserId={String(authorId)}

@@ -3169,7 +3169,7 @@ const CommunityHome = () => {
                           </>
                         }
                         rightSlot={
-                          <div className="flex items-center gap-2">
+                          <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
                             {canManage ? (
                               <button
                                 onClick={() => promotePost(post)}

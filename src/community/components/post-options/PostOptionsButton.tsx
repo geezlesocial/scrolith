@@ -73,8 +73,7 @@ export default function PostOptionsButton({
         ref={buttonRef}
         type="button"
         className={
-          buttonClassName ||
-          'rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50'
+          `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 ${buttonClassName || ''}`
         }
         aria-label="Post options"
         onClick={(e) => {
