@@ -161,7 +161,6 @@ const PostEngagementBar: React.FC<Props> = ({
   commentCount,
   repostCount = 0,
   shareCount = 0,
-  viewCount = 0,
   initialReactionCounts,
   initialUserReaction,
   focusCommentId,
@@ -186,7 +185,6 @@ const PostEngagementBar: React.FC<Props> = ({
   const sendEnabled = features?.send !== false;
   const dashEnabled = features?.dash !== false && (memberHomeSettings?.feed?.dashEnabled ?? (memberHomeSettings as any)?.feed?.dash_enabled ?? true) !== false;
   const dashEnabledForPost = dashEnabled && !(authorId && user?.id && String(authorId) === String(user.id));
-  const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length);
 
   const allowed = useMemo(() => normalizeAllowed(reactionsSettings?.allowed), [reactionsSettings?.allowed]);
   const allowedMap = useMemo(() => {
@@ -201,7 +199,6 @@ const PostEngagementBar: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [dashTotal, setDashTotal] = useState<number>(Number(dashGcoinTotal || 0));
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerAnchor, setPickerAnchor] = useState<'summary' | 'button'>('button');
   const [pickerPosition, setPickerPosition] = useState<FloatingPosition | null>(null);
   const [reactorsOpen, setReactorsOpen] = useState(false);
   const [reactorsInitialKey, setReactorsInitialKey] = useState<string | null>(null);
@@ -214,7 +211,6 @@ const PostEngagementBar: React.FC<Props> = ({
   const [interestSignal, setInterestSignal] = useState<string | null>(initialInterestSignal || null);
 
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const summaryRef = useRef<HTMLButtonElement | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const commentsAnchorRef = useRef<HTMLDivElement | null>(null);
   const hoverOpenTimerRef = useRef<number | null>(null);
@@ -276,7 +272,7 @@ const PostEngagementBar: React.FC<Props> = ({
 
   useEffect(() => {
     if (!pickerOpen || isCoarsePointer) return;
-    const anchorEl = pickerAnchor === 'summary' ? summaryRef.current : buttonRef.current;
+    const anchorEl = buttonRef.current;
     if (!anchorEl) return;
     const reposition = () => setPickerPosition(computeFloatingPosition(anchorEl.getBoundingClientRect(), 380, 260));
     reposition();
@@ -286,14 +282,14 @@ const PostEngagementBar: React.FC<Props> = ({
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
     };
-  }, [pickerOpen, pickerAnchor, isCoarsePointer]);
+  }, [pickerOpen, isCoarsePointer]);
 
   useEffect(() => {
     if (!pickerOpen) return;
     const onPointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
-      if (buttonRef.current?.contains(target) || summaryRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
       setPickerOpen(false);
     };
     const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setPickerOpen(false); };
@@ -356,8 +352,14 @@ const PostEngagementBar: React.FC<Props> = ({
 
   const likeLabel = userReaction ? (allowedMap.get(userReaction)?.label || DEFAULT_META[userReaction]?.label || 'Like') : 'Like';
   const likeEmoji = userReaction ? (allowedMap.get(userReaction)?.emoji || DEFAULT_META[userReaction]?.emoji || DEFAULT_META.like.emoji) : '';
+  const reactionLabel = userReaction ? likeLabel : 'Reactions';
+  const reactionCountLabel = totalReactions > 0 ? totalReactions.toLocaleString() : '0';
+  const commentCountLabel = Math.max(0, toSafeCount(commentCount)).toLocaleString();
+  const repostCountLabel = Math.max(0, toSafeCount(repostCount)).toLocaleString();
+  const dashCountLabel = formatDashGcoin(dashTotal);
+  const sendCountLabel = Math.max(0, toSafeCount(shareCount)).toLocaleString();
   const actionButtonBase =
-    'group relative inline-flex min-h-[52px] w-full items-center justify-center rounded-[20px] border border-transparent bg-white px-2 py-2.5 text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm';
+    'group relative inline-flex min-h-[64px] w-full items-center justify-between gap-3 rounded-[20px] border border-transparent bg-white px-3 py-2.5 text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm';
   const actionIconBase =
     'inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white';
   const postUrl = buildPostUrl(postId);
@@ -366,7 +368,6 @@ const PostEngagementBar: React.FC<Props> = ({
     if (isCoarsePointer) return;
     clearTimers();
     hoverOpenTimerRef.current = window.setTimeout(() => {
-      setPickerAnchor('button');
       setPickerOpen(true);
       hoverOpenTimerRef.current = null;
     }, 220);
@@ -378,7 +379,6 @@ const PostEngagementBar: React.FC<Props> = ({
     longPressTriggeredRef.current = false;
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredRef.current = true;
-      setPickerAnchor('button');
       setPickerOpen(true);
       longPressTimerRef.current = null;
     }, 360);
@@ -447,82 +447,9 @@ const PostEngagementBar: React.FC<Props> = ({
           onSubmit={handleInterestSurveySubmit}
         />
       ) : null}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[24px] border border-slate-200/80 bg-white/90 px-3 py-3 text-xs text-slate-500 shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {showCounts && reactionsEnabled ? (
-            totalReactions > 0 ? (
-              <button
-                ref={summaryRef}
-                type="button"
-                data-post-action-control="true"
-                onMouseDown={stopActionPropagation}
-                onTouchStart={stopActionPropagation}
-                onClick={(event) =>
-                  triggerAction(event, () => {
-                    openReactors(null);
-                  })
-                }
-                className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/90 bg-white px-3 py-1.5 shadow-sm hover:bg-slate-50"
-              >
-                <span className="inline-flex -space-x-1">
-                  {topReactions.map((item) => (
-                    <span key={item.key} className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-slate-100 text-[11px]">
-                      {item.meta.emoji}
-                    </span>
-                  ))}
-                </span>
-                <span className="font-semibold text-slate-700">{totalReactions}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-              </button>
-            ) : (
-              <span className="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-slate-400">0 reactions</span>
-            )
-          ) : (
-            <span className="text-slate-400">&nbsp;</span>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {commentsEnabled ? (
-            <button
-              type="button"
-              data-post-action-control="true"
-              onMouseDown={stopActionPropagation}
-              onTouchStart={stopActionPropagation}
-              onClick={(event) =>
-                triggerAction(event, () => {
-                  setCommentsOpen(true);
-                  setFocusInputKey((prev) => prev + 1);
-                  window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
-                })
-              }
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:text-slate-900"
-            >
-              <span className="font-semibold text-slate-900">{commentCount}</span> comments
-            </button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-              <span className="font-semibold text-slate-900">{commentCount}</span> comments
-            </span>
-          )}
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">{repostCount}</span> reposts
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-[11px] font-medium text-emerald-700 shadow-sm">
-            <span className="font-semibold text-emerald-900">{formatDashGcoin(dashTotal)}</span> GC dashed
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">{shareCount}</span> shares
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">{viewCount}</span> views
-          </span>
-        </div>
-      </div>
 
       <div
-        className="mt-3 grid gap-1.5 rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm"
-        style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
+        className="mt-3 grid grid-cols-2 gap-2 rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm sm:grid-cols-3 lg:grid-cols-5"
       >
         {reactionsEnabled ? (
           <button
@@ -542,7 +469,6 @@ const PostEngagementBar: React.FC<Props> = ({
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              setPickerAnchor('button');
               setPickerOpen(true);
             }}
             onTouchMove={onReactionButtonTouchEnd}
@@ -550,15 +476,22 @@ const PostEngagementBar: React.FC<Props> = ({
             onTouchCancel={onReactionButtonTouchEnd}
             className={`${actionButtonBase} ${userReaction ? 'border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-50' : ''} disabled:opacity-60`}
           >
-            <span
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-[15px] leading-none transition ${
-                userReaction ? 'bg-blue-100 text-blue-700' : actionIconBase
-              }`}
-            >
-              {likeEmoji || DEFAULT_META.like.emoji}
+            <span className="flex min-w-0 flex-1 items-center gap-3">
+              <span
+                className={`inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[15px] leading-none transition ${
+                  userReaction ? 'bg-blue-100 text-blue-700' : actionIconBase
+                }`}
+              >
+                {likeEmoji || DEFAULT_META.like.emoji}
+              </span>
+              <span className="min-w-0 text-left">
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  {showCounts ? reactionCountLabel : 'React'}
+                </span>
+                <span className="block truncate text-sm font-semibold text-slate-700">{reactionLabel}</span>
+              </span>
             </span>
-            <ChevronDown className={`absolute bottom-1.5 right-1.5 h-3.5 w-3.5 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
-            <span className="sr-only">{likeLabel}</span>
+            <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
           </button>
         ) : null}
 
@@ -580,10 +513,15 @@ const PostEngagementBar: React.FC<Props> = ({
             }
             className={actionButtonBase}
           >
-            <span className={actionIconBase}>
-              <MessageCircle className="h-4 w-4" />
+            <span className="flex min-w-0 flex-1 items-center gap-3">
+              <span className={actionIconBase}>
+                <MessageCircle className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 text-left">
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{showCounts ? commentCountLabel : 'Open'}</span>
+                <span className="block truncate text-sm font-semibold text-slate-700">Comments</span>
+              </span>
             </span>
-            <span className="sr-only">Comment</span>
           </button>
         ) : null}
 
@@ -603,10 +541,15 @@ const PostEngagementBar: React.FC<Props> = ({
             }
             className={actionButtonBase}
           >
-            <span className={actionIconBase}>
-              <Repeat2 className="h-4 w-4" />
+            <span className="flex min-w-0 flex-1 items-center gap-3">
+              <span className={actionIconBase}>
+                <Repeat2 className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 text-left">
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{showCounts ? repostCountLabel : 'Open'}</span>
+                <span className="block truncate text-sm font-semibold text-slate-700">Reposts</span>
+              </span>
             </span>
-            <span className="sr-only">Repost</span>
           </button>
         ) : null}
 
@@ -626,10 +569,15 @@ const PostEngagementBar: React.FC<Props> = ({
             }
             className={actionButtonBase}
           >
-            <span className={actionIconBase}>
-              <Coins className="h-4 w-4" />
+            <span className="flex min-w-0 flex-1 items-center gap-3">
+              <span className={actionIconBase}>
+                <Coins className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 text-left">
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{showCounts ? dashCountLabel : 'Open'}</span>
+                <span className="block truncate text-sm font-semibold text-slate-700">Dashcoin</span>
+              </span>
             </span>
-            <span className="sr-only">Dash</span>
           </button>
         ) : null}
 
@@ -644,10 +592,15 @@ const PostEngagementBar: React.FC<Props> = ({
             onClick={(event) => triggerAction(event, () => setShareOpen(true))}
             className={actionButtonBase}
           >
-            <span className={actionIconBase}>
-              <Send className="h-4 w-4" />
+            <span className="flex min-w-0 flex-1 items-center gap-3">
+              <span className={actionIconBase}>
+                <Send className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 text-left">
+                <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{showCounts ? sendCountLabel : 'Open'}</span>
+                <span className="block truncate text-sm font-semibold text-slate-700">Send</span>
+              </span>
             </span>
-            <span className="sr-only">Send</span>
           </button>
         ) : null}
       </div>
