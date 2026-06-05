@@ -1,12 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Copy, ExternalLink, Link as LinkIcon, MessageCircle, Send } from 'lucide-react';
+import {
+  Copy,
+  Facebook,
+  Link as LinkIcon,
+  Linkedin,
+  MessageCircle,
+  MessageCircleMore,
+  Send,
+  Share2,
+  Twitter
+} from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
 import { MessagingService } from '../../services/messaging';
 import { CommunityService } from '../../services/community';
 import MobileDialog from '../../components/mobile/MobileDialog';
 
-type TabKey = 'message' | 'link' | 'network';
+type TabKey = 'message' | 'link' | 'social' | 'network';
+type SocialChannel = 'facebook' | 'x' | 'linkedin' | 'whatsapp';
 
 type Props = {
   isOpen: boolean;
@@ -16,7 +27,7 @@ type Props = {
   shareText?: string;
   entityLabel?: string;
   onShareToNetwork?: () => void;
-  onTrackedShare?: (channel: 'copy' | 'dm' | 'network') => Promise<void> | void;
+  onTrackedShare?: (channel: 'copy' | 'dm' | 'network' | 'social') => Promise<void> | void;
 };
 
 const PostShareModal: React.FC<Props> = ({
@@ -37,6 +48,52 @@ const PostShareModal: React.FC<Props> = ({
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [conversations, setConversations] = useState<any[]>([]);
+
+  const resolvedPostUrl = useMemo(() => {
+    if (typeof window === 'undefined') return postUrl;
+    try {
+      return new URL(postUrl, window.location.origin).toString();
+    } catch {
+      return postUrl;
+    }
+  }, [postUrl]);
+
+  const socialShareText = useMemo(() => {
+    const base = shareText || `Check this ${entityLabel} on Scrolith`;
+    return `${base}: ${resolvedPostUrl}`;
+  }, [entityLabel, resolvedPostUrl, shareText]);
+
+  const openShareWindow = (url: string) => {
+    const popup = window.open(url, '_blank', 'noopener,noreferrer,width=720,height=640');
+    if (!popup) {
+      throw new Error('Popup blocked');
+    }
+  };
+
+  const shareToSocial = async (channel: SocialChannel) => {
+    const encodedUrl = encodeURIComponent(resolvedPostUrl);
+    const encodedText = encodeURIComponent(socialShareText);
+    const targetUrl =
+      channel === 'facebook'
+        ? `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`
+        : channel === 'x'
+          ? `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`
+          : channel === 'linkedin'
+            ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`
+            : `https://wa.me/?text=${encodedText}`;
+
+    try {
+      openShareWindow(targetUrl);
+      if (user?.id && postId) {
+        await CommunityService.postShare(postId, channel);
+      }
+      await onTrackedShare?.('social');
+      showNotification('success', 'Share', `Shared to ${channel === 'x' ? 'X' : channel === 'linkedin' ? 'LinkedIn' : channel === 'whatsapp' ? 'WhatsApp' : 'Facebook'}.`);
+    } catch (error: any) {
+      console.warn('Social share failed', error);
+      showNotification('error', 'Share', 'Unable to open the social share target.');
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) return;
@@ -87,7 +144,7 @@ const PostShareModal: React.FC<Props> = ({
 
   const copyLink = async () => {
     try {
-      await navigator.clipboard.writeText(postUrl);
+      await navigator.clipboard.writeText(resolvedPostUrl);
       showNotification('success', 'Share', 'Link copied.');
       if (user?.id && postId) {
         await CommunityService.postShare(postId, 'copy');
@@ -164,6 +221,18 @@ const PostShareModal: React.FC<Props> = ({
             <span className="inline-flex items-center gap-2">
               <LinkIcon className="h-4 w-4" />
               Link
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('social')}
+            className={`rounded-full px-4 py-2 text-xs font-semibold transition ${
+              tab === 'social' ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <span className="inline-flex items-center gap-2">
+              <Share2 className="h-4 w-4" />
+              Social
             </span>
           </button>
           <button
@@ -260,7 +329,7 @@ const PostShareModal: React.FC<Props> = ({
           <div className="mt-4">
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
               <LinkIcon className="h-4 w-4 text-slate-500" />
-              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{postUrl}</span>
+              <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{resolvedPostUrl}</span>
               <button
                 type="button"
                 onClick={copyLink}
@@ -273,11 +342,41 @@ const PostShareModal: React.FC<Props> = ({
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => window.open(postUrl, '_blank', 'noreferrer')}
+                onClick={() => window.open(resolvedPostUrl, '_blank', 'noopener,noreferrer')}
                 className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Open in new tab
               </button>
+            </div>
+          </div>
+        ) : null}
+
+        {tab === 'social' ? (
+          <div className="mt-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {(
+                [
+                  { key: 'facebook', label: 'Facebook', icon: Facebook },
+                  { key: 'x', label: 'X', icon: Twitter },
+                  { key: 'linkedin', label: 'LinkedIn', icon: Linkedin },
+                  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircleMore }
+                ] as const
+              ).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => void shareToSocial(key)}
+                  className="flex min-h-[6.5rem] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-center transition hover:border-slate-300 hover:bg-slate-100"
+                >
+                  <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <span className="text-sm font-semibold text-slate-900">{label}</span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              Share this {entityLabel} directly to your social network.
             </div>
           </div>
         ) : null}
