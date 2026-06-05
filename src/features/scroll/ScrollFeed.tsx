@@ -1697,7 +1697,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+            className="hidden h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
             aria-label={muted ? 'Unmute all' : 'Mute all'}
           >
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
@@ -2011,7 +2011,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         entityLabel="scroll"
         shareText={
           activeActionScroll
-            ? `Check this Scroll on Scrolith: ${activeScrollUrl}`
+            ? `${String(activeActionScroll.title || 'Check this Scroll on Scrolith').trim()}${String(activeActionScroll.description || '').trim() ? `\n\n${String(activeActionScroll.description).trim()}` : ''}`
             : 'Check this Scroll on Scrolith'
         }
         onShareToNetwork={() => {

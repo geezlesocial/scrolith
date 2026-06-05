@@ -7494,6 +7494,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             </div>
                           <PostEngagementBar
                             postId={post.id}
+                            postTitle={post.title}
+                            postContent={post.content}
                             authorId={post.authorUserId || post.authorId}
                             dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
                             commentPolicy={post.commentPolicy}

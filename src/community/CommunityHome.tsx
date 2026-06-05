@@ -3534,6 +3534,8 @@ const CommunityHome = () => {
                           )}
                           <PostEngagementBar
                             postId={post.id}
+                            postTitle={post.title}
+                            postContent={post.content}
                             authorId={post.authorUserId || post.authorId}
                             dashGcoinTotal={Number((post as any).dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
                             commentPolicy={post.commentPolicy}

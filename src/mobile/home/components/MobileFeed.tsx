@@ -2627,6 +2627,8 @@ export default function MobileFeed({
 
                 <PostEngagementBar
                   postId={postId}
+                  postTitle={post?.title}
+                  postContent={post?.content}
                   authorId={authorId}
                   dashGcoinTotal={Number(post?.dashGcoinTotal ?? post?.interactions?.dashGcoinTotal ?? 0)}
                   commentPolicy={post?.commentPolicy}

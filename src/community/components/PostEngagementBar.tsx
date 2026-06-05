@@ -28,6 +28,8 @@ type AllowedReaction = {
 
 type Props = {
   postId: string;
+  postTitle?: string | null;
+  postContent?: string | null;
   authorId?: string;
   dashGcoinTotal?: number;
   commentPolicy?: string | null;
@@ -153,8 +155,16 @@ const useIsCoarsePointer = () => {
 const buildPostUrl = (postId: string) =>
   typeof window === 'undefined' ? `/post/${encodeURIComponent(postId)}` : `${window.location.origin}/post/${encodeURIComponent(postId)}`;
 
+const normalizeShareText = (value: unknown, maxLength = 220) => {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  return normalized.slice(0, maxLength);
+};
+
 const PostEngagementBar: React.FC<Props> = ({
   postId,
+  postTitle,
+  postContent,
   authorId,
   dashGcoinTotal = 0,
   commentPolicy,
@@ -187,6 +197,12 @@ const PostEngagementBar: React.FC<Props> = ({
   const sendEnabled = features?.send !== false;
   const dashEnabled = features?.dash !== false && (memberHomeSettings?.feed?.dashEnabled ?? (memberHomeSettings as any)?.feed?.dash_enabled ?? true) !== false;
   const dashEnabledForPost = dashEnabled && !(authorId && user?.id && String(authorId) === String(user.id));
+  const shareText = useMemo(() => {
+    const heading = normalizeShareText(postTitle, 120);
+    const summary = normalizeShareText(postContent, 220);
+    if (heading && summary && heading !== summary) return `${heading}\n\n${summary}`;
+    return heading || summary || undefined;
+  }, [postContent, postTitle]);
 
   const allowed = useMemo(() => normalizeAllowed(reactionsSettings?.allowed), [reactionsSettings?.allowed]);
   const allowedMap = useMemo(() => {
@@ -781,6 +797,7 @@ const PostEngagementBar: React.FC<Props> = ({
           onClose={() => setShareOpen(false)}
           postId={postId}
           postUrl={postUrl}
+          shareText={shareText}
           onShareToNetwork={() => {
             if (!repostsEnabled) {
               showNotification('info', 'Share', 'Share-to-network is disabled right now.');

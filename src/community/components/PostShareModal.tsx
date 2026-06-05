@@ -59,10 +59,33 @@ const PostShareModal: React.FC<Props> = ({
     }
   }, [postUrl]);
 
+  const shareHeading = useMemo(() => {
+    const raw = String(shareText || '').trim();
+    if (!raw) return `Check this ${entityLabel} on Scrolith`;
+    const firstLine = raw
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .find(Boolean);
+    return normalizeShareText(firstLine || raw, 180) || `Check this ${entityLabel} on Scrolith`;
+  }, [entityLabel, shareText]);
+
+  const shareSummary = useMemo(() => {
+    const raw = String(shareText || '').trim();
+    if (!raw) return '';
+    const parts = raw
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) return '';
+    return normalizeShareText(parts.slice(1).join(' '), 240);
+  }, [shareText]);
+
   const socialShareText = useMemo(() => {
-    const base = shareText || `Check this ${entityLabel} on Scrolith`;
-    return `${base}: ${resolvedPostUrl}`;
-  }, [entityLabel, resolvedPostUrl, shareText]);
+    const parts = [shareHeading];
+    if (shareSummary) parts.push(shareSummary);
+    parts.push(resolvedPostUrl);
+    return parts.join('\n\n');
+  }, [resolvedPostUrl, shareHeading, shareSummary]);
 
   const openShareWindow = (url: string) => {
     const popup = window.open(url, '_blank', 'noopener,noreferrer,width=720,height=640');
@@ -74,13 +97,15 @@ const PostShareModal: React.FC<Props> = ({
   const shareToSocial = async (channel: SocialChannel) => {
     const encodedUrl = encodeURIComponent(resolvedPostUrl);
     const encodedText = encodeURIComponent(socialShareText);
+    const encodedHeading = encodeURIComponent(shareHeading);
+    const encodedSummary = encodeURIComponent(shareSummary || shareHeading);
     const targetUrl =
       channel === 'facebook'
-        ? `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`
+        ? `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedHeading}`
         : channel === 'x'
           ? `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`
           : channel === 'linkedin'
-            ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`
+            ? `https://www.linkedin.com/shareArticle?mini=true&url=${encodedUrl}&title=${encodedHeading}&summary=${encodedSummary}`
             : `https://wa.me/?text=${encodedText}`;
 
     try {
@@ -170,7 +195,7 @@ const PostShareModal: React.FC<Props> = ({
     }
     setBusy(true);
     try {
-      const text = shareText || `Check this ${entityLabel} on Scrolith: ${postUrl}`;
+      const text = socialShareText;
       for (const conversationId of selectedIds) {
         await MessagingService.sendMessage(conversationId, user.id, text, String(user.role || 'guest'));
       }

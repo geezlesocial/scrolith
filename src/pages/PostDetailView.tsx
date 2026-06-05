@@ -564,6 +564,8 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
 
       <PostEngagementBar
         postId={post.id}
+        postTitle={post.title}
+        postContent={post.content}
         authorId={post.authorUserId || post.authorId}
         dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
         commentPolicy={post.commentPolicy}
@@ -1575,6 +1577,8 @@ export default function PostDetailView() {
           <div className="mt-4">
             <PostEngagementBar
               postId={post.id}
+              postTitle={post.title}
+              postContent={post.content}
               authorId={post.authorUserId || post.authorId}
               dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
               commentPolicy={post.commentPolicy}
