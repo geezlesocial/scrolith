@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Copy,
   Facebook,
+  ExternalLink,
   Link as LinkIcon,
   Linkedin,
   MessageCircle,
