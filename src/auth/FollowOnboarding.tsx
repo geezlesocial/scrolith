@@ -190,6 +190,13 @@ const hashSeed = (value: string) => {
   return hash;
 };
 
+const createRotationSeed = () => {
+  if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+};
+
 const shuffleCards = (cards: RecommendationCard[], seed: string) =>
   [...cards]
     .map((card, index) => ({
@@ -202,6 +209,7 @@ const shuffleCards = (cards: RecommendationCard[], seed: string) =>
 const interleaveRecommendations = (
   userRole: UserRole | string | undefined,
   viewerId: string | undefined,
+  rotationSeed: string,
   users: RecommendationCard[],
   clients: RecommendationCard[],
   pages: RecommendationCard[]
@@ -209,8 +217,7 @@ const interleaveRecommendations = (
   const normalizedRole = String(userRole || '').trim().toLowerCase();
   const primaryUsers = normalizedRole === UserRole.EMPLOYER ? users : clients;
   const secondaryUsers = normalizedRole === UserRole.EMPLOYER ? clients : users;
-  const timeWindowSeed = new Date().toISOString().slice(0, 13);
-  const baseSeed = `${viewerId || 'viewer'}:${normalizedRole || 'member'}:${timeWindowSeed}`;
+  const baseSeed = `${viewerId || 'viewer'}:${normalizedRole || 'member'}:${rotationSeed}`;
   const shuffledUsers = shuffleCards(mergeUniqueCards(primaryUsers, secondaryUsers), `${baseSeed}:users`);
   const shuffledPages = shuffleCards(mergeUniqueCards(pages), `${baseSeed}:pages`);
   const selectedUsers = shuffledUsers.slice(0, MAX_ONBOARDING_USERS);
@@ -243,6 +250,7 @@ const FollowOnboarding = () => {
   const [busyIds, setBusyIds] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const rotationSeed = useMemo(() => createRotationSeed(), [user?.id]);
 
   const selectedPageCount = useMemo(
     () => cards.filter((item) => item.targetType === 'page' && item.isFollowing).length,
@@ -343,6 +351,7 @@ const FollowOnboarding = () => {
         const nextCards = interleaveRecommendations(
           statusResponse?.user?.role || user?.role,
           statusResponse?.user?.id || user?.id,
+          rotationSeed,
           freelancers.map((item) => ({ ...item, isFollowing: Boolean((followStatus as any)?.[item.id]) })),
           clients.map((item) => ({ ...item, isFollowing: Boolean((followStatus as any)?.[item.id]) })),
           pages
@@ -369,7 +378,7 @@ const FollowOnboarding = () => {
     return () => {
       active = false;
     };
-  }, [navigate, user?.role]);
+  }, [navigate, rotationSeed, user?.id, user?.role]);
 
   const summaryCopy = useMemo(() => {
     const role = String(user?.role || '').trim().toLowerCase();
