@@ -31,6 +31,8 @@ import OverlayActionRailButton from '../../components/media/OverlayActionRailBut
 import OptimizedImage from '../../components/media/OptimizedImage';
 import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
+import ReactionReactorsModal from '../../community/components/ReactionReactorsModal';
+import ReactionSummaryButton from '../../community/components/ReactionSummaryButton';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
@@ -67,6 +69,18 @@ const formatGcoin = (value: number) => {
   if (safe >= 1000) return `${(safe / 1000).toFixed(safe >= 10000 ? 0 : 1)}K`;
   return `${safe}`;
 };
+
+const DEFAULT_ALLOWED_REACTIONS = [
+  { key: 'like', label: 'Like', emoji: '\u{1F44D}', enabled: true },
+  { key: 'love', label: 'Love', emoji: '\u2764\uFE0F', enabled: true },
+  { key: 'good', label: 'Good', emoji: '\u2705', enabled: true },
+  { key: 'happy', label: 'Happy', emoji: '\u{1F604}', enabled: true },
+  { key: 'handwave', label: 'Handwave', emoji: '\u{1F44B}', enabled: true },
+  { key: 'angry', label: 'Angry', emoji: '\u{1F621}', enabled: true },
+  { key: 'cry', label: 'Cry', emoji: '\u{1F622}', enabled: true },
+  { key: 'mad', label: 'Mad', emoji: '\u{1F92C}', enabled: true },
+  { key: 'sorry', label: 'Sorry', emoji: '\u{1F64F}', enabled: true }
+];
 
 const TOUCH_CONTROL_HIDE_DELAY_MS = 20000;
 const DESKTOP_CONTROL_HIDE_DELAY_MS = 3600;
@@ -162,6 +176,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
     [scroll.metrics?.likes]
   );
+  const [scrollReactionCounts, setScrollReactionCounts] = useState<Record<string, number>>(reactionInitialCounts || {});
+  const [scrollAllowedReactions, setScrollAllowedReactions] = useState(DEFAULT_ALLOWED_REACTIONS);
+  const [scrollReactorsOpen, setScrollReactorsOpen] = useState(false);
   const rightActions = useMemo(
     () => [
       {
@@ -205,12 +222,60 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   }, [scroll.id]);
 
   useEffect(() => {
+    setScrollReactionCounts(reactionInitialCounts || {});
+  }, [reactionInitialCounts, reactionTargetId, scroll.id]);
+
+  useEffect(() => {
     setGraphicRevealed(false);
   }, [scroll.id]);
 
   useEffect(() => {
     setInterestSignal(scroll.viewer?.feedbackSignal || null);
   }, [scroll.id, scroll.viewer?.feedbackSignal]);
+
+  useEffect(() => {
+    const targetId = String(reactionTargetId || scroll.id || '').trim();
+    if (!targetId) return;
+    let active = true;
+    ReactionsService.getSummary(reactionTargetType, targetId)
+      .then((summary) => {
+        if (!active || !summary) return;
+        setScrollReactionCounts(summary.counts || {});
+        if (Array.isArray(summary.allowed) && summary.allowed.length) {
+          setScrollAllowedReactions(summary.allowed);
+        }
+      })
+      .catch((error: any) => {
+        const status = Number(error?.response?.status || 0);
+        if (status && status !== 401 && status !== 403 && status !== 404) {
+          console.warn('Failed to load scroll reaction summary', error);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [reactionTargetId, reactionTargetType, scroll.id]);
+
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const raw = (event as CustomEvent).detail;
+      const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+      if (!detail) return;
+      if (String(detail.targetType || '').toUpperCase() !== String(reactionTargetType)) return;
+      const targetId = String(reactionTargetId || scroll.id || '').trim();
+      const eventTargetId = String(detail.targetId || detail.scrollId || '').trim();
+      if (!targetId || eventTargetId !== targetId) return;
+      if (detail.counts && typeof detail.counts === 'object' && !Array.isArray(detail.counts)) {
+        setScrollReactionCounts(detail.counts as Record<string, number>);
+      }
+    };
+    window.addEventListener('reactions:updated', onUpdated as EventListener);
+    window.addEventListener('scroll:reaction_updated', onUpdated as EventListener);
+    return () => {
+      window.removeEventListener('reactions:updated', onUpdated as EventListener);
+      window.removeEventListener('scroll:reaction_updated', onUpdated as EventListener);
+    };
+  }, [reactionTargetId, reactionTargetType, scroll.id]);
 
   const clearControlsHideTimer = useCallback(() => {
     if (controlsHideTimerRef.current !== null) {
@@ -716,7 +781,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               revealControls();
               onToggleMute();
             }}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+            className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
             aria-label={muted ? 'Unmute' : 'Mute'}
           >
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
@@ -727,7 +792,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               revealControls();
               void handleExpand();
             }}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+            className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
             aria-label="View fullscreen"
           >
             <Maximize2 className="h-5 w-5" />
@@ -914,6 +979,23 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                 {new Date(scroll.createdAt).toLocaleString()}
               </span>
             </div>
+            {Object.values(scrollReactionCounts || {}).some((value) => Number(value || 0) > 0) ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <ReactionSummaryButton
+                  counts={scrollReactionCounts}
+                  allowed={scrollAllowedReactions}
+                  variant="dark"
+                  compact
+                  className="max-w-full"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    revealControls();
+                    setScrollReactorsOpen(true);
+                  }}
+                />
+              </div>
+            ) : null}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -974,6 +1056,16 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           </div>
         </div>
       </div>
+
+      <ReactionReactorsModal
+        open={scrollReactorsOpen}
+        onClose={() => setScrollReactorsOpen(false)}
+        targetType={reactionTargetType}
+        targetId={reactionTargetId || scroll.id}
+        counts={scrollReactionCounts}
+        allowed={scrollAllowedReactions}
+        title="People who reacted"
+      />
     </article>
   );
 };

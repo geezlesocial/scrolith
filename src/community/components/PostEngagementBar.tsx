@@ -18,6 +18,7 @@ import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 import ReactionReactorsModal from './ReactionReactorsModal';
+import ReactionSummaryButton from './ReactionSummaryButton';
 
 type AllowedReaction = {
   key: string;
@@ -467,7 +468,13 @@ const PostEngagementBar: React.FC<Props> = ({
       ) : null}
 
       <div className="mt-3 space-y-2">
-        <div className="flex items-center justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <ReactionSummaryButton
+            counts={counts}
+            allowed={allowed}
+            onClick={(event) => triggerAction(event, () => openReactors(null))}
+            className="max-w-full"
+          />
           <div
             className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm"
             title={`${viewCountLabel} views`}
