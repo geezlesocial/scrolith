@@ -126,9 +126,10 @@ const normalizeUserReco = (item: any): RecommendationCard | null => {
 };
 
 const normalizePageReco = (page: any): RecommendationCard | null => {
-  const id = firstText(page?.id);
+  const account = page?.account || {};
+  const id = firstText(page?.entityId, page?.id, account?.id);
   if (!id) return null;
-  const handle = firstText(page?.handle, page?.slug);
+  const handle = firstText(page?.handle, page?.slug, account?.handle, account?.slug, page?.username);
   const avatarUrl =
     resolveRecommendationAvatarUrl(
       page?.logo ||
@@ -136,21 +137,27 @@ const normalizePageReco = (page: any): RecommendationCard | null => {
         page?.avatarUrl ||
         page?.avatar ||
         page?.logoFileId ||
-        page?.cover
+        page?.cover ||
+        account?.logo ||
+        account?.logoUrl ||
+        account?.avatarUrl ||
+        account?.avatar ||
+        account?.logoFileId ||
+        account?.cover
     ) || null;
   return {
     key: `page:${id}`,
     id,
     targetType: 'page',
     entityType: 'page',
-    name: firstText(page?.name, 'Recommended page'),
+    name: firstText(page?.name, account?.name, page?.title, 'Recommended page'),
     username: handle || null,
-    headline: firstText(page?.tagline, page?.description, page?.industry) || null,
-    location: firstText(page?.location, page?.city, page?.country) || null,
+    headline: firstText(page?.tagline, page?.description, page?.industry, account?.tagline, account?.description, account?.industry) || null,
+    location: firstText(page?.location, page?.city, page?.country, account?.location, account?.city, account?.country) || null,
     avatarUrl,
     badge: 'Page',
     route: `/company/${encodeURIComponent(handle || id)}`,
-    isFollowing: Boolean(page?.isFollowing)
+    isFollowing: Boolean(page?.isFollowing ?? account?.isFollowing)
   };
 };
 
@@ -175,8 +182,26 @@ const mergeUniqueCards = (...groups: RecommendationCard[][]) => {
   return merged;
 };
 
+const hashSeed = (value: string) => {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+};
+
+const shuffleCards = (cards: RecommendationCard[], seed: string) =>
+  [...cards]
+    .map((card, index) => ({
+      card,
+      score: hashSeed(`${seed}:${card.key}:${index}`)
+    }))
+    .sort((left, right) => left.score - right.score)
+    .map((entry) => entry.card);
+
 const interleaveRecommendations = (
   userRole: UserRole | string | undefined,
+  viewerId: string | undefined,
   users: RecommendationCard[],
   clients: RecommendationCard[],
   pages: RecommendationCard[]
@@ -184,8 +209,12 @@ const interleaveRecommendations = (
   const normalizedRole = String(userRole || '').trim().toLowerCase();
   const primaryUsers = normalizedRole === UserRole.EMPLOYER ? users : clients;
   const secondaryUsers = normalizedRole === UserRole.EMPLOYER ? clients : users;
-  const selectedUsers = mergeUniqueCards(primaryUsers, secondaryUsers).slice(0, MAX_ONBOARDING_USERS);
-  const selectedPages = mergeUniqueCards(pages).slice(0, MAX_ONBOARDING_PAGES);
+  const timeWindowSeed = new Date().toISOString().slice(0, 13);
+  const baseSeed = `${viewerId || 'viewer'}:${normalizedRole || 'member'}:${timeWindowSeed}`;
+  const shuffledUsers = shuffleCards(mergeUniqueCards(primaryUsers, secondaryUsers), `${baseSeed}:users`);
+  const shuffledPages = shuffleCards(mergeUniqueCards(pages), `${baseSeed}:pages`);
+  const selectedUsers = shuffledUsers.slice(0, MAX_ONBOARDING_USERS);
+  const selectedPages = shuffledPages.slice(0, MAX_ONBOARDING_PAGES);
   const lanes = [selectedUsers, selectedPages];
   const output: RecommendationCard[] = [];
   const seen = new Set<string>();
@@ -247,11 +276,22 @@ const FollowOnboarding = () => {
           return;
         }
 
-        const [freelancersResult, clientsResult, pagesResult, contributorsResult] = await Promise.allSettled([
-          RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 6 }),
-          RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 6 }),
-          CommunityService.getRecommendedBusinessPages(6),
-          CommunityService.getTopContributors(12)
+        const [
+          freelancersFollowResult,
+          freelancersMemberHomeResult,
+          clientsFollowResult,
+          clientsMemberHomeResult,
+          pagesRecoResult,
+          pagesMemberHomeResult,
+          contributorsResult
+        ] = await Promise.allSettled([
+          RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 18 }),
+          RecoService.getAccounts({ surface: 'member_home', type: 'freelancer', limit: 18 }),
+          RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 18 }),
+          RecoService.getAccounts({ surface: 'member_home', type: 'client', limit: 18 }),
+          CommunityService.getRecommendedBusinessPages(12),
+          RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 12 }),
+          CommunityService.getTopContributors(24)
         ]);
 
         const contributorCards =
@@ -262,22 +302,39 @@ const FollowOnboarding = () => {
         const contributorClients = contributorCards.filter((item) => item.entityType === 'client');
 
         const freelancers =
-          freelancersResult.status === 'fulfilled'
+          freelancersFollowResult.status === 'fulfilled' || freelancersMemberHomeResult.status === 'fulfilled'
             ? mergeUniqueCards(
-                freelancersResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[],
+                freelancersFollowResult.status === 'fulfilled'
+                  ? freelancersFollowResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[]
+                  : [],
+                freelancersMemberHomeResult.status === 'fulfilled'
+                  ? freelancersMemberHomeResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[]
+                  : [],
                 contributorFreelancers
               )
-            : [];
+            : contributorFreelancers;
         const clients =
-          clientsResult.status === 'fulfilled'
+          clientsFollowResult.status === 'fulfilled' || clientsMemberHomeResult.status === 'fulfilled'
             ? mergeUniqueCards(
-                clientsResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[],
+                clientsFollowResult.status === 'fulfilled'
+                  ? clientsFollowResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[]
+                  : [],
+                clientsMemberHomeResult.status === 'fulfilled'
+                  ? clientsMemberHomeResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[]
+                  : [],
                 contributorClients
               )
             : contributorClients;
         const pages =
-          pagesResult.status === 'fulfilled'
-            ? pagesResult.value.map(normalizePageReco).filter(Boolean) as RecommendationCard[]
+          pagesRecoResult.status === 'fulfilled' || pagesMemberHomeResult.status === 'fulfilled'
+            ? mergeUniqueCards(
+                pagesRecoResult.status === 'fulfilled'
+                  ? pagesRecoResult.value.map(normalizePageReco).filter(Boolean) as RecommendationCard[]
+                  : [],
+                pagesMemberHomeResult.status === 'fulfilled'
+                  ? pagesMemberHomeResult.value.map(normalizePageReco).filter(Boolean) as RecommendationCard[]
+                  : []
+              )
             : [];
 
         const userIds = [...freelancers, ...clients].map((item) => item.id);
@@ -285,6 +342,7 @@ const FollowOnboarding = () => {
 
         const nextCards = interleaveRecommendations(
           statusResponse?.user?.role || user?.role,
+          statusResponse?.user?.id || user?.id,
           freelancers.map((item) => ({ ...item, isFollowing: Boolean((followStatus as any)?.[item.id]) })),
           clients.map((item) => ({ ...item, isFollowing: Boolean((followStatus as any)?.[item.id]) })),
           pages
