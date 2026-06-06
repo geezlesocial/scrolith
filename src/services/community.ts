@@ -34,6 +34,19 @@ const toArray = (value: any): any[] => {
   return [];
 };
 
+const parseJsonArray = (value: any): any[] => {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== 'string') return [];
+  const normalized = value.trim();
+  if (!normalized.startsWith('[')) return [];
+  try {
+    const parsed = JSON.parse(normalized);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const normalizeThread = (thread: any): ForumThread => ({
   id: thread.id,
   category_id: thread.categoryId || thread.category_id || '',
@@ -800,6 +813,8 @@ class CommunityService {
 
   static async getTopContributors(limit: number = 5): Promise<ContributorProfile[]> {
     const data = await this.get(`/community/contributors?limit=${limit}`);
+    const parsed = parseJsonArray(data);
+    if (parsed.length) return parsed as ContributorProfile[];
     return Array.isArray(data) ? data : [];
   }
 

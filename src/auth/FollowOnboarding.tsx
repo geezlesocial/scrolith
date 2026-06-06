@@ -14,6 +14,8 @@ import { AuthService } from '../services/authService';
 import { RecoService } from '../services/reco';
 import { CommunityService } from '../services/community';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 
 type RecommendationCard = {
   key: string;
@@ -30,33 +32,93 @@ type RecommendationCard = {
   isFollowing: boolean;
 };
 
+const MAX_ONBOARDING_USERS = 3;
+const MAX_ONBOARDING_PAGES = 3;
+const MAX_ONBOARDING_TOTAL = 6;
+
 const DEFAULT_STATUS: FollowOnboardingStatus = {
   required: true,
   completedAt: null,
   followedCount: 0,
   minimumRequired: 1,
-  maximumSelectable: 6,
+  maximumSelectable: MAX_ONBOARDING_TOTAL,
   canContinue: false,
   redirectPath: '/'
 };
 
+const firstText = (...values: unknown[]) => {
+  for (const value of values) {
+    const normalized = String(value || '').trim();
+    if (normalized) return normalized;
+  }
+  return '';
+};
+
+const normalizeUserEntityType = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'client' || normalized === 'employer') return 'client';
+  return 'freelancer';
+};
+
+const resolveRecommendationAvatarUrl = (value: any): string | null => {
+  if (!value) return null;
+
+  if (typeof value === 'string') {
+    const normalized = String(value).trim();
+    return normalized ? resolveAssetUrl(normalized) : null;
+  }
+
+  const mediaUrl = resolvePostAttachmentMediaUrl(value);
+  if (mediaUrl) return mediaUrl;
+
+  const nestedUrl = firstText(
+    value?.url,
+    value?.avatarUrl,
+    value?.avatar,
+    value?.logoUrl,
+    value?.logo,
+    value?.downloadUrl,
+    value?.fileUrl
+  );
+  return nestedUrl ? resolveAssetUrl(nestedUrl) : null;
+};
+
 const normalizeUserReco = (item: any): RecommendationCard | null => {
   const account = item?.account || {};
-  const id = String(item?.entityId || account?.id || '').trim();
+  const id = firstText(item?.entityId, account?.id, item?.id, item?.user_id, item?.userId);
   if (!id) return null;
-  const entityType = String(item?.entityType || account?.entityType || '').trim().toLowerCase();
-  const userType = entityType === 'client' ? 'client' : 'freelancer';
-  const username = String(account?.username || '').trim() || null;
+  const userType = normalizeUserEntityType(item?.entityType || account?.entityType || item?.role || account?.role);
+  const username = firstText(account?.username, item?.username, item?.userName, item?.user_name) || null;
+  const name = firstText(account?.name, item?.name, item?.userName, item?.user_name, username, 'Recommended account');
+  const avatarUrl =
+    resolveUserAvatarUrl({ ...item, ...account }) ||
+    resolveRecommendationAvatarUrl(
+      account?.avatar ||
+        item?.avatar ||
+        item?.userAvatar ||
+        item?.avatarUrl ||
+        item?.profilePhotoFileId ||
+        account?.profilePhotoFileId
+    );
   return {
     key: `user:${id}`,
     id,
     targetType: 'user',
     entityType: userType,
-    name: String(account?.name || 'Recommended account').trim(),
+    name,
     username,
-    headline: String(account?.headline || '').trim() || null,
-    location: String(account?.location || '').trim() || null,
-    avatarUrl: account?.avatar ? resolveAssetUrl(String(account.avatar)) : null,
+    headline:
+      firstText(
+        account?.headline,
+        account?.title,
+        account?.bio,
+        item?.headline,
+        item?.title,
+        item?.bio,
+        item?.subtitle
+      ) || null,
+    location: firstText(account?.location, item?.location, item?.country) || null,
+    avatarUrl: avatarUrl || null,
     badge: userType === 'client' ? 'Client' : 'Freelancer',
     route: `/u/${encodeURIComponent(username || id)}`,
     isFollowing: false
@@ -64,23 +126,53 @@ const normalizeUserReco = (item: any): RecommendationCard | null => {
 };
 
 const normalizePageReco = (page: any): RecommendationCard | null => {
-  const id = String(page?.id || '').trim();
+  const id = firstText(page?.id);
   if (!id) return null;
-  const handle = String(page?.handle || page?.slug || '').trim();
+  const handle = firstText(page?.handle, page?.slug);
+  const avatarUrl =
+    resolveRecommendationAvatarUrl(
+      page?.logo ||
+        page?.logoUrl ||
+        page?.avatarUrl ||
+        page?.avatar ||
+        page?.logoFileId ||
+        page?.cover
+    ) || null;
   return {
     key: `page:${id}`,
     id,
     targetType: 'page',
     entityType: 'page',
-    name: String(page?.name || 'Recommended page').trim(),
+    name: firstText(page?.name, 'Recommended page'),
     username: handle || null,
-    headline: String(page?.tagline || page?.description || '').trim() || null,
-    location: String(page?.location || '').trim() || null,
-    avatarUrl: page?.logo ? resolveAssetUrl(String(page.logo)) : null,
+    headline: firstText(page?.tagline, page?.description, page?.industry) || null,
+    location: firstText(page?.location, page?.city, page?.country) || null,
+    avatarUrl,
     badge: 'Page',
     route: `/company/${encodeURIComponent(handle || id)}`,
     isFollowing: Boolean(page?.isFollowing)
   };
+};
+
+const normalizeContributorReco = (item: any): RecommendationCard | null =>
+  normalizeUserReco({
+    ...item,
+    id: item?.id || item?.user_id,
+    entityType: normalizeUserEntityType(item?.role),
+    username: item?.username || item?.userName,
+    avatar: item?.avatar || item?.userAvatar,
+    headline: item?.title || item?.bio
+  });
+
+const mergeUniqueCards = (...groups: RecommendationCard[][]) => {
+  const seen = new Set<string>();
+  const merged: RecommendationCard[] = [];
+  groups.flat().forEach((card) => {
+    if (!card || seen.has(card.key)) return;
+    seen.add(card.key);
+    merged.push(card);
+  });
+  return merged;
 };
 
 const interleaveRecommendations = (
@@ -92,12 +184,14 @@ const interleaveRecommendations = (
   const normalizedRole = String(userRole || '').trim().toLowerCase();
   const primaryUsers = normalizedRole === UserRole.EMPLOYER ? users : clients;
   const secondaryUsers = normalizedRole === UserRole.EMPLOYER ? clients : users;
-  const lanes = [primaryUsers, pages, secondaryUsers];
+  const selectedUsers = mergeUniqueCards(primaryUsers, secondaryUsers).slice(0, MAX_ONBOARDING_USERS);
+  const selectedPages = mergeUniqueCards(pages).slice(0, MAX_ONBOARDING_PAGES);
+  const lanes = [selectedUsers, selectedPages];
   const output: RecommendationCard[] = [];
   const seen = new Set<string>();
   let cursor = 0;
 
-  while (lanes.some((lane) => lane.length > cursor) && output.length < 12) {
+  while (lanes.some((lane) => lane.length > cursor) && output.length < MAX_ONBOARDING_TOTAL) {
     lanes.forEach((lane) => {
       const item = lane[cursor];
       if (!item || seen.has(item.key)) return;
@@ -107,7 +201,7 @@ const interleaveRecommendations = (
     cursor += 1;
   }
 
-  return output.slice(0, 12);
+  return output.slice(0, MAX_ONBOARDING_TOTAL);
 };
 
 const FollowOnboarding = () => {
@@ -115,18 +209,26 @@ const FollowOnboarding = () => {
   const { user, updateUser } = useUser();
   const [status, setStatus] = useState<FollowOnboardingStatus>(DEFAULT_STATUS);
   const [cards, setCards] = useState<RecommendationCard[]>([]);
+  const [avatarFailures, setAvatarFailures] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [busyIds, setBusyIds] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
-  const followedCount = Math.min(
-    status.maximumSelectable,
-    Math.max(0, Number(status.followedCount || 0))
+  const selectedPageCount = useMemo(
+    () => cards.filter((item) => item.targetType === 'page' && item.isFollowing).length,
+    [cards]
   );
+  const selectedUserCount = useMemo(
+    () => cards.filter((item) => item.targetType === 'user' && item.isFollowing).length,
+    [cards]
+  );
+  const followedCount = Math.min(MAX_ONBOARDING_TOTAL, selectedPageCount + selectedUserCount);
+  const canContinue = followedCount >= Math.max(1, Number(status.minimumRequired || 1));
+
   const progressPercent = Math.max(
     8,
-    Math.min(100, Math.round((followedCount / Math.max(1, status.maximumSelectable)) * 100))
+    Math.min(100, Math.round((followedCount / Math.max(1, MAX_ONBOARDING_TOTAL)) * 100))
   );
 
   useEffect(() => {
@@ -145,20 +247,34 @@ const FollowOnboarding = () => {
           return;
         }
 
-        const [freelancersResult, clientsResult, pagesResult] = await Promise.allSettled([
+        const [freelancersResult, clientsResult, pagesResult, contributorsResult] = await Promise.allSettled([
           RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 6 }),
           RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 6 }),
-          CommunityService.getRecommendedBusinessPages(6)
+          CommunityService.getRecommendedBusinessPages(6),
+          CommunityService.getTopContributors(12)
         ]);
+
+        const contributorCards =
+          contributorsResult.status === 'fulfilled'
+            ? contributorsResult.value.map(normalizeContributorReco).filter(Boolean) as RecommendationCard[]
+            : [];
+        const contributorFreelancers = contributorCards.filter((item) => item.entityType === 'freelancer');
+        const contributorClients = contributorCards.filter((item) => item.entityType === 'client');
 
         const freelancers =
           freelancersResult.status === 'fulfilled'
-            ? freelancersResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[]
+            ? mergeUniqueCards(
+                freelancersResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[],
+                contributorFreelancers
+              )
             : [];
         const clients =
           clientsResult.status === 'fulfilled'
-            ? clientsResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[]
-            : [];
+            ? mergeUniqueCards(
+                clientsResult.value.map(normalizeUserReco).filter(Boolean) as RecommendationCard[],
+                contributorClients
+              )
+            : contributorClients;
         const pages =
           pagesResult.status === 'fulfilled'
             ? pagesResult.value.map(normalizePageReco).filter(Boolean) as RecommendationCard[]
@@ -174,16 +290,14 @@ const FollowOnboarding = () => {
           pages
         );
 
-        const totalFollowed = Math.max(
-          Number(onboarding.followedCount || 0),
-          nextCards.filter((item) => item.isFollowing).length
-        );
+        const totalFollowed = nextCards.filter((item) => item.isFollowing).length;
 
         setStatus({
           ...onboarding,
           followedCount: totalFollowed,
           canContinue: totalFollowed >= onboarding.minimumRequired
         });
+        setAvatarFailures({});
         setCards(nextCards);
       } catch (loadError: any) {
         if (!active) return;
@@ -209,8 +323,16 @@ const FollowOnboarding = () => {
 
   const handleFollow = async (card: RecommendationCard) => {
     if (card.isFollowing || busyIds[card.key] || submitting) return;
-    if (followedCount >= status.maximumSelectable) {
-      setError(`You can follow up to ${status.maximumSelectable} accounts or pages in this step.`);
+    if (followedCount >= MAX_ONBOARDING_TOTAL) {
+      setError(`You can follow up to ${MAX_ONBOARDING_TOTAL} total recommendations in this step.`);
+      return;
+    }
+    if (card.targetType === 'page' && selectedPageCount >= MAX_ONBOARDING_PAGES) {
+      setError(`You can follow up to ${MAX_ONBOARDING_PAGES} pages during onboarding.`);
+      return;
+    }
+    if (card.targetType === 'user' && selectedUserCount >= MAX_ONBOARDING_USERS) {
+      setError(`You can follow up to ${MAX_ONBOARDING_USERS} user accounts during onboarding.`);
       return;
     }
 
@@ -298,7 +420,7 @@ const FollowOnboarding = () => {
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Progress</p>
                   <p className="mt-2 text-2xl font-semibold text-slate-950">
                     {followedCount}
-                    <span className="ml-2 text-sm font-medium text-slate-500">of {status.maximumSelectable} selected</span>
+                    <span className="ml-2 text-sm font-medium text-slate-500">of {MAX_ONBOARDING_TOTAL} selected</span>
                   </p>
                 </div>
                 <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
@@ -310,6 +432,14 @@ const FollowOnboarding = () => {
                   className="h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 transition-all duration-300"
                   style={{ width: `${progressPercent}%` }}
                 />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+                  <span className="font-semibold text-slate-950">{selectedUserCount}</span> of {MAX_ONBOARDING_USERS} user accounts selected
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+                  <span className="font-semibold text-slate-950">{selectedPageCount}</span> of {MAX_ONBOARDING_PAGES} pages selected
+                </div>
               </div>
             </div>
 
@@ -333,12 +463,12 @@ const FollowOnboarding = () => {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
               <div>
                 <p className="text-sm font-semibold text-slate-950">Recommended for your first feed</p>
-                <p className="mt-1 text-sm text-slate-500">Follow up to {status.maximumSelectable}. You can keep customizing later.</p>
+                <p className="mt-1 text-sm text-slate-500">Follow up to {MAX_ONBOARDING_USERS} user accounts and {MAX_ONBOARDING_PAGES} pages. You can keep customizing later.</p>
               </div>
               <button
                 type="button"
                 onClick={() => void handleContinue()}
-                disabled={!status.canContinue || submitting}
+                disabled={!canContinue || submitting}
                 className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -368,6 +498,7 @@ const FollowOnboarding = () => {
                     .join('')
                     .slice(0, 2)
                     .toUpperCase();
+                  const showAvatarImage = Boolean(card.avatarUrl) && !avatarFailures[card.key];
 
                   return (
                     <article
@@ -380,11 +511,17 @@ const FollowOnboarding = () => {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <Link to={card.route} className="flex min-w-0 items-center gap-3">
-                          {card.avatarUrl ? (
+                          {showAvatarImage ? (
                             <img
                               src={card.avatarUrl}
                               alt={card.name}
                               className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200"
+                              onError={(event) => {
+                                if (!avatarFailures[card.key]) {
+                                  setAvatarFailures((prev) => ({ ...prev, [card.key]: true }));
+                                }
+                                event.currentTarget.onerror = null;
+                              }}
                             />
                           ) : (
                             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-600 ring-1 ring-slate-200">
