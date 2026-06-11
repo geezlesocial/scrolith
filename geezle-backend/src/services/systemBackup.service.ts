@@ -1139,13 +1139,10 @@ const normalizeBackupDatabaseUrl = (raw: string) => {
 
   try {
     const parsed = new URL(normalized);
-    const sslmode = String(parsed.searchParams.get('sslmode') || '').trim().toLowerCase();
-
-    if (!sslmode) {
-      parsed.searchParams.set('sslmode', 'no-verify');
-    } else if (['require', 'prefer', 'verify-ca'].includes(sslmode)) {
-      parsed.searchParams.set('sslmode', 'no-verify');
-    }
+    // Keep the backup connection transport aligned with the server's actual
+    // capabilities. If the source URL includes an SSL hint, strip it so we do
+    // not force an SSL handshake against servers that only accept plain TCP.
+    parsed.searchParams.delete('sslmode');
 
     return parsed.toString();
   } catch {
@@ -1158,14 +1155,14 @@ const createDbClient = () => {
   if (!connectionString) {
     throw toError('DATABASE_URL is not configured for backup operations.', 500, 'BACKUP_DATABASE_URL_MISSING');
   }
+  const useSsl = String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase() === 'true';
   return new Client({
     connectionString,
-    ssl:
-      process.env.NODE_ENV === 'production'
-        ? {
-            rejectUnauthorized: false
-          }
-        : undefined
+    ssl: useSsl
+      ? {
+          rejectUnauthorized: false
+        }
+      : undefined
   });
 };
 
