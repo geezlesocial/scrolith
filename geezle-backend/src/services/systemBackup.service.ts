@@ -1155,28 +1155,40 @@ const normalizeBackupDatabaseUrl = (raw: string) => {
   }
 };
 
+const buildBackupDbClientConfig = (raw: string, forceDisableSsl = false) => {
+  const normalized = normalizeBackupDatabaseUrl(raw);
+  if (!normalized) {
+    throw toError('DATABASE_URL is not configured for backup operations.', 500, 'BACKUP_DATABASE_URL_MISSING');
+  }
+
+  const parsed = new URL(normalized);
+  const socketHost = String(parsed.searchParams.get('host') || '').trim();
+  const explicitPort = Number(parsed.port || 0);
+  const useSsl = !forceDisableSsl && String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase() === 'true';
+
+  const config = {
+    host: socketHost || parsed.hostname || undefined,
+    port: Number.isFinite(explicitPort) && explicitPort > 0 ? explicitPort : undefined,
+    user: decodeURIComponent(parsed.username || ''),
+    password: decodeURIComponent(parsed.password || ''),
+    database: decodeURIComponent(parsed.pathname || '').replace(/^\/+/, '') || undefined,
+    ssl: useSsl
+      ? {
+          rejectUnauthorized: false
+        }
+      : false
+  } as const;
+
+  return config;
+};
+
 const isSslConnectionError = (error: unknown) => {
   const message = String((error as any)?.message || '').toLowerCase();
   return message.includes('ssl') && (message.includes('does not support') || message.includes('handshake'));
 };
 
 const createDbClient = (forceDisableSsl = false) => {
-  const connectionString = normalizeBackupDatabaseUrl(process.env.DATABASE_URL || '');
-  if (!connectionString) {
-    throw toError('DATABASE_URL is not configured for backup operations.', 500, 'BACKUP_DATABASE_URL_MISSING');
-  }
-  const useSsl = !forceDisableSsl && String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase() === 'true';
-  return new Client({
-    connectionString,
-    // Explicitly disable SSL unless the backup feature is configured to use it.
-    // This prevents pg/libpq environment defaults from silently enabling SSL
-    // against local or proxy-backed servers that reject it.
-    ssl: useSsl
-      ? {
-          rejectUnauthorized: false
-        }
-      : false
-  });
+  return new Client(buildBackupDbClientConfig(process.env.DATABASE_URL || '', forceDisableSsl));
 };
 
 const listPublicTables = async (client: Client) => {
