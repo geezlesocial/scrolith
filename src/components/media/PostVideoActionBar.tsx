@@ -14,7 +14,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useNotification } from '../../context/NotificationContext';
 import { stashPendingPostVideoScrollSource } from '../../utils/postVideoScrollBridge';
-import { buildPublicAppUrl } from '../../utils/siteUrl';
+import { buildPostPermalink, buildPostSocialShareTargets, normalizeShareText } from '../../utils/postShare';
 
 type PostVideoActionBarProps = {
   postId: string;
@@ -39,11 +39,6 @@ const normalizePreviewText = (value: unknown, maxLength: number) => {
   return normalized.slice(0, maxLength);
 };
 
-const openPopup = (url: string) => {
-  if (typeof window === 'undefined') return;
-  window.open(url, '_blank', 'noopener,noreferrer,width=720,height=640');
-};
-
 const PostVideoActionBar: React.FC<PostVideoActionBarProps> = ({
   postId,
   postTitle,
@@ -60,15 +55,13 @@ const PostVideoActionBar: React.FC<PostVideoActionBarProps> = ({
 
   const fileId = String(media.fileId || media.id || '').trim();
   const shareUrl = useMemo(() => {
-    const encodedId = encodeURIComponent(String(postId || '').trim());
-    if (!encodedId) return buildPublicAppUrl('/');
-    return buildPublicAppUrl(`/post/${encodedId}`);
+    return buildPostPermalink(postId);
   }, [postId]);
 
   const shareTitle = useMemo(() => {
-    const title = normalizePreviewText(postTitle, 120);
+    const title = normalizeShareText(postTitle, 120);
     if (title) return title;
-    const content = normalizePreviewText(postContent, 120);
+    const content = normalizeShareText(postContent, 120);
     if (content) return content;
     return 'Watch this video post on Scrolith';
   }, [postContent, postTitle]);
@@ -153,43 +146,31 @@ const PostVideoActionBar: React.FC<PostVideoActionBarProps> = ({
     }
   };
 
-  const shareProviders = [
-    {
-      key: 'facebook',
-      label: 'Facebook',
-      icon: Facebook,
-      action: () => openPopup(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`)
-    },
-    {
-      key: 'twitter',
-      label: 'Twitter',
-      icon: Twitter,
-      action: () =>
-        openPopup(
-          `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`
-        )
-    },
-    {
-      key: 'linkedin',
-      label: 'LinkedIn',
-      icon: Linkedin,
-      action: () =>
-        openPopup(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`)
-    },
-    {
-      key: 'whatsapp',
-      label: 'WhatsApp',
-      icon: MessageCircle,
-      action: () => openPopup(`https://wa.me/?text=${encodeURIComponent(`${shareTitle} ${shareUrl}`)}`)
-    },
-    {
-      key: 'copy',
-      label: 'Copy URL',
-      icon: Copy,
-      action: () => {
-        void handleCopyUrl();
-      }
+  const shareTargets = useMemo(
+    () =>
+      buildPostSocialShareTargets({
+        postId,
+        permalinkUrl: shareUrl,
+        shareHeading: shareTitle,
+        shareSummary: normalizeShareText(postContent, 220)
+      }),
+    [postContent, postId, shareTitle, shareUrl]
+  );
+
+  const handleShareProviderClick = (providerKey: 'facebook' | 'twitter' | 'linkedin' | 'whatsapp' | 'copy') => {
+    if (providerKey === 'copy') {
+      void handleCopyUrl();
+      return;
     }
+    setShareOpen(false);
+  };
+
+  const shareProviders = [
+    { key: 'facebook', label: 'Facebook', icon: Facebook, href: shareTargets.facebook },
+    { key: 'twitter', label: 'Twitter', icon: Twitter, href: shareTargets.x },
+    { key: 'linkedin', label: 'LinkedIn', icon: Linkedin, href: shareTargets.linkedin },
+    { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, href: shareTargets.whatsapp },
+    { key: 'copy', label: 'Copy URL', icon: Copy, href: null }
   ] as const;
 
   if (!showActions && !shareOpen) return null;
@@ -276,22 +257,36 @@ const PostVideoActionBar: React.FC<PostVideoActionBarProps> = ({
               {shareProviders.map((provider) => {
                 const Icon = provider.icon;
                 return (
-                  <button
-                    key={provider.key}
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      provider.action();
-                      if (provider.key !== 'copy') {
-                        setShareOpen(false);
-                      }
-                    }}
-                    className="inline-flex min-h-[4.25rem] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-center text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-                  >
-                    <Icon className="h-4 w-4" />
-                    <span>{provider.label}</span>
-                  </button>
+                  provider.href ? (
+                    <a
+                      key={provider.key}
+                      href={provider.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleShareProviderClick(provider.key);
+                      }}
+                      className="inline-flex min-h-[4.25rem] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-center text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{provider.label}</span>
+                    </a>
+                  ) : (
+                    <button
+                      key={provider.key}
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleShareProviderClick(provider.key);
+                      }}
+                      className="inline-flex min-h-[4.25rem] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-3 text-center text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{provider.label}</span>
+                    </button>
+                  )
                 );
               })}
             </div>

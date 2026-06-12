@@ -19,6 +19,7 @@ import RepostModal from './RepostModal';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 import ReactionReactorsModal from './ReactionReactorsModal';
 import ReactionSummaryButton from './ReactionSummaryButton';
+import { normalizeShareText } from '../../utils/postShare';
 
 type AllowedReaction = {
   key: string;
@@ -155,12 +156,6 @@ const useIsCoarsePointer = () => {
 
 const buildPostUrl = (postId: string) =>
   typeof window === 'undefined' ? `/post/${encodeURIComponent(postId)}` : `${window.location.origin}/post/${encodeURIComponent(postId)}`;
-
-const normalizeShareText = (value: unknown, maxLength = 220) => {
-  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
-  if (!normalized) return '';
-  return normalized.slice(0, maxLength);
-};
 
 const PostEngagementBar: React.FC<Props> = ({
   postId,

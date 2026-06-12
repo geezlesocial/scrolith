@@ -16,6 +16,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { MessagingService } from '../../services/messaging';
 import { CommunityService } from '../../services/community';
 import MobileDialog from '../../components/mobile/MobileDialog';
+import { buildPostSocialShareTargets, normalizeShareText } from '../../utils/postShare';
 
 type TabKey = 'message' | 'link' | 'social' | 'network';
 type SocialChannel = 'facebook' | 'x' | 'linkedin' | 'whatsapp';
@@ -87,37 +88,27 @@ const PostShareModal: React.FC<Props> = ({
     return parts.join('\n\n');
   }, [resolvedPostUrl, shareHeading, shareSummary]);
 
-  const openShareWindow = (url: string) => {
-    const popup = window.open(url, '_blank', 'noopener,noreferrer,width=720,height=640');
-    if (!popup) {
-      throw new Error('Popup blocked');
-    }
-  };
+  const socialTargets = useMemo(
+    () =>
+      buildPostSocialShareTargets({
+        postId,
+        permalinkUrl: resolvedPostUrl,
+        shareHeading,
+        shareSummary
+      }),
+    [postId, resolvedPostUrl, shareHeading, shareSummary]
+  );
 
   const shareToSocial = async (channel: SocialChannel) => {
-    const encodedUrl = encodeURIComponent(resolvedPostUrl);
-    const encodedText = encodeURIComponent(socialShareText);
-    const encodedHeading = encodeURIComponent(shareHeading);
-    const encodedSummary = encodeURIComponent(shareSummary || shareHeading);
-    const targetUrl =
-      channel === 'facebook'
-        ? `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}&quote=${encodedHeading}`
-        : channel === 'x'
-          ? `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`
-          : channel === 'linkedin'
-            ? `https://www.linkedin.com/shareArticle?mini=true&url=${encodedUrl}&title=${encodedHeading}&summary=${encodedSummary}`
-            : `https://wa.me/?text=${encodedText}`;
-
     try {
-      openShareWindow(targetUrl);
       if (user?.id && postId) {
         await CommunityService.postShare(postId, channel);
       }
       await onTrackedShare?.('social');
-      showNotification('success', 'Share', `Shared to ${channel === 'x' ? 'X' : channel === 'linkedin' ? 'LinkedIn' : channel === 'whatsapp' ? 'WhatsApp' : 'Facebook'}.`);
+      onClose();
     } catch (error: any) {
       console.warn('Social share failed', error);
-      showNotification('error', 'Share', 'Unable to open the social share target.');
+      showNotification('error', 'Share', 'Unable to prepare the social share target.');
     }
   };
 
@@ -366,13 +357,14 @@ const PostShareModal: React.FC<Props> = ({
               </button>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => window.open(resolvedPostUrl, '_blank', 'noopener,noreferrer')}
+              <a
+                href={resolvedPostUrl}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Open in new tab
-              </button>
+              </a>
             </div>
           </div>
         ) : null}
@@ -388,17 +380,21 @@ const PostShareModal: React.FC<Props> = ({
                   { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircleMore }
                 ] as const
               ).map(({ key, label, icon: Icon }) => (
-                <button
+                <a
                   key={key}
-                  type="button"
-                  onClick={() => void shareToSocial(key)}
+                  href={socialTargets[key]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => {
+                    void shareToSocial(key);
+                  }}
                   className="flex min-h-[6.5rem] flex-col items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-center transition hover:border-slate-300 hover:bg-slate-100"
                 >
                   <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white text-slate-700 shadow-sm">
                     <Icon className="h-5 w-5" />
                   </span>
                   <span className="text-sm font-semibold text-slate-900">{label}</span>
-                </button>
+                </a>
               ))}
             </div>
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
