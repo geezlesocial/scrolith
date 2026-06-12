@@ -1140,9 +1140,14 @@ const normalizeBackupDatabaseUrl = (raw: string) => {
   try {
     const parsed = new URL(normalized);
     // Keep the backup connection transport aligned with the server's actual
-    // capabilities. If the source URL includes an SSL hint, strip it so we do
-    // not force an SSL handshake against servers that only accept plain TCP.
+    // capabilities. If the source URL includes any SSL hints, strip them so we
+    // do not inherit a forced SSL handshake from the pooled/proxy URL.
     parsed.searchParams.delete('sslmode');
+    parsed.searchParams.delete('ssl');
+    parsed.searchParams.delete('sslrootcert');
+    parsed.searchParams.delete('sslcert');
+    parsed.searchParams.delete('sslkey');
+    parsed.searchParams.delete('sslpassword');
 
     return parsed.toString();
   } catch {
@@ -1150,19 +1155,27 @@ const normalizeBackupDatabaseUrl = (raw: string) => {
   }
 };
 
-const createDbClient = () => {
+const isSslConnectionError = (error: unknown) => {
+  const message = String((error as any)?.message || '').toLowerCase();
+  return message.includes('ssl') && (message.includes('does not support') || message.includes('handshake'));
+};
+
+const createDbClient = (forceDisableSsl = false) => {
   const connectionString = normalizeBackupDatabaseUrl(process.env.DATABASE_URL || '');
   if (!connectionString) {
     throw toError('DATABASE_URL is not configured for backup operations.', 500, 'BACKUP_DATABASE_URL_MISSING');
   }
-  const useSsl = String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase() === 'true';
+  const useSsl = !forceDisableSsl && String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase() === 'true';
   return new Client({
     connectionString,
+    // Explicitly disable SSL unless the backup feature is configured to use it.
+    // This prevents pg/libpq environment defaults from silently enabling SSL
+    // against local or proxy-backed servers that reject it.
     ssl: useSsl
       ? {
           rejectUnauthorized: false
         }
-      : undefined
+      : false
   });
 };
 
@@ -1983,8 +1996,20 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
   const includeFiles = Boolean(input.includeFiles);
   const notes = sanitizeNotes(input.notes);
 
-  const dbClient = createDbClient();
-  await dbClient.connect();
+  let dbClient = createDbClient();
+  try {
+    await dbClient.connect();
+  } catch (error) {
+    if (!String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase().includes('true') || !isSslConnectionError(error)) {
+      throw error;
+    }
+    console.warn('[system-backup] backup database SSL connect failed; retrying without SSL:', {
+      message: String((error as any)?.message || error)
+    });
+    await dbClient.end().catch(() => undefined);
+    dbClient = createDbClient(true);
+    await dbClient.connect();
+  }
   try {
     const allTables = await listPublicTables(dbClient);
     const selectedTables = resolveTargetTables(allTables, mode, sections, customTables);
