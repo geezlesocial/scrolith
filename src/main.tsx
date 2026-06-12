@@ -3,7 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v5'
+const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v6'
+const WEB_CACHE_RESET_RELOAD_KEY = 'scrolith:web-cache-reset-reloaded-v6'
 
 const runWhenIdle = (callback: () => void, timeout = 1200) => {
   const idleCallback = (window as any).requestIdleCallback;
@@ -93,6 +94,24 @@ const clearBrowserCaches = async () => {
   }
 };
 
+const resetBrowserRuntimeOnce = async () => {
+  try {
+    if (window.sessionStorage.getItem(WEB_CACHE_RESET_RELOAD_KEY) === '1') return;
+  } catch {
+    // Ignore session storage failures and continue with cache cleanup.
+  }
+
+  await clearBrowserCaches();
+
+  try {
+    window.sessionStorage.setItem(WEB_CACHE_RESET_RELOAD_KEY, '1');
+  } catch {
+    // Ignore session storage failures.
+  }
+
+  window.location.reload();
+};
+
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     if (isNative()) return;
@@ -103,7 +122,7 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     }
 
     runWhenIdle(() => {
-      void clearBrowserCaches().finally(() => {
+      void resetBrowserRuntimeOnce().finally(() => {
         try {
           window.localStorage.setItem(WEB_CACHE_RESET_KEY, '1');
         } catch {
