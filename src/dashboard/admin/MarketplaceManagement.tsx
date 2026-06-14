@@ -1,0 +1,929 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  CheckCircle2,
+  Edit3,
+  Eye,
+  Filter,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings2,
+  ShieldAlert,
+  ShoppingBag,
+  Tag,
+  Trash2,
+  X
+} from 'lucide-react';
+import { useNotification } from '../../context/NotificationContext';
+import { AdminService } from '../../services/admin';
+import type {
+  MarketplaceCategory,
+  MarketplaceListing,
+  MarketplaceReport,
+  MarketplaceSettings
+} from '../../types/marketplace';
+
+type Section = 'listings' | 'reports' | 'categories' | 'settings' | 'payments';
+
+type ListingDraft = {
+  title: string;
+  description: string;
+  categoryId: string;
+  condition: string;
+  price: string;
+  currency: string;
+  quantity: string;
+  location: string;
+  status: string;
+  reviewStatus: string;
+  featured: boolean;
+  adminNotes: string;
+  rejectionReason: string;
+  sellerId: string;
+};
+
+type CategoryDraft = Partial<MarketplaceCategory> & {
+  id?: string;
+  name: string;
+  slug?: string;
+};
+
+type SettingsDraft = {
+  enabled: boolean;
+  publicBrowsing: boolean;
+  approvalMode: NonNullable<MarketplaceSettings['approvalMode']>;
+  maxImages: string;
+  maxVideos: string;
+  maxPrice: string;
+  allowCOD: boolean;
+  allowOnlinePayments: boolean;
+  allowBuyerMessaging: boolean;
+  requireApprovalForVideo: boolean;
+  requireApprovalForNewSellers: boolean;
+  paymentMethodsText: string;
+  enabledPaymentMethodsText: string;
+  reportingReasonsText: string;
+  categoriesRequireApprovalText: string;
+  sellerCanSell: boolean;
+  sellerMaxListings: string;
+  sellerMaxActiveListings: string;
+  commissionEnabled: boolean;
+  commissionRate: string;
+  commissionFixedFee: string;
+  commissionCurrency: string;
+};
+
+const sectionButtonClass = (active: boolean) =>
+  `rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+    active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+  }`;
+
+const emptyListingDraft = (): ListingDraft => ({
+  title: '',
+  description: '',
+  categoryId: '',
+  condition: 'other',
+  price: '',
+  currency: 'USD',
+  quantity: '1',
+  location: '',
+  status: 'draft',
+  reviewStatus: 'pending',
+  featured: false,
+  adminNotes: '',
+  rejectionReason: '',
+  sellerId: ''
+});
+
+const emptyCategoryDraft = (): CategoryDraft => ({
+  id: '',
+  name: '',
+  slug: '',
+  description: '',
+  parentId: null,
+  sortOrder: 0,
+  isActive: true,
+  requiresApproval: false,
+  icon: ''
+});
+
+const emptySettingsDraft = (): SettingsDraft => ({
+  enabled: true,
+  publicBrowsing: true,
+  approvalMode: 'manual',
+  maxImages: '10',
+  maxVideos: '1',
+  maxPrice: '',
+  allowCOD: true,
+  allowOnlinePayments: true,
+  allowBuyerMessaging: true,
+  requireApprovalForVideo: false,
+  requireApprovalForNewSellers: true,
+  paymentMethodsText: 'cash_on_delivery, wallet, card, bank_transfer',
+  enabledPaymentMethodsText: 'cash_on_delivery, wallet, card, bank_transfer',
+  reportingReasonsText: 'Scam / fraud\nProhibited item\nMisleading listing\nDuplicate listing\nOffensive content\nWrong category\nSuspicious seller\nOther',
+  categoriesRequireApprovalText: '',
+  sellerCanSell: true,
+  sellerMaxListings: '50',
+  sellerMaxActiveListings: '20',
+  commissionEnabled: false,
+  commissionRate: '0',
+  commissionFixedFee: '0',
+  commissionCurrency: 'USD'
+});
+
+const asList = (value: string) =>
+  value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const MarketplaceManagement: React.FC = () => {
+  const { showNotification } = useNotification();
+  const [activeSection, setActiveSection] = useState<Section>('listings');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [listings, setListings] = useState<MarketplaceListing[]>([]);
+  const [reports, setReports] = useState<MarketplaceReport[]>([]);
+  const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
+  const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
+  const [search, setSearch] = useState('');
+  const [selectedListingId, setSelectedListingId] = useState('');
+  const [listingDraft, setListingDraft] = useState<ListingDraft>(emptyListingDraft());
+  const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(emptyCategoryDraft());
+  const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(emptySettingsDraft());
+
+  const loadAll = async () => {
+    setLoading(true);
+    try {
+      const [listingRows, reportRows, categoryRows, settingsRows] = await Promise.all([
+        AdminService.getMarketplaceListings({ limit: 200 }),
+        AdminService.getMarketplaceReports(),
+        AdminService.getMarketplaceCategories(),
+        AdminService.getMarketplaceSettings()
+      ]);
+      setListings(Array.isArray(listingRows) ? listingRows : []);
+      setReports(Array.isArray(reportRows) ? reportRows : []);
+      setCategories(Array.isArray(categoryRows) ? categoryRows : []);
+      setSettings(settingsRows);
+      setSettingsDraft({
+        ...emptySettingsDraft(),
+        enabled: settingsRows?.enabled ?? true,
+        publicBrowsing: settingsRows?.publicBrowsing ?? true,
+        approvalMode: settingsRows?.approvalMode ?? 'manual',
+        maxImages: String(settingsRows?.maxImages ?? 10),
+        maxVideos: String(settingsRows?.maxVideos ?? 1),
+        maxPrice: settingsRows?.maxPrice != null ? String(settingsRows.maxPrice) : '',
+        allowCOD: settingsRows?.allowCOD ?? true,
+        allowOnlinePayments: settingsRows?.allowOnlinePayments ?? true,
+        allowBuyerMessaging: settingsRows?.allowBuyerMessaging ?? true,
+        requireApprovalForVideo: settingsRows?.requireApprovalForVideo ?? false,
+        requireApprovalForNewSellers: settingsRows?.requireApprovalForNewSellers ?? true,
+        paymentMethodsText: (settingsRows?.paymentMethods || settingsRows?.enabledPaymentMethods || ['cash_on_delivery', 'wallet', 'card', 'bank_transfer']).join(', '),
+        enabledPaymentMethodsText: (settingsRows?.enabledPaymentMethods || settingsRows?.paymentMethods || ['cash_on_delivery', 'wallet', 'card', 'bank_transfer']).join(', '),
+        reportingReasonsText: (settingsRows?.reportingReasons || emptySettingsDraft().reportingReasonsText.split('\n')).join('\n'),
+        categoriesRequireApprovalText: (settingsRows?.categoriesRequireApproval || []).join('\n'),
+        sellerCanSell: settingsRows?.sellerLimits?.canSell ?? true,
+        sellerMaxListings: String(settingsRows?.sellerLimits?.maxListings ?? 50),
+        sellerMaxActiveListings: String(settingsRows?.sellerLimits?.maxActiveListings ?? 20),
+        commissionEnabled: settingsRows?.commission?.enabled ?? false,
+        commissionRate: String(settingsRows?.commission?.rate ?? 0),
+        commissionFixedFee: String(settingsRows?.commission?.fixedFee ?? 0),
+        commissionCurrency: settingsRows?.commission?.currency ?? 'USD'
+      });
+    } catch (error: any) {
+      showNotification('error', 'Marketplace load failed', error?.message || 'Unable to load marketplace admin data.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAll();
+  }, []);
+
+  useEffect(() => {
+    const selected = listings.find((item) => item.id === selectedListingId);
+    if (!selected) {
+      setListingDraft(emptyListingDraft());
+      return;
+    }
+
+    setListingDraft({
+      title: selected.title || '',
+      description: selected.description || '',
+      categoryId: selected.categoryId || '',
+      condition: String(selected.condition || 'other'),
+      price: selected.price != null ? String(selected.price) : '',
+      currency: selected.currency || 'USD',
+      quantity: String(selected.quantity ?? 1),
+      location: selected.location || '',
+      status: String(selected.status || 'draft'),
+      reviewStatus: String(selected.reviewStatus || 'pending'),
+      featured: Boolean(selected.featured),
+      adminNotes: selected.adminNotes || '',
+      rejectionReason: selected.rejectionReason || '',
+      sellerId: selected.sellerId || ''
+    });
+  }, [selectedListingId, listings]);
+
+  const filteredListings = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    if (!term) return listings;
+    return listings.filter((listing) => {
+      const haystack = [
+        listing.title,
+        listing.slug,
+        listing.description,
+        listing.location,
+        listing.status,
+        listing.reviewStatus,
+        listing.seller?.name,
+        listing.seller?.username,
+        listing.category?.name
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [listings, search]);
+
+  const stats = useMemo(() => {
+    const byStatus = (status: string) => listings.filter((item) => String(item.status || '').toLowerCase() === status).length;
+    return {
+      total: listings.length,
+      active: byStatus('active'),
+      pending: byStatus('pending_review'),
+      sold: byStatus('sold'),
+      reports: reports.length
+    };
+  }, [listings, reports]);
+
+  const refresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    await loadAll();
+  };
+
+  const saveListing = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        ...listingDraft,
+        price: listingDraft.price === '' ? null : Number(listingDraft.price),
+        quantity: listingDraft.quantity === '' ? null : Number(listingDraft.quantity),
+        featured: Boolean(listingDraft.featured),
+        title: listingDraft.title.trim(),
+        description: listingDraft.description.trim(),
+        location: listingDraft.location.trim(),
+        sellerId: listingDraft.sellerId.trim() || undefined
+      };
+      const ok = selectedListingId
+        ? await AdminService.updateMarketplaceListing(selectedListingId, payload)
+        : await AdminService.saveMarketplaceListing(payload);
+      if (!ok) throw new Error('Marketplace listing save failed');
+      showNotification('success', 'Listing saved', selectedListingId ? 'Marketplace listing updated.' : 'Marketplace listing created.');
+      setSelectedListingId('');
+      setListingDraft(emptyListingDraft());
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Listing save failed', error?.message || 'Unable to save marketplace listing.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runListingAction = async (
+    action: 'approve' | 'reject' | 'suspend' | 'restore' | 'feature' | 'unfeature' | 'delete',
+    listingId: string
+  ) => {
+    setSaving(true);
+    try {
+      let ok = false;
+      if (action === 'approve') ok = await AdminService.approveMarketplaceListing(listingId);
+      if (action === 'reject') ok = await AdminService.rejectMarketplaceListing(listingId, 'Admin marketplace review');
+      if (action === 'suspend') ok = await AdminService.suspendMarketplaceListing(listingId, 'Admin moderation');
+      if (action === 'restore') ok = await AdminService.restoreMarketplaceListing(listingId);
+      if (action === 'feature') ok = await AdminService.featureMarketplaceListing(listingId, true);
+      if (action === 'unfeature') ok = await AdminService.featureMarketplaceListing(listingId, false);
+      if (action === 'delete') ok = await AdminService.deleteMarketplaceListing(listingId);
+      if (!ok) throw new Error(`Unable to ${action} marketplace listing`);
+      showNotification('success', 'Marketplace updated', `Listing ${action}d successfully.`);
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Marketplace action failed', error?.message || 'Unable to update listing.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveCategory = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        ...categoryDraft,
+        name: String(categoryDraft.name || '').trim(),
+        slug: String(categoryDraft.slug || '').trim(),
+        description: String(categoryDraft.description || '').trim() || null
+      };
+      const ok = categoryDraft.id
+        ? await AdminService.updateMarketplaceCategory(categoryDraft.id, payload)
+        : await AdminService.saveMarketplaceCategory(payload as MarketplaceCategory);
+      if (!ok) throw new Error('Category save failed');
+      showNotification('success', 'Category saved', categoryDraft.id ? 'Marketplace category updated.' : 'Marketplace category created.');
+      setCategoryDraft(emptyCategoryDraft());
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Category save failed', error?.message || 'Unable to save category.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    setSaving(true);
+    try {
+      const ok = await AdminService.deleteMarketplaceCategory(id);
+      if (!ok) throw new Error('Category delete failed');
+      showNotification('success', 'Category removed', 'Marketplace category deleted.');
+      if (categoryDraft.id === id) setCategoryDraft(emptyCategoryDraft());
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Category delete failed', error?.message || 'Unable to delete category.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      const payload: Partial<MarketplaceSettings> = {
+        enabled: settingsDraft.enabled,
+        publicBrowsing: settingsDraft.publicBrowsing,
+        approvalMode: settingsDraft.approvalMode,
+        maxImages: Number(settingsDraft.maxImages || 0),
+        maxVideos: Number(settingsDraft.maxVideos || 0),
+        maxPrice: settingsDraft.maxPrice ? Number(settingsDraft.maxPrice) : null,
+        allowCOD: settingsDraft.allowCOD,
+        allowOnlinePayments: settingsDraft.allowOnlinePayments,
+        allowBuyerMessaging: settingsDraft.allowBuyerMessaging,
+        requireApprovalForVideo: settingsDraft.requireApprovalForVideo,
+        requireApprovalForNewSellers: settingsDraft.requireApprovalForNewSellers,
+        paymentMethods: asList(settingsDraft.paymentMethodsText),
+        enabledPaymentMethods: asList(settingsDraft.enabledPaymentMethodsText),
+        reportingReasons: asList(settingsDraft.reportingReasonsText),
+        categoriesRequireApproval: asList(settingsDraft.categoriesRequireApprovalText),
+        sellerLimits: {
+          canSell: settingsDraft.sellerCanSell,
+          maxListings: Number(settingsDraft.sellerMaxListings || 0),
+          maxActiveListings: Number(settingsDraft.sellerMaxActiveListings || 0)
+        },
+        commission: {
+          enabled: settingsDraft.commissionEnabled,
+          rate: Number(settingsDraft.commissionRate || 0),
+          fixedFee: Number(settingsDraft.commissionFixedFee || 0),
+          currency: settingsDraft.commissionCurrency || 'USD'
+        }
+      };
+      const ok = await AdminService.saveMarketplaceSettings(payload);
+      if (!ok) throw new Error('Marketplace settings save failed');
+      showNotification('success', 'Marketplace settings saved', 'Marketplace configuration updated.');
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Settings save failed', error?.message || 'Unable to save marketplace settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resolveReport = async (reportId: string, status: 'resolved' | 'dismissed') => {
+    setSaving(true);
+    try {
+      const ok = await AdminService.resolveMarketplaceReport(reportId, { status });
+      if (!ok) throw new Error('Report resolution failed');
+      showNotification('success', 'Report updated', `Report marked as ${status}.`);
+      await loadAll();
+    } catch (error: any) {
+      showNotification('error', 'Report update failed', error?.message || 'Unable to resolve report.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const selectedListing = useMemo(
+    () => listings.find((listing) => listing.id === selectedListingId) || null,
+    [listings, selectedListingId]
+  );
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[420px] items-center justify-center rounded-3xl border border-slate-200 bg-white p-10 text-slate-500">
+        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+        Loading marketplace admin...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-blue-700">
+              <ShoppingBag className="h-4 w-4" />
+              Marketplace
+            </div>
+            <h2 className="mt-4 text-2xl font-semibold text-slate-950">Marketplace control center</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Review, moderate, and configure marketplace listings, categories, reports, payments, and seller policy from one place.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+              <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric title="Total listings" value={stats.total} />
+          <Metric title="Active" value={stats.active} />
+          <Metric title="Pending review" value={stats.pending} />
+          <Metric title="Reports" value={stats.reports} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className={sectionButtonClass(activeSection === 'listings')} onClick={() => setActiveSection('listings')}>
+          Listings
+        </button>
+        <button type="button" className={sectionButtonClass(activeSection === 'reports')} onClick={() => setActiveSection('reports')}>
+          Reports
+        </button>
+        <button type="button" className={sectionButtonClass(activeSection === 'categories')} onClick={() => setActiveSection('categories')}>
+          Categories
+        </button>
+        <button type="button" className={sectionButtonClass(activeSection === 'settings')} onClick={() => setActiveSection('settings')}>
+          Settings
+        </button>
+        <button type="button" className={sectionButtonClass(activeSection === 'payments')} onClick={() => setActiveSection('payments')}>
+          Payments
+        </button>
+      </div>
+
+      {activeSection === 'listings' && (
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">All listings</h3>
+                <p className="mt-1 text-sm text-slate-600">Search, review, approve, suspend, feature, or remove listings.</p>
+              </div>
+              <div className="relative w-full sm:w-80">
+                <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search listings..."
+                  className="input w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-9 pr-3 text-sm outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+              <div className="max-h-[720px] overflow-auto">
+                <table className="min-w-full divide-y divide-slate-200 text-left text-sm">
+                  <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-[0.18em] text-slate-500">
+                    <tr>
+                      <th className="px-4 py-3">Listing</th>
+                      <th className="px-4 py-3">Seller</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Price</th>
+                      <th className="px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {filteredListings.map((listing) => (
+                      <tr key={listing.id} className="align-top">
+                        <td className="px-4 py-4">
+                          <p className="font-semibold text-slate-950">{listing.title}</p>
+                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{listing.description || 'No description provided.'}</p>
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          <div className="font-medium">{listing.seller?.name || listing.seller?.username || listing.sellerId}</div>
+                          <div className="text-xs text-slate-500">{listing.category?.name || 'Uncategorized'}</div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                            {String(listing.status || 'draft').replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-slate-700">
+                          {listing.price != null ? `${listing.currency || 'USD'} ${listing.price}` : 'Price on request'}
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-wrap gap-2">
+                            <button type="button" onClick={() => setSelectedListingId(listing.id)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
+                              Edit
+                            </button>
+                            <button type="button" onClick={() => runListingAction('approve', listing.id)} className="rounded-full border border-emerald-200 px-3 py-1 text-xs font-semibold text-emerald-700">
+                              Approve
+                            </button>
+                            <button type="button" onClick={() => runListingAction('reject', listing.id)} className="rounded-full border border-amber-200 px-3 py-1 text-xs font-semibold text-amber-700">
+                              Reject
+                            </button>
+                            <button type="button" onClick={() => runListingAction('suspend', listing.id)} className="rounded-full border border-rose-200 px-3 py-1 text-xs font-semibold text-rose-700">
+                              Suspend
+                            </button>
+                            <button type="button" onClick={() => runListingAction(listing.featured ? 'unfeature' : 'feature', listing.id)} className="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-700">
+                              {listing.featured ? 'Unfeature' : 'Feature'}
+                            </button>
+                            <button type="button" onClick={() => runListingAction('delete', listing.id)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {!filteredListings.length && (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-500">
+                          No marketplace listings found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-950">{selectedListingId ? 'Edit listing' : 'Create listing'}</h3>
+                  <p className="mt-1 text-sm text-slate-600">Admin can create or adjust listings directly.</p>
+                </div>
+                {selectedListingId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedListingId('');
+                      setListingDraft(emptyListingDraft());
+                    }}
+                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
+                  >
+                    <X className="mr-1 inline h-3.5 w-3.5" />
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-4 grid gap-4">
+                <Input label="Title" value={listingDraft.title} onChange={(value) => setListingDraft((prev) => ({ ...prev, title: value }))} />
+                <Input label="Description" value={listingDraft.description} onChange={(value) => setListingDraft((prev) => ({ ...prev, description: value }))} multiline />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input label="Category ID" value={listingDraft.categoryId} onChange={(value) => setListingDraft((prev) => ({ ...prev, categoryId: value }))} />
+                  <Input label="Seller ID" value={listingDraft.sellerId} onChange={(value) => setListingDraft((prev) => ({ ...prev, sellerId: value }))} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Input label="Price" type="number" value={listingDraft.price} onChange={(value) => setListingDraft((prev) => ({ ...prev, price: value }))} />
+                  <Input label="Currency" value={listingDraft.currency} onChange={(value) => setListingDraft((prev) => ({ ...prev, currency: value }))} />
+                  <Input label="Quantity" type="number" value={listingDraft.quantity} onChange={(value) => setListingDraft((prev) => ({ ...prev, quantity: value }))} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input label="Condition" value={listingDraft.condition} onChange={(value) => setListingDraft((prev) => ({ ...prev, condition: value }))} />
+                  <Input label="Location" value={listingDraft.location} onChange={(value) => setListingDraft((prev) => ({ ...prev, location: value }))} />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <SelectField label="Status" value={listingDraft.status} onChange={(value) => setListingDraft((prev) => ({ ...prev, status: value }))} options={['draft', 'pending_review', 'approved', 'active', 'reserved', 'sold', 'removed', 'suspended']} />
+                  <SelectField label="Review status" value={listingDraft.reviewStatus} onChange={(value) => setListingDraft((prev) => ({ ...prev, reviewStatus: value }))} options={['draft', 'pending', 'approved', 'rejected']} />
+                  <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={listingDraft.featured}
+                      onChange={(event) => setListingDraft((prev) => ({ ...prev, featured: event.target.checked }))}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                    Featured listing
+                  </label>
+                </div>
+                <Input label="Admin notes" value={listingDraft.adminNotes} onChange={(value) => setListingDraft((prev) => ({ ...prev, adminNotes: value }))} multiline />
+                <Input label="Rejection reason" value={listingDraft.rejectionReason} onChange={(value) => setListingDraft((prev) => ({ ...prev, rejectionReason: value }))} multiline />
+              </div>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={saveListing}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {selectedListingId ? 'Update listing' : 'Create listing'}
+                </button>
+                {selectedListing && (
+                  <button
+                    type="button"
+                    onClick={() => runListingAction('restore', selectedListing.id)}
+                    className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    Restore
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-lg font-semibold text-slate-950">Selected listing</h3>
+              {selectedListing ? (
+                <div className="mt-4 space-y-3 text-sm text-slate-700">
+                  <p className="font-semibold text-slate-950">{selectedListing.title}</p>
+                  <p className="leading-6 text-slate-600">{selectedListing.description || 'No description provided.'}</p>
+                  <div className="grid grid-cols-2 gap-3 text-xs text-slate-500">
+                    <Info label="Seller" value={selectedListing.seller?.name || selectedListing.sellerId} />
+                    <Info label="Category" value={selectedListing.category?.name || 'Uncategorized'} />
+                    <Info label="Status" value={String(selectedListing.status || 'draft')} />
+                    <Info label="Price" value={selectedListing.price != null ? `${selectedListing.currency || 'USD'} ${selectedListing.price}` : 'Price on request'} />
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">Choose a listing from the table to edit or inspect it.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'reports' && (
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-950">Reports queue</h3>
+          <div className="mt-5 space-y-4">
+            {reports.map((report) => (
+              <div key={report.id} className="rounded-2xl border border-slate-200 p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <p className="font-semibold text-slate-950">{report.reason || 'Marketplace report'}</p>
+                    <p className="text-sm text-slate-600">{report.details || 'No additional details provided.'}</p>
+                    <p className="text-xs text-slate-500">Status: {report.status || 'open'}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => resolveReport(report.id, 'resolved')} className="rounded-full border border-emerald-200 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                      Resolve
+                    </button>
+                    <button type="button" onClick={() => resolveReport(report.id, 'dismissed')} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700">
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {!reports.length && <p className="text-sm text-slate-500">No reports waiting for review.</p>}
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'categories' && (
+        <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-950">Categories</h3>
+            <div className="mt-5 space-y-3">
+              {categories.map((category) => (
+                <div key={category.id} className="rounded-2xl border border-slate-200 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-950">{category.name}</p>
+                      <p className="text-xs text-slate-500">{category.slug || category.id}</p>
+                      <p className="mt-2 text-sm text-slate-600">{category.description || 'No description provided.'}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCategoryDraft({ ...category })}
+                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteCategory(category.id)}
+                        className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-700"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!categories.length && <p className="text-sm text-slate-500">No marketplace categories configured yet.</p>}
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 className="text-lg font-semibold text-slate-950">{categoryDraft.id ? 'Edit category' : 'Add category'}</h3>
+            <div className="mt-4 grid gap-4">
+              <Input label="Name" value={categoryDraft.name || ''} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, name: value }))} />
+              <Input label="Slug" value={categoryDraft.slug || ''} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, slug: value }))} />
+              <Input label="Description" value={String(categoryDraft.description || '')} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, description: value }))} multiline />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input label="Parent ID" value={String(categoryDraft.parentId || '')} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, parentId: value || null }))} />
+                <Input label="Sort order" type="number" value={String(categoryDraft.sortOrder ?? 0)} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, sortOrder: Number(value || 0) }))} />
+              </div>
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(categoryDraft.isActive ?? true)}
+                  onChange={(event) => setCategoryDraft((prev) => ({ ...prev, isActive: event.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                />
+                Active category
+              </label>
+              <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={Boolean(categoryDraft.requiresApproval)}
+                  onChange={(event) => setCategoryDraft((prev) => ({ ...prev, requiresApproval: event.target.checked }))}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                />
+                Require approval
+              </label>
+              <Input label="Icon hint" value={String(categoryDraft.icon || '')} onChange={(value) => setCategoryDraft((prev) => ({ ...prev, icon: value }))} />
+            </div>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <button type="button" onClick={saveCategory} disabled={saving} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {categoryDraft.id ? 'Update category' : 'Create category'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCategoryDraft(emptyCategoryDraft())}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+              >
+                <X className="h-4 w-4" />
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'settings' && (
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-950">Marketplace settings</h3>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <ToggleField label="Marketplace enabled" checked={settingsDraft.enabled} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, enabled: checked }))} />
+            <ToggleField label="Public browsing" checked={settingsDraft.publicBrowsing} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, publicBrowsing: checked }))} />
+            <ToggleField label="Buyer messaging" checked={settingsDraft.allowBuyerMessaging} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, allowBuyerMessaging: checked }))} />
+            <ToggleField label="Require approval for new sellers" checked={settingsDraft.requireApprovalForNewSellers} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, requireApprovalForNewSellers: checked }))} />
+            <ToggleField label="Require approval for video listings" checked={settingsDraft.requireApprovalForVideo} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, requireApprovalForVideo: checked }))} />
+            <Input label="Approval mode" value={settingsDraft.approvalMode} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, approvalMode: value as SettingsDraft['approvalMode'] }))} />
+            <Input label="Max images" type="number" value={settingsDraft.maxImages} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxImages: value }))} />
+            <Input label="Max videos" type="number" value={settingsDraft.maxVideos} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxVideos: value }))} />
+            <Input label="Max price" type="number" value={settingsDraft.maxPrice} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, maxPrice: value }))} />
+            <Input label="Seller max listings" type="number" value={settingsDraft.sellerMaxListings} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, sellerMaxListings: value }))} />
+            <Input label="Seller max active listings" type="number" value={settingsDraft.sellerMaxActiveListings} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, sellerMaxActiveListings: value }))} />
+            <ToggleField label="Users can sell" checked={settingsDraft.sellerCanSell} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, sellerCanSell: checked }))} />
+            <TextareaField label="Enabled payment methods" value={settingsDraft.enabledPaymentMethodsText} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, enabledPaymentMethodsText: value }))} />
+            <TextareaField label="Payment methods" value={settingsDraft.paymentMethodsText} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, paymentMethodsText: value }))} />
+            <TextareaField label="Reporting reasons" value={settingsDraft.reportingReasonsText} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, reportingReasonsText: value }))} />
+            <TextareaField label="Categories requiring approval" value={settingsDraft.categoriesRequireApprovalText} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, categoriesRequireApprovalText: value }))} />
+            <div className="lg:col-span-2 grid gap-4 sm:grid-cols-3">
+              <ToggleField label="COD enabled" checked={settingsDraft.allowCOD} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, allowCOD: checked }))} />
+              <ToggleField label="Online payments enabled" checked={settingsDraft.allowOnlinePayments} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, allowOnlinePayments: checked }))} />
+              <ToggleField label="Commission enabled" checked={settingsDraft.commissionEnabled} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, commissionEnabled: checked }))} />
+            </div>
+            <Input label="Commission rate" type="number" value={settingsDraft.commissionRate} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionRate: value }))} />
+            <Input label="Commission fixed fee" type="number" value={settingsDraft.commissionFixedFee} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionFixedFee: value }))} />
+            <Input label="Commission currency" value={settingsDraft.commissionCurrency} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionCurrency: value }))} />
+          </div>
+          <div className="mt-5">
+            <button type="button" onClick={saveSettings} disabled={saving} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+              Save settings
+            </button>
+          </div>
+        </div>
+      )}
+
+      {activeSection === 'payments' && (
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-semibold text-slate-950">Payments</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Control cash on delivery, enabled gateways, and commission settings for marketplace checkout.
+          </p>
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <ToggleField label="Cash on delivery" checked={settingsDraft.allowCOD} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, allowCOD: checked }))} />
+            <ToggleField label="Online checkout" checked={settingsDraft.allowOnlinePayments} onChange={(checked) => setSettingsDraft((prev) => ({ ...prev, allowOnlinePayments: checked }))} />
+            <TextareaField label="Enabled payment methods" value={settingsDraft.enabledPaymentMethodsText} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, enabledPaymentMethodsText: value }))} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input label="Commission rate" type="number" value={settingsDraft.commissionRate} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionRate: value }))} />
+              <Input label="Commission fixed fee" type="number" value={settingsDraft.commissionFixedFee} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionFixedFee: value }))} />
+            </div>
+          </div>
+          <div className="mt-5">
+            <button type="button" onClick={saveSettings} disabled={saving} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Settings2 className="h-4 w-4" />}
+              Save payment settings
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Metric: React.FC<{ title: string; value: number }> = ({ title, value }) => (
+  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</p>
+    <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
+  </div>
+);
+
+const Input: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  type?: string;
+  multiline?: boolean;
+}> = ({ label, value, onChange, type = 'text', multiline = false }) => (
+  <label className="block">
+    <span className="mb-2 block text-sm font-semibold text-slate-900">{label}</span>
+    {multiline ? (
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        rows={4}
+        className="input w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+      />
+    ) : (
+      <input
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="input w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+      />
+    )}
+  </label>
+);
+
+const TextareaField: React.FC<{ label: string; value: string; onChange: (value: string) => void }> = ({
+  label,
+  value,
+  onChange
+}) => (
+  <label className="block lg:col-span-2">
+    <span className="mb-2 block text-sm font-semibold text-slate-900">{label}</span>
+    <textarea
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      rows={4}
+      className="input w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+    />
+  </label>
+);
+
+const ToggleField: React.FC<{ label: string; checked: boolean; onChange: (value: boolean) => void }> = ({
+  label,
+  checked,
+  onChange
+}) => (
+  <label className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+    <span>{label}</span>
+    <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
+  </label>
+);
+
+const SelectField: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+}> = ({ label, value, onChange, options }) => (
+  <label className="block">
+    <span className="mb-2 block text-sm font-semibold text-slate-900">{label}</span>
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="input w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none">
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option.replace(/_/g, ' ')}
+        </option>
+      ))}
+    </select>
+  </label>
+);
+
+const Info: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
+    <p className="mt-1 text-sm font-medium text-slate-900">{value}</p>
+  </div>
+);
+
+export default MarketplaceManagement;

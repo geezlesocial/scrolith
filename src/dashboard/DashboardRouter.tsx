@@ -1,6 +1,7 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useContent } from '../context/ContentContext';
 import { DashboardLayout } from './shared/DashboardLayout';
 import type { UserRole } from '../types';
 import { USER_ROLES } from '../utils/userRoles';
@@ -25,6 +26,7 @@ const FreelancerLikes = React.lazy(() => import('./freelancer/Likes'));
 const SupportCenter = React.lazy(() => import('./shared/SupportCenter'));
 const GcoinPanel = React.lazy(() => import('./shared/GcoinPanel'));
 const MessagesPanel = React.lazy(() => import('./shared/MessagesPanel'));
+const MarketplacePage = React.lazy(() => import('../pages/marketplace/MarketplacePage'));
 const Favorites = React.lazy(() => import('../pages/Favorites'));
 const KYCVerification = React.lazy(() => import('./shared/KYCVerification'));
 const SettingsModule = React.lazy(() => import('./shared/SettingsModule'));
@@ -40,6 +42,13 @@ const ResumeReviewer = React.lazy(() => import('../pages/client/ResumeReviewer')
 const DashboardSectionLoader = () => (
   <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
     Loading dashboard module...
+  </div>
+);
+
+const ResumeModuleDisabled = ({ title, description }: { title: string; description: string }) => (
+  <div className="rounded-[8px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+    <p className="font-semibold text-amber-950">{title}</p>
+    <p className="mt-2 leading-6">{description}</p>
   </div>
 );
 
@@ -77,7 +86,8 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliate: 'affiliate-program',
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
-    referrals: 'affiliate-program'
+    referrals: 'affiliate-program',
+    marketplace: 'marketplace'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -130,6 +140,7 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
 
 export const DashboardRouter: React.FC = () => {
   const { user } = useUser();
+  const { settings } = useContent();
   const [currentTab, setCurrentTab] = useState('overview');
   const location = useLocation();
 
@@ -152,6 +163,16 @@ export const DashboardRouter: React.FC = () => {
     // Default to the user's role or guest
     return (user?.role as UserRole) || USER_ROLES.GUEST;
   }, [asParam, user, location.pathname]);
+
+  const resumeAiPolicy = React.useMemo(() => {
+    const source = (settings?.system as any)?.resumeAi ?? (settings?.system as any)?.resume_ai ?? {};
+    return {
+      enabled: source.enabled !== false && source.resume_enabled !== false,
+      builderEnabled: source.builderEnabled !== false && source.builder_enabled !== false,
+      reviewerEnabled: source.reviewerEnabled !== false && source.reviewer_enabled !== false,
+      adminAccessEnabled: source.adminAccessEnabled !== false && source.admin_access_enabled !== false
+    };
+  }, [settings]);
 
   useEffect(() => {
     const handleNavigation = (event: CustomEvent) => {
@@ -196,7 +217,12 @@ export const DashboardRouter: React.FC = () => {
         case 'my-proposals':
           return <MyProposals />;
         case 'resume-builder':
-          return <ResumeBuilder />;
+          return resumeAiPolicy.enabled && resumeAiPolicy.builderEnabled
+            ? <ResumeBuilder />
+            : <ResumeModuleDisabled
+                title="Resume/CV Builder is disabled"
+                description="An administrator has temporarily disabled the resume builder. You can still browse the rest of your dashboard."
+              />;
         case 'wallet':
           return <WalletModule />;
         case 'membership':
@@ -211,6 +237,8 @@ export const DashboardRouter: React.FC = () => {
           return <GcoinPanel />;
         case 'messages':
           return <MessagesPanel />;
+        case 'marketplace':
+          return <MarketplacePage variant="dashboard" />;
         case 'support':
           return <SupportCenter />;
         case 'uploaded-files':
@@ -243,7 +271,12 @@ export const DashboardRouter: React.FC = () => {
         case 'project-briefs':
           return <ProjectBriefs />;
         case 'resume-reviewer':
-          return <ResumeReviewer />;
+          return resumeAiPolicy.enabled && resumeAiPolicy.reviewerEnabled
+            ? <ResumeReviewer />
+            : <ResumeModuleDisabled
+                title="Resume/CV Reviewer is disabled"
+                description="An administrator has temporarily disabled the resume reviewer. You can still browse the rest of your dashboard."
+              />;
         case 'contracts':
           return <EmployerContracts />;
         case 'orders':
@@ -262,6 +295,8 @@ export const DashboardRouter: React.FC = () => {
           return <GcoinPanel />;
         case 'messages':
           return <MessagesPanel />;
+        case 'marketplace':
+          return <MarketplacePage variant="dashboard" />;
         case 'support':
           return <SupportCenter />;
         case 'uploaded-files':

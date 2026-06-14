@@ -376,6 +376,7 @@ const JobDetail = React.lazy(() => import('./main/JobDetail'));
 const Blog = React.lazy(() => import('./pages/Blog'));
 const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
+const MarketplacePage = React.lazy(() => import('./pages/marketplace/MarketplacePage'));
 const AnswersPage = React.lazy(() => import('./pages/AnswersPage'));
 const GuidesPage = React.lazy(() => import('./pages/GuidesPage'));
 const HirePage = React.lazy(() => import('./pages/HirePage'));
@@ -674,6 +675,7 @@ const MOBILE_STANDALONE_ROUTE_RULES = [
   '/freelancer/dashboard*',
   '/client/dashboard*',
   '/admin/dashboard*',
+  '/marketplace*',
   '/browse',
   '/browse-jobs',
   '/search',
@@ -1365,6 +1367,14 @@ const AppContent = () => {
                 <Route path="notifications" element={<MobileNotificationsScreen />} />
                 <Route path="jobs" element={<MobileJobsScreen />} />
                 <Route path="briefs" element={<MobileBriefsScreen />} />
+                <Route path="marketplace" element={<MarketplacePage />} />
+                <Route path="marketplace/create" element={<MarketplacePage />} />
+                <Route path="marketplace/sell" element={<MarketplacePage />} />
+                <Route path="marketplace/edit/:id" element={<MarketplacePage />} />
+                <Route path="marketplace/my-listings" element={<MarketplacePage />} />
+                <Route path="marketplace/saved" element={<MarketplacePage />} />
+                <Route path="marketplace/category/:slug" element={<MarketplacePage />} />
+                <Route path="marketplace/listing/:slug" element={<MarketplacePage />} />
               </Route>
               <Route
                 path="/auth/login"
@@ -1416,6 +1426,14 @@ const AppContent = () => {
                <Route path="/browse" element={renderResponsiveMobilePage('Browse gigs', <BrowseTalent />)} />
                <Route path="/browse-jobs" element={renderResponsiveMobilePage('Browse jobs', <BrowseJobs />)} />
                <Route path="/search" element={renderResponsiveMobilePage('Search', <SearchResults />)} />
+               <Route path="/marketplace" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/create" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/sell" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/edit/:id" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/my-listings" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/saved" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/category/:slug" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/listing/:slug" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
                
                {/* Detail Pages */}
                <Route path="/gigs/:id" element={renderResponsiveMobilePage('Gig details', <GigDetail />)} />
@@ -1594,6 +1612,22 @@ const AppContent = () => {
                } />
 
               {/* Admin Routes */}
+              <Route
+                path="/admin/marketplace"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <Navigate to="/admin/dashboard?tab=marketplace" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/admin/marketplace"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <Navigate to="/admin/dashboard?tab=marketplace" replace />
+                  </ProtectedRoute>
+                }
+              />
               <Route 
                 path="/admin/dashboard" 
                 element={

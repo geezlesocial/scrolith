@@ -32,6 +32,13 @@ import type {
   FxLockRecord,
   FxHealth
 } from '../types';
+import type {
+  MarketplaceCategory,
+  MarketplaceListing,
+  MarketplaceReport,
+  MarketplaceSettings,
+  MarketplaceListingFormValues
+} from '../types/marketplace';
 
 const ADMIN_BASE = '/admin';
 const SYSTEM_BACKUP_TIMEOUT_MS = 30 * 60 * 1000;
@@ -1110,6 +1117,104 @@ export const AdminService = {
   async getGigsJobsStats(): Promise<AdminDashboardStats | null> {
     const data = await adminGet<AdminDashboardStats | null>('/gigs-jobs/dashboard/stats');
     return data || null;
+  },
+
+  async getMarketplaceSettings(): Promise<MarketplaceSettings | null> {
+    const data = await adminGet<MarketplaceSettings | null>('/marketplace/settings');
+    return data || null;
+  },
+
+  async saveMarketplaceSettings(payload: Partial<MarketplaceSettings>): Promise<boolean> {
+    const response = await adminRequest<any>('put', '/marketplace/settings', payload);
+    return Boolean(response?.success);
+  },
+
+  async getMarketplaceCategories(): Promise<MarketplaceCategory[]> {
+    const data = await adminGet<MarketplaceCategory[]>('/marketplace/categories');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async saveMarketplaceCategory(category: MarketplaceCategory): Promise<boolean> {
+    const response = await adminRequest<MarketplaceCategory>('post', '/marketplace/categories', category);
+    return Boolean(response?.success);
+  },
+
+  async updateMarketplaceCategory(id: string, category: Partial<MarketplaceCategory>): Promise<boolean> {
+    const response = await adminRequest<MarketplaceCategory>('put', `/marketplace/categories/${id}`, category);
+    return Boolean(response?.success);
+  },
+
+  async deleteMarketplaceCategory(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/marketplace/categories/${id}`);
+    return Boolean(response?.success);
+  },
+
+  async getMarketplaceListings(filters?: {
+    status?: string;
+    reviewStatus?: string;
+    categoryId?: string;
+    sellerId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<MarketplaceListing[]> {
+    const data = await adminGet<MarketplaceListing[]>('/marketplace/listings', filters);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getMarketplaceListing(id: string): Promise<MarketplaceListing | null> {
+    const data = await adminGet<MarketplaceListing>(`/marketplace/listings/${id}`);
+    return data || null;
+  },
+
+  async saveMarketplaceListing(payload: MarketplaceListingFormValues | Record<string, unknown>): Promise<boolean> {
+    const response = await adminRequest<MarketplaceListing>('post', '/marketplace/listings', payload);
+    return Boolean(response?.success);
+  },
+
+  async updateMarketplaceListing(id: string, payload: MarketplaceListingFormValues | Record<string, unknown>): Promise<boolean> {
+    const response = await adminRequest<MarketplaceListing>('put', `/marketplace/listings/${id}`, payload);
+    return Boolean(response?.success);
+  },
+
+  async deleteMarketplaceListing(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/marketplace/listings/${id}`);
+    return Boolean(response?.success);
+  },
+
+  async approveMarketplaceListing(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/approve`);
+    return Boolean(response?.success);
+  },
+
+  async rejectMarketplaceListing(id: string, reason?: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/reject`, { reason });
+    return Boolean(response?.success);
+  },
+
+  async suspendMarketplaceListing(id: string, reason?: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/suspend`, { reason });
+    return Boolean(response?.success);
+  },
+
+  async restoreMarketplaceListing(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/restore`);
+    return Boolean(response?.success);
+  },
+
+  async featureMarketplaceListing(id: string, featured = true): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/${featured ? 'feature' : 'unfeature'}`);
+    return Boolean(response?.success);
+  },
+
+  async getMarketplaceReports(): Promise<MarketplaceReport[]> {
+    const data = await adminGet<MarketplaceReport[]>('/marketplace/reports');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async resolveMarketplaceReport(id: string, payload?: Record<string, unknown>): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/reports/${id}/resolve`, payload);
+    return Boolean(response?.success);
   },
 
   async approveListing(type: 'gig' | 'job', id: string, status: string, notes?: string): Promise<boolean> {

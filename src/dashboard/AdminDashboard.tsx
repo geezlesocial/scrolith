@@ -41,6 +41,7 @@ const Languages = React.lazy(() => import('./admin/Languages'));
 const AdminMessages = React.lazy(() => import('./admin/Messages'));
 const AIIntelligence = React.lazy(() => import('./admin/AIIntelligence'));
 const MarketplaceAnalytics = React.lazy(() => import('./admin/MarketplaceAnalytics'));
+const MarketplaceManagement = React.lazy(() => import('./admin/MarketplaceManagement'));
 const ATMTrackerModule = React.lazy(() => import('./admin/ATMTrackerModule'));
 const CommunityManagement = React.lazy(() => import('./admin/CommunityManagement'));
 const NavigationManager = React.lazy(() => import('./admin/NavigationManager'));
@@ -61,7 +62,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'policy-center' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'role-management' | 'policy-center' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -125,7 +126,7 @@ const AdminDashboard: React.FC = () => {
     // Helper function to validate tab
     const isValidTab = (tab: string): tab is Tab => {
         const validTabs: Tab[] = [
-            'overview', 'analytics', 'listings', 'engagement', 'finance', 'gateways', 'cms', 
+            'overview', 'analytics', 'listings', 'marketplace', 'engagement', 'finance', 'gateways', 'cms', 
             'homepage', 'mobile-homepage', 'blog', 'scroll', 'live', 'marketing', 'users', 'monetization', 'files', 'staff', 'role-management', 'policy-center', 'feature-control', 'discovery-studio', 'journey-center', 'moderation-trust', 'config-rollback', 'realtime-ops', 'moderator-console', 'message-records', 'kyc',
             'support', 'system', 'profile', 'messages', 'ai', 'atm', 'insights-growth', 'community', 'recommendations', 'navigation', 'reviews', 'languages', 'forms', 'google-settings', 'scrolitha', 'apps', 'developer-platform', 'system-backup'
         ];
@@ -273,6 +274,7 @@ const AdminDashboard: React.FC = () => {
             title: t('dashboard.admin.nav.commerce', 'Commerce'), 
             items: [
                 { id: 'listings', label: t('dashboard.admin.nav.gigs_jobs', 'Gigs & Jobs'), icon: ShoppingBag },
+                { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
                 { id: 'engagement', label: t('dashboard.admin.nav.favorites_carts', 'Favorites & Carts'), icon: ShoppingBag },
                 { id: 'forms', label: t('dashboard.admin.nav.form_builder', 'Form Builder'), icon: LayoutTemplate }
             ] 
@@ -373,6 +375,7 @@ const AdminDashboard: React.FC = () => {
             case 'insights-growth': return <InsightsGrowth />;
             case 'market-intelligence': return <MarketIntelligence />;
             case 'listings': return <ListingsManagementTab />;
+            case 'marketplace': return <MarketplaceManagement />;
             case 'engagement': return <CommerceEngagement />;
             case 'finance': return <FinancialsTab />;
             case 'gateways': return <GatewaysTab />;
