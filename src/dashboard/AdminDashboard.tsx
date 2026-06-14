@@ -270,11 +270,16 @@ const AdminDashboard: React.FC = () => {
                 , { id: 'market-intelligence', label: t('dashboard.admin.nav.market_intelligence', 'Market Intelligence'), icon: BarChart2 }
             ]
         },
+        {
+            title: 'Marketplace',
+            items: [
+                { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag }
+            ]
+        },
         { 
             title: t('dashboard.admin.nav.commerce', 'Commerce'), 
             items: [
                 { id: 'listings', label: t('dashboard.admin.nav.gigs_jobs', 'Gigs & Jobs'), icon: ShoppingBag },
-                { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
                 { id: 'engagement', label: t('dashboard.admin.nav.favorites_carts', 'Favorites & Carts'), icon: ShoppingBag },
                 { id: 'forms', label: t('dashboard.admin.nav.form_builder', 'Form Builder'), icon: LayoutTemplate }
             ] 

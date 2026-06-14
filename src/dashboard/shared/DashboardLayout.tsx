@@ -273,12 +273,19 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           ]
         },
         {
+          id: 'marketplace',
+          title: 'Marketplace',
+          description: 'Buy and sell listings in one place.',
+          items: [
+            { tab: 'marketplace', label: 'Marketplace', icon: ShoppingBag, description: 'Browse, list, and manage marketplace items' }
+          ]
+        },
+        {
           id: 'work',
           title: 'Work',
           description: 'Active revenue lines, delivery, and proposals.',
           items: [
             { tab: 'my-gigs', label: 'My Gigs', icon: BriefcaseBusiness, description: 'Offers, pricing, and marketplace positioning' },
-            { tab: 'marketplace', label: 'Marketplace', icon: ShoppingBag, description: 'Browse, list, and manage marketplace items' },
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Campaign visibility and promotion controls' },
             { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Delivery queue, milestones, and deadlines' },
             { tab: 'contracts', label: 'Contracts', icon: ClipboardList, description: 'Running engagements and commercial terms' },
@@ -326,12 +333,19 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           ]
         },
         {
+          id: 'marketplace',
+          title: 'Marketplace',
+          description: 'Browse, list, and manage marketplace items.',
+          items: [
+            { tab: 'marketplace', label: 'Marketplace', icon: ShoppingBag, description: 'Browse, list, and manage marketplace items' }
+          ]
+        },
+        {
           id: 'work',
           title: 'Work',
           description: 'Hiring workflows, candidate review, and delivery management.',
           items: [
             { tab: 'my-jobs', label: 'My Jobs', icon: BriefcaseBusiness, description: 'Open roles, pipeline depth, and response rates' },
-            { tab: 'marketplace', label: 'Marketplace', icon: ShoppingBag, description: 'Browse, list, and manage marketplace items' },
             { tab: 'project-briefs', label: 'Project Briefs', icon: FileText, description: 'AI briefs, requirement drafts, and client-side scoping' },
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Promotion campaigns for hiring visibility' },
             { tab: 'resume-reviewer', label: 'Resume/CV Reviewer', icon: ClipboardList, description: 'Analyze resumes and public profiles against role criteria' },
