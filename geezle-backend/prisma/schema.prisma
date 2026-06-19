@@ -73,8 +73,17 @@ model User {
   proposals Proposal[]
 
   // Favorites
-  favorites Favorite[]
-  cart      Cart?
+  favorites       Favorite[]
+  postCollections  PostCollection[]
+  cart             Cart?
+  marketplaceListings         MarketplaceListing[]   @relation("MarketplaceListingSeller")
+  marketplaceInquiriesBuying  MarketplaceInquiry[]   @relation("MarketplaceInquiryBuyer")
+  marketplaceInquiriesSelling MarketplaceInquiry[]   @relation("MarketplaceInquirySeller")
+  marketplaceReportsFiled     MarketplaceReport[]    @relation("MarketplaceReportReporter")
+  marketplaceReportsResolved  MarketplaceReport[]    @relation("MarketplaceReportResolver")
+  marketplaceOrdersPlaced     MarketplaceOrder[]     @relation("MarketplaceOrderBuyer")
+  marketplaceOrdersSold       MarketplaceOrder[]     @relation("MarketplaceOrderSeller")
+  marketplaceAuditLogs        MarketplaceAuditLog[]  @relation("MarketplaceAuditActor")
 
   // Gcoin
   gcoinWallet       GcoinWallet?
@@ -619,6 +628,7 @@ model Category {
   gigs         Gig[]
   jobs         Job[]
   forumThreads ForumThread[] @relation("ForumCategory")
+  marketplaceListings MarketplaceListing[] @relation("MarketplaceListingCategory")
 }
 
 model Order {
@@ -2418,6 +2428,211 @@ model Favorite {
   @@index([createdAt])
 }
 
+model MarketplaceListing {
+  id              String   @id @default(cuid())
+  sellerId        String
+  title           String
+  slug            String   @unique
+  description     String   @db.Text
+  categoryId      String?
+  subcategoryId   String?
+  condition       String   @default("new")
+  price           Float
+  currency        String   @default("USD")
+  negotiable      Boolean  @default(false)
+  quantity        Int      @default(1)
+  location        String?
+  latitude        Float?
+  longitude       Float?
+  deliveryOptions String[] @default([])
+  paymentMethods  String[] @default([])
+  status          String   @default("draft")
+  reviewStatus    String   @default("pending")
+  rejectionReason String?
+  adminNotes      String?
+  featured        Boolean  @default(false)
+  pinned          Boolean  @default(false)
+  promoted        Boolean  @default(false)
+  viewCount       Int      @default(0)
+  saveCount       Int      @default(0)
+  reportCount     Int      @default(0)
+  soldAt          DateTime?
+  reservedAt      DateTime?
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+  removedAt       DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  seller       User       @relation("MarketplaceListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  category     Category?  @relation("MarketplaceListingCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  media        MarketplaceListingMedia[]
+  inquiries    MarketplaceInquiry[]
+  reports      MarketplaceReport[]
+  orders       MarketplaceOrder[]
+  auditLogs    MarketplaceAuditLog[]
+
+  @@index([sellerId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([reviewStatus])
+  @@index([featured])
+  @@index([createdAt])
+  @@index([price])
+  @@index([removedAt])
+}
+
+model MarketplaceListingMedia {
+  id               String   @id @default(cuid())
+  listingId        String
+  fileId           String?
+  type             String
+  url              String
+  storagePath      String
+  thumbnailUrl     String?
+  sortOrder        Int      @default(0)
+  mimeType         String
+  sizeBytes        BigInt
+  width            Int?
+  height           Int?
+  durationSeconds  Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  file    File?              @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  @@index([listingId])
+  @@index([fileId])
+  @@index([type])
+  @@index([sortOrder])
+  @@index([createdAt])
+}
+
+model MarketplaceInquiry {
+  id           String   @id @default(cuid())
+  listingId    String
+  buyerId      String
+  sellerId     String
+  message      String   @db.Text
+  status       String   @default("open")
+  conversationId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  listing     MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer       User                @relation("MarketplaceInquiryBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller      User                @relation("MarketplaceInquirySeller", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model MarketplaceReport {
+  id            String   @id @default(cuid())
+  listingId     String
+  reporterId    String
+  reason        String
+  details       String?  @db.Text
+  status        String   @default("open")
+  resolution    String?  @db.Text
+  resolvedById  String?
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  listing     MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reporter    User                @relation("MarketplaceReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy  User?               @relation("MarketplaceReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([listingId])
+  @@index([reporterId])
+  @@index([resolvedById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model MarketplaceOrder {
+  id             String   @id @default(cuid())
+  listingId      String
+  buyerId        String
+  sellerId       String
+  orderNumber    String   @unique
+  amount         Float
+  currency       String   @default("USD")
+  paymentMethod  String?
+  paymentStatus  String   @default("pending")
+  status         String   @default("pending")
+  deliveryOption String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer   User               @relation("MarketplaceOrderBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller  User               @relation("MarketplaceOrderSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdAt])
+}
+
+model MarketplaceAuditLog {
+  id        String   @id @default(cuid())
+  listingId String?
+  actorId   String?
+  action    String
+  reason    String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  listing MarketplaceListing? @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  actor   User?               @relation("MarketplaceAuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([listingId])
+  @@index([actorId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model PostCollection {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?  @db.Text
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items PostCollectionItem[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, isDefault])
+  @@index([createdAt])
+}
+
+model PostCollectionItem {
+  id           String   @id @default(cuid())
+  collectionId String
+  postId       String
+  createdAt    DateTime @default(now())
+
+  collection PostCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  post       CommunityPost  @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([collectionId, postId])
+  @@index([collectionId])
+  @@index([postId])
+  @@index([createdAt])
+}
+
 model Cart {
   id        String   @id @default(cuid())
   userId    String   @unique
@@ -2888,6 +3103,7 @@ model File {
   createdAt                  DateTime       @default(now()) @map("created_at")
   usages                     FileUsage[]
   voiceNotes                 VoiceNote[]
+  marketplaceMedia           MarketplaceListingMedia[]
 
   @@index([ownerId])
   @@index([ownerRole])
@@ -3036,6 +3252,7 @@ enum CategoryType {
   GIG
   JOB
   BOTH
+  MARKETPLACE
 }
 
 enum ConversationType {
@@ -3175,6 +3392,7 @@ enum FavoriteEntityType {
   JOB
   FREELANCER
   POST
+  MARKETPLACE
 }
 
 enum WithdrawalStatus {
@@ -3657,11 +3875,12 @@ model CommunityPost {
   // Earning events and relations
   earningEvents GcoinEarningEvent[]
   comments      CommunityPostComment[]
-  reactions     CommunityPostReaction[]
-  hiddenBy      CommunityPostHidden[]
-  feedback      CommunityPostFeedback[]
-  reports       CommunityPostReport[]
-  prediction    PostPrediction?
+    reactions     CommunityPostReaction[]
+    hiddenBy      CommunityPostHidden[]
+    feedback      CommunityPostFeedback[]
+    reports       CommunityPostReport[]
+    prediction    PostPrediction?
+    savedInCollections PostCollectionItem[]
 
   @@index([authorId])
   @@index([status])

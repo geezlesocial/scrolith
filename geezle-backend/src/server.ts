@@ -12,6 +12,7 @@ import fs from 'fs';
 import jwt from 'jsonwebtoken'; // Ensure jwt import exists
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
+import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -47,6 +48,7 @@ import communityRoutes from './routes/community';
 import scrollRoutes from './routes/scroll.routes';
 import liveRoutes from './routes/live.routes';
 import postsRoutes from './routes/posts.routes';
+import marketplaceRoutes from './routes/marketplace.routes';
 import contractsRoutes from './routes/contracts.routes';
 import messagesRoutes from './routes/messages.routes';
 import collaborationRoutes from './routes/collaboration.routes';
@@ -2644,6 +2646,161 @@ app.get('/favicon.ico', faviconHandler);
 app.get('/favicon.png', faviconHandler);
 app.get('/apple-touch-icon.png', faviconHandler);
 
+const trimTrailingSlashes = (value: string) => String(value || '').replace(/\/+$/, '');
+const stripHtml = (value: unknown) =>
+  String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+const truncateText = (value: unknown, maxLength: number) => {
+  const normalized = stripHtml(value);
+  if (!normalized) return '';
+  return normalized.slice(0, maxLength);
+};
+const escapeHtml = (value: unknown) =>
+  String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+const getFrontendPublicOrigin = () =>
+  trimTrailingSlashes(
+    process.env.PUBLIC_APP_URL ||
+      process.env.FRONTEND_URL ||
+      process.env.APP_URL ||
+      'https://scrolith.com'
+  );
+const buildFrontendPostUrl = (postId: string) =>
+  `${getFrontendPublicOrigin()}/post/${encodeURIComponent(String(postId || '').trim())}`;
+const buildBackendAbsoluteUrl = (req: Request, pathname: string) => {
+  const base = trimTrailingSlashes(resolveFileBaseUrl(req));
+  const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  return `${base}${normalizedPath}`;
+};
+const buildFileContentUrl = (req: Request, fileId: string) =>
+  `${trimTrailingSlashes(resolveFileBaseUrl(req))}/api/files/content/${encodeURIComponent(fileId)}`;
+
+app.get('/share/posts/:id', async (req: Request, res: Response) => {
+  try {
+    const postId = String(req.params?.id || '').trim();
+    if (!postId) {
+      return res.status(400).send('Missing post id.');
+    }
+
+    const post = await prisma.communityPost.findUnique({
+      where: { id: postId },
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        attachments: true,
+        createdAt: true,
+        status: true,
+        author: {
+          select: {
+            name: true,
+            username: true,
+            avatar: true
+          }
+        },
+        businessPage: {
+          select: {
+            name: true,
+            handle: true,
+            slug: true,
+            logoFileId: true
+          }
+        }
+      }
+    });
+
+    if (!post || String(post.status || '').toLowerCase() === 'deleted') {
+      return res.status(404).send('Post not found.');
+    }
+
+    const frontendPostUrl = buildFrontendPostUrl(post.id);
+    const sharePageUrl = buildBackendAbsoluteUrl(req, `/share/posts/${encodeURIComponent(post.id)}`);
+    const fileBaseUrl = trimTrailingSlashes(resolveFileBaseUrl(req));
+    const attachmentIds = Array.isArray(post.attachments) ? post.attachments.filter(Boolean) : [];
+    const attachmentFiles = attachmentIds.length
+      ? await prisma.file.findMany({
+          where: { id: { in: attachmentIds } },
+          select: {
+            id: true,
+            url: true,
+            mimeType: true,
+            thumbnailUrl: true
+          }
+        })
+      : [];
+
+    const previewImage =
+      attachmentFiles
+        .map((file) => {
+          const mimeType = String(file.mimeType || '').toLowerCase();
+          if (mimeType.startsWith('image/')) {
+            return buildFileContentUrl(req, file.id);
+          }
+          if (mimeType.startsWith('video/')) {
+            return (
+              resolveDirectMediaUrl(file.thumbnailUrl, fileBaseUrl) ||
+              resolveDirectMediaUrl(file.url, fileBaseUrl) ||
+              buildFileContentUrl(req, file.id)
+            );
+          }
+          return resolveDirectMediaUrl(file.thumbnailUrl, fileBaseUrl) || null;
+        })
+        .find(Boolean) ||
+      (post.businessPage?.logoFileId ? buildFileContentUrl(req, post.businessPage.logoFileId) : null) ||
+      resolveDirectMediaUrl(post.author?.avatar, fileBaseUrl) ||
+      `${getFrontendPublicOrigin()}/logo.png`;
+
+    const authorName =
+      String(post.businessPage?.name || post.author?.name || post.author?.username || 'Scrolith member').trim() ||
+      'Scrolith member';
+    const title =
+      truncateText(post.title, 140) ||
+      truncateText(post.content, 140) ||
+      `Post by ${authorName} on Scrolith`;
+    const description =
+      truncateText(post.content, 260) ||
+      `View ${authorName}'s post on Scrolith.`;
+
+    const html = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${escapeHtml(title)}</title>
+    <meta name="description" content="${escapeHtml(description)}" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="Scrolith" />
+    <meta property="og:title" content="${escapeHtml(title)}" />
+    <meta property="og:description" content="${escapeHtml(description)}" />
+    <meta property="og:url" content="${escapeHtml(frontendPostUrl)}" />
+    <meta property="og:image" content="${escapeHtml(previewImage)}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="${escapeHtml(title)}" />
+    <meta name="twitter:description" content="${escapeHtml(description)}" />
+    <meta name="twitter:image" content="${escapeHtml(previewImage)}" />
+    <meta http-equiv="refresh" content="0; url=${escapeHtml(frontendPostUrl)}" />
+    <link rel="canonical" href="${escapeHtml(frontendPostUrl)}" />
+  </head>
+  <body>
+    <p>Opening <a href="${escapeHtml(frontendPostUrl)}">${escapeHtml(title)}</a> on Scrolith...</p>
+    <script>window.location.replace(${JSON.stringify(frontendPostUrl)});</script>
+  </body>
+</html>`;
+
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.status(200).send(html);
+  } catch (error) {
+    console.error('Failed to render post share preview:', error);
+    return res.status(500).send('Failed to load share preview.');
+  }
+});
+
 const buildHealthPayload = () => ({
   status: 'OK',
   timestamp: new Date().toISOString(),
@@ -2895,6 +3052,7 @@ app.use('/api/community', communityRoutes);
 app.use('/api/scroll', scrollRoutes);
 app.use('/api/live', liveRoutes);
 app.use('/api/posts', postsRoutes);
+app.use('/api/marketplace', marketplaceRoutes);
 
 // Explicit admin config endpoints (ensure runtime availability even when nested routers vary)
 app.get('/api/community/admin/config', (req: Request, res: Response, next) => {
