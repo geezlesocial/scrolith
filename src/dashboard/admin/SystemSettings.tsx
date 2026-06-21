@@ -56,6 +56,41 @@ const normalizeNumber = (value: any, fallback: number) => {
     return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const DEFAULT_RESUME_AI_POLICY = {
+    enabled: true,
+    builderEnabled: true,
+    reviewerEnabled: true,
+    adminAccessEnabled: true
+};
+
+const normalizeResumeAiPolicy = (raw: any) => {
+    const source = raw || {};
+    const enabled = normalizeBoolean(source.enabled ?? source.resume_enabled ?? source.isEnabled, DEFAULT_RESUME_AI_POLICY.enabled);
+    const builderEnabled = normalizeBoolean(
+        source.builderEnabled ?? source.builder_enabled ?? source.resumeBuilderEnabled ?? source.resume_builder_enabled,
+        DEFAULT_RESUME_AI_POLICY.builderEnabled
+    );
+    const reviewerEnabled = normalizeBoolean(
+        source.reviewerEnabled ?? source.reviewer_enabled ?? source.resumeReviewerEnabled ?? source.resume_reviewer_enabled,
+        DEFAULT_RESUME_AI_POLICY.reviewerEnabled
+    );
+    const adminAccessEnabled = normalizeBoolean(
+        source.adminAccessEnabled ?? source.admin_access_enabled ?? source.allowAdminAccess ?? source.allow_admin_access,
+        DEFAULT_RESUME_AI_POLICY.adminAccessEnabled
+    );
+
+    return {
+        enabled,
+        builderEnabled,
+        reviewerEnabled,
+        adminAccessEnabled,
+        resume_enabled: enabled,
+        builder_enabled: builderEnabled,
+        reviewer_enabled: reviewerEnabled,
+        admin_access_enabled: adminAccessEnabled
+    };
+};
+
 const EMAIL_PORT_DEFAULTS: Record<NonNullable<EmailProviderConfig['provider']>, number> = {
     smtp: 587,
     ses: 587,
@@ -642,6 +677,7 @@ const SystemSettings = () => {
 
     // AI Settings State
     const [aiConfig, setAiConfig] = useState<AIConfig>(AIConfigManager.getConfig());
+    const [resumeAiConfig, setResumeAiConfig] = useState(DEFAULT_RESUME_AI_POLICY);
 
     // Storage & Cache State
     const [storageConfig, setStorageConfig] = useState<any>(
@@ -763,6 +799,8 @@ const SystemSettings = () => {
             setAiConfig(normalizedAi);
             // Keep local storage aligned so other modules read the same config
             AIConfigManager.saveConfig(normalizedAi);
+            const resumeAiSource = systemSource?.resumeAi ?? systemSource?.resume_ai;
+            setResumeAiConfig(normalizeResumeAiPolicy(resumeAiSource || DEFAULT_RESUME_AI_POLICY));
             void loadFxControlPlane(baseCode);
         }
     }, [settings, isSaving]);
@@ -826,6 +864,8 @@ const SystemSettings = () => {
                 const normalizedAi = AIConfigManager.normalizeConfig(aiSource || AIConfigManager.getConfig());
                 setAiConfig(normalizedAi);
                 AIConfigManager.saveConfig(normalizedAi);
+                const resumeAiSource = systemSource?.resumeAi ?? systemSource?.resume_ai;
+                setResumeAiConfig(normalizeResumeAiPolicy(resumeAiSource || DEFAULT_RESUME_AI_POLICY));
                 await loadFxControlPlane(baseCode);
             } catch (error) {
                 console.warn('Failed to load system settings from API, using context/default state:', error);
@@ -958,6 +998,7 @@ const SystemSettings = () => {
                 refreshEnabled: normalizeBoolean(fxConfig.refreshEnabled, currencyConfig.autoExchangeRate),
                 enabled: normalizeBoolean(fxConfig.enabled, true)
             };
+            const normalizedResumeAi = normalizeResumeAiPolicy(resumeAiConfig);
 
             const systemValues = (localSettings.system || {}) as Record<string, any>;
             const updatedSystem = {
@@ -986,7 +1027,14 @@ const SystemSettings = () => {
                 currency: normalizedCurrencyConfig,
                 fx: normalizedFxConfig,
                 currencies: persistedCurrencies,
-                aiConfig: normalizedAiConfig
+                aiConfig: normalizedAiConfig,
+                resumeAi: normalizedResumeAi,
+                resume_ai: {
+                    enabled: normalizedResumeAi.enabled,
+                    builder_enabled: normalizedResumeAi.builder_enabled,
+                    reviewer_enabled: normalizedResumeAi.reviewer_enabled,
+                    admin_access_enabled: normalizedResumeAi.admin_access_enabled
+                }
             };
 
             const updatedSettings = {
@@ -3989,6 +4037,52 @@ const SystemSettings = () => {
                                         max="2"
                                     />
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-6">
+                            <div className="flex items-start justify-between gap-4 mb-4">
+                                <div>
+                                    <h4 className="font-bold text-gray-900">Resume / CV AI Controls</h4>
+                                    <p className="text-xs text-gray-500">
+                                        Manage resume builder and analyzer availability for freelancer and client dashboards.
+                                    </p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={resumeAiConfig.enabled}
+                                    onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, enabled: e.target.checked }))}
+                                    className="rounded text-blue-600"
+                                />
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <label className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <span className="text-sm font-medium text-gray-700">Enable Resume/CV Builder</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={resumeAiConfig.builderEnabled}
+                                        onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, builderEnabled: e.target.checked }))}
+                                        className="rounded text-blue-600"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <span className="text-sm font-medium text-gray-700">Enable Resume/CV Reviewer</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={resumeAiConfig.reviewerEnabled}
+                                        onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, reviewerEnabled: e.target.checked }))}
+                                        className="rounded text-blue-600"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 md:col-span-2">
+                                    <span className="text-sm font-medium text-gray-700">Allow admin access even when the module is limited</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={resumeAiConfig.adminAccessEnabled}
+                                        onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, adminAccessEnabled: e.target.checked }))}
+                                        className="rounded text-blue-600"
+                                    />
+                                </label>
                             </div>
                         </div>
                     </div>

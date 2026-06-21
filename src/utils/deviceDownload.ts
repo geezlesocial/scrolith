@@ -8,6 +8,7 @@ type DownloadToDeviceOptions = {
   fileName?: string | null;
   mimeType?: string | null;
   subdirectory?: string;
+  preferDownloadsRoot?: boolean;
 };
 
 type DownloadToDeviceResult = {
@@ -16,8 +17,6 @@ type DownloadToDeviceResult = {
   path?: string;
   uri?: string;
 };
-
-const DEFAULT_SUBDIRECTORY = 'Scrolith/Downloads';
 
 const sanitizeFileName = (value: string) => {
   const normalized = String(value || '')
@@ -106,11 +105,24 @@ const ensureNativeDocumentsPermission = async () => {
   }
 };
 
+const ensureNativeDirectory = async (directory: Directory, path: string) => {
+  const normalizedPath = String(path || '').trim();
+  if (!normalizedPath) return;
+
+  try {
+    await Filesystem.mkdir({
+      directory,
+      path: normalizedPath,
+      recursive: true
+    });
+  } catch {}
+};
+
 export const downloadToDevice = async ({
   url,
   fileName,
   mimeType,
-  subdirectory = DEFAULT_SUBDIRECTORY
+  preferDownloadsRoot = false
 }: DownloadToDeviceOptions): Promise<DownloadToDeviceResult> => {
   const normalizedUrl = resolveAssetUrl(url);
   if (!normalizedUrl) throw new Error('Download URL is missing.');
@@ -124,22 +136,48 @@ export const downloadToDevice = async ({
   }
 
   await ensureNativeDocumentsPermission();
-  const path = `${String(subdirectory || DEFAULT_SUBDIRECTORY).replace(/^\/+|\/+$/g, '')}/${normalizedName}`;
-  await Filesystem.downloadFile({
-    url: normalizedUrl,
-    path,
-    directory: Directory.Documents,
-    recursive: true,
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined
-  });
-  const uriResult = await Filesystem.getUri({
-    path,
-    directory: Directory.Documents
-  }).catch(() => null);
-  return {
-    fileName: normalizedName,
-    native: true,
-    path,
-    uri: uriResult?.uri
-  };
+  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+  const savedName = sanitizeFileName(normalizedName);
+  const nativeTargets = preferDownloadsRoot
+    ? [
+        { directory: Directory.ExternalStorage, path: `Download/Scrolith/${savedName}` },
+        { directory: Directory.Documents, path: `Scrolith/Downloads/${savedName}` }
+      ]
+    : [
+        { directory: Directory.Documents, path: `Scrolith/Downloads/${savedName}` },
+        { directory: Directory.ExternalStorage, path: `Download/Scrolith/${savedName}` }
+      ];
+
+  let lastError: unknown = null;
+  for (const target of nativeTargets) {
+    try {
+      const parentPath = target.path.includes('/') ? target.path.split('/').slice(0, -1).join('/') : '';
+      if (parentPath) {
+        await ensureNativeDirectory(target.directory, parentPath);
+      }
+      await Filesystem.downloadFile({
+        url: normalizedUrl,
+        path: target.path,
+        directory: target.directory,
+        recursive: true,
+        headers
+      });
+      const uriResult = await Filesystem.getUri({
+        path: target.path,
+        directory: target.directory
+      }).catch(() => null);
+      return {
+        fileName: normalizedName,
+        native: true,
+        path: target.path,
+        uri: uriResult?.uri
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Failed to save the file on this device.');
 };

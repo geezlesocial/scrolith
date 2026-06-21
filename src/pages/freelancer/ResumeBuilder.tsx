@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Download, FileText, Image, Loader2, RefreshCw, Save, Sparkles, Trash2 } from 'lucide-react';
 import { ResumeDocument, ResumeProfileSource, ResumeService } from '../../services/resume';
+import { downloadToDevice } from '../../utils/deviceDownload';
+import { getBackendOrigin } from '../../utils/apiBase';
 
 const templates = [
   { id: 'professional', label: 'Professional', note: 'Balanced business resume' },
@@ -17,6 +19,27 @@ const splitLines = (value: string) =>
     .filter(Boolean);
 
 const joinSkills = (items?: string[]) => (Array.isArray(items) ? items.join(', ') : '');
+
+const toAbsoluteResumeUrl = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const backendOrigin = getBackendOrigin();
+  if (backendOrigin) {
+    return raw.startsWith('/') ? `${backendOrigin}${raw}` : `${backendOrigin}/${raw}`;
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    try {
+      return new URL(raw, window.location.origin).toString();
+    } catch {
+      return raw;
+    }
+  }
+
+  return raw;
+};
 
 const SectionList: React.FC<{ title: string; items?: string[] }> = ({ title, items = [] }) => {
   if (!items.length) return null;
@@ -192,15 +215,16 @@ const ResumeBuilder: React.FC = () => {
     if (!active) return;
     setSaving(true);
     try {
-      await ResumeService.renderPdf(active.id);
-      const response = await ResumeService.downloadPdf(active.id);
-      const url = URL.createObjectURL(response.data);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `scrolith-resume-${new Date().toISOString().slice(0, 10)}.pdf`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-      setMessage('PDF generated and downloaded.');
+      const result = await ResumeService.renderPdf(active.id);
+      const downloadUrl = toAbsoluteResumeUrl(result.resume?.pdfUrl || active.pdfUrl || `/api/freelancer/resumes/${active.id}/download`);
+      const saved = await downloadToDevice({
+        url: downloadUrl,
+        fileName: result.fileName || `scrolith-resume-${new Date().toISOString().slice(0, 10)}.pdf`,
+        mimeType: 'application/pdf',
+        preferDownloadsRoot: true
+      });
+      const savedLocation = saved.uri || saved.path || 'device storage';
+      setMessage(`PDF generated and saved to ${savedLocation}.`);
       await load();
     } catch (error: any) {
       setMessage(error?.response?.data?.error || error?.message || 'PDF download failed.');

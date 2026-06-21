@@ -40,30 +40,41 @@ export default function PostOptionsBottomSheet({
     <div className="fixed inset-0 z-[70] flex items-end justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div
-        className="relative w-full max-w-md rounded-t-3xl border border-slate-200 bg-white shadow-2xl transition-transform"
+        className="relative w-full max-w-md rounded-t-3xl border border-slate-200 bg-white shadow-2xl transition-transform duration-200 ease-out"
         style={sheetStyle}
         role="dialog"
         aria-label={title}
-        onTouchStart={(e) => {
-          startYRef.current = e.touches?.[0]?.clientY ?? null;
-        }}
-        onTouchMove={(e) => {
-          const startY = startYRef.current;
-          if (startY === null) return;
-          const currentY = e.touches?.[0]?.clientY ?? startY;
-          setDragY(currentY - startY);
-        }}
-        onTouchEnd={() => {
-          if (dragY > 90) {
-            setDragY(0);
-            onClose();
-            return;
-          }
-          setDragY(0);
-        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 pt-3">
+        <div
+          className="px-4 pt-3 touch-none"
+          onTouchStart={(e) => {
+            startYRef.current = e.touches?.[0]?.clientY ?? null;
+          }}
+          onTouchMove={(e) => {
+            const startY = startYRef.current;
+            if (startY === null) return;
+            const currentY = e.touches?.[0]?.clientY ?? startY;
+            const deltaY = currentY - startY;
+            if (deltaY > 0) {
+              e.preventDefault();
+              setDragY(deltaY);
+            }
+          }}
+          onTouchEnd={() => {
+            if (dragY > 90) {
+              setDragY(0);
+              onClose();
+              return;
+            }
+            setDragY(0);
+            startYRef.current = null;
+          }}
+          onTouchCancel={() => {
+            setDragY(0);
+            startYRef.current = null;
+          }}
+        >
           <div className="mx-auto h-1.5 w-12 rounded-full bg-slate-200" />
           <div className="mt-3 flex items-center justify-between">
             <div className="text-sm font-semibold text-slate-900">{title}</div>
@@ -77,7 +88,7 @@ export default function PostOptionsBottomSheet({
           </div>
         </div>
 
-        <div className="mt-3 max-h-[70dvh] overflow-y-auto pb-2">
+        <div className="mt-3 max-h-[70dvh] overflow-y-auto overscroll-contain pb-2">
           {items.map((item) => (
             <button
               key={item.id}

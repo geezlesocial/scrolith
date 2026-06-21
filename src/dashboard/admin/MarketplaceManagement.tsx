@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext';
 import { AdminService } from '../../services/admin';
+import type { Currency } from '../../types';
 import type {
   MarketplaceCategory,
   MarketplaceListing,
@@ -79,13 +80,22 @@ const sectionButtonClass = (active: boolean) =>
     active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
   }`;
 
-const emptyListingDraft = (): ListingDraft => ({
+const resolveDefaultCurrencyCode = (currencies: Currency[] = []) =>
+  currencies.find((currency) => currency.isDefault || currency.is_default)?.code ||
+  currencies.find((currency) => currency.isActive ?? currency.is_active ?? true)?.code ||
+  currencies[0]?.code ||
+  'USD';
+
+const normalizeCurrencyCode = (value: string | null | undefined, fallback = 'USD') =>
+  String(value || fallback).trim().toUpperCase();
+
+const emptyListingDraft = (defaultCurrencyCode = 'USD'): ListingDraft => ({
   title: '',
   description: '',
   categoryId: '',
   condition: 'other',
   price: '',
-  currency: 'USD',
+  currency: normalizeCurrencyCode(defaultCurrencyCode),
   quantity: '1',
   location: '',
   status: 'draft',
@@ -108,7 +118,7 @@ const emptyCategoryDraft = (): CategoryDraft => ({
   icon: ''
 });
 
-const emptySettingsDraft = (): SettingsDraft => ({
+const emptySettingsDraft = (defaultCurrencyCode = 'USD'): SettingsDraft => ({
   enabled: true,
   publicBrowsing: true,
   approvalMode: 'manual',
@@ -130,7 +140,7 @@ const emptySettingsDraft = (): SettingsDraft => ({
   commissionEnabled: false,
   commissionRate: '0',
   commissionFixedFee: '0',
-  commissionCurrency: 'USD'
+  commissionCurrency: normalizeCurrencyCode(defaultCurrencyCode)
 });
 
 const asList = (value: string) =>
@@ -148,28 +158,34 @@ const MarketplaceManagement: React.FC = () => {
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [reports, setReports] = useState<MarketplaceReport[]>([]);
   const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [search, setSearch] = useState('');
   const [selectedListingId, setSelectedListingId] = useState('');
   const [listingDraft, setListingDraft] = useState<ListingDraft>(emptyListingDraft());
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(emptyCategoryDraft());
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(emptySettingsDraft());
+  const defaultCurrencyCode = useMemo(() => resolveDefaultCurrencyCode(currencies), [currencies]);
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [listingRows, reportRows, categoryRows, settingsRows] = await Promise.all([
+      const [listingRows, reportRows, categoryRows, settingsRows, currencyRows] = await Promise.all([
         AdminService.getMarketplaceListings({ limit: 200 }),
         AdminService.getMarketplaceReports(),
         AdminService.getMarketplaceCategories(),
-        AdminService.getMarketplaceSettings()
+        AdminService.getMarketplaceSettings(),
+        AdminService.getActiveCurrencies().catch(() => [])
       ]);
+      const normalizedCurrencies = Array.isArray(currencyRows) ? currencyRows : [];
+      const resolvedCurrencyCode = resolveDefaultCurrencyCode(normalizedCurrencies);
       setListings(Array.isArray(listingRows) ? listingRows : []);
       setReports(Array.isArray(reportRows) ? reportRows : []);
       setCategories(Array.isArray(categoryRows) ? categoryRows : []);
+      setCurrencies(normalizedCurrencies);
       setSettings(settingsRows);
       setSettingsDraft({
-        ...emptySettingsDraft(),
+        ...emptySettingsDraft(resolvedCurrencyCode),
         enabled: settingsRows?.enabled ?? true,
         publicBrowsing: settingsRows?.publicBrowsing ?? true,
         approvalMode: settingsRows?.approvalMode ?? 'manual',
@@ -191,7 +207,7 @@ const MarketplaceManagement: React.FC = () => {
         commissionEnabled: settingsRows?.commission?.enabled ?? false,
         commissionRate: String(settingsRows?.commission?.rate ?? 0),
         commissionFixedFee: String(settingsRows?.commission?.fixedFee ?? 0),
-        commissionCurrency: settingsRows?.commission?.currency ?? 'USD'
+        commissionCurrency: normalizeCurrencyCode(settingsRows?.commission?.currency, resolvedCurrencyCode)
       });
     } catch (error: any) {
       showNotification('error', 'Marketplace load failed', error?.message || 'Unable to load marketplace admin data.');
@@ -208,7 +224,7 @@ const MarketplaceManagement: React.FC = () => {
   useEffect(() => {
     const selected = listings.find((item) => item.id === selectedListingId);
     if (!selected) {
-      setListingDraft(emptyListingDraft());
+      setListingDraft(emptyListingDraft(defaultCurrencyCode));
       return;
     }
 
@@ -218,7 +234,7 @@ const MarketplaceManagement: React.FC = () => {
       categoryId: selected.categoryId || '',
       condition: String(selected.condition || 'other'),
       price: selected.price != null ? String(selected.price) : '',
-      currency: selected.currency || 'USD',
+      currency: normalizeCurrencyCode(selected.currency, defaultCurrencyCode),
       quantity: String(selected.quantity ?? 1),
       location: selected.location || '',
       status: String(selected.status || 'draft'),
@@ -228,7 +244,7 @@ const MarketplaceManagement: React.FC = () => {
       rejectionReason: selected.rejectionReason || '',
       sellerId: selected.sellerId || ''
     });
-  }, [selectedListingId, listings]);
+  }, [defaultCurrencyCode, listings, selectedListingId]);
 
   const filteredListings = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -525,7 +541,7 @@ const MarketplaceManagement: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-4 text-slate-700">
-                          {listing.price != null ? `${listing.currency || 'USD'} ${listing.price}` : 'Price on request'}
+                          {listing.price != null ? `${normalizeCurrencyCode(listing.currency, defaultCurrencyCode)} ${listing.price}` : 'Price on request'}
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap gap-2">
@@ -576,7 +592,7 @@ const MarketplaceManagement: React.FC = () => {
                     type="button"
                     onClick={() => {
                       setSelectedListingId('');
-                      setListingDraft(emptyListingDraft());
+                      setListingDraft(emptyListingDraft(defaultCurrencyCode));
                     }}
                     className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700"
                   >
@@ -595,7 +611,12 @@ const MarketplaceManagement: React.FC = () => {
                 </div>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <Input label="Price" type="number" value={listingDraft.price} onChange={(value) => setListingDraft((prev) => ({ ...prev, price: value }))} />
-                  <Input label="Currency" value={listingDraft.currency} onChange={(value) => setListingDraft((prev) => ({ ...prev, currency: value }))} />
+                  <CurrencyField
+                    label="Currency"
+                    value={listingDraft.currency}
+                    currencies={currencies}
+                    onChange={(value) => setListingDraft((prev) => ({ ...prev, currency: value }))}
+                  />
                   <Input label="Quantity" type="number" value={listingDraft.quantity} onChange={(value) => setListingDraft((prev) => ({ ...prev, quantity: value }))} />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -802,7 +823,12 @@ const MarketplaceManagement: React.FC = () => {
             </div>
             <Input label="Commission rate" type="number" value={settingsDraft.commissionRate} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionRate: value }))} />
             <Input label="Commission fixed fee" type="number" value={settingsDraft.commissionFixedFee} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionFixedFee: value }))} />
-            <Input label="Commission currency" value={settingsDraft.commissionCurrency} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionCurrency: value }))} />
+            <CurrencyField
+              label="Commission currency"
+              value={settingsDraft.commissionCurrency}
+              currencies={currencies}
+              onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionCurrency: value }))}
+            />
           </div>
           <div className="mt-5">
             <button type="button" onClick={saveSettings} disabled={saving} className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
@@ -918,6 +944,36 @@ const SelectField: React.FC<{
     </select>
   </label>
 );
+
+const CurrencyField: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  currencies: Currency[];
+}> = ({ label, value, onChange, currencies }) => {
+  const resolvedValue = normalizeCurrencyCode(value, resolveDefaultCurrencyCode(currencies));
+
+  if (!currencies.length) {
+    return <Input label={label} value={resolvedValue} onChange={(next) => onChange(normalizeCurrencyCode(next, resolvedValue))} />;
+  }
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-900">{label}</span>
+      <select
+        value={resolvedValue}
+        onChange={(event) => onChange(normalizeCurrencyCode(event.target.value, resolvedValue))}
+        className="input w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 outline-none"
+      >
+        {currencies.map((currency) => (
+          <option key={currency.code} value={currency.code}>
+            {currency.code} - {currency.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+};
 
 const Info: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">

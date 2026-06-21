@@ -7,10 +7,30 @@ type ApiResponse<T = any> = {
   data?: T;
 };
 
+export type PostCollectionSummary = {
+  id: string;
+  name: string;
+  description?: string | null;
+  isDefault: boolean;
+  postCount: number;
+  isSelected: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export const postOptionsApi = {
-  save: async (postId: string) => {
-    const res = await api.post(`/posts/${encodeURIComponent(postId)}/save`);
-    return res.data as ApiResponse<{ saved: boolean }>;
+  save: async (
+    postId: string,
+    payload?: { collectionId?: string; collectionName?: string; collectionDescription?: string }
+  ) => {
+    const res = await api.post(`/posts/${encodeURIComponent(postId)}/save`, payload || {});
+    return res.data as ApiResponse<{
+      saved: boolean;
+      favoriteId?: string;
+      collectionId?: string;
+      collectionName?: string;
+      savedCollections?: PostCollectionSummary[];
+    }>;
   },
   unsave: async (postId: string) => {
     const res = await api.post(`/posts/${encodeURIComponent(postId)}/unsave`);
@@ -49,11 +69,29 @@ export const postOptionsApi = {
     return res.data as ApiResponse<{
       isFollowingAuthor: boolean;
       saved: boolean;
+      savedCollectionCount?: number;
+      savedCollections?: PostCollectionSummary[];
       notificationsEnabled: boolean;
       isOwner?: boolean;
       isAdminOrMod?: boolean;
       targetType?: string;
       targetId?: string;
+    }>;
+  },
+  listCollections: async (postId?: string) => {
+    const query = postId ? `?postId=${encodeURIComponent(postId)}` : '';
+    const res = await api.get(`/posts/collections${query}`);
+    return res.data as ApiResponse<{
+      collections: PostCollectionSummary[];
+      postId?: string | null;
+      defaultCollectionName?: string;
+    }>;
+  },
+  createCollection: async (payload: { name: string; description?: string; isDefault?: boolean }) => {
+    const res = await api.post('/posts/collections', payload);
+    return res.data as ApiResponse<{
+      collection: PostCollectionSummary;
+      collections: PostCollectionSummary[];
     }>;
   },
   whyThisPost: async (postId: string) => {

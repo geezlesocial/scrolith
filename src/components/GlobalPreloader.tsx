@@ -2,7 +2,7 @@ import React from 'react';
 import { usePreloader } from '../context/PreloaderContext';
 import { resolveOptimizedStaticImageUrl } from '../utils/assetUrl';
 
-const BRAND_LOGO_URL = '/logo.webp';
+const BRAND_LOGO_URL = '/logo.png';
 
 const hexToRgb = (hex: string) => {
   const raw = String(hex || '').replace('#', '').trim();

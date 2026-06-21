@@ -285,10 +285,10 @@ const StaticPage: React.FC<StaticPageProps> = ({ slugOverride, canonicalPathOver
         url: 'https://scrolith.com',
         logo: {
           '@type': 'ImageObject',
-          url: 'https://scrolith.com/logo.webp'
+          url: 'https://scrolith.com/logo.png'
         }
       },
-      image: featuredImage || 'https://scrolith.com/logo.webp',
+      image: featuredImage || 'https://scrolith.com/logo.png',
       breadcrumb: {
         '@type': 'BreadcrumbList',
         itemListElement: [

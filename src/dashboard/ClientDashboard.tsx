@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { RealtimeProvider } from './shared/RealtimeProvider';
 import { 
-    Briefcase, FileText, Users, DollarSign, MessageSquare, 
+    Briefcase, FileText, Users, DollarSign, MessageSquare, ShoppingBag,
     Settings, LogOut, PlusCircle, CheckCircle, CreditCard, Lock,
     Bell, Shield, Mail, Camera, User, Clock, ArrowRight, Sparkles, Star, ChevronRight, Loader2, Search, Building2,
     Coins, LifeBuoy
@@ -30,6 +30,7 @@ import MessagesPanel from './shared/MessagesPanel';
 import KYCVerification from './shared/KYCVerification';
 import ProjectBriefs from './employer/ProjectBriefs';
 import MyAds from '../pages/MyAds';
+import MarketplacePage from '../pages/marketplace/MarketplacePage';
 import { useT } from '../i18n/useT';
 
 const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
@@ -49,7 +50,7 @@ const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
 const ClientDashboard = () => {
     const t = useT();
     const { user, switchRole, logout } = useUser();
-    const [activeTab, setActiveTab] = useState<'overview' | 'jobs' | 'proposals' | 'contracts' | 'escrow' | 'candidates' | 'enterprise' | 'wallet' | 'gcoin' | 'favorites' | 'reviews' | 'project-briefs' | 'messages' | 'support' | 'kyc' | 'settings' | 'uploaded-files'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'jobs' | 'proposals' | 'contracts' | 'escrow' | 'candidates' | 'enterprise' | 'wallet' | 'gcoin' | 'favorites' | 'reviews' | 'project-briefs' | 'messages' | 'support' | 'kyc' | 'settings' | 'uploaded-files'>('overview');
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const params = useParams();
@@ -57,7 +58,7 @@ const ClientDashboard = () => {
     useEffect(() => {
         const tabQuery = searchParams.get('tab');
         const tabParam = params.tab;
-        const allowed = ['overview', 'jobs', 'proposals', 'contracts', 'escrow', 'candidates', 'enterprise', 'wallet', 'gcoin', 'favorites', 'reviews', 'project-briefs', 'messages', 'support', 'kyc', 'settings', 'uploaded-files'];
+        const allowed = ['overview', 'marketplace', 'jobs', 'proposals', 'contracts', 'escrow', 'candidates', 'enterprise', 'wallet', 'gcoin', 'favorites', 'reviews', 'project-briefs', 'messages', 'support', 'kyc', 'settings', 'uploaded-files'];
         const tab = tabParam || tabQuery;
         if (tab === 'settings') setActiveTab('settings');
         else if (tab === 'proposals-offers') setActiveTab('proposals');
@@ -73,6 +74,7 @@ const ClientDashboard = () => {
 
     const navItems = [
         { id: 'overview', label: t('dashboard.client.nav.home', 'Home'), icon: Briefcase },
+        { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
         { id: 'jobs', label: t('dashboard.client.nav.jobs', 'My Jobs'), icon: FileText },
         { id: 'proposals', label: t('dashboard.client.nav.proposals', 'Proposals & Offers'), icon: Users },
         { id: 'contracts', label: t('dashboard.client.nav.contracts', 'Contracts'), icon: Clock },
@@ -121,6 +123,10 @@ const ClientDashboard = () => {
                             active={activeTab === item.id} 
                             onClick={(id: string) => {
                                 setActiveTab(id as unknown as typeof activeTab);
+                                if (id === 'marketplace') {
+                                    navigate('/client/dashboard?tab=marketplace');
+                                    return;
+                                }
                                 navigate(`/client/dashboard/${id}`);
                             }} 
                         />
@@ -143,6 +149,7 @@ const ClientDashboard = () => {
             <main className="flex-1 ml-64 p-8">
                 <div className="max-w-7xl mx-auto animate-fade-in">
                     {activeTab === 'overview' && <EmployerOverview />}
+                    {activeTab === 'marketplace' && <MarketplacePage variant="dashboard" />}
                     {activeTab === 'jobs' && <MyJobs />}
                     {activeTab === 'proposals' && <ProposalsOffers />}
                     {activeTab === 'contracts' && (

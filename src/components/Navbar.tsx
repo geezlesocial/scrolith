@@ -724,7 +724,7 @@ const Navbar = () => {
     (headerConfig as any)?.logo_url ||
     settings?.logoUrl ||
     settings?.logo_url ||
-    '/logo.webp'
+    '/logo.png'
   );
   const brandLogoSrc = resolveOptimizedStaticImageUrl(
     resolveResponsiveAssetUrl(

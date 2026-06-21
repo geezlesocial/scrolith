@@ -29,6 +29,7 @@ import {
   Video,
   X
 } from 'lucide-react';
+import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import { FileService } from '../../services/files';
@@ -62,6 +63,7 @@ import type {
   MarketplaceQuery,
   MarketplaceSettings
 } from '../../types/marketplace';
+import type { Currency } from '../../types';
 
 type MarketplaceVariant = 'public' | 'dashboard';
 type MarketplaceRouteMode = 'browse' | 'category' | 'detail' | 'sell' | 'edit' | 'mine' | 'saved';
@@ -141,17 +143,26 @@ const modeFromPath = (pathname: string): MarketplaceRouteMode => {
   return 'browse';
 };
 
+const resolveDefaultCurrencyCode = (currencies: Currency[] = []) =>
+  currencies.find((currency) => currency.isDefault || currency.is_default)?.code ||
+  currencies.find((currency) => currency.isActive ?? currency.is_active ?? true)?.code ||
+  currencies[0]?.code ||
+  DEFAULT_CURRENCY;
+
+const normalizeCurrencyCode = (value: string | null | undefined, fallback = DEFAULT_CURRENCY) =>
+  String(value || fallback).trim().toUpperCase();
+
 const formatMoney = (value: MarketplaceListing['price'], currency?: string | null) => {
   const numeric = typeof value === 'number' ? value : Number(value ?? 0);
   if (!Number.isFinite(numeric)) return 'Price on request';
   try {
     return new Intl.NumberFormat('en', {
       style: 'currency',
-      currency: currency || DEFAULT_CURRENCY,
+      currency: normalizeCurrencyCode(currency, DEFAULT_CURRENCY),
       maximumFractionDigits: Number.isInteger(numeric) ? 0 : 2
     }).format(numeric);
   } catch {
-    return `${currency || DEFAULT_CURRENCY} ${numeric.toLocaleString()}`;
+    return `${normalizeCurrencyCode(currency, DEFAULT_CURRENCY)} ${numeric.toLocaleString()}`;
   }
 };
 
@@ -180,7 +191,7 @@ const defaultFormValues = (currency = DEFAULT_CURRENCY): MarketplaceListingFormV
   categoryId: '',
   condition: 'other',
   price: '',
-  currency,
+  currency: normalizeCurrencyCode(currency, DEFAULT_CURRENCY),
   negotiable: false,
   quantity: '1',
   location: '',
@@ -189,13 +200,13 @@ const defaultFormValues = (currency = DEFAULT_CURRENCY): MarketplaceListingFormV
   contactPreference: 'message'
 });
 
-const listingToFormValues = (listing: MarketplaceListing | null | undefined): MarketplaceListingFormValues => ({
+const listingToFormValues = (listing: MarketplaceListing | null | undefined, fallbackCurrency = DEFAULT_CURRENCY): MarketplaceListingFormValues => ({
   title: listing?.title ?? '',
   description: listing?.description ?? '',
   categoryId: listing?.categoryId ?? '',
   condition: (listing?.condition ?? 'other') as MarketplaceCondition,
   price: listing?.price ? String(listing.price) : '',
-  currency: listing?.currency ?? DEFAULT_CURRENCY,
+  currency: normalizeCurrencyCode(listing?.currency, fallbackCurrency),
   negotiable: Boolean(listing?.negotiable),
   quantity: listing?.quantity ? String(listing.quantity) : '1',
   location: listing?.location ?? '',
@@ -266,6 +277,7 @@ const MarketplaceSkeleton = () => (
 
 const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant = 'public' }) => {
   const { user } = useUser();
+  const { availableCurrencies } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
   const params = useParams<{ slug?: string; id?: string }>();
@@ -279,6 +291,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const isDetailRoute = routeMode === 'detail';
   const isCategoryRoute = routeMode === 'category';
   const isBrowseRoute = routeMode === 'browse';
+  const defaultCurrencyCode = useMemo(() => resolveDefaultCurrencyCode(availableCurrencies), [availableCurrencies]);
 
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
@@ -293,7 +306,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [notice, setNotice] = useState<string | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
   const [query, setQuery] = useState<MarketplaceQuery>({ page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: 'newest' });
-  const [form, setForm] = useState<MarketplaceListingFormValues>(defaultFormValues());
+  const [form, setForm] = useState<MarketplaceListingFormValues>(defaultFormValues(defaultCurrencyCode));
   const [existingMedia, setExistingMedia] = useState<MarketplaceListingMedia[]>([]);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [selectedVideo, setSelectedVideo] = useState<File | null>(null);
@@ -373,7 +386,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const summary = dashboard?.summary || {};
 
   const resetForm = (listing?: MarketplaceListing | null) => {
-    const next = listingToFormValues(listing ?? null);
+    const next = listingToFormValues(listing ?? null, defaultCurrencyCode);
     setForm(next);
     setSelectedImages([]);
     setSelectedVideo(null);
@@ -432,7 +445,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
         const listing = await getMarketplaceListing(idOrSlug);
         if (!mounted) return;
         setSelectedListing(listing);
-        setForm(listingToFormValues(listing));
+        setForm(listingToFormValues(listing, defaultCurrencyCode));
         setExistingMedia(Array.isArray(listing.images) ? (listing.images.filter((item): item is MarketplaceListingMedia => typeof item !== 'string') as MarketplaceListingMedia[]) : []);
       } catch (err: any) {
         if (!mounted) return;
@@ -536,7 +549,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
         const listing = await getMarketplaceListing(params.id as string);
         if (!mounted) return;
         setSelectedListing(listing);
-        setForm(listingToFormValues(listing));
+        setForm(listingToFormValues(listing, defaultCurrencyCode));
         setExistingMedia(Array.isArray(listing.images) ? (listing.images.filter((item): item is MarketplaceListingMedia => typeof item !== 'string') as MarketplaceListingMedia[]) : []);
       } catch (err: any) {
         if (!mounted) return;
@@ -549,7 +562,19 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return () => {
       mounted = false;
     };
-  }, [isEditRoute, params.id]);
+  }, [defaultCurrencyCode, isEditRoute, params.id]);
+
+  useEffect(() => {
+    setForm((previous) => {
+      if (!previous.currency) {
+        return { ...previous, currency: defaultCurrencyCode };
+      }
+      if (availableCurrencies.length && !availableCurrencies.some((currency) => currency.code === previous.currency)) {
+        return { ...previous, currency: defaultCurrencyCode };
+      }
+      return previous;
+    });
+  }, [availableCurrencies, defaultCurrencyCode]);
 
   const normalizedSelectedMedia = useMemo(() => {
     const remote = Array.isArray(selectedListing?.images)
@@ -660,7 +685,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
         categoryId: form.categoryId,
         condition: form.condition,
         price: form.price ? Number(form.price) : 0,
-        currency: form.currency || DEFAULT_CURRENCY,
+        currency: normalizeCurrencyCode(form.currency, defaultCurrencyCode),
         negotiable: Boolean(form.negotiable),
         quantity: form.quantity ? Number(form.quantity) : 1,
         location: form.location.trim(),
@@ -1405,6 +1430,8 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       userId={user?.id}
       settings={settings}
       categories={categories}
+      availableCurrencies={availableCurrencies}
+      defaultCurrencyCode={defaultCurrencyCode}
       form={form}
       loading={saving}
       existingMedia={existingMedia}
@@ -1601,6 +1628,8 @@ const MarketplaceForm: React.FC<{
   userId?: string;
   settings: MarketplaceSettings | null;
   categories: MarketplaceCategory[];
+  availableCurrencies: Currency[];
+  defaultCurrencyCode: string;
   form: MarketplaceListingFormValues;
   loading: boolean;
   existingMedia: MarketplaceListingMedia[];
@@ -1622,6 +1651,8 @@ const MarketplaceForm: React.FC<{
   userId,
   settings,
   categories,
+  availableCurrencies,
+  defaultCurrencyCode,
   form,
   loading,
   existingMedia,
@@ -1686,7 +1717,17 @@ const MarketplaceForm: React.FC<{
               <input value={form.price} onChange={(event) => onFieldChange('price', event.target.value)} className="input" placeholder="0.00" inputMode="decimal" />
             </Field>
             <Field label="Currency">
-              <input value={form.currency} onChange={(event) => onFieldChange('currency', event.target.value.toUpperCase())} className="input" placeholder={DEFAULT_CURRENCY} />
+              {availableCurrencies.length ? (
+                <select value={normalizeCurrencyCode(form.currency, defaultCurrencyCode)} onChange={(event) => onFieldChange('currency', normalizeCurrencyCode(event.target.value, defaultCurrencyCode))} className="input">
+                  {availableCurrencies.map((currency) => (
+                    <option key={currency.code} value={currency.code}>
+                      {currency.code} - {currency.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input value={form.currency} onChange={(event) => onFieldChange('currency', normalizeCurrencyCode(event.target.value, defaultCurrencyCode))} className="input" placeholder={defaultCurrencyCode} />
+              )}
             </Field>
             <Field label="Condition">
               <select value={form.condition} onChange={(event) => onFieldChange('condition', event.target.value as MarketplaceCondition)} className="input">

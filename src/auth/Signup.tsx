@@ -43,7 +43,7 @@ const Signup = () => {
 
   const defaultBranding = {
     show_logo: true,
-    logo_url: '/logo.webp',
+    logo_url: '/logo.png',
     logo_link_url: '/'
   };
 

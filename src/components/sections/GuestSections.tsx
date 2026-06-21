@@ -34,7 +34,7 @@ import {
 } from "./GuestAuthExperience";
 
 const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
-const SCROLITH_LOGO = "/logo.webp";
+const SCROLITH_LOGO = "/logo.png";
 
 const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
 
@@ -432,6 +432,11 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   const compactMode = (content as any)?.compactMode !== false;
   const displayedTrustPoints = (trustPoints.length ? trustPoints : ['Realtime marketplace', 'Secure payments', 'Verified talent'])
     .slice(0, compactMode ? 3 : 6);
+  const heroSignalCards = displayedTrustPoints.slice(0, 3).map((point, index) => ({
+    title: point,
+    subtitle: ["Live signal", "Verified flow", "Enterprise-ready"][index] || "Live signal",
+    accent: ["from-sky-500 to-cyan-500", "from-violet-500 to-fuchsia-500", "from-emerald-500 to-lime-500"][index] || "from-slate-500 to-slate-700"
+  }));
   const displayedBanners = (sideBanners.length
     ? sideBanners
     : [
@@ -522,16 +527,17 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   return (
     <>
       <section
-        className="overflow-x-clip py-8 sm:py-12"
+        className="overflow-x-clip py-6 sm:py-12"
         style={{ background: style?.background || "linear-gradient(180deg, #f8fafc 0%, #ffffff 55%, #f8fafc 100%)" }}
       >
-      <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
+      <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:gap-8 lg:px-8">
         <div
-          className="relative min-w-0 overflow-hidden rounded-[28px] border border-slate-200/90 bg-white p-4 shadow-xl shadow-slate-200/60 sm:rounded-3xl sm:p-7"
+          className="relative min-w-0 overflow-hidden rounded-[30px] border border-slate-200/90 bg-gradient-to-br from-white via-white to-indigo-50/45 p-5 shadow-[0_28px_70px_-32px_rgba(15,23,42,0.26)] sm:rounded-[34px] sm:p-7 lg:p-8"
           style={!backgroundImageUrl ? undefined : { backgroundColor: 'rgba(255,255,255,0.92)' }}
         >
           <div className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-indigo-200/35 blur-3xl motion-safe:animate-pulse" />
           <div className="pointer-events-none absolute -bottom-16 right-0 h-48 w-48 rounded-full bg-cyan-200/35 blur-3xl motion-safe:animate-pulse" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-indigo-300 to-transparent opacity-70" />
           {backgroundImageUrl ? (
             <img
               src={backgroundImageUrl}
@@ -545,56 +551,79 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
-          <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-2xl border border-white/70 bg-white/92 p-4 backdrop-blur-sm sm:p-5' : 'min-w-0'}>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+          <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-[24px] border border-white/70 bg-white/92 p-4 backdrop-blur-sm sm:p-5' : 'min-w-0'}>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700 shadow-[0_10px_24px_-18px_rgba(79,70,229,0.7)]">
                 <img src={SCROLITH_LOGO} alt="Scrolith" className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
                 Scrolith Enterprise
               </span>
-              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 shadow-sm">
                 Global work graph
               </span>
             </div>
-            <h1 className="max-w-[14ch] text-2xl font-bold leading-tight text-slate-900 sm:max-w-none sm:text-3xl xl:text-4xl">
+            <h1 className="max-w-[12ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
-              <p className="mt-3 max-w-2xl text-base leading-8 text-slate-600">{content.subheadline}</p>
+              <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">{content.subheadline}</p>
             ) : null}
             {content?.description ? (
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-500">{content.description}</p>
+              <p className="mt-3 max-w-2xl text-[14px] leading-7 text-slate-500 sm:text-sm sm:leading-7">{content.description}</p>
             ) : null}
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => handleHeroAction(content?.primaryCtaUrl, "signup")}
-                className="inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-slate-300/70 transition hover:bg-slate-800 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-full bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(15,23,42,0.7)] transition hover:bg-slate-800 sm:w-auto"
               >
                 {content?.primaryCtaLabel || "Create account"}
               </button>
               <button
                 type="button"
                 onClick={() => handleHeroAction(content?.secondaryCtaUrl, "login")}
-                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
               >
                 {content?.secondaryCtaLabel || "Log in"}
               </button>
             </div>
-            {content?.enableSocialLogin !== false ? (
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-white/80 p-3 backdrop-blur-sm">
-                <AuthSocialButtons mode="signup" role={UserRole.FREELANCER} config={socialConfig || undefined} redirectTo="/" />
-              </div>
-            ) : null}
-            <div className="mt-5 grid gap-2 min-[480px]:grid-cols-2 sm:grid-cols-3">
+            <div className="mt-5 grid gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
               {displayedTrustPoints.map((point, index) => (
-                <div key={`trust-point-${index}`} className="min-w-0 rounded-xl border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs font-semibold text-slate-700">
-                  {point}
+                <div
+                  key={`trust-point-${index}`}
+                  className="min-w-0 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-indigo-50/60 px-3 py-3 text-[11px] font-semibold text-slate-700 shadow-sm"
+                >
+                  <span className="block truncate">{point}</span>
                 </div>
               ))}
             </div>
+            <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-white shadow-[0_24px_60px_-28px_rgba(15,23,42,0.6)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-indigo-200/85">Live work graph</p>
+                  <p className="mt-1 text-sm font-semibold text-white/95 sm:text-base">Work, talent, and commerce moving together in real time.</p>
+                </div>
+                <span className="shrink-0 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/90">
+                  Realtime
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 min-[420px]:grid-cols-3">
+                {heroSignalCards.map((item, index) => (
+                  <div key={`${item.title}-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-white/8 p-3 shadow-[0_12px_28px_-20px_rgba(15,23,42,0.75)] backdrop-blur-sm">
+                    <div className={`mb-2 h-1.5 w-10 rounded-full bg-gradient-to-r ${item.accent}`} />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">{item.subtitle}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-white">{item.title}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {content?.enableSocialLogin !== false ? (
+              <div className="mt-5 rounded-[24px] border border-slate-200 bg-white/85 p-3.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.26)] backdrop-blur-sm">
+                <AuthSocialButtons mode="signup" role={UserRole.FREELANCER} config={socialConfig || undefined} redirectTo="/" />
+              </div>
+            ) : null}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {displayedBanners.map((banner, index) => (
-                <div key={banner.id || `side-banner-${index}`} className="min-w-0 rounded-2xl border border-slate-200 bg-white/85 p-3.5 transition hover:-translate-y-0.5 hover:shadow-md">
+                <div key={banner.id || `side-banner-${index}`} className="min-w-0 rounded-2xl border border-slate-200 bg-white/90 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
                   {banner.image ? (
                     <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
                       <img
@@ -608,8 +637,8 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                       />
                     </div>
                   ) : null}
-                  <p className="break-words text-sm font-semibold text-slate-900">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
-                  {banner.subtitle ? <p className="mt-1 break-words text-xs leading-6 text-slate-600">{banner.subtitle}</p> : null}
+                  <p className="break-words text-sm font-semibold text-slate-900 sm:text-[15px]">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
+                  {banner.subtitle ? <p className="mt-1 break-words text-xs leading-6 text-slate-600 sm:text-sm">{banner.subtitle}</p> : null}
                 </div>
               ))}
             </div>
@@ -622,7 +651,7 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                   height={360}
                   loading={backgroundImageUrl ? 'lazy' : 'eager'}
                   decoding="async"
-                  className="h-40 w-full rounded-xl object-cover sm:h-48"
+                  className="h-44 w-full rounded-xl object-cover sm:h-48 lg:h-52"
                 />
               </div>
             ) : null}

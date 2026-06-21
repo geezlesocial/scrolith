@@ -19,7 +19,7 @@ if (import.meta.env.PROD && !_hasBackendEnv) {
 }
 const getCmsApiUrl = () => getApiBaseUrl();
 const getCmsBackendOrigin = () => getBackendOrigin();
-const BRAND_LOGO_URL = 'https://scrolith.com/logo.webp';
+const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
 const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
 const AUTH_PAGES_CACHE_TTL_MS = 5 * 60 * 1000;
 const GUEST_HOMEPAGE_FETCH_TIMEOUT_MS = 3500;

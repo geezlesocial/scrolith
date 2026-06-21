@@ -240,7 +240,7 @@ const DynamicFooter = () => {
     config.copyright || (config as any).footerCopyright || (config as any).footer_copyright || ''
   );
   const footerLogo =
-    config.logo_url || (config as any).logoUrl || (settings as any)?.logo_url || (settings as any)?.logoUrl || '/logo.webp';
+    config.logo_url || (config as any).logoUrl || (settings as any)?.logo_url || (settings as any)?.logoUrl || '/logo.png';
   const brandName = (settings as any)?.siteName || (settings as any)?.site_name || 'Scrolith';
   const baseColumns = ensureArray<any>((config as any).columns ?? (config as any).footer_columns ?? (config as any).footerColumns);
   const contact = (config as any).contact || {};

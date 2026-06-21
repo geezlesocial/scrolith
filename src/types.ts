@@ -1591,6 +1591,17 @@ export interface SystemIntegrationsSettings {
   recaptchaSecretKey?: string;
 }
 
+export interface ResumeAiSettings {
+  enabled?: boolean;
+  builderEnabled?: boolean;
+  reviewerEnabled?: boolean;
+  adminAccessEnabled?: boolean;
+  resume_enabled?: boolean;
+  builder_enabled?: boolean;
+  reviewer_enabled?: boolean;
+  admin_access_enabled?: boolean;
+}
+
 export interface PlatformSettings {
   site_name: string;
   tagline: string;
@@ -2004,6 +2015,8 @@ export interface SystemConfig {
   registrations_enabled: boolean;
   kyc_enforced: boolean;
   admin_2fa: boolean;
+  resumeAi?: ResumeAiSettings;
+  resume_ai?: ResumeAiSettings;
   verification?: VerificationPolicySettings;
   trustScore?: TrustScorePolicySettings;
   trust_score?: TrustScorePolicySettings;

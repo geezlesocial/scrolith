@@ -4,6 +4,7 @@ import {
   BellOff,
   Bookmark,
   BookmarkMinus,
+  FolderPlus,
   Copy,
   Edit3,
   EyeOff,
@@ -45,6 +46,7 @@ type UsePostOptionsParams = {
   onDeletePost?: (post: any) => void;
   onTogglePin?: (post: any) => void;
   onToggleHighlight?: (post: any) => void;
+  onOpenSaveCollectionPicker?: () => void;
 };
 
 const isPrivilegedRole = (role?: string) => {
@@ -69,7 +71,8 @@ export function usePostOptions({
   onEditPost,
   onDeletePost,
   onTogglePin,
-  onToggleHighlight
+  onToggleHighlight,
+  onOpenSaveCollectionPicker
 }: UsePostOptionsParams) {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useUser();
@@ -207,6 +210,11 @@ export function usePostOptions({
       showNotification('success', next ? 'Saved' : 'Unsaved', resp?.message || '');
     });
   }, [ensureAuth, postId, run, saved, showNotification]);
+
+  const openSaveCollectionPicker = useCallback(() => {
+    if (!ensureAuth()) return;
+    onOpenSaveCollectionPicker?.();
+  }, [ensureAuth, onOpenSaveCollectionPicker]);
 
   const hide = useCallback(() => {
     if (!ensureAuth()) return;
@@ -444,6 +452,12 @@ export function usePostOptions({
         disabled: disabled('save'),
         dividerBefore: true
       },
+      {
+        id: 'save_to_collection',
+        label: 'Save to Collection',
+        icon: <FolderPlus className="h-4 w-4" />,
+        onSelect: openSaveCollectionPicker
+      },
       { id: 'hide', label: 'Hide Post', icon: <EyeOff className="h-4 w-4" />, onSelect: hide, disabled: disabled('hide') },
       { id: 'report', label: 'Report Post', icon: <Flag className="h-4 w-4" />, destructive: true, onSelect: report, disabled: disabled('report') },
       {
@@ -477,6 +491,8 @@ export function usePostOptions({
     onEditPost,
     onToggleHighlight,
     onTogglePin,
+    openSaveCollectionPicker,
+    onOpenSaveCollectionPicker,
     ownerDelete,
     ownerEdit,
     post,
@@ -492,5 +508,5 @@ export function usePostOptions({
     whyThisPost
   ]);
 
-  return { items, busyId };
+  return { items, busyId, saved, setSaved };
 }
