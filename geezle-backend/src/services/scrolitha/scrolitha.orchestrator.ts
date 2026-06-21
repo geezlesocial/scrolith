@@ -458,7 +458,7 @@ const buildLlmReply = async (input: {
   actionPlans: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
 }) => {
   const runtime = await resolveScrolithaLlmRuntime(input.actor.scope);
-  if (!runtime.enabled || runtime.provider !== 'ollama' || !runtime.runtimeConfigured) return null;
+  if (!runtime.enabled || runtime.provider === 'disabled' || !runtime.runtimeConfigured) return null;
 
   const knowledgeContext = buildScrolithaKnowledgeContext({
     actor: input.actor,

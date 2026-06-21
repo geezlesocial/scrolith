@@ -1,7 +1,7 @@
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, UserRole } from '../types';
-import { GcoinService } from '../services/gcoin';
+import { GcoinService } from '../services/gcoin'; // Import GcoinService
 
 interface AdminCreds {
   email: string;
@@ -35,10 +35,10 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const getAdminCreds = useCallback((): AdminCreds => {
+  const getAdminCreds = (): AdminCreds => {
       const stored = localStorage.getItem('scrolith_admin_creds');
       return stored ? JSON.parse(stored) : DEFAULT_ADMIN_CREDS;
-  }, []);
+  };
 
   useEffect(() => {
       if (!localStorage.getItem('scrolith_admin_creds')) {
@@ -46,6 +46,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
   }, []);
 
+  // Wrapped in useCallback to stabilize reference
   const updateUser = useCallback((updates: Partial<User>) => {
     setUser(prev => {
         if (!prev) return null;
@@ -60,7 +61,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const wallet = await GcoinService.getWallet(userId);
           updateUser({ gcoinBalance: wallet.balance });
       } catch (e) {
-          // ignore
+          console.error("Failed to init wallet", e);
       }
   }, [updateUser]);
 
@@ -104,7 +105,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('scrolith_user', JSON.stringify(userToSet));
     initWallet(userToSet.id);
     return true;
-  }, [initWallet, getAdminCreds]);
+  }, [initWallet]);
 
   const createMockUser = (email: string, role: UserRole): User => ({
       id: 'u1',
@@ -113,7 +114,9 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role,
       avatar: `https://ui-avatars.com/api/?name=${email.split('@')[0]}&background=0D8ABC&color=fff`,
       kycStatus: 'approved',
-      gcoinBalance: 0
+      gcoinBalance: 0,
+      followersCount: 12,
+      followingCount: 45
   });
 
   const signup = useCallback((email: string, name: string, role: UserRole) => {
@@ -127,6 +130,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           joinDate: new Date().toISOString(),
           gcoinBalance: 0
       };
+
       setUser(newUser);
       localStorage.setItem('scrolith_user', JSON.stringify(newUser));
       initWallet(newUser.id);
@@ -164,7 +168,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           return prev;
       });
-  }, [getAdminCreds]);
+  }, []);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -175,29 +179,64 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(u);
             await initWallet(u.id);
           } catch (e) {
-             // ignore
+            console.error("Failed to parse user from local storage");
           }
         }
         setIsLoading(false);
     };
     initAuth();
+
+    // Listen for forwarded community socket events on window to keep user state live
+    const onGcoinUpdate = (ev: Event) => {
+      try {
+        const ce: any = ev as CustomEvent;
+        const detail = ce.detail || {};
+        // Expected shape: { userId, balance }
+        if (!detail) return;
+        if (!user) return; // no active user to update
+        if (detail.userId && detail.userId === user.id) {
+          if (typeof detail.balance !== 'undefined') {
+            updateUser({ gcoinBalance: detail.balance });
+          }
+        }
+      } catch (e) { console.error('gcoin update handler', e); }
+    };
+
+    const onUserProfileUpdated = (ev: Event) => {
+      try {
+        const ce: any = ev as CustomEvent;
+        const detail = ce.detail || {};
+        // Expected shape: { userId, updates }
+        if (!detail || !detail.userId) return;
+        if (!user) return;
+        if (detail.userId === user.id) {
+          updateUser(detail.updates || {});
+        }
+      } catch (e) { console.error('profile update handler', e); }
+    };
+
+    window.addEventListener('community:gcoin_balance_updated', onGcoinUpdate as EventListener);
+    window.addEventListener('community:user_profile_updated', onUserProfileUpdated as EventListener);
+
+    return () => {
+      window.removeEventListener('community:gcoin_balance_updated', onGcoinUpdate as EventListener);
+      window.removeEventListener('community:user_profile_updated', onUserProfileUpdated as EventListener);
+    };
   }, [initWallet]);
 
-  const value = useMemo(() => ({
-      user, 
-      isAuthenticated: !!user,
-      isLoading,
-      login, 
-      signup, 
-      logout, 
-      updateUser,
-      switchRole,
-      updateAdminProfile,
-      getAdminProfile: getAdminCreds
-  }), [user, isLoading, login, signup, logout, updateUser, switchRole, updateAdminProfile, getAdminCreds]);
-
   return (
-    <UserContext.Provider value={value}>
+    <UserContext.Provider value={{ 
+        user, 
+        isAuthenticated: !!user,
+        isLoading,
+        login, 
+        signup, 
+        logout, 
+        updateUser,
+        switchRole,
+        updateAdminProfile,
+        getAdminProfile: getAdminCreds
+    }}>
       {children}
     </UserContext.Provider>
   );

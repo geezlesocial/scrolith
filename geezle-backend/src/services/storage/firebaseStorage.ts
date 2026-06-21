@@ -21,10 +21,18 @@ let cachedServiceAccount: admin.ServiceAccount | null = null;
 let cachedCredentialSource: FirebaseCredentialSource = null;
 let cachedCredentialPath: string | null = null;
 let firebaseInitAttempted = false;
+const STORAGE_APP_NAME = 'scrolith-storage';
 
 const trim = (value: unknown) => String(value || '').trim();
 
 const normalizeObjectName = (value: string) => value.replace(/^\/+/, '');
+
+const normalizeBucketName = (value: unknown) =>
+  trim(value)
+    .replace(/^gs:\/\//i, '')
+    .replace(/^https?:\/\/storage\.googleapis\.com\//i, '')
+    .replace(/^https?:\/\/firebasestorage\.googleapis\.com\/v0\/b\//i, '')
+    .replace(/\/.*$/, '');
 
 const parseServiceAccount = (input: string): admin.ServiceAccount | null => {
   try {
@@ -48,6 +56,14 @@ const defaultServiceAccountPaths = () => {
     path.resolve(cwd, 'secrets', 'firebase-adminsdk.json')
   ];
 };
+
+const shouldPreferApplicationDefault = () =>
+  Boolean(
+    trim(process.env.K_SERVICE) ||
+      trim(process.env.K_REVISION) ||
+      trim(process.env.GOOGLE_CLOUD_PROJECT) ||
+      trim(process.env.GCLOUD_PROJECT)
+  );
 
 const readServiceAccount = (): ResolvedServiceAccount => {
   const rawJson = process.env.FCM_SERVICE_ACCOUNT_JSON;
@@ -120,9 +136,10 @@ const resolveBucketName = () => {
   if (cachedBucketName) return cachedBucketName;
 
   const envBucket =
-    trim(process.env.FIREBASE_STORAGE_BUCKET) ||
-    trim(process.env.GCLOUD_STORAGE_BUCKET) ||
-    trim(process.env.GOOGLE_CLOUD_STORAGE_BUCKET);
+    normalizeBucketName(process.env.FIREBASE_STORAGE_BUCKET) ||
+    normalizeBucketName(process.env.GCLOUD_STORAGE_BUCKET) ||
+    normalizeBucketName(process.env.GOOGLE_CLOUD_STORAGE_BUCKET) ||
+    normalizeBucketName(process.env.STORAGE_BUCKET);
   if (envBucket) {
     cachedBucketName = envBucket;
     return cachedBucketName;
@@ -148,7 +165,11 @@ const resolveBucketName = () => {
 };
 
 const getFirebaseApp = () => {
-  if (admin.apps.length > 0) return admin.app();
+  try {
+    return admin.app(STORAGE_APP_NAME);
+  } catch {
+    // App has not been initialized yet for storage.
+  }
   if (firebaseInitAttempted) return null;
   firebaseInitAttempted = true;
 
@@ -157,10 +178,18 @@ const getFirebaseApp = () => {
   cachedCredentialSource = source;
   cachedCredentialPath = sourcePath || null;
 
+  if (shouldPreferApplicationDefault()) {
+    cachedCredentialSource = 'application_default';
+    cachedCredentialPath = null;
+    return admin.initializeApp({
+      credential: admin.credential.applicationDefault()
+    }, STORAGE_APP_NAME);
+  }
+
   if (serviceAccount) {
     return admin.initializeApp({
       credential: admin.credential.cert(serviceAccount)
-    });
+    }, STORAGE_APP_NAME);
   }
 
   if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
@@ -168,7 +197,7 @@ const getFirebaseApp = () => {
     cachedCredentialPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     return admin.initializeApp({
       credential: admin.credential.applicationDefault()
-    });
+    }, STORAGE_APP_NAME);
   }
 
   return null;

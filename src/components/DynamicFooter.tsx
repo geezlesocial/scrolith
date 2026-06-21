@@ -3,14 +3,12 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Twitter, Linkedin, Instagram, Facebook, Youtube, Globe, Mail } from 'lucide-react';
 import { CMSService } from '../services/cms';
-import { FooterConfig, UserRole } from '../types';
+import { FooterConfig } from '../types';
 import { useContent } from '../context/ContentContext';
-import { useUser } from '../context/UserContext';
 
 const DynamicFooter = () => {
   const [config, setConfig] = useState<FooterConfig | null>(null);
   const { settings } = useContent();
-  const { user } = useUser();
 
   useEffect(() => {
     const loadConfig = async () => {
@@ -37,24 +35,11 @@ const DynamicFooter = () => {
 
   if (!config) return null;
 
-  const role = (user?.role || UserRole.GUEST).toString().toLowerCase();
-  const isVisibleToRole = (visibility?: string[]) => {
-    if (!Array.isArray(visibility) || visibility.length === 0) return true;
-    return visibility.some(v => String(v).toLowerCase() === role);
-  };
-
-  const visibleColumns = (config.columns || [])
-    .map(col => ({
-      ...col,
-      links: (col.links || []).filter(link => isVisibleToRole(link.visibility))
-    }))
-    .filter(col => col.links.length > 0);
-
   // Priority: Footer Config > Global Settings
   const displayLogo = config.logoUrl || settings?.logoUrl;
 
   return (
-    <footer className="bg-gray-900 text-white pt-16 pb-8 border-t border-gray-800">
+    <footer className="bg-gray-900 text-white pt-16 pb-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-12">
@@ -87,7 +72,7 @@ const DynamicFooter = () => {
           </div>
 
           {/* Dynamic Link Columns */}
-          {visibleColumns.map((col, idx) => (
+          {config.columns.map((col, idx) => (
             <div key={idx}>
               <h3 className="text-lg font-semibold mb-4">{col.title}</h3>
               <ul className="space-y-2">

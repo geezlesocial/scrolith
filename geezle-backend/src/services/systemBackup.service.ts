@@ -19,6 +19,7 @@ import {
   downloadDatabaseStorageBufferByName,
   uploadBufferToDatabaseStorage
 } from './storage/databaseStorage';
+import { getSystemBackupRootDir } from '../utils/systemBackupPaths';
 
 export type BackupMode = 'full' | 'partial';
 export type RestoreMode = 'replace' | 'append';
@@ -122,7 +123,7 @@ type BackupPackage = {
 
 const BACKUP_FORMAT_VERSION = '1.0';
 const BACKUP_LICENSE_PREFIX = 'SCROLITH';
-const BACKUP_ROOT_DIR = path.resolve(__dirname, '../../data/system-backups');
+const BACKUP_ROOT_DIR = getSystemBackupRootDir();
 const BACKUP_CATALOG_FILE = path.join(BACKUP_ROOT_DIR, 'catalog.json');
 const BACKUP_JOBS_FILE = path.join(BACKUP_ROOT_DIR, 'jobs.json');
 const UPLOAD_DIR = path.resolve(__dirname, '../../uploads');
@@ -199,6 +200,10 @@ type CreateBackupInput = {
   customTables: string[];
   includeFiles: boolean;
   notes?: string | null;
+};
+
+type BackupProgressHooks = {
+  onProgress?: (step: string) => void | Promise<void>;
 };
 
 type RestoreBackupInput = {
@@ -1040,19 +1045,39 @@ const readManagedFileBuffer = async (file: {
 const collectManagedUploadSnapshots = async (remainingBytes: number) => {
   const snapshots: FileSnapshot[] = [];
   let consumedBytes = 0;
-  const files = await prisma.file.findMany({
-    select: {
-      id: true,
-      storageKey: true,
-      storageProvider: true,
-      url: true,
-      mimeType: true,
-      size: true,
-      thumbnailUrl: true,
-      createdAt: true
-    },
-    orderBy: { createdAt: 'asc' }
-  });
+  let files: Array<{
+    id: string;
+    storageKey: string | null;
+    storageProvider: string | null;
+    url: string | null;
+    mimeType: string | null;
+    size: number | null;
+    thumbnailUrl: string | null;
+    createdAt: Date | null;
+  }> = [];
+
+  try {
+    files = await prisma.file.findMany({
+      select: {
+        id: true,
+        storageKey: true,
+        storageProvider: true,
+        url: true,
+        mimeType: true,
+        size: true,
+        thumbnailUrl: true,
+        createdAt: true
+      },
+      orderBy: { createdAt: 'asc' }
+    });
+  } catch (error) {
+    console.warn('[system-backup] managed upload catalog query failed; falling back to filesystem scan', {
+      message: (error as any)?.message || error,
+      stack: (error as any)?.stack || null
+    });
+    const fallback = collectDirectoryFiles(MANAGED_UPLOAD_SOURCE_ID, UPLOAD_DIR, remainingBytes);
+    return fallback;
+  }
 
   for (const file of files) {
     const numericSize = Number(file.size || 0);
@@ -1191,6 +1216,38 @@ const createDbClient = (forceDisableSsl = false) => {
   return new Client(buildBackupDbClientConfig(process.env.DATABASE_URL || '', forceDisableSsl));
 };
 
+const connectBackupDbClient = async () => {
+  const primary = createDbClient();
+  try {
+    console.info('[system-backup] connecting backup DB client', { ssl: 'primary' });
+    await primary.connect();
+    console.info('[system-backup] connected backup DB client', { ssl: 'primary' });
+    return primary;
+  } catch (error) {
+    console.warn('[system-backup] primary backup DB client connect failed', {
+      message: (error as any)?.message || error,
+      stack: (error as any)?.stack || null,
+      ssl: 'primary'
+    });
+    await primary.end().catch(() => undefined);
+    const fallback = createDbClient(true);
+    try {
+      console.info('[system-backup] retrying backup DB client connect with ssl disabled');
+      await fallback.connect();
+      console.info('[system-backup] connected backup DB client', { ssl: 'disabled' });
+      return fallback;
+    } catch (fallbackError) {
+      console.warn('[system-backup] fallback backup DB client connect failed', {
+        message: (fallbackError as any)?.message || fallbackError,
+        stack: (fallbackError as any)?.stack || null,
+        ssl: 'disabled'
+      });
+      await fallback.end().catch(() => undefined);
+      throw fallbackError;
+    }
+  }
+};
+
 const listPublicTables = async (client: Client) => {
   const result = await client.query<{ table_name: string }>(
     `
@@ -1256,6 +1313,32 @@ const loadTableRows = async (client: Client, tableName: string) => {
   }
   const result = await client.query(`SELECT * FROM "${tableName}"`);
   return result.rows;
+};
+
+const listPublicTablesWithPrisma = async () => {
+  const rows = await prisma.$queryRaw<{ table_name: string }[]>`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_type = 'BASE TABLE'
+    ORDER BY table_name ASC
+  `;
+  return rows
+    .map((row) => String(row.table_name || '').trim())
+    .filter((tableName) => tableName && !EXCLUDED_TABLES.has(tableName) && isSafeIdentifier(tableName));
+};
+
+const loadTableRowsWithPrisma = async (tableName: string) => {
+  if (!isSafeIdentifier(tableName)) {
+    throw toError(`Unsafe table identifier detected: ${tableName}`, 400, 'BACKUP_UNSAFE_TABLE');
+  }
+  if (tableName === 'AppSetting') {
+    return prisma.$queryRawUnsafe(
+      'SELECT * FROM "AppSetting" WHERE scope NOT LIKE $1 ORDER BY "createdAt" ASC',
+      `${DATABASE_BACKUP_SCOPE_PREFIX}.%`
+    ) as Promise<any[]>;
+  }
+  return prisma.$queryRawUnsafe(`SELECT * FROM "${tableName}"`) as Promise<any[]>;
 };
 
 const parseBackupBuffer = (buffer: Buffer): BackupPackage => {
@@ -2000,44 +2083,53 @@ export const listSystemBackupJobs = async () => {
   );
 };
 
-export const createSystemBackup = async (input: CreateBackupInput) => {
+export const createSystemBackup = async (input: CreateBackupInput, hooks?: BackupProgressHooks) => {
+  const signalProgress = async (step: string) => {
+    try {
+      await hooks?.onProgress?.(step);
+    } catch (error) {
+      console.warn('[system-backup] progress hook failed:', (error as any)?.message || error);
+    }
+  };
+
   ensureBackupDir();
   const mode = input.mode === 'partial' ? 'partial' : 'full';
   const sections = normalizeSections(input.sections);
   const customTables = normalizeTableList(input.customTables);
   const includeFiles = Boolean(input.includeFiles);
   const notes = sanitizeNotes(input.notes);
-
-  let dbClient = createDbClient();
-  try {
-    await dbClient.connect();
-  } catch (error) {
-    if (!String(process.env.BACKUP_DATABASE_SSL || '').trim().toLowerCase().includes('true') || !isSslConnectionError(error)) {
-      throw error;
-    }
-    console.warn('[system-backup] backup database SSL connect failed; retrying without SSL:', {
-      message: String((error as any)?.message || error)
-    });
-    await dbClient.end().catch(() => undefined);
-    dbClient = createDbClient(true);
-    await dbClient.connect();
+  await signalProgress('create:start');
+  console.info('[system-backup] create start', {
+    mode,
+    includeFiles,
+    sections: sections.length,
+    customTables: customTables.length
+  });
+  await signalProgress('create:db-connected');
+  const allTables = await listPublicTablesWithPrisma();
+  await signalProgress(`create:tables-enumerated:${allTables.length}`);
+  console.info('[system-backup] tables enumerated', { count: allTables.length });
+  const selectedTables = resolveTargetTables(allTables, mode, sections, customTables);
+  await signalProgress(`create:tables-selected:${selectedTables.length}`);
+  console.info('[system-backup] tables selected', { count: selectedTables.length });
+  const exportTables =
+    includeFiles && selectedTables.includes(MANAGED_UPLOAD_OBJECT_TABLE)
+      ? selectedTables.filter((table) => table !== MANAGED_UPLOAD_OBJECT_TABLE)
+      : selectedTables;
+  const database: Record<string, any[]> = {};
+  for (const table of exportTables) {
+    await signalProgress(`create:loading-table:${table}`);
+    console.info('[system-backup] loading table rows', { table });
+    database[table] = await loadTableRowsWithPrisma(table);
   }
-  try {
-    const allTables = await listPublicTables(dbClient);
-    const selectedTables = resolveTargetTables(allTables, mode, sections, customTables);
-    const exportTables =
-      includeFiles && selectedTables.includes(MANAGED_UPLOAD_OBJECT_TABLE)
-        ? selectedTables.filter((table) => table !== MANAGED_UPLOAD_OBJECT_TABLE)
-        : selectedTables;
-    const database: Record<string, any[]> = {};
-    for (const table of exportTables) {
-      database[table] = await loadTableRows(dbClient, table);
-    }
 
-    const files = includeFiles ? await collectFileSnapshots() : [];
-    const backupId = crypto.randomUUID();
-    const createdAt = toIso();
-    const { license, licenseHash, licenseHint } = generateBackupLicense(backupId);
+  await signalProgress('create:file-snapshots');
+  const files = includeFiles ? await collectFileSnapshots() : [];
+  await signalProgress(`create:file-snapshots:${files.length}`);
+  console.info('[system-backup] file snapshots collected', { count: files.length });
+  const backupId = crypto.randomUUID();
+  const createdAt = toIso();
+  const { license, licenseHash, licenseHint } = generateBackupLicense(backupId);
 
     const backupPackage: BackupPackage = {
       formatVersion: '1.0',
@@ -2099,13 +2191,10 @@ export const createSystemBackup = async (input: CreateBackupInput) => {
     catalog.push(record);
     await writeCatalog(catalog);
 
-    return {
-      backup: record,
-      scrolithLicense: license
-    };
-  } finally {
-    await dbClient.end().catch(() => undefined);
-  }
+  return {
+    backup: record,
+    scrolithLicense: license
+  };
 };
 
 export const queueSystemBackupCreation = async (input: CreateBackupInput) => {
@@ -2151,6 +2240,7 @@ export const runSystemBackupCreationJob = async (
   input: CreateBackupInput,
   hooks?: {
     onUpdate?: (payload: Record<string, any>) => void | Promise<void>;
+    onProgress?: (step: string) => void | Promise<void>;
   }
 ) => {
   const emitUpdate = async (payload: Record<string, any>) => {
@@ -2180,6 +2270,15 @@ export const runSystemBackupCreationJob = async (
   };
 
   try {
+    const signalProgress = async (step: string) => {
+      await patchBackupJob(jobId, {
+        message: step
+      }).catch((error) => {
+        console.warn('[system-backup] progress patch failed:', (error as any)?.message || error);
+      });
+      await hooks?.onProgress?.(step);
+    };
+
     await patchBackupJob(jobId, {
       status: 'running',
       startedAt: toIso(),
@@ -2195,7 +2294,7 @@ export const runSystemBackupCreationJob = async (
     });
     startHeartbeat();
 
-    const result = await createSystemBackup(input);
+    const result = await createSystemBackup(input, { onProgress: signalProgress });
     stopHeartbeat();
     const completedJob = await patchBackupJob(jobId, {
       status: 'completed',
@@ -2423,7 +2522,7 @@ export const restoreSystemBackup = async (input: RestoreBackupInput) => {
     throw toError('No restorable tables found for the selected backup.', 400, 'BACKUP_RESTORE_NO_TABLES');
   }
 
-  const dbClient = createDbClient();
+  const dbClient = await connectBackupDbClient();
   let restoredFileRows: any[] = [];
   const skippedTables: string[] = [];
   let remappedUserIds = 0;

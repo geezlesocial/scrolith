@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleAuth, IdTokenClient } from 'google-auth-library';
 import prisma from '../../utils/prismaClient';
 import { ensureScrolithaConfig } from './scrolitha.policy';
 import type { ScrolithaScope } from './scrolitha.types';
@@ -13,6 +14,7 @@ export type ScrolithaLlmRuntime = {
   provider: 'core' | 'ollama' | 'disabled';
   enabled: boolean;
   runtimeConfigured: boolean;
+  sidecarMode: boolean;
   acceleratorActive: boolean;
   status: 'operational' | 'accelerated' | 'degraded' | 'disabled';
   host: string;
@@ -35,7 +37,15 @@ export const SCROLITHA_PRODUCTION_ENDPOINT_WARNING =
 
 const OLLAMA_MODEL_PULL_TIMEOUT_MS = 240_000;
 const ollamaPullsInFlight = new Map<string, Promise<void>>();
+const selfHostedHealthCache = new Map<string, { expiresAt: number; value: Record<string, any> }>();
+const idTokenClientCache = new Map<string, Promise<IdTokenClient>>();
+const serviceIdentityTokenCache = new Map<string, { token: string; expiresAt: number }>();
 const LOCAL_ENDPOINT_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
+const CLOUD_RUN_HOST_SUFFIXES = ['.run.app', '.a.run.app'];
+const SELF_HOSTED_HEALTH_CACHE_TTL_MS = 30_000;
+const SERVICE_IDENTITY_TOKEN_TTL_MS = 45 * 60_000;
+const METADATA_IDENTITY_ENDPOINT =
+  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity';
 
 const asBool = (value: unknown, fallback: boolean) => {
   const v = String(value ?? '').trim().toLowerCase();
@@ -67,6 +77,19 @@ const pickString = (...values: Array<unknown>) => {
 
 const isProductionRuntime = () => String(process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 
+const isCloudRunHost = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw);
+    return CLOUD_RUN_HOST_SUFFIXES.some((suffix) => parsed.hostname.toLowerCase().endsWith(suffix));
+  } catch {
+    return CLOUD_RUN_HOST_SUFFIXES.some((suffix) => raw.toLowerCase().includes(suffix));
+  }
+};
+
+const isRunningOnCloudRun = () => Boolean(String(process.env.K_SERVICE || '').trim());
+
 const isLocalEndpoint = (value: unknown) => {
   const raw = String(value || '').trim();
   if (!raw) return false;
@@ -83,6 +106,18 @@ const isLocalEndpoint = (value: unknown) => {
     );
   }
 };
+
+const isSelfHostedProvider = (provider: ScrolithaLlmRuntime['provider']) =>
+  provider === 'core' || provider === 'ollama';
+
+const isSidecarRuntimeAllowed = (runtime: Pick<ScrolithaLlmRuntime, 'host' | 'sidecarMode'>) =>
+  Boolean(runtime.sidecarMode) || !isLocalEndpoint(runtime.host);
+
+const isSelfHostedRuntimeUsable = (runtime: Pick<ScrolithaLlmRuntime, 'provider' | 'runtimeConfigured' | 'host' | 'sidecarMode'>) =>
+  isSelfHostedProvider(runtime.provider) && runtime.runtimeConfigured && isSidecarRuntimeAllowed(runtime);
+
+const shouldAutoPullModel = (runtime: Pick<ScrolithaLlmRuntime, 'provider' | 'host' | 'sidecarMode'>) =>
+  !isProductionRuntime() || (isSelfHostedProvider(runtime.provider) && Boolean(runtime.sidecarMode) && isLocalEndpoint(runtime.host));
 
 const sanitizeText = (value: unknown) =>
   String(value || '')
@@ -115,6 +150,83 @@ export const sanitizeScrolithaUserMessage = (
     return SCROLITHA_PRODUCTION_ENDPOINT_WARNING;
   }
   return source;
+};
+
+const getSelfHostedAudience = (endpoint: string) => {
+  const explicit = pickString(process.env.SCROLITHA_CORE_AUDIENCE, process.env.SCROLITHA_OLLAMA_AUDIENCE);
+  if (explicit) return explicit;
+  try {
+    const parsed = new URL(endpoint);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return endpoint;
+  }
+};
+
+const getIdTokenClient = async (audience: string) => {
+  const key = String(audience || '').trim();
+  if (!key) throw new Error('Missing Scrolitha Core audience');
+  const existing = idTokenClientCache.get(key);
+  if (existing) return existing;
+  const pending = new GoogleAuth().getIdTokenClient(key);
+  idTokenClientCache.set(key, pending);
+  return pending;
+};
+
+const getServiceIdentityToken = async (audience: string) => {
+  const key = String(audience || '').trim();
+  if (!key) throw new Error('Missing Scrolitha Core audience');
+
+  const now = Date.now();
+  const cached = serviceIdentityTokenCache.get(key);
+  if (cached && cached.expiresAt > now + 60_000) {
+    return cached.token;
+  }
+
+  const endpoint = `${METADATA_IDENTITY_ENDPOINT}?audience=${encodeURIComponent(key)}&format=full`;
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      'Metadata-Flavor': 'Google'
+    }
+  });
+  const token = String(await response.text().catch(() => '') || '').trim();
+  if (!response.ok || !token) {
+    throw new Error(`Unable to fetch Scrolitha Core identity token (${response.status || 'request failed'})`);
+  }
+
+  serviceIdentityTokenCache.set(key, {
+    token,
+    expiresAt: now + SERVICE_IDENTITY_TOKEN_TTL_MS
+  });
+  return token;
+};
+
+const buildSelfHostedRequestHeaders = async (endpoint: string, extra?: Record<string, string>) => {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  const bearerToken = pickString(process.env.SCROLITHA_CORE_BEARER_TOKEN, process.env.SCROLITHA_OLLAMA_BEARER_TOKEN);
+  if (bearerToken) {
+    headers['X-Scrolitha-Core-Token'] = bearerToken;
+    return headers;
+  }
+
+  if (isCloudRunHost(endpoint)) {
+    const audience = getSelfHostedAudience(endpoint);
+    if (isRunningOnCloudRun()) {
+      const token = await getServiceIdentityToken(audience);
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+        return headers;
+      }
+    }
+
+    const client = await getIdTokenClient(audience);
+    const authHeaders = await client.getRequestHeaders(audience);
+    const authorization = String((authHeaders as any)?.Authorization || (authHeaders as any)?.authorization || '').trim();
+    if (authorization) headers.Authorization = authorization;
+  }
+
+  return headers;
 };
 
 const readResponseText = async (response: Response) => {
@@ -175,7 +287,11 @@ export type ScrolithaGenerationResult = {
   warningCode?: string;
 };
 
-export const ollamaPullModel = async (host: string, model: string, timeoutMs = OLLAMA_MODEL_PULL_TIMEOUT_MS) => {
+export const ollamaPullModel = async (
+  host: string,
+  model: string,
+  timeoutMs = OLLAMA_MODEL_PULL_TIMEOUT_MS
+) => {
   const normalizedHost = normalizeHost(host);
   const normalizedModel = String(model || '').trim();
   if (!normalizedHost) throw new Error('Ollama host is missing');
@@ -187,13 +303,14 @@ export const ollamaPullModel = async (host: string, model: string, timeoutMs = O
 
   const pullPromise = (async () => {
     const url = `${normalizedHost}/api/pull`;
+    const headers = await buildSelfHostedRequestHeaders(normalizedHost, {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    });
     const res = await withTimeout(async (signal) => {
       return fetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json'
-        },
+        headers,
         body: JSON.stringify({
           name: normalizedModel,
           stream: false
@@ -239,8 +356,14 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
   const provider = String(override.provider || '').trim().toLowerCase();
   const enabled = typeof override.enabled === 'boolean' ? override.enabled : base.enabled;
 
-  const host = pickString(override.ollamaHost, override.host, base.host);
-  const model = pickString(override.ollamaModel, override.model, base.model);
+  const host = pickString(override.coreEndpoint, override.ollamaHost, override.host, base.host);
+  const model = pickString(override.coreModel, override.ollamaModel, override.model, base.model);
+  const sidecarMode =
+    typeof override.sidecarMode === 'boolean'
+      ? override.sidecarMode
+      : typeof override.coreSidecarMode === 'boolean'
+        ? override.coreSidecarMode
+        : base.sidecarMode;
 
   return {
     provider:
@@ -253,6 +376,7 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
             : base.provider,
     enabled,
     runtimeConfigured: base.runtimeConfigured,
+    sidecarMode,
     acceleratorActive: base.acceleratorActive,
     status: base.status,
     host: normalizeHost(host),
@@ -272,17 +396,24 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
 
 export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise<ScrolithaLlmRuntime> => {
   const envProvider = String(process.env.SCROLITHA_PROVIDER || 'core').trim().toLowerCase();
-  const envHost = normalizeHost(String(process.env.SCROLITHA_OLLAMA_HOST || '').trim());
-  const envModel = String(process.env.SCROLITHA_OLLAMA_MODEL || '').trim();
+  const envHost = normalizeHost(
+    pickString(process.env.SCROLITHA_CORE_ENDPOINT, process.env.SCROLITHA_OLLAMA_HOST)
+  );
+  const envModel = pickString(process.env.SCROLITHA_CORE_MODEL, process.env.SCROLITHA_OLLAMA_MODEL);
+  const envSidecarMode = asBool(
+    pickString(process.env.SCROLITHA_CORE_SIDECAR_MODE, process.env.SCROLITHA_OLLAMA_SIDECAR_MODE),
+    false
+  );
 
   const base: ScrolithaLlmRuntime = {
     provider: envProvider === 'disabled' ? 'disabled' : envProvider === 'ollama' ? 'ollama' : 'core',
     enabled: true,
     runtimeConfigured: false,
+    sidecarMode: envSidecarMode,
     acceleratorActive: false,
     status: 'operational',
     host: envHost,
-    model: envProvider === 'ollama' ? envModel || 'llama3.1' : envModel || 'scrolitha-core',
+    model: envProvider === 'ollama' ? envModel || 'llama3.2:3b' : envModel || 'scrolitha-core',
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(process.env.SCROLITHA_MAX_TOKENS, 1024)))),
     temperature: Math.max(0, Math.min(2, asNumber(process.env.SCROLITHA_TEMPERATURE, 0.7))),
     topP: Math.max(0, Math.min(1, asNumber(process.env.SCROLITHA_TOP_P, 0.9))),
@@ -303,10 +434,10 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
 
   const hostConfigured = Boolean(runtime.host);
   const modelConfigured = Boolean(runtime.model);
-  const runtimeConfigured = runtime.provider === 'ollama' && runtime.enabled && hostConfigured && modelConfigured;
+  const runtimeConfigured = isSelfHostedProvider(runtime.provider) && runtime.enabled && hostConfigured && modelConfigured;
   const enabled = runtime.provider !== 'disabled' && runtime.enabled;
-  const acceleratorActive = runtime.provider === 'ollama' && runtimeConfigured;
-  const status = !enabled ? 'disabled' : acceleratorActive ? 'accelerated' : 'operational';
+  const acceleratorActive = Boolean(runtime.sidecarMode) && runtimeConfigured && isLocalEndpoint(runtime.host);
+  const status = !enabled ? 'disabled' : runtimeConfigured ? 'operational' : 'degraded';
 
   return { ...runtime, enabled, runtimeConfigured, acceleratorActive, status };
 };
@@ -479,6 +610,7 @@ export const ollamaChat = async (input: {
   temperature?: number;
   topP?: number;
   timeoutMs?: number;
+  autoPullModel?: boolean;
 }): Promise<{ text: string; raw?: any }> => {
   const host = normalizeHost(input.host);
   if (!host) throw new Error('Ollama host is missing');
@@ -489,6 +621,7 @@ export const ollamaChat = async (input: {
   const temperature = asNumber(input.temperature, 0.7);
   const topP = asNumber(input.topP, 0.9);
   const maxTokens = Math.max(32, Math.min(8192, Math.floor(asNumber(input.maxTokens, 1024))));
+  const autoPullModel = input.autoPullModel !== false;
 
   const url = `${host}/api/chat`;
   const body = {
@@ -505,20 +638,22 @@ export const ollamaChat = async (input: {
     }
   };
 
-  const requestChat = () =>
-    withTimeout(async (signal) => {
+  const requestChat = async () => {
+    const headers = await buildSelfHostedRequestHeaders(host, { 'Content-Type': 'application/json' });
+    return withTimeout(async (signal) => {
       return fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(body),
         signal
       });
     }, timeoutMs);
+  };
 
   let res = await requestChat();
   if (!res.ok) {
     let responseText = await readResponseText(res);
-    if (isMissingModelError(res.status, responseText)) {
+    if (autoPullModel && isMissingModelError(res.status, responseText)) {
       await ollamaPullModel(host, model, Math.max(OLLAMA_MODEL_PULL_TIMEOUT_MS, timeoutMs * 4));
       res = await requestChat();
       responseText = await readResponseText(res);
@@ -548,12 +683,8 @@ export const generateScrolithaText = async (
     maxTokens: Math.max(64, Math.min(4096, Math.floor(Number(input.maxTokens || runtime.maxTokens || 1024)))),
     temperature: Math.max(0, Math.min(1.5, Number(input.temperature ?? runtime.temperature ?? 0.35)))
   };
-  const coreCandidates = await resolveCoreProviderCandidates(input.routeKey, {
-    maxTokens: safeInput.maxTokens,
-    temperature: safeInput.temperature
-  });
 
-  if (runtime.provider === 'ollama' && runtime.runtimeConfigured && runtime.host && runtime.model) {
+  if (isSelfHostedRuntimeUsable(runtime) && runtime.host && runtime.model) {
     try {
       const result = await ollamaChat({
         host: runtime.host,
@@ -565,14 +696,15 @@ export const generateScrolithaText = async (
         maxTokens: safeInput.maxTokens,
         temperature: safeInput.temperature,
         topP: safeInput.topP ?? runtime.topP,
-        timeoutMs: runtime.timeoutMs
+        timeoutMs: runtime.timeoutMs,
+        autoPullModel: shouldAutoPullModel(runtime)
       });
       const text = String(result.text || '').trim();
       if (!text) throw new Error('Scrolitha returned an empty response');
       return {
         text,
         model: 'scrolitha-core',
-        engine: 'ollama',
+        engine: 'core',
         transport: 'ollama',
         usedBackupProcessing: false
       };
@@ -584,7 +716,7 @@ export const generateScrolithaText = async (
     }
   }
 
-  if (runtime.provider === 'ollama' && (!runtime.runtimeConfigured || (isProductionRuntime() && isLocalEndpoint(runtime.host)))) {
+  if (isSelfHostedProvider(runtime.provider) && !isSelfHostedRuntimeUsable(runtime)) {
     logProviderFailure('self-hosted engine is misconfigured for current runtime', new Error('Self-hosted endpoint unavailable'), {
       scope: input.scope,
       routeKey: input.routeKey || null,
@@ -592,13 +724,21 @@ export const generateScrolithaText = async (
     });
   }
 
+  if (!runtime.allowGeminiFallback) {
+    throw new Error('Scrolitha Core is unavailable');
+  }
+
+  const coreCandidates = await resolveCoreProviderCandidates(input.routeKey, {
+    maxTokens: safeInput.maxTokens,
+    temperature: safeInput.temperature
+  });
+
   let providerFailureCount = 0;
   for (const candidate of coreCandidates) {
     try {
       const text = await callCoreProvider(candidate, safeInput);
       if (!text) throw new Error('Scrolitha returned an empty response');
-      const usedBackupProcessing =
-        runtime.provider === 'ollama' || providerFailureCount > 0;
+      const usedBackupProcessing = true;
       return {
         text,
         model: 'scrolitha-core',
@@ -622,11 +762,7 @@ export const generateScrolithaText = async (
     }
   }
 
-  throw new Error(
-    runtime.provider === 'core'
-      ? 'Scrolitha Core is not configured'
-      : 'Scrolitha primary engine is unavailable'
-  );
+  throw new Error('Scrolitha Core is unavailable');
 };
 
 export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<string[]> => {
@@ -634,8 +770,9 @@ export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<
   if (!normalized) return [];
 
   const url = `${normalized}/api/tags`;
+  const headers = await buildSelfHostedRequestHeaders(normalized, { Accept: 'application/json' });
   const res = await withTimeout(async (signal) => {
-    return fetch(url, { method: 'GET', headers: { Accept: 'application/json' }, signal });
+    return fetch(url, { method: 'GET', headers, signal });
   }, timeoutMs);
 
   if (!res.ok) return [];
@@ -646,6 +783,149 @@ export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<
     .map((m: any) => String(m?.name || '').trim())
     .filter(Boolean)
     .sort((a: string, b: string) => a.localeCompare(b));
+};
+
+const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
+  const cacheKey = [runtime.provider, runtime.host, runtime.model, runtime.sidecarMode ? 'sidecar' : 'remote'].join('::');
+  const now = Date.now();
+  const cached = selfHostedHealthCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  const lastCheckedAt = new Date(now).toISOString();
+  const backupEngineStatus = 'available';
+
+  const base = {
+    ok: true,
+    provider: 'scrolitha',
+    runtime: runtime.provider,
+    enabled: true,
+    host: runtime.host || null,
+    model: 'scrolitha-core',
+    backupEngineStatus,
+    lastCheckedAt
+  };
+
+  if (!runtime.runtimeConfigured) {
+    const value = {
+      ...base,
+      status: 'degraded',
+      availability: 'misconfigured',
+      models: [],
+      modelPresent: false,
+      autoPulled: false,
+      endpointConfigured: false,
+      warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING,
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host || null,
+        configuredModel: runtime.model || null
+      }
+    };
+    selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
+    return value;
+  }
+
+  if (!isSidecarRuntimeAllowed(runtime)) {
+    const value = {
+      ...base,
+      status: 'degraded',
+      availability: 'misconfigured',
+      models: [],
+      modelPresent: false,
+      autoPulled: false,
+      endpointConfigured: false,
+      warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING,
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host || null,
+        configuredModel: runtime.model || null
+      }
+    };
+    selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
+    return value;
+  }
+
+  try {
+    const models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
+    const modelPresent = hasOllamaModel(models, runtime.model);
+    if (!modelPresent) {
+      const value = {
+        ...base,
+        status: 'degraded',
+        availability: 'unavailable',
+        models,
+        modelPresent: false,
+        autoPulled: false,
+        endpointConfigured: true,
+        warning: 'Scrolitha Core is unavailable. Backup processing remains available.',
+        diagnostics: {
+          runtime: runtime.provider,
+          endpoint: runtime.host,
+          configuredModel: runtime.model || null,
+          error: 'Configured Scrolitha Core model is not available on the engine.'
+        }
+      };
+      selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
+      return value;
+    }
+
+    const probe = await ollamaChat({
+      host: runtime.host,
+      model: runtime.model,
+      messages: [
+        { role: 'system', content: 'You are the Scrolitha Core health probe. Reply with READY only.' },
+        { role: 'user', content: 'READY' }
+      ],
+      maxTokens: 32,
+      temperature: 0,
+      topP: 0.1,
+      timeoutMs: Math.min(15_000, runtime.timeoutMs),
+      autoPullModel: false
+    });
+
+    if (!String(probe.text || '').trim()) {
+      throw new Error('Scrolitha Core probe returned an empty response');
+    }
+
+    const value = {
+      ...base,
+      status: 'operational',
+      availability: 'online',
+      models,
+      modelPresent: true,
+      autoPulled: false,
+      endpointConfigured: true,
+      note: 'Scrolitha Core is online.',
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host,
+        configuredModel: runtime.model || null
+      }
+    };
+    selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
+    return value;
+  } catch (error: any) {
+    const value = {
+      ...base,
+      status: 'degraded',
+      availability: 'unavailable',
+      models: [],
+      modelPresent: false,
+      autoPulled: false,
+      endpointConfigured: true,
+      warning: 'Scrolitha Core is unavailable. Backup processing remains available.',
+      diagnostics: {
+        runtime: runtime.provider,
+        endpoint: runtime.host,
+        configuredModel: runtime.model || null,
+        error: sanitizeDiagnosticMessage(error?.message || 'Health check failed')
+      }
+    };
+    selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
+    return value;
+  }
 };
 
 export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
@@ -668,50 +948,11 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
     };
   }
 
-  if (runtime.provider === 'core') {
-    const candidates = await resolveCoreProviderCandidates('scrolitha_core');
-    if (!candidates.length) {
-      return {
-        ok: true,
-        provider: 'scrolitha',
-        runtime: 'core',
-        enabled: true,
-        status: 'degraded',
-        availability: 'misconfigured',
-        host: null,
-        model: 'scrolitha-core',
-        models: [],
-        modelPresent: false,
-        endpointConfigured: false,
-        backupEngineStatus,
-        lastCheckedAt,
-        warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING
-      };
-    }
+  if (!isSelfHostedProvider(runtime.provider)) {
     return {
       ok: true,
       provider: 'scrolitha',
-      runtime: 'core',
-      enabled: true,
-      status: 'operational',
-      availability: 'online',
-      host: null,
-      model: 'scrolitha-core',
-      models: [],
-      modelPresent: true,
-      autoPulled: false,
-      endpointConfigured: true,
-      backupEngineStatus,
-      lastCheckedAt,
-      note: 'Scrolitha Core is online.'
-    };
-  }
-
-  if (!runtime.runtimeConfigured || (isProductionRuntime() && isLocalEndpoint(runtime.host))) {
-    return {
-      ok: true,
-      provider: 'scrolitha',
-      runtime: 'ollama',
+      runtime: runtime.provider,
       enabled: true,
       status: 'degraded',
       availability: 'misconfigured',
@@ -723,72 +964,9 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
       endpointConfigured: false,
       backupEngineStatus,
       lastCheckedAt,
-      warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING,
-      diagnostics: {
-        runtime: runtime.provider,
-        endpoint: runtime.host || null
-      }
+      warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING
     };
   }
 
-  try {
-    let models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
-    let modelPresent = hasOllamaModel(models, runtime.model);
-    let autoPulled = false;
-
-    if (!modelPresent && runtime.model) {
-      await ollamaPullModel(runtime.host, runtime.model, Math.max(OLLAMA_MODEL_PULL_TIMEOUT_MS, runtime.timeoutMs * 4));
-      autoPulled = true;
-      models = await ollamaListModels(runtime.host, Math.min(15_000, Math.max(runtime.timeoutMs, 15_000)));
-      modelPresent = hasOllamaModel(models, runtime.model);
-    }
-
-    return {
-      ok: true,
-      provider: 'scrolitha',
-      runtime: 'ollama',
-      enabled: true,
-      status: modelPresent ? 'accelerated' : 'degraded',
-      availability: modelPresent ? 'online' : 'unavailable',
-      host: runtime.host,
-      model: 'scrolitha-core',
-      models,
-      modelPresent,
-      autoPulled,
-      endpointConfigured: true,
-      backupEngineStatus,
-      lastCheckedAt,
-      diagnostics: {
-        runtime: runtime.provider,
-        endpoint: runtime.host
-      },
-      ...(modelPresent
-        ? {
-            note: 'Scrolitha Core is online.'
-          }
-        : {
-            warning: 'Scrolitha Core is unavailable. Backup processing remains available.'
-          })
-    };
-  } catch (error: any) {
-    return {
-      ok: true,
-      provider: 'scrolitha',
-      runtime: 'ollama',
-      enabled: true,
-      status: 'degraded',
-      availability: 'unavailable',
-      host: runtime.host,
-      model: 'scrolitha-core',
-      endpointConfigured: true,
-      backupEngineStatus,
-      lastCheckedAt,
-      warning: 'Scrolitha Core is unavailable. Backup processing remains available.',
-      diagnostics: {
-        runtime: runtime.provider,
-        endpoint: runtime.host,
-        error: sanitizeDiagnosticMessage(error?.message || 'Health check failed')
-      }
-    };
-  }
+  return probeSelfHostedRuntimeHealth(runtime);
 };

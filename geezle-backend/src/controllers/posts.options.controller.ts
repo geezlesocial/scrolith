@@ -73,14 +73,139 @@ const buildPostIntentMeta = (post: Awaited<ReturnType<typeof getActivePostOrFail
   visibility: normalizeId(post?.visibility)
 });
 
+const DEFAULT_SAVED_COLLECTION_NAME = 'Saved Posts';
+
+type SavedPostCollectionSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  postCount: number;
+  isSelected: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const mapCollectionSummary = (
+  collection: {
+    id: string;
+    name: string;
+    description: string | null;
+    isDefault: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    _count?: { items?: number };
+  },
+  selectedIds: Set<string>
+): SavedPostCollectionSummary => ({
+  id: collection.id,
+  name: collection.name,
+  description: collection.description,
+  isDefault: Boolean(collection.isDefault),
+  postCount: Number(collection._count?.items || 0),
+  isSelected: selectedIds.has(collection.id),
+  createdAt: collection.createdAt.toISOString(),
+  updatedAt: collection.updatedAt.toISOString()
+});
+
+const resolveSavedCollection = async ({
+  userId,
+  collectionId,
+  collectionName,
+  collectionDescription
+}: {
+  userId: string;
+  collectionId?: string | null;
+  collectionName?: string | null;
+  collectionDescription?: string | null;
+}) => {
+  const normalizedId = normalizeId(collectionId);
+  const normalizedName = normalizeId(collectionName);
+  const normalizedDescription = normalizeId(collectionDescription);
+
+  if (normalizedId) {
+    const collection = await prisma.postCollection.findFirst({
+      where: { id: normalizedId, userId }
+    });
+    if (!collection) {
+      const error = new Error('Collection not found') as Error & { statusCode?: number };
+      error.statusCode = 404;
+      throw error;
+    }
+    return collection;
+  }
+
+  if (normalizedName) {
+    const existing = await prisma.postCollection.findFirst({
+      where: { userId, name: normalizedName }
+    });
+    if (existing) return existing;
+    return prisma.postCollection.create({
+      data: {
+        userId,
+        name: normalizedName,
+        description: normalizedDescription || null,
+        isDefault: false
+      }
+    });
+  }
+
+  const existingDefault = await prisma.postCollection.findFirst({
+    where: { userId, isDefault: true }
+  });
+  if (existingDefault) return existingDefault;
+
+  return prisma.postCollection.create({
+    data: {
+      userId,
+      name: DEFAULT_SAVED_COLLECTION_NAME,
+      description: 'Posts you save from the feed.',
+      isDefault: true
+    }
+  });
+};
+
+const listUserCollections = async (userId: string, postId?: string | null) => {
+  const collections = await prisma.postCollection.findMany({
+    where: { userId },
+    orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'desc' }],
+    include: { _count: { select: { items: true } } }
+  });
+
+  const selectedIds = new Set<string>();
+  const normalizedPostId = normalizeId(postId);
+  if (normalizedPostId && collections.length) {
+    const itemRows = await prisma.postCollectionItem.findMany({
+      where: {
+        postId: normalizedPostId,
+        collectionId: { in: collections.map((collection) => collection.id) }
+      },
+      select: { collectionId: true }
+    });
+    itemRows.forEach((row) => selectedIds.add(row.collectionId));
+  }
+
+  return collections.map((collection) => mapCollectionSummary(collection as any, selectedIds));
+};
+
 export const savePost = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) return fail(res, 401, 'Unauthorized');
     const postId = normalizeId(req.params.id);
+    const collectionId = normalizeId(req.body?.collectionId);
+    const collectionName = normalizeId(req.body?.collectionName);
+    const collectionDescription = normalizeId(req.body?.collectionDescription);
     const post = await getActivePostOrFail(postId);
     if (!post) return fail(res, 404, 'Post not found');
     if (await hasBlockRelation(userId, post.authorId)) return fail(res, 403, 'Action is not allowed for this post');
+
+    const collection = await resolveSavedCollection({
+      userId,
+      collectionId: collectionId || null,
+      collectionName: collectionName || null,
+      collectionDescription: collectionDescription || null
+    });
 
     const favorite = await prisma.favorite.upsert({
       where: {
@@ -88,6 +213,14 @@ export const savePost = async (req: Request, res: Response) => {
       },
       update: {},
       create: { userId, entityType: 'POST', entityId: post.id }
+    });
+
+    await prisma.postCollectionItem.upsert({
+      where: {
+        collectionId_postId: { collectionId: collection.id, postId: post.id }
+      },
+      update: {},
+      create: { collectionId: collection.id, postId: post.id }
     });
 
     await recordFeedIntentSignal({
@@ -99,10 +232,18 @@ export const savePost = async (req: Request, res: Response) => {
       meta: buildPostIntentMeta(post)
     }).catch(() => null);
 
-    return ok(res, 'Post saved', { saved: true, favoriteId: favorite.id });
+    const savedCollections = await listUserCollections(userId, post.id).catch(() => []);
+    return ok(res, 'Post saved', {
+      saved: true,
+      favoriteId: favorite.id,
+      collectionId: collection.id,
+      collectionName: collection.name,
+      savedCollections
+    });
   } catch (error: any) {
     console.error('[posts.savePost] error:', error);
-    return fail(res, 500, 'Failed to save post', error?.message);
+    const status = Number(error?.statusCode || error?.status || 500);
+    return fail(res, status, 'Failed to save post', error?.message);
   }
 };
 
@@ -113,6 +254,12 @@ export const unsavePost = async (req: Request, res: Response) => {
     const postId = normalizeId(req.params.id);
     if (!postId) return fail(res, 400, 'Missing post id');
 
+    const userCollections = await prisma.postCollection.findMany({
+      where: { userId },
+      select: { id: true }
+    });
+    const collectionIds = userCollections.map((collection) => collection.id);
+
     await prisma.favorite
       .delete({
         where: {
@@ -120,6 +267,15 @@ export const unsavePost = async (req: Request, res: Response) => {
         }
       })
       .catch(() => null);
+
+    if (collectionIds.length) {
+      await prisma.postCollectionItem.deleteMany({
+        where: {
+          postId,
+          collectionId: { in: collectionIds }
+        }
+      }).catch(() => null);
+    }
 
     return ok(res, 'Post removed from saved', { saved: false });
   } catch (error: any) {
@@ -568,6 +724,9 @@ export const getPostOptionsState = async (req: Request, res: Response) => {
       .catch(() => null);
     const saved = Boolean(favorite?.id);
 
+    const savedCollections = await listUserCollections(userId, post.id).catch(() => []);
+    const savedCollectionCount = savedCollections.filter((collection) => collection.isSelected).length;
+
     const sub = await prisma.communityNotificationSubscription
       .findUnique({
         where: { userId_targetType_targetId: { userId, targetType: target.targetType, targetId: target.targetId } },
@@ -582,6 +741,8 @@ export const getPostOptionsState = async (req: Request, res: Response) => {
     return ok(res, 'Post options state', {
       isFollowingAuthor,
       saved,
+      savedCollectionCount,
+      savedCollections,
       notificationsEnabled,
       isOwner,
       isAdminOrMod,
@@ -591,5 +752,70 @@ export const getPostOptionsState = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[posts.getPostOptionsState] error:', error);
     return fail(res, 500, 'Failed to load post options state', error?.message);
+  }
+};
+
+export const listPostCollections = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, 401, 'Unauthorized');
+
+    const postId = normalizeId(req.query?.postId);
+    if (postId) {
+      const post = await getActivePostOrFail(postId);
+      if (!post) return fail(res, 404, 'Post not found');
+    }
+
+    const collections = await listUserCollections(userId, postId);
+
+    return ok(res, 'Collections loaded', {
+      collections,
+      postId: postId || null,
+      defaultCollectionName: DEFAULT_SAVED_COLLECTION_NAME
+    });
+  } catch (error: any) {
+    console.error('[posts.listPostCollections] error:', error);
+    return fail(res, 500, 'Failed to load collections', error?.message);
+  }
+};
+
+export const createPostCollection = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, 401, 'Unauthorized');
+
+    const name = normalizeId(req.body?.name);
+    const description = normalizeId(req.body?.description);
+    const isDefault = Boolean(req.body?.isDefault);
+    if (!name) return fail(res, 400, 'Collection name is required');
+
+    const existing = await prisma.postCollection.findFirst({
+      where: { userId, name }
+    });
+    if (existing) {
+      const collections = await listUserCollections(userId, null).catch(() => []);
+      return ok(res, 'Collection already exists', {
+        collection: mapCollectionSummary({ ...existing, _count: { items: 0 } } as any, new Set()),
+        collections
+      });
+    }
+
+    const collection = await prisma.postCollection.create({
+      data: {
+        userId,
+        name,
+        description: description || null,
+        isDefault
+      }
+    });
+
+    const collections = await listUserCollections(userId, null).catch(() => []);
+    return ok(res, 'Collection created', {
+      collection: mapCollectionSummary({ ...collection, _count: { items: 0 } } as any, new Set()),
+      collections
+    });
+  } catch (error: any) {
+    console.error('[posts.createPostCollection] error:', error);
+    return fail(res, 500, 'Failed to create collection', error?.message);
   }
 };

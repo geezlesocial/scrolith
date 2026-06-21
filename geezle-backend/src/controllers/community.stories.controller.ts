@@ -971,3 +971,80 @@ export const engageStory = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: error.message || 'Failed to engage story' });
   }
 };
+
+export const sendStoryDirectMessage = async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const storyId = String(req.params.id || '').trim();
+    if (!storyId) return res.status(400).json({ success: false, error: 'Story ID is required' });
+
+    const story = await prisma.communityStory.findUnique({ where: { id: storyId } });
+    if (!story || (story.expiresAt && story.expiresAt <= new Date())) {
+      return res.status(404).json({ success: false, error: 'Story not found' });
+    }
+
+    const actor = await prisma.user.findUnique({ where: { id: userId } });
+    const actorName = actor?.name || actor?.username || 'Scrolith member';
+
+    const bodyText = (req.body?.text || '') as string;
+    const reactionTypeRaw = String(req.body?.reactionType || '').trim().toLowerCase();
+
+    let notificationType = 'story_message';
+    let title = 'New message from your story';
+    let inboxText: string | null = null;
+    let reactionType: string | null = null;
+
+    if (reactionTypeRaw) {
+      const THUMBS_UP = '\u{1F44D}';
+      const map: Record<string, string> = { like: THUMBS_UP };
+      const emoji = map[reactionTypeRaw] || reactionTypeRaw;
+      reactionType = emoji;
+      notificationType = 'story_reaction';
+      title = 'New reaction to your story';
+      inboxText = `${actorName} reacted ${emoji} to your story`;
+    } else if (typeof bodyText === 'string' && bodyText.trim()) {
+      inboxText = bodyText.trim();
+    } else {
+      return res.status(400).json({ success: false, error: 'Message text or reactionType required' });
+    }
+
+    const actionUrl = buildStoryActionUrl(storyId);
+
+    const delivery = await deliverStoryEngagementAlert({
+      recipientId: String(story.authorId || ''),
+      actorId: userId,
+      storyId,
+      notificationType,
+      title,
+      body: inboxText || '',
+      inboxText: inboxText || null,
+      inboxIsSystem: false,
+      inboxMetadata: {
+        category: notificationType === 'story_reaction' ? 'story_reaction' : 'story_message',
+        storyId,
+        storyReference: { storyId, caption: String(story.content || '') },
+        messagePreview: bodyText || undefined,
+        reactionType: reactionType || undefined
+      },
+      notificationMetadata: {},
+      notificationActionUrl: actionUrl
+    } as any);
+
+    return res.json({
+      success: true,
+      data: {
+        storyId,
+        type: 'message',
+        reactionType: reactionType || null,
+        conversationId: delivery?.conversationId || null,
+        messageId: delivery?.messageId || null,
+        actionUrl: delivery?.actionUrl || actionUrl
+      }
+    });
+  } catch (error: any) {
+    console.error('Send story direct message error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to send story message' });
+  }
+};

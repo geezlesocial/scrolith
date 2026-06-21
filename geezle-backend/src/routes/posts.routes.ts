@@ -7,6 +7,8 @@ import {
   markInterested,
   markNotInterested,
   reportPost,
+  createPostCollection,
+  listPostCollections,
   savePost,
   toggleNotifications,
   unfollowAuthor,
@@ -17,6 +19,8 @@ import {
 const router = express.Router();
 
 // All actions require auth (guest users should be prompted to login in the UI).
+router.get('/collections', authMiddleware, listPostCollections);
+router.post('/collections', authMiddleware, createPostCollection);
 router.post('/:id/save', authMiddleware, savePost);
 router.post('/:id/unsave', authMiddleware, unsavePost);
 router.post('/:id/hide', authMiddleware, hidePost);

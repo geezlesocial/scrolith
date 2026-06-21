@@ -38,6 +38,12 @@ export const DEFAULT_SYSTEM = {
   registrationsEnabled: true,
   kycEnforced: false,
   admin2FA: false,
+  resumeAi: {
+    enabled: true,
+    builderEnabled: true,
+    reviewerEnabled: true,
+    adminAccessEnabled: true
+  },
   listings: {
     autoApproveGigs: false,
     autoApproveJobs: false,

@@ -38,6 +38,11 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'GOOGLE_API_KEY', description: 'Google / Vertex AI key' },
   { key: 'OPENAI_API_KEY', description: 'OpenAI API key' },
   { key: 'SCROLITHA_PROVIDER', description: 'Scrolitha provider: core | ollama | disabled' },
+  { key: 'SCROLITHA_CORE_ENDPOINT', description: 'Scrolitha Core endpoint URL' },
+  { key: 'SCROLITHA_CORE_MODEL', description: 'Scrolitha Core model identifier' },
+  { key: 'SCROLITHA_CORE_AUDIENCE', description: 'Scrolitha Core private service audience override' },
+  { key: 'SCROLITHA_CORE_BEARER_TOKEN', description: 'Scrolitha Core temporary shared bearer token' },
+  { key: 'SCROLITHA_CORE_SIDECAR_MODE', description: 'Allow localhost endpoint for bundled sidecar mode' },
   { key: 'SCROLITHA_OLLAMA_HOST', description: 'Ollama base URL (e.g. http://127.0.0.1:11434)' },
   { key: 'SCROLITHA_OLLAMA_MODEL', description: 'Ollama model name (e.g. llama3.1)' },
   { key: 'SCROLITHA_MAX_TOKENS', description: 'Scrolitha max tokens (num_predict)' },
@@ -99,11 +104,13 @@ export function validateEnv() {
   const storage = (process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || 'local').toLowerCase();
 
   const scrolithaProvider = String(process.env.SCROLITHA_PROVIDER || 'core').trim().toLowerCase();
-  if (scrolithaProvider === 'ollama') {
-    const keys = ['SCROLITHA_OLLAMA_HOST', 'SCROLITHA_OLLAMA_MODEL'];
+  if (scrolithaProvider === 'ollama' || scrolithaProvider === 'core') {
+    const keys = ['SCROLITHA_CORE_ENDPOINT', 'SCROLITHA_CORE_MODEL'];
+    const hasLegacyHost = Boolean(process.env.SCROLITHA_OLLAMA_HOST?.trim());
+    const hasLegacyModel = Boolean(process.env.SCROLITHA_OLLAMA_MODEL?.trim());
     const missing = keys.filter((k) => !process.env[k] || process.env[k]!.trim() === '');
-    if (missing.length > 0) {
-      console.warn('Scrolitha provider is ollama but missing:', missing.join(', '));
+    if (missing.length > 0 && !(hasLegacyHost && hasLegacyModel)) {
+      console.warn('Scrolitha self-hosted engine is missing:', missing.join(', '));
     }
   }
 

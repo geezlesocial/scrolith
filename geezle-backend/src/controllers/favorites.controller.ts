@@ -8,6 +8,7 @@ const normalizeEntityType = (value?: string) => {
   if (raw === 'gig') return 'GIG';
   if (raw === 'job') return 'JOB';
   if (raw === 'freelancer') return 'FREELANCER';
+  if (raw === 'marketplace') return 'MARKETPLACE';
   return null;
 };
 

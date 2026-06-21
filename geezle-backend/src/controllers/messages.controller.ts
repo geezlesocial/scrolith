@@ -1214,6 +1214,88 @@ export const deleteConversationForUser = async (req: Request, res: Response) => 
   }
 };
 
+export const searchMessages = async (req: Request, res: Response) => {
+  try {
+    const role = resolveRole(req);
+    const userId = resolveUserId(req);
+    const admin = isAdminRole(role);
+
+    if (!admin && !userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const q = String(req.query?.q || '').trim();
+    if (q.length < 2) return res.status(400).json({ success: false, error: 'Query too short' });
+
+    const scope = String(req.query?.scope || '').trim();
+    if (scope === 'admin' && !admin) return res.status(403).json({ success: false, error: 'Forbidden' });
+
+    // Try to find conversation participant username/name matches first
+    const convWhere: any = {
+      AND: [
+        { participants: { some: { userId: userId, deletedAt: null } } },
+        { participants: { some: { userId: { not: userId } } } },
+        {
+          OR: [
+            { participants: { some: { user: { username: { contains: q, mode: 'insensitive' } } } } },
+            { participants: { some: { user: { name: { contains: q, mode: 'insensitive' } } } } }
+          ]
+        }
+      ]
+    };
+
+    const convs = await prisma.conversation.findMany({
+      where: convWhere as any,
+      include: {
+        participants: { select: conversationParticipantSelect },
+        messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, true)
+      }
+    } as any);
+
+    const results: any[] = [];
+    if (Array.isArray(convs) && convs.length) {
+      convs.forEach((conv: any) => {
+        const other = (conv.participants || []).find((p: any) => String(p.userId) !== String(userId));
+        results.push({
+          conversationId: conv.id,
+          matchType: 'username',
+          participant: other?.user ? { username: other.user.username, id: other.user.id } : { username: other?.username || '' },
+          conversation: buildConversationPayload(conv, userId)
+        });
+      });
+      return res.json({ success: true, data: results });
+    }
+
+    // Fallback: search message text
+    const msgs = await prisma.directMessage.findMany({
+      where: { text: { contains: q } } as any,
+      include: {
+        conversation: {
+          include: {
+            participants: { select: conversationParticipantSelect },
+            messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, true)
+          }
+        }
+      }
+    } as any);
+
+    if (Array.isArray(msgs) && msgs.length) {
+      msgs.forEach((m: any) => {
+        results.push({
+          conversationId: m.conversation?.id,
+          matchType: 'message',
+          matchedMessageId: m.id,
+          matchedMessageSnippet: String(m.text || '').slice(0, 160),
+          conversation: buildConversationPayload(m.conversation, userId)
+        });
+      });
+    }
+
+    return res.json({ success: true, data: results });
+  } catch (error: any) {
+    console.error('Search messages error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to search messages' });
+  }
+};
+
 export const reportBlockConversation = async (req: Request, res: Response) => {
   try {
     const userId = resolveUserId(req);

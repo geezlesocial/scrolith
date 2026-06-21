@@ -14,6 +14,7 @@ import {
   restoreAdminSystemBackup,
   verifyAdminSystemBackup
 } from '../../controllers/admin.systemBackup.controller';
+import { getSystemBackupImportTempDir } from '../../utils/systemBackupPaths';
 
 const router = express.Router();
 
@@ -21,7 +22,7 @@ const backupImportLimitBytes = Math.max(
   10 * 1024 * 1024,
   Number(process.env.BACKUP_IMPORT_LIMIT_BYTES || 512 * 1024 * 1024)
 );
-const backupImportTempDir = path.resolve(__dirname, '../../../data/system-backups/tmp-imports');
+const backupImportTempDir = getSystemBackupImportTempDir();
 
 const backupImportUpload = multer({
   storage: multer.diskStorage({

@@ -1,25 +1,93 @@
-import api from "./api";
+import api from './api';
 
-export type GigStatus = 'draft' | 'submitted' | 'under_review' | 'approved' | 'active' | 'rejected' | 'paused' | 'archived';
+export const fetchMyGigs = async () => {
+  const res = await api.get('/gigs?ownerId=me&role=freelancer');
+  const data = res.data?.data;
+  if (Array.isArray(data)) return data;
+  if (data?.gigs && Array.isArray(data.gigs)) return data.gigs;
+  return [];
+};
+
+export const createGig = async (payload: any) => {
+  const res = await api.post('/gigs', payload);
+  return res.data?.data;
+};
+
+export const updateGig = async (id: string, payload: any) => {
+  const res = await api.put(`/gigs/${id}`, payload);
+  return res.data?.data;
+};
+
+export const deleteGig = async (id: string) => {
+  const res = await api.delete(`/gigs/${id}`);
+  return res.data?.data;
+};
+
+export const submitGig = async (id: string) => {
+  const res = await api.post(`/gigs/${id}/submit`);
+  return res.data?.data;
+};
+
+export const pauseGig = async (id: string) => {
+  const res = await api.post(`/gigs/${id}/pause`);
+  return res.data?.data;
+};
+
+export const activateGig = async (id: string) => {
+  const res = await api.post(`/gigs/${id}/activate`);
+  return res.data?.data;
+};
+
+export default { fetchMyGigs, createGig, updateGig, deleteGig, submitGig, pauseGig, activateGig };
+ 
+
+interface ApiResponse<T> {
+  success: boolean;
+  data: T;
+  message?: string;
+}
+
+const handleApiResponse = <T>(response: any): T => {
+  if (response?.data?.success === false) {
+    throw new Error(response.data.error || 'API request failed');
+  }
+  if (response?.data?.data !== undefined) return response.data.data as T;
+  if (response?.data !== undefined && response.data.success !== false) return response.data as T;
+  return response as T;
+};
 
 export interface Gig {
   id: string;
   title: string;
   description: string;
+  slug?: string;
   category: string;
   subcategory: string;
-  status: GigStatus;
-  pricing: {
+  price: {
     type: 'fixed' | 'hourly';
     amount: number;
+    minAmount?: number;
+    maxAmount?: number;
   };
-  attachments: string[];
+  status: string;
+  rejectionReason?: string;
+  performance: {
+    views: number;
+    clicks: number;
+    orders: number;
+    rating: number;
+    reviews: number;
+  };
+  freelancerId?: string;
+  freelancerName?: string;
+  freelancerAvatar?: string | null;
+  freelancerProfilePhotoFileId?: string | null;
+  freelancerIsPro?: boolean;
+  freelancerIsVerified?: boolean;
+  freelancer_is_verified?: boolean;
+  freelancerVerified?: boolean;
+  media: string[];
   tags: string[];
-  skills: string[];
-  views: number;
-  clicks: number;
-  orders: number;
-  rating: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,13 +97,12 @@ export interface CreateGigData {
   description: string;
   category: string;
   subcategory: string;
-  pricing: {
-    type: 'fixed' | 'hourly';
-    amount: number;
-  };
-  attachments: string[];
+  price: Gig['price'];
+  media: string[];
   tags: string[];
-  skills: string[];
+  requirements?: string[];
+  deliveryTime?: number;
+  revisions?: number;
 }
 
 export interface GigsResponse {
@@ -48,41 +115,82 @@ export interface GigsResponse {
   };
 }
 
+const normalizeGigsResponse = (payload: any): GigsResponse => {
+  if (Array.isArray(payload)) {
+    return {
+      gigs: payload,
+      pagination: {
+        page: 1,
+        limit: payload.length || 0,
+        total: payload.length || 0,
+        pages: 1
+      }
+    };
+  }
+
+  const gigs = Array.isArray(payload?.gigs)
+    ? payload.gigs
+    : Array.isArray(payload?.items)
+      ? payload.items
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+
+  const page = Number(payload?.pagination?.page ?? payload?.page ?? 1);
+  const limitBase = payload?.pagination?.limit ?? payload?.limit ?? gigs.length;
+  const limit = Number(limitBase || 20);
+  const total = Number(payload?.pagination?.total ?? payload?.total ?? gigs.length);
+  const pages = Number(payload?.pagination?.pages ?? (limit > 0 ? Math.max(1, Math.ceil(total / limit)) : 1));
+
+  return {
+    gigs,
+    pagination: { page, limit, total, pages }
+  };
+};
+
 export const gigsApi = {
   getGigs: async (params: {
     ownerId?: string;
     role?: string;
-    status?: GigStatus;
+    status?: string;
     page?: number;
     limit?: number;
+    search?: string;
+    random?: boolean;
+    recommended?: boolean;
+    featuredOnly?: boolean;
   } = {}): Promise<GigsResponse> => {
-    const response = await api.get('/gigs', { params });
-    return response.data.data;
+    const response = await api.get<ApiResponse<GigsResponse>>('/gigs', { params });
+    return normalizeGigsResponse(handleApiResponse<any>(response));
   },
 
   createGig: async (data: CreateGigData): Promise<Gig> => {
-    const response = await api.post('/gigs', data);
-    return response.data.data;
+    const response = await api.post<ApiResponse<Gig>>('/gigs', data);
+    return handleApiResponse(response);
   },
 
   updateGig: async (id: string, data: Partial<CreateGigData>): Promise<Gig> => {
-    const response = await api.put(`/gigs/${id}`, data);
-    return response.data.data;
+    const response = await api.put<ApiResponse<Gig>>(`/gigs/${id}`, data);
+    return handleApiResponse(response);
   },
 
   deleteGig: async (id: string): Promise<void> => {
-    await api.delete(`/gigs/${id}`);
+    const response = await api.delete<ApiResponse<void>>(`/gigs/${id}`);
+    handleApiResponse(response);
   },
 
   submitGig: async (id: string): Promise<void> => {
-    await api.post(`/gigs/${id}/submit`);
+    const response = await api.post<ApiResponse<void>>(`/gigs/${id}/submit`);
+    handleApiResponse(response);
   },
 
   pauseGig: async (id: string): Promise<void> => {
-    await api.post(`/gigs/${id}/pause`);
+    const response = await api.post<ApiResponse<void>>(`/gigs/${id}/pause`);
+    handleApiResponse(response);
   },
 
   activateGig: async (id: string): Promise<void> => {
-    await api.post(`/gigs/${id}/activate`);
-  },
+    const response = await api.post<ApiResponse<void>>(`/gigs/${id}/activate`);
+    handleApiResponse(response);
+  }
 };

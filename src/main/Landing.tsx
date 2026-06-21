@@ -31,7 +31,6 @@ const Landing = () => {
   // Depend on user ID/role rather than the full object to prevent unnecessary re-fetches
   const userId = user?.id;
   const userRole = user?.role;
-  const userLocation = user?.location;
 
   useEffect(() => {
     let mounted = true;
@@ -42,12 +41,13 @@ const Landing = () => {
             const [fetchedSections, fetchedSlides] = await Promise.all([
                 CMSService.getHomepageSections({ 
                     role: userRole, 
-                    location: userLocation
+                    location: user?.location 
                 }),
                 CMSService.getHomeSlides()
             ]);
             
             if (mounted) {
+                // Ensure we always have sections to render, even if API fails (CMSService should return defaults, but extra safety here)
                 setSections(fetchedSections && fetchedSections.length > 0 ? fetchedSections.filter(s => s.isActive) : []);
                 setSlides(fetchedSlides || []);
             }
@@ -62,7 +62,7 @@ const Landing = () => {
     return () => {
         mounted = false;
     };
-  }, [userId, userRole, userLocation]);
+  }, [userId, userRole]);
 
   return (
     <>
@@ -88,6 +88,7 @@ const Landing = () => {
           {/* 3. Dynamic CMS Sections */}
           <Suspense fallback={<div className="py-24 text-center"><Loader className="animate-spin mx-auto w-8 h-8 text-gray-400" /></div>}>
               {sections.length === 0 ? (
+                  // Fallback content if sections are empty (shouldn't happen with CMS defaults)
                    <div className="py-20 text-center text-gray-500">
                        <p>Welcome to Scrolith. Browse our categories to get started.</p>
                    </div>
