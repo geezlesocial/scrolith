@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminMiddleware } from '../../middleware/admin.middleware';
+import { requirePermission } from '../../middleware/rbac.middleware';
 import gigsJobsRoutes from './gigs-jobs.routes';
 import analyticsRoutes from './analytics.routes';
 import marketIntelligenceRoutes from './market-intelligence.routes';
@@ -19,6 +20,8 @@ import adminCommunityRoutes from './community/routes';
 import staffRoutes from './staff.routes';
 import rbacRoutes from './rbac.routes';
 import policiesRoutes from './policies.routes';
+import approvalRoutes from './approval.routes';
+import auditRoutes from './audit.routes';
 import featureControlRoutes from './feature-control.routes';
 import discoveryRoutes from './discovery.routes';
 import journeysRoutes from './journeys.routes';
@@ -43,8 +46,14 @@ import scrollAdminRoutes from './scroll.routes';
 import liveAdminRoutes from './live.routes';
 import systemDemoAccountsRoutes from './system-demo-accounts.routes';
 import marketplaceRoutes from './marketplace.routes';
+import securityAlertsRoutes from './security-alerts.routes';
+import procurementRoutes from './procurement.routes';
+import complianceRoutes from './compliance.routes';
+import talentCloudRoutes from './talent-cloud.routes';
+import scrolithaManagedRoutes from './scrolitha-managed.routes';
 import { clearPlatformRuntimeCache } from '../../controllers/admin.cache.controller';
 import { getScrolithaAnalyticsForAdmin } from '../../services/scrolitha/scrolitha.orchestrator';
+import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
 
 const router = express.Router();
 
@@ -479,6 +488,13 @@ router.use('/fraud', fraudRoutes);
 router.use('/staff', staffRoutes);
 router.use('/rbac', rbacRoutes);
 router.use('/policies', policiesRoutes);
+router.use('/approvals', approvalRoutes);
+router.use('/audit', auditRoutes);
+router.use('/security-alerts', securityAlertsRoutes);
+router.use('/procurement', procurementRoutes);
+router.use('/compliance', complianceRoutes);
+router.use('/talent-cloud', talentCloudRoutes);
+router.use('/scrolitha-managed', scrolithaManagedRoutes);
 router.use('/feature-control', featureControlRoutes);
 router.use('/discovery', discoveryRoutes);
 router.use('/journeys', journeysRoutes);
@@ -549,7 +565,7 @@ router.get('/ai/analytics', async (_req, res) => {
 });
 
 // ============ PLATFORM SETTINGS ============
-router.get('/platform/settings', async (req, res) => {
+router.get('/platform/settings', requirePermission('settings.read'), async (req, res) => {
   const defaults = {
     siteName: 'Scrolith Marketplace',
     tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
@@ -1041,7 +1057,7 @@ router.post('/platform/ads/refund-policy', (req, res) => {
   res.json({ success: true, message: 'Refund policy saved' });
 });
 
-router.post('/platform/settings', async (req, res) => {
+router.post('/platform/settings', requirePermission('settings.enterprise_change'), async (req, res) => {
   const io = req.app.get('io');
   const payload = isObjectLike(req.body) ? req.body : {};
   io?.emit('settings:updated', { scope: 'platform', settings: payload });
@@ -1073,13 +1089,24 @@ router.post('/platform/settings', async (req, res) => {
   } catch (e) {
     console.error('[admin] Failed to persist platform settings to file', e);
   }
+  await recordGovernedAdminAction(req, {
+    moduleKey: 'settings',
+    actionKey: 'platform_settings_update',
+    entityType: 'platform_settings',
+    entityId: 'platform',
+    message: 'Platform settings updated',
+    metadata: { scope: 'platform', keys: Object.keys(payload || {}) },
+    approvalActionKey: 'enterprise_change',
+    approvalEntityType: 'platform_settings',
+    approvalTitle: 'Platform settings updated'
+  });
   res.json({ success: true, message: 'Settings saved successfully' });
 });
 
 // ============ SYSTEM SETTINGS ============
-router.get('/system/settings', getSystemSettings);
+router.get('/system/settings', requirePermission('settings.read'), getSystemSettings);
 
-router.post('/system/settings', updateSystemSettings);
+router.post('/system/settings', requirePermission('settings.enterprise_change'), updateSystemSettings);
 
 router.post('/system/email/test', testEmailSettings);
 router.post('/system/cache/clear', clearPlatformRuntimeCache);

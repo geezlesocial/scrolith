@@ -5007,6 +5007,697 @@ model PermissionDecisionLog {
   @@index([resourceType, resourceId, createdAt])
 }
 
+model AdminAuditEvent {
+  id           String   @id @default(cuid())
+  actorUserId  String?  @map("actor_user_id")
+  actorStaffId String?  @map("actor_staff_id")
+  actorRole    String?  @map("actor_role")
+  moduleKey    String   @map("module_key")
+  actionKey    String   @map("action_key")
+  entityType   String   @map("entity_type")
+  entityId     String?  @map("entity_id")
+  severity     String   @default("info")
+  status       String   @default("success")
+  message      String?
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([actorUserId, createdAt])
+  @@index([actorStaffId, createdAt])
+  @@index([moduleKey, createdAt])
+  @@index([actionKey, createdAt])
+  @@index([entityType, entityId])
+  @@index([severity, createdAt])
+  @@index([status, createdAt])
+}
+
+model ApprovalPolicy {
+  id               String   @id @default(cuid())
+  moduleKey        String   @map("module_key")
+  actionKey        String   @map("action_key")
+  entityType       String   @map("entity_type")
+  label            String
+  description      String?
+  mode             String   @default("AUDIT_ONLY")
+  minApprovals     Int      @default(1) @map("min_approvals")
+  isSystemPolicy   Boolean  @default(false) @map("is_system_policy")
+  isActive         Boolean  @default(true) @map("is_active")
+  conditions       Json?
+  createdByStaffId String?  @map("created_by_staff_id")
+  updatedByStaffId String?  @map("updated_by_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  requests ApprovalRequest[]
+
+  @@unique([moduleKey, actionKey, entityType])
+  @@index([mode, isActive])
+  @@index([moduleKey, isActive])
+}
+
+model ApprovalRequest {
+  id                 String    @id @default(cuid())
+  policyId           String?   @map("policy_id")
+  moduleKey          String    @map("module_key")
+  actionKey          String    @map("action_key")
+  entityType         String    @map("entity_type")
+  entityId           String?   @map("entity_id")
+  status             String    @default("OBSERVED")
+  title              String
+  summary            String?
+  requestedByUserId  String?   @map("requested_by_user_id")
+  requestedByStaffId String?   @map("requested_by_staff_id")
+  decidedByStaffId   String?   @map("decided_by_staff_id")
+  decisionReason     String?   @map("decision_reason")
+  observedOnly       Boolean   @default(true) @map("observed_only")
+  payload            Json?
+  metadata           Json?
+  requestedAt        DateTime  @default(now()) @map("requested_at")
+  decidedAt          DateTime? @map("decided_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  policy ApprovalPolicy? @relation(fields: [policyId], references: [id], onDelete: SetNull)
+
+  @@index([policyId])
+  @@index([status, createdAt])
+  @@index([moduleKey, createdAt])
+  @@index([actionKey, createdAt])
+  @@index([entityType, entityId])
+  @@index([requestedByUserId, createdAt])
+  @@index([requestedByStaffId, createdAt])
+}
+
+model SecurityAlert {
+  id                 String    @id @default(cuid())
+  code               String
+  severity           String    @default("medium")
+  status             String    @default("open")
+  title              String
+  message            String
+  source             String    @default("system")
+  actorUserId        String?   @map("actor_user_id")
+  actorStaffId       String?   @map("actor_staff_id")
+  entityType         String?   @map("entity_type")
+  entityId           String?   @map("entity_id")
+  metadata           Json?
+  dismissedByStaffId String?   @map("dismissed_by_staff_id")
+  resolvedAt         DateTime? @map("resolved_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@index([code, createdAt])
+  @@index([severity, status, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([actorStaffId, createdAt])
+  @@index([entityType, entityId])
+}
+
+model CostCenter {
+  id                String   @id @default(cuid())
+  code              String   @unique
+  name              String
+  department        String?
+  projectCode       String?  @map("project_code")
+  currency          String   @default("USD")
+  monthlyBudget     Float?   @map("monthly_budget")
+  quarterlyBudget   Float?   @map("quarterly_budget")
+  spendCap          Float?   @map("spend_cap")
+  approvalThreshold Float?   @map("approval_threshold")
+  isActive          Boolean  @default(true) @map("is_active")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  budgetRules      BudgetRule[]
+  purchaseRequests PurchaseRequest[]
+  invoices         InvoiceRecord[]
+
+  @@index([department, projectCode])
+  @@index([isActive, createdAt])
+}
+
+model BudgetRule {
+  id                    String   @id @default(cuid())
+  costCenterId          String?  @map("cost_center_id")
+  department            String?
+  projectCode           String?  @map("project_code")
+  interval              String   @default("MONTHLY")
+  limitAmount           Float    @map("limit_amount")
+  alertThresholdPercent Float    @default(80) @map("alert_threshold_percent")
+  hardStop              Boolean  @default(true) @map("hard_stop")
+  approvalThreshold     Float?   @map("approval_threshold")
+  currency              String   @default("USD")
+  isActive              Boolean  @default(true) @map("is_active")
+  metadata              Json?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  costCenter CostCenter? @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+
+  @@index([costCenterId])
+  @@index([department, projectCode])
+  @@index([interval, isActive])
+}
+
+model PurchaseRequest {
+  id                      String   @id @default(cuid())
+  requestNumber           String   @unique @map("request_number")
+  requesterUserId         String?  @map("requester_user_id")
+  requesterStaffId        String?  @map("requester_staff_id")
+  costCenterId            String?  @map("cost_center_id")
+  department              String?
+  projectCode             String?  @map("project_code")
+  title                   String
+  description             String?
+  entityType              String   @default("generic") @map("entity_type")
+  entityId                String?  @map("entity_id")
+  amount                  Float
+  currency                String   @default("USD")
+  status                  String   @default("DRAFT")
+  budgetStatus            String   @default("WITHIN_BUDGET") @map("budget_status")
+  financeStatus           String   @default("PENDING") @map("finance_status")
+  approvalThresholdAmount Float?   @map("approval_threshold_amount")
+  spendCapAtRequest       Float?   @map("spend_cap_at_request")
+  requiredBy              DateTime? @map("required_by")
+  approvedAt              DateTime? @map("approved_at")
+  rejectedAt              DateTime? @map("rejected_at")
+  metadata                Json?
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+
+  costCenter          CostCenter?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  approvals           PurchaseApproval[]
+  purchaseOrders      PurchaseOrder[]
+  spendAuthorizations SpendAuthorization[]
+  invoices            InvoiceRecord[]
+
+  @@index([requesterUserId, createdAt])
+  @@index([requesterStaffId, createdAt])
+  @@index([costCenterId, createdAt])
+  @@index([department, projectCode])
+  @@index([entityType, entityId])
+  @@index([status, financeStatus])
+}
+
+model PurchaseApproval {
+  id                String   @id @default(cuid())
+  purchaseRequestId String   @map("purchase_request_id")
+  actorUserId       String?  @map("actor_user_id")
+  actorStaffId      String?  @map("actor_staff_id")
+  action            String
+  note              String?
+  idempotencyKey    String?  @unique @map("idempotency_key")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  purchaseRequest PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseRequestId, createdAt])
+  @@index([action, createdAt])
+}
+
+model PurchaseOrder {
+  id                String    @id @default(cuid())
+  poNumber          String    @unique @map("po_number")
+  purchaseRequestId String?   @map("purchase_request_id")
+  vendorUserId      String?   @map("vendor_user_id")
+  supplierName      String?   @map("supplier_name")
+  status            String    @default("ISSUED")
+  totalAmount       Float     @map("total_amount")
+  currency          String    @default("USD")
+  issuedAt          DateTime  @default(now()) @map("issued_at")
+  approvedAt        DateTime? @map("approved_at")
+  externalRef       String?   @map("external_ref")
+  metadata          Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  invoices        InvoiceRecord[]
+
+  @@index([purchaseRequestId])
+  @@index([vendorUserId, issuedAt])
+  @@index([status, issuedAt])
+}
+
+model SpendAuthorization {
+  id                String    @id @default(cuid())
+  authorizationNumber String  @unique @map("authorization_number")
+  purchaseRequestId String?   @map("purchase_request_id")
+  approvedAmount    Float     @map("approved_amount")
+  currency          String    @default("USD")
+  status            String    @default("ACTIVE")
+  expiresAt         DateTime? @map("expires_at")
+  approvedByStaffId String?   @map("approved_by_staff_id")
+  metadata          Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseRequestId])
+  @@index([status, expiresAt])
+}
+
+model InvoiceRecord {
+  id                   String    @id @default(cuid())
+  invoiceNumber        String    @unique @map("invoice_number")
+  purchaseRequestId    String?   @map("purchase_request_id")
+  purchaseOrderId      String?   @map("purchase_order_id")
+  contractId           String?   @map("contract_id")
+  orderId              String?   @map("order_id")
+  escrowId             String?   @map("escrow_id")
+  transactionId        String?   @map("transaction_id")
+  sellerUserId         String?   @map("seller_user_id")
+  buyerUserId          String?   @map("buyer_user_id")
+  costCenterId         String?   @map("cost_center_id")
+  invoiceType          String    @default("PLATFORM") @map("invoice_type")
+  status               String    @default("DRAFT")
+  reconciliationStatus String    @default("PENDING") @map("reconciliation_status")
+  department           String?
+  projectCode          String?   @map("project_code")
+  subtotal             Float     @default(0)
+  taxAmount            Float     @default(0) @map("tax_amount")
+  totalAmount          Float     @default(0) @map("total_amount")
+  currency             String    @default("USD")
+  taxId                String?   @map("tax_id")
+  vatNumber            String?   @map("vat_number")
+  gstNumber            String?   @map("gst_number")
+  billingPeriodStart   DateTime? @map("billing_period_start")
+  billingPeriodEnd     DateTime? @map("billing_period_end")
+  approvedAt           DateTime? @map("approved_at")
+  reconciledAt         DateTime? @map("reconciled_at")
+  documentPayload      Json?     @map("document_payload")
+  splitBreakdown       Json?     @map("split_breakdown")
+  metadata             Json?
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  costCenter      CostCenter?      @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  lineItems       InvoiceLineItem[]
+  creditNotes     CreditNote[]
+
+  @@index([purchaseRequestId])
+  @@index([purchaseOrderId])
+  @@index([costCenterId, createdAt])
+  @@index([department, projectCode])
+  @@index([invoiceType, status])
+  @@index([reconciliationStatus, createdAt])
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String   @map("invoice_id")
+  label       String
+  description String?
+  quantity    Float    @default(1)
+  unitPrice   Float    @default(0) @map("unit_price")
+  amount      Float    @default(0)
+  department  String?
+  projectCode String?  @map("project_code")
+  sourceType  String?  @map("source_type")
+  sourceId    String?  @map("source_id")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  invoice InvoiceRecord @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, createdAt])
+  @@index([department, projectCode])
+}
+
+model CreditNote {
+  id               String   @id @default(cuid())
+  creditNoteNumber String   @unique @map("credit_note_number")
+  invoiceId        String   @map("invoice_id")
+  amount           Float
+  currency         String   @default("USD")
+  reason           String
+  status           String   @default("ISSUED")
+  metadata         Json?
+  issuedAt         DateTime @default(now()) @map("issued_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  invoice InvoiceRecord @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId, issuedAt])
+  @@index([status, issuedAt])
+}
+
+model ComplianceCase {
+  id            String    @id @default(cuid())
+  caseNumber    String    @unique @map("case_number")
+  caseType      String    @map("case_type")
+  status        String    @default("OPEN")
+  priority      String    @default("MEDIUM")
+  entityType    String    @map("entity_type")
+  entityId      String?   @map("entity_id")
+  subjectUserId String?   @map("subject_user_id")
+  assignedStaffId String? @map("assigned_staff_id")
+  riskScore     Float?    @map("risk_score")
+  holdState     String    @default("NONE") @map("hold_state")
+  slaDueAt      DateTime? @map("sla_due_at")
+  summary       String?
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  evidence  ComplianceEvidence[]
+  decisions ComplianceDecisionLog[]
+  appeals   ComplianceAppeal[]
+  holds     HoldAction[]
+
+  @@index([caseType, status])
+  @@index([entityType, entityId])
+  @@index([subjectUserId, createdAt])
+  @@index([assignedStaffId, status])
+}
+
+model ComplianceEvidence {
+  id          String   @id @default(cuid())
+  caseId      String   @map("case_id")
+  kind        String
+  label       String
+  fileUrl     String?  @map("file_url")
+  payload     Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  case ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+}
+
+model ComplianceDecisionLog {
+  id          String   @id @default(cuid())
+  caseId       String  @map("case_id")
+  actorUserId  String? @map("actor_user_id")
+  actorStaffId String? @map("actor_staff_id")
+  action       String
+  note         String?
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  case ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+  @@index([action, createdAt])
+}
+
+model ComplianceAppeal {
+  id             String   @id @default(cuid())
+  caseId         String   @map("case_id")
+  requesterUserId String  @map("requester_user_id")
+  status         String   @default("OPEN")
+  statement      String
+  resolutionNote String?  @map("resolution_note")
+  metadata       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  case ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, status])
+  @@index([requesterUserId, createdAt])
+}
+
+model RiskRule {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  name       String
+  entityType String   @map("entity_type")
+  signalType String   @map("signal_type")
+  action     String
+  mode       String   @default("SHADOW")
+  threshold  Json?
+  isActive   Boolean  @default(true) @map("is_active")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([entityType, isActive])
+  @@index([signalType, mode])
+}
+
+model RiskScoreSnapshot {
+  id           String   @id @default(cuid())
+  entityType   String   @map("entity_type")
+  entityId     String?  @map("entity_id")
+  subjectUserId String? @map("subject_user_id")
+  score        Float
+  level        String
+  signals      Json?
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, entityId, createdAt])
+  @@index([subjectUserId, createdAt])
+  @@index([level, createdAt])
+}
+
+model HoldAction {
+  id            String    @id @default(cuid())
+  caseId        String?   @map("case_id")
+  entityType    String    @map("entity_type")
+  entityId      String?   @map("entity_id")
+  holdType      String    @map("hold_type")
+  status        String    @default("ACTIVE")
+  reason        String
+  releasedAt    DateTime? @map("released_at")
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  case ComplianceCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([entityType, entityId, status])
+  @@index([holdType, status])
+}
+
+model TalentPool {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  visibility  String   @default("PRIVATE")
+  isActive    Boolean  @default(true) @map("is_active")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  members             TalentPoolMember[]
+  privateAccessRules  PrivateOpportunityAccess[]
+
+  @@index([visibility, isActive])
+}
+
+model TalentPoolMember {
+  id              String   @id @default(cuid())
+  poolId          String   @map("pool_id")
+  userId          String   @map("user_id")
+  membershipType  String   @default("APPROVED") @map("membership_type")
+  status          String   @default("ACTIVE")
+  invitedByStaffId String? @map("invited_by_staff_id")
+  tags            Json?
+  scorecard       Json?
+  internalNotes   String?  @map("internal_notes")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  pool TalentPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@unique([poolId, userId])
+  @@index([poolId, membershipType, status])
+  @@index([userId, status])
+}
+
+model PrivateOpportunityAccess {
+  id              String   @id @default(cuid())
+  entityType      String   @map("entity_type")
+  entityId        String   @map("entity_id")
+  poolId          String   @map("pool_id")
+  visibilityScope String   @default("POOL_ONLY") @map("visibility_scope")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  pool TalentPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([entityType, entityId])
+  @@index([poolId, visibilityScope])
+}
+
+model VendorRequirement {
+  id                       String   @id @default(cuid())
+  code                     String   @unique
+  name                     String
+  requiredDocuments        Json?    @map("required_documents")
+  requiredKycTier          String?  @map("required_kyc_tier")
+  requiredComplianceChecks Json?    @map("required_compliance_checks")
+  requireContractAcceptance Boolean @default(false) @map("require_contract_acceptance")
+  isActive                 Boolean  @default(true) @map("is_active")
+  metadata                 Json?
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, createdAt])
+}
+
+model IntegrationEndpoint {
+  id               String   @id @default(cuid())
+  name             String
+  type             String   @default("WEBHOOK")
+  targetUrl        String?  @map("target_url")
+  eventTypes       Json?    @map("event_types")
+  secretHash       String?  @map("secret_hash")
+  status           String   @default("ACTIVE")
+  retryPolicy      Json?    @map("retry_policy")
+  deadLetterEnabled Boolean @default(true) @map("dead_letter_enabled")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  webhookDeliveries WebhookDeliveryLog[]
+
+  @@index([type, status])
+}
+
+model WebhookDeliveryLog {
+  id            String    @id @default(cuid())
+  endpointId     String   @map("endpoint_id")
+  eventType      String   @map("event_type")
+  payload        Json?
+  signature      String?
+  status         String   @default("QUEUED")
+  attempts       Int      @default(0)
+  lastError      String?  @map("last_error")
+  nextAttemptAt  DateTime? @map("next_attempt_at")
+  deliveredAt    DateTime? @map("delivered_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  endpoint IntegrationEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  @@index([endpointId, createdAt])
+  @@index([status, nextAttemptAt])
+  @@index([eventType, createdAt])
+}
+
+model ApiCredential {
+  id         String    @id @default(cuid())
+  name       String
+  keyPrefix  String    @unique @map("key_prefix")
+  secretHash String    @map("secret_hash")
+  scopes     Json?
+  status     String    @default("ACTIVE")
+  lastUsedAt DateTime? @map("last_used_at")
+  metadata   Json?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+}
+
+model AiTaskOutput {
+  id                String   @id @default(cuid())
+  moduleKey         String   @map("module_key")
+  taskType          String   @map("task_type")
+  entityType        String   @map("entity_type")
+  entityId          String?  @map("entity_id")
+  actorUserId       String?  @map("actor_user_id")
+  actorStaffId      String?  @map("actor_staff_id")
+  promptVersion     String   @map("prompt_version")
+  confidence        Float?
+  explanation       String?
+  output            Json?
+  humanOverrideState String  @default("PENDING_REVIEW") @map("human_override_state")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@index([moduleKey, createdAt])
+  @@index([entityType, entityId])
+  @@index([humanOverrideState, createdAt])
+}
+
+model ManagedProject {
+  id               String   @id @default(cuid())
+  title            String
+  entityType       String   @map("entity_type")
+  entityId         String?  @map("entity_id")
+  coordinatorStaffId String? @map("coordinator_staff_id")
+  status           String   @default("ACTIVE")
+  slaStatus        String   @default("ON_TRACK") @map("sla_status")
+  riskLevel        String   @default("LOW") @map("risk_level")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  milestones  ManagedMilestone[]
+  assignments ManagedAssignment[]
+
+  @@index([entityType, entityId])
+  @@index([coordinatorStaffId, status])
+}
+
+model ManagedMilestone {
+  id               String    @id @default(cuid())
+  managedProjectId String    @map("managed_project_id")
+  title            String
+  description      String?
+  status           String    @default("DRAFT")
+  dueAt            DateTime? @map("due_at")
+  approvedAt       DateTime? @map("approved_at")
+  qaStatus         String    @default("PENDING") @map("qa_status")
+  riskFlag         String?   @map("risk_flag")
+  metadata         Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  project ManagedProject @relation(fields: [managedProjectId], references: [id], onDelete: Cascade)
+
+  @@index([managedProjectId, status])
+  @@index([dueAt, qaStatus])
+}
+
+model ManagedAssignment {
+  id              String   @id @default(cuid())
+  managedProjectId String  @map("managed_project_id")
+  assigneeStaffId String?  @map("assignee_staff_id")
+  role            String
+  status          String   @default("ACTIVE")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  project ManagedProject @relation(fields: [managedProjectId], references: [id], onDelete: Cascade)
+
+  @@index([managedProjectId, status])
+}
+
+model ManagedEscalationRule {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  triggerType String   @map("trigger_type")
+  threshold   Json?
+  targetRole  String   @map("target_role")
+  isActive    Boolean  @default(true) @map("is_active")
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([triggerType, isActive])
+}
+
 model FeatureFlag {
   id               String   @id @default(cuid())
   key              String   @unique

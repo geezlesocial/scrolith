@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import prisma from '../../utils/prismaClient';
 import { ensureAdminStaffProfile, ensureRbacSeeded, isAdminRole } from '../../services/rbac.service';
 import { requirePermission, resolveStaffContext } from '../../middleware/rbac.middleware';
+import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
 
 const router = express.Router();
 
@@ -128,6 +129,30 @@ const writeAuditLog = async (
   } catch (error) {
     console.warn('[staff] failed to write audit log', error);
   }
+};
+
+const writeGovernanceAudit = async (
+  req: express.Request,
+  actionKey: string,
+  staff: { id: string; roleId?: string | null; status?: string | null; userId?: string | null },
+  extra?: Record<string, any>
+) => {
+  await recordGovernedAdminAction(req, {
+    moduleKey: 'rbac',
+    actionKey,
+    entityType: 'staff_user',
+    entityId: staff.id,
+    message: `Staff action ${actionKey} for ${staff.id}`,
+    metadata: {
+      roleId: staff.roleId || null,
+      status: staff.status || null,
+      userId: staff.userId || null,
+      ...(extra || {})
+    },
+    approvalActionKey: actionKey.includes('role') ? 'role_change' : undefined,
+    approvalEntityType: actionKey.includes('role') ? 'staff_role' : undefined,
+    approvalTitle: actionKey.includes('role') ? `Staff role change for ${staff.id}` : undefined
+  });
 };
 
 router.get('/', requirePermission('staff.read'), async (_req, res) => {
@@ -301,6 +326,10 @@ router.post('/', async (req, res) => {
           passwordChanged: hasPasswordUpdate,
           legacyPost: true
         });
+        await writeGovernanceAudit(req, roleId !== existing.roleId ? 'staff_role_change' : 'staff_update', updated, {
+          passwordChanged: hasPasswordUpdate,
+          legacyPost: true
+        });
 
         return res.json({ success: true, data: mapStaff(updated) });
       } catch (error) {
@@ -402,6 +431,10 @@ router.post('/', async (req, res) => {
         userId: staff.userId,
         roleId,
         status,
+        require2FA,
+        forcePasswordReset
+      });
+      await writeGovernanceAudit(req, 'staff_create', staff, {
         require2FA,
         forcePasswordReset
       });
@@ -528,6 +561,9 @@ router.put('/:id', requirePermission('staff.update'), async (req, res) => {
       forcePasswordReset: updated.forcePasswordReset,
       passwordChanged: hasPasswordUpdate
     });
+    await writeGovernanceAudit(req, roleId !== existing.roleId ? 'staff_role_change' : 'staff_update', updated, {
+      passwordChanged: hasPasswordUpdate
+    });
 
     return res.json({ success: true, data: mapStaff(updated) });
   } catch (error) {
@@ -570,6 +606,12 @@ router.post('/:id/reset-password', requirePermission('staff.reset_password'), as
     await writeAuditLog(req, 'STAFF_PASSWORD_RESET', 'staff', staffId, {
       userId: staff.userId
     });
+    await writeGovernanceAudit(req, 'staff_reset_password', {
+      id: staffId,
+      userId: staff.userId,
+      roleId: staff.roleId,
+      status: staff.status
+    });
 
     return res.json({ success: true, data: { id: staffId, forcePasswordReset: true } });
   } catch (error) {
@@ -604,6 +646,12 @@ router.delete('/:id', requirePermission('staff.update'), async (req, res) => {
     ]);
 
     await writeAuditLog(req, 'STAFF_DEACTIVATED', 'staff', staffId, { userId: staff.userId });
+    await writeGovernanceAudit(req, 'staff_deactivate', {
+      id: staffId,
+      userId: staff.userId,
+      roleId: staff.roleId,
+      status: 'INACTIVE'
+    });
 
     return res.json({ success: true, data: { id: staffId, status: 'inactive' } });
   } catch (error) {

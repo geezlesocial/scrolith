@@ -1,7 +1,8 @@
 import express from 'express';
 import prisma from '../../utils/prismaClient';
 import { ensureRbacSeeded } from '../../services/rbac.service';
-import { requirePermission } from '../../middleware/rbac.middleware';
+import { requirePermission, resolveStaffContext } from '../../middleware/rbac.middleware';
+import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
 
 const router = express.Router();
 
@@ -74,6 +75,27 @@ const readRoles = async (activeOnly = false) => {
     orderBy: [{ isSystemRole: 'desc' }, { name: 'asc' }]
   });
 };
+
+router.get('/me', async (req, res) => {
+  try {
+    await ensureRbacSeeded();
+    const context = await resolveStaffContext(req);
+    return res.json({
+      success: true,
+      data: {
+        isAdmin: Boolean(context?.isAdmin),
+        staffId: context?.staffId || null,
+        roleName: context?.roleName || null,
+        status: context?.status || null,
+        roleActive: context?.roleActive ?? null,
+        permissionKeys: Array.from(context?.permissions || [])
+      }
+    });
+  } catch (error) {
+    console.error('[rbac] access context failed', error);
+    return res.status(500).json({ success: false, error: 'Failed to load access context', code: 'ERR_INTERNAL' });
+  }
+});
 
 router.get('/permissions', requirePermission('rbac.roles.read'), async (_req, res) => {
   try {
@@ -178,6 +200,18 @@ router.post('/roles', requirePermission('rbac.roles.create'), async (req, res) =
       });
     });
 
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'rbac',
+      actionKey: 'role_create',
+      entityType: 'staff_role',
+      entityId: created?.id || null,
+      message: `Role created: ${created?.name || name}`,
+      metadata: { role: mapRole(created) },
+      approvalActionKey: 'role_change',
+      approvalEntityType: 'staff_role',
+      approvalTitle: `Role created: ${created?.name || name}`
+    });
+
     return res.status(201).json({ success: true, data: mapRole(created) });
   } catch (error) {
     console.error('[rbac] create role failed', error);
@@ -243,6 +277,18 @@ router.post('/roles/:id/clone', requirePermission('rbac.roles.create'), async (r
           }
         }
       });
+    });
+
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'rbac',
+      actionKey: 'role_clone',
+      entityType: 'staff_role',
+      entityId: cloned?.id || null,
+      message: `Role cloned: ${cloned?.name || finalName}`,
+      metadata: { sourceRoleId: source.id, role: mapRole(cloned) },
+      approvalActionKey: 'role_change',
+      approvalEntityType: 'staff_role',
+      approvalTitle: `Role cloned: ${cloned?.name || finalName}`
     });
 
     return res.status(201).json({ success: true, data: mapRole(cloned) });
@@ -317,6 +363,18 @@ router.put('/roles/:id', requirePermission('rbac.roles.update'), async (req, res
       });
     });
 
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'rbac',
+      actionKey: 'role_update',
+      entityType: 'staff_role',
+      entityId: updated?.id || roleId,
+      message: `Role updated: ${updated?.name || nextName}`,
+      metadata: { role: mapRole(updated) },
+      approvalActionKey: 'role_change',
+      approvalEntityType: 'staff_role',
+      approvalTitle: `Role updated: ${updated?.name || nextName}`
+    });
+
     return res.json({ success: true, data: mapRole(updated) });
   } catch (error) {
     console.error('[rbac] update role failed', error);
@@ -347,9 +405,21 @@ router.delete('/roles/:id', requirePermission('rbac.roles.delete'), async (req, 
       });
     }
 
-    await prisma.staffRole.update({
+    const deactivated = await prisma.staffRole.update({
       where: { id: roleId },
       data: { isActive: false }
+    });
+
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'rbac',
+      actionKey: 'role_deactivate',
+      entityType: 'staff_role',
+      entityId: roleId,
+      message: `Role deactivated: ${deactivated.name}`,
+      metadata: { roleId, name: deactivated.name },
+      approvalActionKey: 'role_change',
+      approvalEntityType: 'staff_role',
+      approvalTitle: `Role deactivated: ${deactivated.name}`
     });
 
     return res.json({ success: true, data: { id: roleId, isActive: false } });

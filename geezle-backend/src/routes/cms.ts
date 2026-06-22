@@ -57,6 +57,7 @@ import { getSystemMessagesConfig, saveSystemMessagesConfig } from '../controller
 import { uploadMedia } from '../controllers/filesController';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { adminMiddleware } from '../middleware/admin.middleware';
+import { requirePermission } from '../middleware/rbac.middleware';
 import { upload } from './files.routes';
 
 const router = express.Router();
@@ -169,99 +170,99 @@ adminRouter.use(adminMiddleware);
 // Admin routes (require authentication)
 // Header Config
 adminRouter.route('/header')
-  .get(getHeaderConfig)
-  .post(saveHeaderConfig);
+  .get(requirePermission('cms.read'), getHeaderConfig)
+  .post(requirePermission('cms.manage'), saveHeaderConfig);
 
 // Footer Config (admin write-only; public read route above)
-adminRouter.post('/footer', saveFooterConfig);
+adminRouter.post('/footer', requirePermission('cms.manage'), saveFooterConfig);
 
 // Activity Config
 adminRouter.route('/activity')
-  .get(getActivityConfig)
-  .post(saveActivityConfig);
+  .get(requirePermission('cms.read'), getActivityConfig)
+  .post(requirePermission('cms.manage'), saveActivityConfig);
 
 // Hero Search Config
 adminRouter.route('/hero-search')
-  .get(getHeroSearchConfig)
-  .post(saveHeroSearchConfig);
+  .get(requirePermission('cms.read'), getHeroSearchConfig)
+  .post(requirePermission('cms.manage'), saveHeroSearchConfig);
 
 // Trending
 adminRouter.route('/trending')
-  .get(getTrendingOpportunities)
-  .post(saveTrendingConfig);
+  .get(requirePermission('cms.read'), getTrendingOpportunities)
+  .post(requirePermission('cms.manage'), saveTrendingConfig);
 
 // Trending Config
-adminRouter.get('/trending-config', getTrendingConfig);
+adminRouter.get('/trending-config', requirePermission('cms.read'), getTrendingConfig);
 
 // Homepage Sections
 adminRouter.route('/homepage-sections')
-  .get(getHomepageSections)
-  .post(saveHomepageSection);
+  .get(requirePermission('cms.read'), getHomepageSections)
+  .post(requirePermission('cms.manage'), saveHomepageSection);
 
-adminRouter.post('/homepage-sections/add', addHomepageSection);
-adminRouter.put('/homepage-sections/order', updateSectionOrder);
-adminRouter.delete('/homepage-sections/:id', deleteHomepageSection);
+adminRouter.post('/homepage-sections/add', requirePermission('cms.manage'), addHomepageSection);
+adminRouter.put('/homepage-sections/order', requirePermission('cms.manage'), updateSectionOrder);
+adminRouter.delete('/homepage-sections/:id', requirePermission('cms.manage'), deleteHomepageSection);
 
 // Homepage Sections (new architecture endpoints)
-adminRouter.get('/homepage/sections', getHomepageSections);
-adminRouter.post('/homepage/sections/update', saveHomepageSection);
-adminRouter.post('/homepage/sections/add', addHomepageSection);
-adminRouter.post('/homepage/sections/reorder', updateSectionOrder);
-adminRouter.post('/homepage/sections/delete', (req: Request, res: Response) => {
+adminRouter.get('/homepage/sections', requirePermission('cms.read'), getHomepageSections);
+adminRouter.post('/homepage/sections/update', requirePermission('cms.manage'), saveHomepageSection);
+adminRouter.post('/homepage/sections/add', requirePermission('cms.manage'), addHomepageSection);
+adminRouter.post('/homepage/sections/reorder', requirePermission('cms.manage'), updateSectionOrder);
+adminRouter.post('/homepage/sections/delete', requirePermission('cms.manage'), (req: Request, res: Response) => {
   const fakeReq = { ...req, params: { id: String(req.body?.id ?? req.params?.id ?? '') } } as unknown as Request;
   return deleteHomepageSection(fakeReq, res);
 });
 
 // Home Slides
 adminRouter.route('/home-slides')
-  .get(getHomeSlides)
-  .post(saveHomeSlide);
+  .get(requirePermission('cms.read'), getHomeSlides)
+  .post(requirePermission('cms.manage'), saveHomeSlide);
 
-adminRouter.put('/home-slides/order', updateHomeSlideOrder);
-adminRouter.delete('/home-slides/:id', deleteHomeSlide);
+adminRouter.put('/home-slides/order', requirePermission('cms.manage'), updateHomeSlideOrder);
+adminRouter.delete('/home-slides/:id', requirePermission('cms.manage'), deleteHomeSlide);
 
 // Home Slides (new architecture endpoints)
-adminRouter.get('/slides', getHomeSlides);
-adminRouter.post('/slides/save', saveHomeSlide);
-adminRouter.post('/slides/reorder', updateHomeSlideOrder);
-adminRouter.post('/slides/delete', (req: Request, res: Response) => {
+adminRouter.get('/slides', requirePermission('cms.read'), getHomeSlides);
+adminRouter.post('/slides/save', requirePermission('cms.manage'), saveHomeSlide);
+adminRouter.post('/slides/reorder', requirePermission('cms.manage'), updateHomeSlideOrder);
+adminRouter.post('/slides/delete', requirePermission('cms.manage'), (req: Request, res: Response) => {
   const fakeReq = { ...req, params: { id: String(req.body?.id ?? req.params?.id ?? '') } } as unknown as Request;
   return deleteHomeSlide(fakeReq, res);
 });
 
 // Analytics
-adminRouter.get('/homepage-analytics', getHomepageAnalytics);
+adminRouter.get('/homepage-analytics', requirePermission('cms.read'), getHomepageAnalytics);
 
 // Media upload (admin)
-adminRouter.post('/media', upload.single('file'), uploadMedia);
+adminRouter.post('/media', requirePermission('cms.manage'), upload.single('file'), uploadMedia);
 
 // Admin CMS pages and categories
-adminRouter.post('/pages', savePage);
-adminRouter.put('/pages/:id', savePage);
-adminRouter.delete('/pages/:id', deletePage);
+adminRouter.post('/pages', requirePermission('cms.manage'), savePage);
+adminRouter.put('/pages/:id', requirePermission('cms.manage'), savePage);
+adminRouter.delete('/pages/:id', requirePermission('cms.manage'), deletePage);
 
-adminRouter.post('/categories', savePageCategory);
-adminRouter.put('/categories/:id', savePageCategory);
-adminRouter.delete('/categories/:id', deletePageCategory);
+adminRouter.post('/categories', requirePermission('cms.manage'), savePageCategory);
+adminRouter.put('/categories/:id', requirePermission('cms.manage'), savePageCategory);
+adminRouter.delete('/categories/:id', requirePermission('cms.manage'), deletePageCategory);
 
 // Admin Blog endpoints
-adminRouter.get('/admin/blog/posts', getBlogPostsAdmin);
-adminRouter.get('/admin/blog/posts/:id', getBlogPostByIdAdmin);
-adminRouter.post('/blog/posts', saveBlogPost);
-adminRouter.put('/blog/posts/:id', saveBlogPost);
-adminRouter.delete('/blog/posts/:id', deleteBlogPost);
-adminRouter.post('/blog/categories', saveBlogCategory);
-adminRouter.put('/blog/categories/:id', saveBlogCategory);
-adminRouter.delete('/blog/categories/:id', deleteBlogCategory);
-adminRouter.post('/blog/settings', saveBlogSettings);
+adminRouter.get('/admin/blog/posts', requirePermission('cms.read'), getBlogPostsAdmin);
+adminRouter.get('/admin/blog/posts/:id', requirePermission('cms.read'), getBlogPostByIdAdmin);
+adminRouter.post('/blog/posts', requirePermission('cms.manage'), saveBlogPost);
+adminRouter.put('/blog/posts/:id', requirePermission('cms.manage'), saveBlogPost);
+adminRouter.delete('/blog/posts/:id', requirePermission('cms.manage'), deleteBlogPost);
+adminRouter.post('/blog/categories', requirePermission('cms.manage'), saveBlogCategory);
+adminRouter.put('/blog/categories/:id', requirePermission('cms.manage'), saveBlogCategory);
+adminRouter.delete('/blog/categories/:id', requirePermission('cms.manage'), deleteBlogCategory);
+adminRouter.post('/blog/settings', requirePermission('cms.manage'), saveBlogSettings);
 
-adminRouter.post('/auth-pages', saveAuthPagesConfig);
-adminRouter.post('/answers', saveAnswersPage);
-adminRouter.post('/guides', saveGuidesPage);
-adminRouter.post('/hire', saveHirePage);
-adminRouter.post('/freelancer', saveFreelancerPage);
-adminRouter.get('/system-messages', getSystemMessagesConfig);
-adminRouter.post('/system-messages', saveSystemMessagesConfig);
+adminRouter.post('/auth-pages', requirePermission('cms.manage'), saveAuthPagesConfig);
+adminRouter.post('/answers', requirePermission('cms.manage'), saveAnswersPage);
+adminRouter.post('/guides', requirePermission('cms.manage'), saveGuidesPage);
+adminRouter.post('/hire', requirePermission('cms.manage'), saveHirePage);
+adminRouter.post('/freelancer', requirePermission('cms.manage'), saveFreelancerPage);
+adminRouter.get('/system-messages', requirePermission('cms.read'), getSystemMessagesConfig);
+adminRouter.post('/system-messages', requirePermission('cms.manage'), saveSystemMessagesConfig);
 
 // Test route
 adminRouter.get('/test', (req: Request, res: Response) => {
@@ -276,7 +277,7 @@ adminRouter.get('/test', (req: Request, res: Response) => {
 router.use(adminRouter);
 
 // Admin: save affiliate content (requires auth + admin)
-adminRouter.post('/affiliate/content', async (req: Request, res: Response, next: any) => {
+adminRouter.post('/affiliate/content', requirePermission('cms.manage'), async (req: Request, res: Response, next: any) => {
   const { saveAffiliateContent } = await import('../controllers/cmsController');
   return saveAffiliateContent(req, res).catch(next);
 });

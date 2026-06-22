@@ -28,6 +28,7 @@ import {
   DEFAULT_STOREFRONT_SETTINGS,
   normalizeStorefrontSettings
 } from '../utils/storefrontSettings';
+import { recordGovernedAdminAction } from '../services/enterpriseGovernance.service';
 import {
   DEFAULT_CONTENT_OFFER_SETTINGS,
   normalizeContentOfferSettings
@@ -804,6 +805,18 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
     (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
     (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((merged as any)?.optimization));
 
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'settings',
+      actionKey: 'system_settings_update',
+      entityType: 'system_settings',
+      entityId: 'system',
+      message: 'System settings updated',
+      metadata: { scope: 'system', keys: Object.keys(payload || {}) },
+      approvalActionKey: 'enterprise_change',
+      approvalEntityType: 'system_settings',
+      approvalTitle: 'System settings updated'
+    });
+
     return res.json({ success: true, data: merged });
   } catch (error) {
     console.error('updateSystemSettings DB error, attempting file fallback', error);
@@ -823,6 +836,17 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
       (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
       (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((merged as any)?.optimization));
       console.log('[admin] Persisted system settings to', SETTINGS_FILE);
+      await recordGovernedAdminAction(req, {
+        moduleKey: 'settings',
+        actionKey: 'system_settings_update',
+        entityType: 'system_settings',
+        entityId: 'system',
+        message: 'System settings updated via fallback persistence',
+        metadata: { scope: 'system', fallback: 'file' },
+        approvalActionKey: 'enterprise_change',
+        approvalEntityType: 'system_settings',
+        approvalTitle: 'System settings updated'
+      });
       return res.json({ success: true, data: merged, fallback: 'file' });
     } catch (fsErr) {
       console.error('Failed to write fallback settings file', fsErr);

@@ -11,6 +11,7 @@ import {
   savePolicyRule,
   updateUserPermissionOverride
 } from '../../services/policy.service';
+import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
 
 const router = express.Router();
 
@@ -96,6 +97,14 @@ router.post('/rules', requirePermission('policies.rules.create'), async (req, re
   try {
     const staffId = await getStaffId(req);
     const rule = await savePolicyRule(req.body || {}, staffId);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'policies',
+      actionKey: 'rule_create',
+      entityType: 'policy_rule',
+      entityId: rule.id,
+      message: `Policy rule created: ${rule.permissionKey}`,
+      metadata: { rule }
+    });
     emitPolicyUpdated(req, {
       action: 'rule_created',
       ruleId: rule.id,
@@ -113,6 +122,14 @@ router.put('/rules/:id', requirePermission('policies.rules.update'), async (req,
   try {
     const staffId = await getStaffId(req);
     const rule = await savePolicyRule({ ...(req.body || {}), id: req.params.id }, staffId);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'policies',
+      actionKey: 'rule_update',
+      entityType: 'policy_rule',
+      entityId: rule.id,
+      message: `Policy rule updated: ${rule.permissionKey}`,
+      metadata: { rule }
+    });
     emitPolicyUpdated(req, {
       action: 'rule_updated',
       ruleId: rule.id,
@@ -130,6 +147,14 @@ router.delete('/rules/:id', requirePermission('policies.rules.delete'), async (r
   try {
     const staffId = await getStaffId(req);
     const rule = await deactivatePolicyRule(req.params.id, staffId);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'policies',
+      actionKey: 'rule_deactivate',
+      entityType: 'policy_rule',
+      entityId: rule.id,
+      message: `Policy rule deactivated: ${rule.permissionKey}`,
+      metadata: { rule }
+    });
     emitPolicyUpdated(req, {
       action: 'rule_deactivated',
       ruleId: rule.id,
@@ -160,6 +185,14 @@ router.post('/overrides', requirePermission('policies.overrides.manage'), async 
   try {
     const staffId = await getStaffId(req);
     const override = await createUserPermissionOverride(req.body || {}, staffId);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'policies',
+      actionKey: 'override_create',
+      entityType: 'permission_override',
+      entityId: override.id,
+      message: `Permission override created: ${override.permissionKey}`,
+      metadata: { override }
+    });
     emitUserPermissionsUpdated(req, {
       action: 'override_created',
       userId: override.userId,
@@ -176,6 +209,14 @@ router.put('/overrides/:id', requirePermission('policies.overrides.manage'), asy
   try {
     const staffId = await getStaffId(req);
     const override = await updateUserPermissionOverride(req.params.id, req.body || {}, staffId);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'policies',
+      actionKey: 'override_update',
+      entityType: 'permission_override',
+      entityId: override.id,
+      message: `Permission override updated: ${override.permissionKey}`,
+      metadata: { override }
+    });
     emitUserPermissionsUpdated(req, {
       action: 'override_updated',
       userId: override.userId,
@@ -192,6 +233,14 @@ router.delete('/overrides/:id', requirePermission('policies.overrides.manage'), 
   try {
     const staffId = await getStaffId(req);
     const override = await deactivateUserPermissionOverride(req.params.id, staffId);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'policies',
+      actionKey: 'override_deactivate',
+      entityType: 'permission_override',
+      entityId: override.id,
+      message: `Permission override deactivated: ${override.permissionKey}`,
+      metadata: { override }
+    });
     emitUserPermissionsUpdated(req, {
       action: 'override_deactivated',
       userId: override.userId,

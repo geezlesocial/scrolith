@@ -91,7 +91,61 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'staff.create', label: 'Create staff members', groupName: 'Staff & RBAC' },
   { key: 'staff.update', label: 'Update staff members', groupName: 'Staff & RBAC' },
   { key: 'staff.reset_password', label: 'Reset staff passwords', groupName: 'Staff & RBAC' },
-  { key: 'staff.force_2fa', label: 'Enforce staff 2FA', groupName: 'Staff & RBAC' }
+  { key: 'staff.force_2fa', label: 'Enforce staff 2FA', groupName: 'Staff & RBAC' },
+
+  { key: 'listings.read', label: 'Read marketplace listings governance data', groupName: 'Enterprise Governance' },
+  { key: 'listings.manage', label: 'Manage marketplace listings governance actions', groupName: 'Enterprise Governance' },
+  { key: 'listings.approve', label: 'Approve marketplace listing actions', groupName: 'Enterprise Governance' },
+  { key: 'jobs.read', label: 'Read jobs governance data', groupName: 'Enterprise Governance' },
+  { key: 'jobs.manage', label: 'Manage job governance actions', groupName: 'Enterprise Governance' },
+  { key: 'gigs.read', label: 'Read gigs governance data', groupName: 'Enterprise Governance' },
+  { key: 'gigs.manage', label: 'Manage gig governance actions', groupName: 'Enterprise Governance' },
+  { key: 'payouts.read', label: 'Read payout governance data', groupName: 'Enterprise Governance' },
+  { key: 'payouts.release', label: 'Release payouts', groupName: 'Enterprise Governance' },
+  { key: 'disputes.read', label: 'Read disputes governance data', groupName: 'Enterprise Governance' },
+  { key: 'disputes.manage', label: 'Manage disputes', groupName: 'Enterprise Governance' },
+  { key: 'invoices.read', label: 'Read invoices governance data', groupName: 'Enterprise Governance' },
+  { key: 'invoices.approve', label: 'Approve invoices', groupName: 'Enterprise Governance' },
+  { key: 'procurement.read', label: 'Read procurement workflows', groupName: 'Enterprise Governance' },
+  { key: 'procurement.manage', label: 'Manage procurement workflows', groupName: 'Enterprise Governance' },
+  { key: 'budgets.read', label: 'Read budget controls', groupName: 'Enterprise Governance' },
+  { key: 'budgets.manage', label: 'Manage budget controls', groupName: 'Enterprise Governance' },
+  { key: 'kyc.read', label: 'Read KYC governance data', groupName: 'Enterprise Governance' },
+  { key: 'kyc.review', label: 'Review KYC decisions', groupName: 'Enterprise Governance' },
+  { key: 'live.read', label: 'Read live governance data', groupName: 'Enterprise Governance' },
+  { key: 'live.manage', label: 'Manage live governance actions', groupName: 'Enterprise Governance' },
+  { key: 'cms.read', label: 'Read enterprise CMS governance data', groupName: 'Enterprise Governance' },
+  { key: 'cms.manage', label: 'Manage enterprise CMS governance actions', groupName: 'Enterprise Governance' },
+  { key: 'ai.read', label: 'Read enterprise AI governance data', groupName: 'Enterprise Governance' },
+  { key: 'ai.manage', label: 'Manage enterprise AI governance actions', groupName: 'Enterprise Governance' },
+  { key: 'settings.read', label: 'Read enterprise settings', groupName: 'Enterprise Governance' },
+  { key: 'settings.update', label: 'Update enterprise settings', groupName: 'Enterprise Governance' },
+  { key: 'settings.enterprise_change', label: 'Change governed enterprise settings', groupName: 'Enterprise Governance' },
+  { key: 'approvals.read', label: 'Read approval policies and requests', groupName: 'Enterprise Governance' },
+  { key: 'approvals.review', label: 'Review approval requests', groupName: 'Enterprise Governance' },
+  { key: 'approvals.manage', label: 'Manage approval policies', groupName: 'Enterprise Governance' },
+  { key: 'audit.read', label: 'Read enterprise audit logs', groupName: 'Enterprise Governance' },
+  { key: 'security.alerts.read', label: 'Read security alerts', groupName: 'Enterprise Governance' },
+  { key: 'security.alerts.manage', label: 'Manage security alerts', groupName: 'Enterprise Governance' },
+  { key: 'compliance.read', label: 'Read compliance cases', groupName: 'Enterprise Operations' },
+  { key: 'compliance.manage', label: 'Manage compliance cases', groupName: 'Enterprise Operations' },
+  { key: 'risk.read', label: 'Read risk rules and scores', groupName: 'Enterprise Operations' },
+  { key: 'risk.manage', label: 'Manage risk rules and actions', groupName: 'Enterprise Operations' },
+  { key: 'holds.manage', label: 'Manage holds and releases', groupName: 'Enterprise Operations' },
+  { key: 'appeals.read', label: 'Read appeals', groupName: 'Enterprise Operations' },
+  { key: 'appeals.manage', label: 'Manage appeals', groupName: 'Enterprise Operations' },
+  { key: 'talent_cloud.read', label: 'Read private talent cloud', groupName: 'Enterprise Operations' },
+  { key: 'talent_cloud.manage', label: 'Manage private talent cloud', groupName: 'Enterprise Operations' },
+  { key: 'integrations.read', label: 'Read integrations', groupName: 'Enterprise Operations' },
+  { key: 'integrations.manage', label: 'Manage integrations', groupName: 'Enterprise Operations' },
+  { key: 'webhooks.read', label: 'Read webhook deliveries', groupName: 'Enterprise Operations' },
+  { key: 'webhooks.manage', label: 'Manage webhook deliveries', groupName: 'Enterprise Operations' },
+  { key: 'api_keys.read', label: 'Read API keys', groupName: 'Enterprise Operations' },
+  { key: 'api_keys.manage', label: 'Manage API keys', groupName: 'Enterprise Operations' },
+  { key: 'scrolitha.read', label: 'Read Scrolitha enterprise outputs', groupName: 'Enterprise Operations' },
+  { key: 'scrolitha.manage', label: 'Manage Scrolitha enterprise controls', groupName: 'Enterprise Operations' },
+  { key: 'managed_delivery.read', label: 'Read managed delivery operations', groupName: 'Enterprise Operations' },
+  { key: 'managed_delivery.manage', label: 'Manage managed delivery operations', groupName: 'Enterprise Operations' }
 ];
 
 const ALL_PERMISSION_KEYS = DEFAULT_PERMISSION_SEEDS.map((permission) => permission.key);
@@ -154,6 +208,139 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'cms.blog.update',
       'cms.blog.publish'
     ]
+  },
+  {
+    name: 'Owner',
+    description: 'Enterprise workspace owner with full governance visibility and control',
+    isSystemRole: true,
+    permissionKeys: ALL_PERMISSION_KEYS
+  },
+  {
+    name: 'Finance Admin',
+    description: 'Governs invoices, payouts, and finance approvals',
+    isSystemRole: true,
+    permissionKeys: [
+      'staff.read',
+      'payouts.read',
+      'payouts.release',
+      'procurement.read',
+      'procurement.manage',
+      'budgets.read',
+      'budgets.manage',
+      'invoices.read',
+      'invoices.approve',
+      'compliance.read',
+      'compliance.manage',
+      'risk.read',
+      'risk.manage',
+      'holds.manage',
+      'appeals.read',
+      'appeals.manage',
+      'talent_cloud.read',
+      'talent_cloud.manage',
+      'integrations.read',
+      'integrations.manage',
+      'webhooks.read',
+      'webhooks.manage',
+      'api_keys.read',
+      'api_keys.manage',
+      'scrolitha.read',
+      'scrolitha.manage',
+      'managed_delivery.read',
+      'managed_delivery.manage',
+      'approvals.read',
+      'approvals.review',
+      'audit.read',
+      'settings.read'
+    ]
+  },
+  {
+    name: 'Recruiter',
+    description: 'Governs jobs, gigs, and talent operations',
+    isSystemRole: true,
+    permissionKeys: [
+      'staff.read',
+      'jobs.read',
+      'jobs.manage',
+      'gigs.read',
+      'gigs.manage',
+      'listings.read',
+      'audit.read'
+    ]
+  },
+  {
+    name: 'Hiring Manager',
+    description: 'Approves talent and requisition related activity',
+    isSystemRole: true,
+    permissionKeys: [
+      'jobs.read',
+      'jobs.manage',
+      'gigs.read',
+      'listings.read',
+      'procurement.read',
+      'approvals.read',
+      'approvals.review',
+      'audit.read'
+    ]
+  },
+  {
+    name: 'Legal',
+    description: 'Handles disputes, compliance reviews, and governed settings visibility',
+    isSystemRole: true,
+    permissionKeys: [
+      'disputes.read',
+      'disputes.manage',
+      'kyc.read',
+      'kyc.review',
+      'invoices.read',
+      'compliance.read',
+      'appeals.read',
+      'approvals.read',
+      'audit.read',
+      'settings.read',
+      'security.alerts.read'
+    ]
+  },
+  {
+    name: 'Support',
+    description: 'Support operations with governed visibility into user and listing issues',
+    isSystemRole: true,
+    permissionKeys: [
+      'users.read',
+      'support.tickets.read',
+      'support.tickets.reply',
+      'support.tickets.assign',
+      'support.tickets.close',
+      'listings.read',
+      'disputes.read',
+      'procurement.read',
+      'compliance.read',
+      'audit.read'
+    ]
+  },
+  {
+    name: 'Moderator',
+    description: 'Enterprise moderation role with governance visibility',
+    isSystemRole: true,
+    permissionKeys: [
+      'community.posts.read',
+      'community.posts.moderate',
+      'community.comments.moderate',
+      'community.reports.read',
+      'community.reports.resolve',
+      'community.accounts.moderate',
+      'listings.read',
+      'audit.read',
+      'security.alerts.read',
+      'compliance.read',
+      'appeals.read'
+    ]
+  },
+  {
+    name: 'Analyst',
+    description: 'Read-only governance and audit visibility',
+    isSystemRole: true,
+    permissionKeys: ['audit.read', 'approvals.read', 'security.alerts.read', 'settings.read', 'staff.read', 'procurement.read', 'budgets.read', 'invoices.read', 'risk.read', 'compliance.read', 'talent_cloud.read', 'integrations.read', 'webhooks.read', 'scrolitha.read', 'managed_delivery.read']
   }
 ];
 
