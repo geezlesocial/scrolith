@@ -87,6 +87,17 @@ const emptyStructuredLocation = (location: string): Partial<StructuredLocationFi
   location_source: location ? 'manual' : ''
 });
 
+const buildCoordinateFallbackPayload = (latitude: number, longitude: number): Partial<StructuredLocationFields> => {
+  const label = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+  return {
+    ...emptyStructuredLocation(label),
+    latitude,
+    longitude,
+    locationSource: 'coordinates_fallback',
+    location_source: 'coordinates_fallback'
+  };
+};
+
 const toLocationPayload = (location: LocationSuggestion): Partial<StructuredLocationFields> => ({
   location: location.location || location.formattedAddress || location.label,
   formattedAddress: location.formattedAddress || location.location || location.label,
@@ -153,11 +164,7 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
     try {
       const resolved = await LocationService.reverse(nextLatitude, nextLongitude);
       if (!resolved) {
-        onChange({
-          ...emptyStructuredLocation(`${nextLatitude.toFixed(5)}, ${nextLongitude.toFixed(5)}`),
-          latitude: nextLatitude,
-          longitude: nextLongitude
-        });
+        onChange(buildCoordinateFallbackPayload(nextLatitude, nextLongitude));
         return;
       }
       applySuggestion({
@@ -166,7 +173,8 @@ const LocationPicker: React.FC<LocationPickerProps> = ({
         longitude: nextLongitude
       });
     } catch (error: any) {
-      setErrorMessage(error?.message || 'Unable to resolve that map position.');
+      onChange(buildCoordinateFallbackPayload(nextLatitude, nextLongitude));
+      setErrorMessage('');
     } finally {
       setResolving(false);
     }
