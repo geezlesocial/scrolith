@@ -4,6 +4,7 @@ import { resolveUserProStatus } from '../utils/proStatus';
 import { JobStatus } from '@prisma/client';
 import { notifyFollowersAboutPublication } from '../services/followPublicationNotifications.service';
 import { resolveFeaturedListingEligibility } from '../services/listingFeaturePolicy.service';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const normalizeStatus = (status?: string) => (status || '').toString().toLowerCase();
 const parseBooleanQuery = (value: unknown) => {
@@ -304,6 +305,15 @@ export const createJob = async (req: Request, res: Response) => {
       include: { category: true, client: { select: safeUserSelect } }
     });
 
+    await publishIntegrationEvent('job.created', {
+      jobId: created.id,
+      clientId: created.clientId,
+      categoryId: created.categoryId,
+      status: created.status,
+      adminStatus: created.adminStatus,
+      visibility: created.visibility
+    });
+
     return res.status(201).json({ success: true, data: serializeJob(created) });
   } catch (error: any) {
     console.error('Create job error:', error);
@@ -364,6 +374,15 @@ export const updateJob = async (req: Request, res: Response) => {
       include: { category: true, client: { select: safeUserSelect } }
     });
 
+    await publishIntegrationEvent('job.updated', {
+      jobId: updated.id,
+      clientId: updated.clientId,
+      categoryId: updated.categoryId,
+      status: updated.status,
+      adminStatus: updated.adminStatus,
+      visibility: updated.visibility
+    });
+
     return res.json({ success: true, data: serializeJob(updated) });
   } catch (error: any) {
     console.error('Update job error:', error);
@@ -412,6 +431,14 @@ export const submitJob = async (req: Request, res: Response) => {
     if (updated.status === 'ACTIVE' && existing.status !== 'ACTIVE') {
       await notifyFollowersAboutJobPublication(req, updated);
     }
+    await publishIntegrationEvent('job.submitted', {
+      jobId: updated.id,
+      clientId: updated.clientId,
+      categoryId: updated.categoryId,
+      status: updated.status,
+      adminStatus: updated.adminStatus,
+      isVisible: updated.isVisible
+    });
 
     return res.json({ success: true, data: serializeJob(updated) });
   } catch (error: any) {
@@ -464,6 +491,15 @@ const updateJobStatus = async (req: Request, res: Response, status: JobStatus) =
     if (status === 'ACTIVE' && existing.status !== 'ACTIVE') {
       await notifyFollowersAboutJobPublication(req, updated);
     }
+    await publishIntegrationEvent('job.status_changed', {
+      jobId: updated.id,
+      clientId: updated.clientId,
+      categoryId: updated.categoryId,
+      previousStatus: existing.status,
+      status: updated.status,
+      adminStatus: updated.adminStatus,
+      isVisible: updated.isVisible
+    });
 
     return res.json({ success: true, data: serializeJob(updated) });
   } catch (error: any) {

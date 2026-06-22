@@ -4,6 +4,7 @@ import { resolveUserProStatus } from '../utils/proStatus';
 import { notifyFollowersAboutPublication } from '../services/followPublicationNotifications.service';
 import { resolveFeaturedListingEligibility } from '../services/listingFeaturePolicy.service';
 import { computeListingTrustSummary, getTrustScoreSettings } from '../services/trustScore.service';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 import { DEFAULT_TRUST_SCORE_SETTINGS, TrustScoreSettings } from '../utils/trustScoreSettings';
 
 const getAutoApproveGigs = async () => {
@@ -361,6 +362,15 @@ export const createGig = async (req: Request, res: Response) => {
       include: GIG_INCLUDE
     });
 
+    await publishIntegrationEvent('gig.created', {
+      gigId: created.id,
+      sellerId: created.userId,
+      categoryId: created.categoryId,
+      status: created.status,
+      adminStatus: created.adminStatus,
+      pricingMode: created.pricingMode
+    });
+
     return res.status(201).json({ success: true, data: serializeGig(created, trustSettings) });
   } catch (error: any) {
     console.error('Create gig error:', error);
@@ -441,6 +451,15 @@ export const updateGig = async (req: Request, res: Response) => {
       include: GIG_INCLUDE
     });
 
+    await publishIntegrationEvent('gig.updated', {
+      gigId: updated.id,
+      sellerId: updated.userId,
+      categoryId: updated.categoryId,
+      status: updated.status,
+      adminStatus: updated.adminStatus,
+      pricingMode: updated.pricingMode
+    });
+
     return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {
     console.error('Update gig error:', error);
@@ -488,6 +507,13 @@ export const submitGig = async (req: Request, res: Response) => {
     if (updated.status === 'ACTIVE' && gig.status !== 'ACTIVE') {
       await notifyFollowersAboutGigPublication(req, updated);
     }
+    await publishIntegrationEvent('gig.submitted', {
+      gigId: updated.id,
+      sellerId: updated.userId,
+      categoryId: updated.categoryId,
+      status: updated.status,
+      adminStatus: updated.adminStatus
+    });
 
     return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {
@@ -510,6 +536,15 @@ export const pauseGig = async (req: Request, res: Response) => {
       where: { id: req.params.id },
       data: { status: 'PAUSED', isActive: false },
       include: GIG_INCLUDE
+    });
+
+    await publishIntegrationEvent('gig.status_changed', {
+      gigId: updated.id,
+      sellerId: updated.userId,
+      categoryId: updated.categoryId,
+      previousStatus: gig.status,
+      status: updated.status,
+      adminStatus: updated.adminStatus
     });
 
     return res.json({ success: true, data: serializeGig(updated, trustSettings) });
@@ -540,6 +575,14 @@ export const activateGig = async (req: Request, res: Response) => {
     if (gig.status !== 'ACTIVE') {
       await notifyFollowersAboutGigPublication(req, updated);
     }
+    await publishIntegrationEvent('gig.status_changed', {
+      gigId: updated.id,
+      sellerId: updated.userId,
+      categoryId: updated.categoryId,
+      previousStatus: gig.status,
+      status: updated.status,
+      adminStatus: updated.adminStatus
+    });
 
     return res.json({ success: true, data: serializeGig(updated, trustSettings) });
   } catch (error: any) {

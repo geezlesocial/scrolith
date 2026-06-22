@@ -16,12 +16,16 @@ const hashValue = (value: string) => crypto.createHash('sha256').update(value).d
 const signPayload = (payload: any, secret: string) =>
   crypto.createHmac('sha256', secret).update(JSON.stringify(payload || {})).digest('hex');
 const WEBHOOK_SECRET_KEY = 'webhookSecret';
+const CONNECTOR_SHARED_SECRET_KEY = 'connectorSharedSecret';
+const CONNECTOR_API_KEY_KEY = 'connectorApiKey';
 const GLOBAL_WEBHOOK_EVENT = '*';
 
 const stripWebhookSecret = (metadata: any) => {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata || null;
   const next = { ...(metadata || {}) };
   delete next[WEBHOOK_SECRET_KEY];
+  delete next[CONNECTOR_SHARED_SECRET_KEY];
+  delete next[CONNECTOR_API_KEY_KEY];
   return next;
 };
 
@@ -35,6 +39,12 @@ const sanitizeEndpoint = (endpoint: any) => {
 
 const getStoredWebhookSecret = (endpoint: any) =>
   maybeDecryptSecret(endpoint?.metadata?.[WEBHOOK_SECRET_KEY]) || '';
+
+const getStoredConnectorSharedSecret = (endpoint: any) =>
+  maybeDecryptSecret(endpoint?.metadata?.[CONNECTOR_SHARED_SECRET_KEY]) || '';
+
+const getStoredConnectorApiKey = (endpoint: any) =>
+  maybeDecryptSecret(endpoint?.metadata?.[CONNECTOR_API_KEY_KEY]) || '';
 
 const toEventTypes = (value: any): string[] =>
   Array.isArray(value)
@@ -210,6 +220,161 @@ export const saveIntegrationEndpoint = async (input: any, id?: string) => {
     ? await prisma.integrationEndpoint.update({ where: { id }, data })
     : await prisma.integrationEndpoint.create({ data });
   return { ...sanitizeEndpoint(endpoint), secretPlain };
+};
+
+const sanitizeEventType = (value: unknown) =>
+  cleanString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9.*:_-]+/g, '.')
+    .replace(/\.{2,}/g, '.')
+    .replace(/^\.+|\.+$/g, '');
+
+const sanitizeConnectorMetadata = (input: any, previous?: any) => {
+  const existingMetadata =
+    previous?.metadata && typeof previous.metadata === 'object' && !Array.isArray(previous.metadata)
+      ? { ...(previous.metadata as Record<string, any>) }
+      : {};
+  const inputMetadata =
+    input?.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
+      ? { ...(input.metadata as Record<string, any>) }
+      : {};
+  return { ...existingMetadata, ...inputMetadata };
+};
+
+export const listInboundConnectors = async () =>
+  (await prisma.integrationEndpoint.findMany({
+    where: { type: 'INBOUND_CONNECTOR' },
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }]
+  })).map(sanitizeEndpoint);
+
+export const saveInboundConnector = async (input: any, id?: string) => {
+  const previous = id ? await prisma.integrationEndpoint.findUnique({ where: { id } }) : null;
+  const metadata = sanitizeConnectorMetadata(input, previous);
+  const rotateCredentials = input?.rotateCredentials === true;
+  const sharedSecretPlain = cleanString(input?.sharedSecretPlain) || (rotateCredentials || !previous ? randomToken('connsec', 16) : '');
+  const apiKeyPlain = cleanString(input?.apiKeyPlain) || (rotateCredentials || !previous ? randomToken('connkey', 16) : '');
+  const providerKey = cleanString(input?.providerKey || metadata.providerKey || 'custom')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-');
+  const authMode = cleanString(input?.authMode || metadata.authMode || 'bearer').toUpperCase();
+  const authHeaderName = cleanString(input?.authHeaderName || metadata.authHeaderName || 'x-scrolith-connector-key');
+  const data = {
+    name: cleanString(input?.name || previous?.name),
+    type: 'INBOUND_CONNECTOR',
+    targetUrl: cleanString(input?.targetUrl || previous?.targetUrl) || null,
+    eventTypes: toEventTypes(input?.eventTypes ?? previous?.eventTypes),
+    secretHash: hashValue([providerKey, sharedSecretPlain || getStoredConnectorSharedSecret(previous), apiKeyPlain || getStoredConnectorApiKey(previous)].join(':')),
+    status: cleanString(input?.status || previous?.status || 'ACTIVE').toUpperCase(),
+    retryPolicy: input?.retryPolicy || previous?.retryPolicy || { mode: 'ACK_ONLY', maxAttempts: 1 },
+    deadLetterEnabled: input?.deadLetterEnabled === true,
+    metadata: {
+      ...metadata,
+      providerKey,
+      authMode,
+      authHeaderName,
+      lastReceivedAt: metadata.lastReceivedAt || null,
+      lastEventType: metadata.lastEventType || null,
+      receivedCount: Number(metadata.receivedCount || 0),
+      [CONNECTOR_SHARED_SECRET_KEY]: sharedSecretPlain
+        ? encryptSecret(sharedSecretPlain)
+        : previous?.metadata?.[CONNECTOR_SHARED_SECRET_KEY] || null,
+      [CONNECTOR_API_KEY_KEY]: apiKeyPlain
+        ? encryptSecret(apiKeyPlain)
+        : previous?.metadata?.[CONNECTOR_API_KEY_KEY] || null
+    }
+  };
+  if (!data.name) throw new Error('name is required');
+  const connector = previous
+    ? await prisma.integrationEndpoint.update({ where: { id: previous.id }, data })
+    : await prisma.integrationEndpoint.create({ data });
+  return {
+    ...sanitizeEndpoint(connector),
+    sharedSecretPlain: sharedSecretPlain || undefined,
+    apiKeyPlain: apiKeyPlain || undefined
+  };
+};
+
+const readHeaderValue = (headers: Record<string, any>, name: string) => {
+  const normalizedName = cleanString(name).toLowerCase();
+  const direct = headers?.[normalizedName] ?? headers?.[name];
+  return Array.isArray(direct) ? cleanString(direct[0]) : cleanString(direct);
+};
+
+const verifyInboundConnectorAuth = (endpoint: any, headers: Record<string, any>) => {
+  const metadata = endpoint?.metadata || {};
+  const authMode = cleanString(metadata.authMode || 'bearer').toUpperCase();
+  const sharedSecret = getStoredConnectorSharedSecret(endpoint);
+  const apiKey = getStoredConnectorApiKey(endpoint);
+  if (authMode === 'HEADER') {
+    const headerName = cleanString(metadata.authHeaderName || 'x-scrolith-connector-key');
+    const provided = readHeaderValue(headers, headerName);
+    if (!provided || provided !== apiKey) throw new Error('Invalid connector API key');
+    return;
+  }
+  const authorization = readHeaderValue(headers, 'authorization');
+  const token = authorization.replace(/^bearer\s+/i, '').trim();
+  if (!token || (token !== apiKey && token !== sharedSecret)) throw new Error('Invalid connector bearer token');
+};
+
+export const ingestInboundConnectorEvent = async (endpointId: string, headers: Record<string, any>, payload: any) => {
+  const endpoint = await prisma.integrationEndpoint.findUnique({ where: { id: endpointId } });
+  if (!endpoint || cleanString(endpoint.type).toUpperCase() !== 'INBOUND_CONNECTOR') {
+    throw new Error('Inbound connector not found');
+  }
+  if (cleanString(endpoint.status).toUpperCase() !== 'ACTIVE') throw new Error('Inbound connector is not active');
+
+  verifyInboundConnectorAuth(endpoint, headers || {});
+
+  const providerKey = cleanString(endpoint?.metadata?.providerKey || endpoint.name || 'custom')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-');
+  const rawEventType =
+    cleanString(payload?.eventType || payload?.type || readHeaderValue(headers || {}, 'x-scrolith-event') || 'event.received');
+  const normalizedEventType = sanitizeEventType(rawEventType) || 'event.received';
+  if (endpoint.eventTypes?.length && !eventMatches(normalizedEventType, toEventTypes(endpoint.eventTypes))) {
+    throw new Error('Connector event type is not allowed');
+  }
+
+  const metadata = {
+    ...(endpoint.metadata && typeof endpoint.metadata === 'object' && !Array.isArray(endpoint.metadata)
+      ? (endpoint.metadata as Record<string, any>)
+      : {}),
+    lastReceivedAt: new Date().toISOString(),
+    lastEventType: normalizedEventType,
+    receivedCount: Number((endpoint.metadata as any)?.receivedCount || 0) + 1,
+    lastPayloadSample:
+      payload && typeof payload === 'object'
+        ? JSON.parse(JSON.stringify(payload)).data || payload
+        : payload || null
+  };
+
+  await prisma.integrationEndpoint.update({
+    where: { id: endpoint.id },
+    data: { metadata }
+  });
+
+  const forwardedEventType = `connector.${providerKey}.${normalizedEventType}`;
+  await publishIntegrationEvent(forwardedEventType, {
+    connectorId: endpoint.id,
+    connectorName: endpoint.name,
+    providerKey,
+    sourceEventType: normalizedEventType,
+    payload: payload || null
+  });
+  await publishIntegrationEvent('integrations.connector.ingested', {
+    connectorId: endpoint.id,
+    connectorName: endpoint.name,
+    providerKey,
+    sourceEventType: normalizedEventType
+  });
+
+  return {
+    accepted: true,
+    connectorId: endpoint.id,
+    providerKey,
+    sourceEventType: normalizedEventType,
+    forwardedEventType
+  };
 };
 
 export const queueWebhookDelivery = async (endpointId: string, eventType: string, payload: any) => {

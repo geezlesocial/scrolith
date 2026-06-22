@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import prisma from "../utils/prismaClient";
 import { sendSystemMessage } from "../services/systemMessaging";
+import { syncManagedProjectsForEntity } from "../services/aiManaged.service";
+import { publishIntegrationEvent } from "../services/talentCloud.service";
 import realtime from "../utils/realtime";
 import {
   buildContractPlan,
@@ -407,6 +409,18 @@ export const updateContractMilestoneStatus = async (req: Request, res: Response)
     const updated = await prisma.contract.update({
       where: { id: contract.id },
       data: { milestones: milestones as any }
+    });
+    await syncManagedProjectsForEntity('CONTRACT', contract.id, {
+      milestoneId: req.params.milestoneId,
+      status: statusRaw,
+      actorUserId: userId
+    });
+    await publishIntegrationEvent('contract.milestone.updated', {
+      contractId: updated.id,
+      milestoneId: req.params.milestoneId,
+      status: statusRaw,
+      clientId: updated.clientId,
+      freelancerId: updated.freelancerId
     });
 
     return res.json({

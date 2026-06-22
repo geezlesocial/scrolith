@@ -7,6 +7,7 @@ import {
   listInvoiceRecords,
   listPurchaseRequests
 } from '../services/procurement.service';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const router = express.Router();
 
@@ -58,6 +59,15 @@ router.post('/purchase-requests', async (req, res) => {
         budgetStatus: data?.budgetStatus || null
       });
     }
+    await publishIntegrationEvent('procurement.purchase_request.created', {
+      purchaseRequestId: data?.id || null,
+      requestNumber: data?.requestNumber || null,
+      requesterUserId: data?.requesterUserId || String(req.user?.id || ''),
+      status: data?.status || null,
+      budgetStatus: data?.budgetStatus || null,
+      amount: data?.amount || null,
+      currency: data?.currency || null
+    });
     return res.status(201).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to create purchase request');

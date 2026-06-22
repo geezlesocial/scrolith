@@ -1,6 +1,7 @@
 import prisma from '../utils/prismaClient';
 import { notifyAdmins, notifyUser } from '../utils/notify';
 import { DEFAULT_MARKETPLACE_CATEGORIES } from '../config/marketplaceCategories';
+import { publishIntegrationEvent } from './talentCloud.service';
 
 type User = any;
 type JsonValue = any;
@@ -817,6 +818,17 @@ export const createMarketplaceListing = async (user: User, input: any, allowAdmi
     });
   }
 
+  await publishIntegrationEvent('marketplace.listing.created', {
+    listingId: created.id,
+    slug: created.slug,
+    sellerId: created.sellerId,
+    categoryId: created.categoryId,
+    status: created.status,
+    reviewStatus: created.reviewStatus,
+    price: created.price,
+    currency: created.currency
+  });
+
   return normalizeListing(created, user.id);
 };
 
@@ -890,6 +902,17 @@ export const updateMarketplaceListing = async (listingId: string, user: User, in
     }
   }).catch(() => null);
 
+  await publishIntegrationEvent('marketplace.listing.updated', {
+    listingId: updated.id,
+    slug: updated.slug,
+    sellerId: updated.sellerId,
+    categoryId: updated.categoryId,
+    status: updated.status,
+    reviewStatus: updated.reviewStatus,
+    price: updated.price,
+    currency: updated.currency
+  });
+
   return normalizeListing(updated, user.id);
 };
 
@@ -940,6 +963,14 @@ export const submitMarketplaceListing = async (listingId: string, user: User) =>
     });
   }
 
+  await publishIntegrationEvent('marketplace.listing.submitted', {
+    listingId: updated.id,
+    slug: updated.slug,
+    sellerId: updated.sellerId,
+    status: updated.status,
+    reviewStatus: updated.reviewStatus
+  });
+
   return normalizeListing(updated, user.id);
 };
 
@@ -952,6 +983,12 @@ export const archiveMarketplaceListing = async (listingId: string, user: User) =
       removedAt: new Date()
     },
     include: normalizeListingInclude
+  });
+  await publishIntegrationEvent('marketplace.listing.archived', {
+    listingId: updated.id,
+    slug: updated.slug,
+    sellerId: updated.sellerId,
+    status: updated.status
   });
 
   await prisma.marketplaceAuditLog.create({
@@ -981,6 +1018,13 @@ export const markMarketplaceListingSold = async (listingId: string, user: User) 
     body: `${updated.title} has been marked as sold.`,
     link: `/marketplace/my-listings`
   });
+  await publishIntegrationEvent('marketplace.listing.sold', {
+    listingId: updated.id,
+    slug: updated.slug,
+    sellerId: updated.sellerId,
+    status: updated.status,
+    soldAt: updated.soldAt
+  });
   return normalizeListing(updated, user.id);
 };
 
@@ -999,6 +1043,13 @@ export const reserveMarketplaceListing = async (listingId: string, user: User) =
     title: 'Listing reserved',
     body: `${updated.title} has been reserved.`,
     link: `/marketplace/my-listings`
+  });
+  await publishIntegrationEvent('marketplace.listing.reserved', {
+    listingId: updated.id,
+    slug: updated.slug,
+    sellerId: updated.sellerId,
+    status: updated.status,
+    reservedAt: updated.reservedAt
   });
   return normalizeListing(updated, user.id);
 };
@@ -1086,6 +1137,13 @@ export const reportMarketplaceListing = async (listingId: string, reporterId: st
     link: `/dashboard/admin/marketplace/listings/${listingId}`
   });
 
+  await publishIntegrationEvent('marketplace.listing.reported', {
+    reportId: report.id,
+    listingId,
+    reporterId,
+    reason
+  });
+
   return report;
 };
 
@@ -1123,6 +1181,13 @@ export const contactMarketplaceSeller = async (listingId: string, buyer: User, i
         listingId
       }
     }
+  });
+  await publishIntegrationEvent('marketplace.listing.contact_requested', {
+    listingId,
+    conversationId: conversation.id,
+    messageId: directMessage.id,
+    buyerId: buyer.id,
+    sellerId: listing.sellerId
   });
 
   await prisma.conversation.update({

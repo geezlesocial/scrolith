@@ -5,11 +5,13 @@ import {
   getTalentCloudSettings,
   getTalentCloudSummary,
   listApiCredentials,
+  listInboundConnectors,
   listIntegrationEndpoints,
   listTalentPools,
   listVendorRequirements,
   listWebhookDeliveries,
   retryWebhookDelivery,
+  saveInboundConnector,
   saveIntegrationEndpoint,
   savePrivateAccessRule,
   saveTalentPool,
@@ -240,6 +242,50 @@ router.get('/integrations', requirePermission('integrations.read'), async (_req,
     return res.json({ success: true, data: await listIntegrationEndpoints() });
   } catch (error) {
     return handleError(res, error, 'Failed to load integrations');
+  }
+});
+
+router.get('/connectors', requirePermission('integrations.read'), async (_req, res) => {
+  try {
+    return res.json({ success: true, data: await listInboundConnectors() });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load inbound connectors');
+  }
+});
+
+router.post('/connectors', requirePermission('integrations.manage'), async (req, res) => {
+  try {
+    const data = await saveInboundConnector(req.body || {});
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'integrations',
+      actionKey: 'connector_create',
+      entityType: 'integration_connector',
+      entityId: data.id,
+      message: `Inbound connector created: ${data.name}`,
+      metadata: { connector: { ...data, sharedSecretPlain: undefined, apiKeyPlain: undefined } }
+    });
+    emitEvent(req, 'integrations:connector_updated', { connectorId: data.id, status: data.status });
+    return res.status(201).json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to create inbound connector');
+  }
+});
+
+router.put('/connectors/:id', requirePermission('integrations.manage'), async (req, res) => {
+  try {
+    const data = await saveInboundConnector(req.body || {}, req.params.id);
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'integrations',
+      actionKey: 'connector_update',
+      entityType: 'integration_connector',
+      entityId: data.id,
+      message: `Inbound connector updated: ${data.name}`,
+      metadata: { connector: { ...data, sharedSecretPlain: undefined, apiKeyPlain: undefined } }
+    });
+    emitEvent(req, 'integrations:connector_updated', { connectorId: data.id, status: data.status });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to update inbound connector');
   }
 });
 

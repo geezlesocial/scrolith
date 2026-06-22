@@ -86,6 +86,7 @@ import scrolithaRoutes from './routes/scrolitha.routes';
 import phase3Routes from './routes/phase3.routes';
 import procurementRoutes from './routes/procurement.routes';
 import ecosystemRoutes from './routes/ecosystem.routes';
+import integrationsRoutes from './routes/integrations.routes';
 import insightsRoutes from './routes/insights.routes';
 import { dispatchQueuedWebhookDeliveries, getTalentCloudSettings } from './services/talentCloud.service';
 import { authMiddleware } from './middleware/auth.middleware';
@@ -3126,6 +3127,7 @@ app.use('/api/scrolitha', scrolithaRoutes);
 app.use('/api/phase3', phase3Routes);
 app.use('/api/procurement', procurementRoutes);
 app.use('/api/ecosystem', ecosystemRoutes);
+app.use('/api/integrations', integrationsRoutes);
 app.use('/api/insights', insightsRoutes);
 app.use('/api/admin/preloaders', adminPreloadersRoutes);
 

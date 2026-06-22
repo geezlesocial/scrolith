@@ -214,4 +214,67 @@ describe('talentCloud.service', () => {
       })
     );
   });
+
+  test('accepts inbound connector events and forwards them into webhook delivery', async () => {
+    mockPrisma.integrationEndpoint.findUnique.mockResolvedValue({
+      id: 'connector-1',
+      name: 'ERP Connector',
+      type: 'INBOUND_CONNECTOR',
+      status: 'ACTIVE',
+      eventTypes: ['invoice.*'],
+      secretHash: 'hash-connector',
+      metadata: {
+        providerKey: 'erp',
+        authMode: 'HEADER',
+        authHeaderName: 'x-scrolith-connector-key',
+        connectorApiKey: 'abcd',
+        connectorSharedSecret: 'shared-secret',
+        receivedCount: 0
+      }
+    });
+    mockPrisma.integrationEndpoint.findMany.mockResolvedValue([
+      {
+        id: 'endpoint-forwarder',
+        status: 'ACTIVE',
+        type: 'WEBHOOK',
+        eventTypes: ['connector.erp.*', 'integrations.connector.ingested'],
+        secretHash: 'hash-forwarder',
+        metadata: {}
+      }
+    ]);
+    mockPrisma.integrationEndpoint.update.mockResolvedValue({
+      id: 'connector-1',
+      metadata: { receivedCount: 1 }
+    });
+    mockPrisma.webhookDeliveryLog.create
+      .mockResolvedValueOnce({ id: 'delivery-connector-event' })
+      .mockResolvedValueOnce({ id: 'delivery-connector-audit' });
+
+    const service = await import('../talentCloud.service');
+    const result = await service.ingestInboundConnectorEvent(
+      'connector-1',
+      { 'x-scrolith-connector-key': 'abcd' },
+      { eventType: 'invoice.approved', invoiceId: 'inv-4' }
+    );
+
+    expect(mockPrisma.integrationEndpoint.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'connector-1' },
+        data: expect.objectContaining({
+          metadata: expect.objectContaining({
+            lastEventType: 'invoice.approved',
+            receivedCount: 1
+          })
+        })
+      })
+    );
+    expect(mockPrisma.webhookDeliveryLog.create).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(
+      expect.objectContaining({
+        accepted: true,
+        providerKey: 'erp',
+        forwardedEventType: 'connector.erp.invoice.approved'
+      })
+    );
+  });
 });
