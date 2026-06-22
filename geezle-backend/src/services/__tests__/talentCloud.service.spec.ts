@@ -164,4 +164,54 @@ describe('talentCloud.service', () => {
     );
     expect(result).toEqual(expect.objectContaining({ status: 'DELIVERED' }));
   });
+
+  test('publishes integration events to matching endpoints using wildcards', async () => {
+    mockPrisma.integrationEndpoint.findMany.mockResolvedValue([
+      {
+        id: 'endpoint-a',
+        status: 'ACTIVE',
+        type: 'WEBHOOK',
+        eventTypes: ['procurement.*'],
+        secretHash: 'hash-a',
+        metadata: {}
+      },
+      {
+        id: 'endpoint-b',
+        status: 'ACTIVE',
+        type: 'WEBHOOK',
+        eventTypes: ['managed_delivery.project.created'],
+        secretHash: 'hash-b',
+        metadata: {}
+      }
+    ]);
+    mockPrisma.integrationEndpoint.findUnique.mockImplementation(async ({ where }: any) => ({
+      id: where.id,
+      status: 'ACTIVE',
+      type: 'WEBHOOK',
+      secretHash: `hash-${where.id}`,
+      metadata: {}
+    }));
+    mockPrisma.webhookDeliveryLog.create
+      .mockResolvedValueOnce({ id: 'delivery-a' })
+      .mockResolvedValueOnce({ id: 'delivery-b' });
+
+    const service = await import('../talentCloud.service');
+    const result = await service.publishIntegrationEvent('procurement.invoice.approved', { invoiceId: 'inv-1' });
+
+    expect(mockPrisma.webhookDeliveryLog.create).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.webhookDeliveryLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          endpointId: 'endpoint-a',
+          eventType: 'procurement.invoice.approved'
+        })
+      })
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        matchedEndpointCount: 1,
+        deliveryIds: ['delivery-a']
+      })
+    );
+  });
 });

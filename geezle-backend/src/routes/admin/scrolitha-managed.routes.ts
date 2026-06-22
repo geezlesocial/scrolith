@@ -15,6 +15,7 @@ import {
   updateScrolithaManagedSettings
 } from '../../services/aiManaged.service';
 import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
+import { publishIntegrationEvent } from '../../services/talentCloud.service';
 
 const router = express.Router();
 
@@ -91,6 +92,14 @@ router.post('/ai-outputs', requirePermission('scrolitha.manage'), async (req, re
       message: `AI output recorded for ${data.moduleKey}`,
       metadata: { aiOutput: data }
     });
+    await publishIntegrationEvent('scrolitha.ai_output.created', {
+      aiOutputId: data.id,
+      moduleKey: data.moduleKey,
+      taskType: data.taskType,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      humanOverrideState: data.humanOverrideState
+    });
     return res.status(201).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to create AI output');
@@ -107,6 +116,14 @@ router.post('/ai-outputs/:id/review', requirePermission('scrolitha.manage'), asy
       entityId: data.id,
       message: `AI output review updated: ${data.humanOverrideState}`,
       metadata: { aiOutput: data }
+    });
+    await publishIntegrationEvent('scrolitha.ai_output.reviewed', {
+      aiOutputId: data.id,
+      moduleKey: data.moduleKey,
+      taskType: data.taskType,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      humanOverrideState: data.humanOverrideState
     });
     emitEvent(req, 'scrolitha:review_updated', { aiOutputId: data.id, state: data.humanOverrideState });
     return res.json({ success: true, data });
@@ -134,6 +151,14 @@ router.post('/projects', requirePermission('managed_delivery.manage'), async (re
       message: `Managed project created: ${data.title}`,
       metadata: { project: data }
     });
+    await publishIntegrationEvent('managed_delivery.project.created', {
+      projectId: data.id,
+      title: data.title,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      status: data.status,
+      riskLevel: data.riskLevel
+    });
     emitEvent(req, 'managed-delivery:project_updated', { projectId: data.id, status: data.status, riskLevel: data.riskLevel });
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -151,6 +176,14 @@ router.put('/projects/:id', requirePermission('managed_delivery.manage'), async 
       entityId: data.id,
       message: `Managed project updated: ${data.title}`,
       metadata: { project: data }
+    });
+    await publishIntegrationEvent('managed_delivery.project.updated', {
+      projectId: data.id,
+      title: data.title,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      status: data.status,
+      riskLevel: data.riskLevel
     });
     emitEvent(req, 'managed-delivery:project_updated', { projectId: data.id, status: data.status, riskLevel: data.riskLevel });
     return res.json({ success: true, data });
@@ -170,6 +203,13 @@ router.post('/milestones', requirePermission('managed_delivery.manage'), async (
       message: `Managed milestone saved: ${data.title}`,
       metadata: { milestone: data }
     });
+    await publishIntegrationEvent('managed_delivery.milestone.created', {
+      milestoneId: data.id,
+      managedProjectId: data.managedProjectId,
+      title: data.title,
+      status: data.status,
+      qaStatus: data.qaStatus
+    });
     emitEvent(req, 'managed-delivery:milestone_updated', { milestoneId: data.id, projectId: data.managedProjectId, status: data.status });
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -188,6 +228,13 @@ router.put('/milestones/:id', requirePermission('managed_delivery.manage'), asyn
       message: `Managed milestone updated: ${data.title}`,
       metadata: { milestone: data }
     });
+    await publishIntegrationEvent('managed_delivery.milestone.updated', {
+      milestoneId: data.id,
+      managedProjectId: data.managedProjectId,
+      title: data.title,
+      status: data.status,
+      qaStatus: data.qaStatus
+    });
     emitEvent(req, 'managed-delivery:milestone_updated', { milestoneId: data.id, projectId: data.managedProjectId, status: data.status });
     return res.json({ success: true, data });
   } catch (error) {
@@ -205,6 +252,13 @@ router.post('/assignments', requirePermission('managed_delivery.manage'), async 
       entityId: data.id,
       message: `Managed assignment updated: ${data.role}`,
       metadata: { assignment: data }
+    });
+    await publishIntegrationEvent('managed_delivery.assignment.updated', {
+      assignmentId: data.id,
+      managedProjectId: data.managedProjectId,
+      assigneeStaffId: data.assigneeStaffId,
+      role: data.role,
+      status: data.status
     });
     emitEvent(req, 'managed-delivery:assignment_updated', { assignmentId: data.id, projectId: data.managedProjectId, status: data.status });
     return res.status(201).json({ success: true, data });

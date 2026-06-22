@@ -15,7 +15,8 @@ import {
   saveTalentPool,
   saveTalentPoolMember,
   saveVendorRequirement,
-  updateTalentCloudSettings
+  updateTalentCloudSettings,
+  publishIntegrationEvent
 } from '../../services/talentCloud.service';
 import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
 
@@ -90,6 +91,13 @@ router.post('/pools', requirePermission('talent_cloud.manage'), async (req, res)
       message: `Talent pool created: ${data.name}`,
       metadata: { pool: data }
     });
+    await publishIntegrationEvent('talent_cloud.pool.created', {
+      poolId: data.id,
+      name: data.name,
+      slug: data.slug,
+      visibility: data.visibility,
+      isActive: data.isActive
+    });
     return res.status(201).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to create talent pool');
@@ -106,6 +114,13 @@ router.put('/pools/:id', requirePermission('talent_cloud.manage'), async (req, r
       entityId: data.id,
       message: `Talent pool updated: ${data.name}`,
       metadata: { pool: data }
+    });
+    await publishIntegrationEvent('talent_cloud.pool.updated', {
+      poolId: data.id,
+      name: data.name,
+      slug: data.slug,
+      visibility: data.visibility,
+      isActive: data.isActive
     });
     return res.json({ success: true, data });
   } catch (error) {
@@ -127,6 +142,13 @@ router.post('/pool-members', requirePermission('talent_cloud.manage'), async (re
       message: 'Talent pool membership updated',
       metadata: { member: data }
     });
+    await publishIntegrationEvent('talent_cloud.member.updated', {
+      memberId: data.id,
+      poolId: data.poolId,
+      userId: data.userId,
+      membershipType: data.membershipType,
+      status: data.status
+    });
     emitEvent(req, 'talent-cloud:membership_updated', { poolId: data.poolId, userId: data.userId, status: data.status });
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -144,6 +166,13 @@ router.post('/access-rules', requirePermission('talent_cloud.manage'), async (re
       entityId: data.id,
       message: 'Private opportunity access rule saved',
       metadata: { accessRule: data }
+    });
+    await publishIntegrationEvent('talent_cloud.access_rule.updated', {
+      accessRuleId: data.id,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      poolId: data.poolId,
+      visibilityScope: data.visibilityScope
     });
     emitEvent(req, 'talent-cloud:access_updated', { entityType: data.entityType, entityId: data.entityId, poolId: data.poolId });
     return res.status(201).json({ success: true, data });
@@ -171,6 +200,12 @@ router.post('/vendor-requirements', requirePermission('talent_cloud.manage'), as
       message: `Vendor requirement created: ${data.code}`,
       metadata: { vendorRequirement: data }
     });
+    await publishIntegrationEvent('talent_cloud.vendor_requirement.created', {
+      requirementId: data.id,
+      code: data.code,
+      name: data.name,
+      isActive: data.isActive
+    });
     return res.status(201).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to create vendor requirement');
@@ -187,6 +222,12 @@ router.put('/vendor-requirements/:id', requirePermission('talent_cloud.manage'),
       entityId: data.id,
       message: `Vendor requirement updated: ${data.code}`,
       metadata: { vendorRequirement: data }
+    });
+    await publishIntegrationEvent('talent_cloud.vendor_requirement.updated', {
+      requirementId: data.id,
+      code: data.code,
+      name: data.name,
+      isActive: data.isActive
     });
     return res.json({ success: true, data });
   } catch (error) {

@@ -19,6 +19,7 @@ import {
   decidePurchaseRequest
 } from '../../services/procurement.service';
 import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
+import { publishIntegrationEvent } from '../../services/talentCloud.service';
 
 const router = express.Router();
 
@@ -206,6 +207,13 @@ router.post('/purchase-requests/:id/approve', requirePermission('approvals.revie
       message: `Purchase request approved: ${data?.requestNumber || req.params.id}`,
       metadata: { purchaseRequest: data }
     });
+    await publishIntegrationEvent('procurement.purchase_request.approved', {
+      purchaseRequestId: data?.id,
+      requestNumber: data?.requestNumber,
+      amount: data?.amount,
+      currency: data?.currency,
+      status: data?.status
+    });
     emitProcurementEvent(req, 'procurement:approval_updated', { purchaseRequestId: data?.id, status: data?.status });
     return res.json({ success: true, data });
   } catch (error) {
@@ -232,6 +240,13 @@ router.post('/purchase-requests/:id/reject', requirePermission('approvals.review
       message: `Purchase request rejected: ${data?.requestNumber || req.params.id}`,
       metadata: { purchaseRequest: data }
     });
+    await publishIntegrationEvent('procurement.purchase_request.rejected', {
+      purchaseRequestId: data?.id,
+      requestNumber: data?.requestNumber,
+      amount: data?.amount,
+      currency: data?.currency,
+      status: data?.status
+    });
     emitProcurementEvent(req, 'procurement:approval_updated', { purchaseRequestId: data?.id, status: data?.status });
     return res.json({ success: true, data });
   } catch (error) {
@@ -257,6 +272,13 @@ router.post('/purchase-requests/:id/hold', requirePermission('approvals.review')
       entityId: data?.id || req.params.id,
       message: `Purchase request placed on hold: ${data?.requestNumber || req.params.id}`,
       metadata: { purchaseRequest: data }
+    });
+    await publishIntegrationEvent('procurement.purchase_request.on_hold', {
+      purchaseRequestId: data?.id,
+      requestNumber: data?.requestNumber,
+      amount: data?.amount,
+      currency: data?.currency,
+      status: data?.status
     });
     emitProcurementEvent(req, 'procurement:approval_updated', { purchaseRequestId: data?.id, status: data?.status });
     return res.json({ success: true, data });
@@ -295,6 +317,13 @@ router.post('/invoices', requirePermission('invoices.approve'), async (req, res)
       approvalEntityType: 'invoice',
       approvalTitle: `Invoice created: ${data.invoiceNumber}`
     });
+    await publishIntegrationEvent('procurement.invoice.created', {
+      invoiceId: data.id,
+      invoiceNumber: data.invoiceNumber,
+      totalAmount: data.totalAmount,
+      currency: data.currency,
+      status: data.status
+    });
     emitProcurementEvent(req, 'procurement:invoice_status_changed', { invoiceId: data.id, status: data.status });
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -312,6 +341,13 @@ router.post('/invoices/:id/approve', requirePermission('invoices.approve'), asyn
       entityId: data.id,
       message: `Invoice approved: ${data.invoiceNumber}`,
       metadata: { invoice: data }
+    });
+    await publishIntegrationEvent('procurement.invoice.approved', {
+      invoiceId: data.id,
+      invoiceNumber: data.invoiceNumber,
+      totalAmount: data.totalAmount,
+      currency: data.currency,
+      status: data.status
     });
     emitProcurementEvent(req, 'procurement:invoice_status_changed', { invoiceId: data.id, status: data.status });
     return res.json({ success: true, data });
@@ -331,6 +367,13 @@ router.post('/invoices/:id/reconcile', requirePermission('invoices.approve'), as
       message: `Invoice reconciled: ${data.invoiceNumber}`,
       metadata: { invoice: data }
     });
+    await publishIntegrationEvent('procurement.invoice.reconciled', {
+      invoiceId: data.id,
+      invoiceNumber: data.invoiceNumber,
+      totalAmount: data.totalAmount,
+      currency: data.currency,
+      status: data.status
+    });
     emitProcurementEvent(req, 'procurement:invoice_status_changed', { invoiceId: data.id, status: data.status });
     return res.json({ success: true, data });
   } catch (error) {
@@ -348,6 +391,14 @@ router.post('/invoices/:id/credit-notes', requirePermission('invoices.approve'),
       entityId: data.id,
       message: `Credit note issued: ${data.creditNoteNumber}`,
       metadata: { creditNote: data }
+    });
+    await publishIntegrationEvent('procurement.credit_note.created', {
+      creditNoteId: data.id,
+      creditNoteNumber: data.creditNoteNumber,
+      invoiceId: data.invoiceId,
+      amount: data.amount,
+      currency: data.currency,
+      status: data.status
     });
     return res.status(201).json({ success: true, data });
   } catch (error) {

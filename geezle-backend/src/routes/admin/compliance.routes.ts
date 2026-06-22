@@ -17,6 +17,7 @@ import {
   updateComplianceSettings
 } from '../../services/compliance.service';
 import { recordGovernedAdminAction } from '../../services/enterpriseGovernance.service';
+import { publishIntegrationEvent } from '../../services/talentCloud.service';
 
 const router = express.Router();
 
@@ -97,6 +98,14 @@ router.post('/cases', requirePermission('compliance.manage'), async (req, res) =
       message: `Compliance case created: ${data.caseNumber}`,
       metadata: { complianceCase: data }
     });
+    await publishIntegrationEvent('compliance.case.created', {
+      caseId: data.id,
+      caseNumber: data.caseNumber,
+      caseType: data.caseType,
+      status: data.status,
+      entityType: data.entityType,
+      entityId: data.entityId
+    });
     emitEvent(req, 'compliance:case_updated', { caseId: data.id, status: data.status });
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -136,6 +145,12 @@ router.post('/cases/:id/decisions', requirePermission('compliance.manage'), asyn
       entityId: req.params.id,
       message: 'Compliance decision recorded',
       metadata: { complianceCase: data }
+    });
+    await publishIntegrationEvent('compliance.case.decision_recorded', {
+      caseId: data?.id || req.params.id,
+      caseNumber: data?.caseNumber,
+      status: data?.status,
+      action: req.body?.action || null
     });
     emitEvent(req, 'compliance:case_updated', { caseId: req.params.id, status: data?.status });
     return res.json({ success: true, data });
@@ -217,6 +232,14 @@ router.post('/holds', requirePermission('holds.manage'), async (req, res) => {
       message: `Hold applied: ${data.holdType}`,
       metadata: { holdAction: data }
     });
+    await publishIntegrationEvent('compliance.hold.applied', {
+      holdId: data.id,
+      caseId: data.caseId,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      holdType: data.holdType,
+      status: data.status
+    });
     emitEvent(req, 'compliance:hold_updated', { holdId: data.id, status: data.status, entityType: data.entityType, entityId: data.entityId });
     return res.status(201).json({ success: true, data });
   } catch (error) {
@@ -234,6 +257,14 @@ router.post('/holds/:id/release', requirePermission('holds.manage'), async (req,
       entityId: data.id,
       message: `Hold released: ${data.holdType}`,
       metadata: { holdAction: data }
+    });
+    await publishIntegrationEvent('compliance.hold.released', {
+      holdId: data.id,
+      caseId: data.caseId,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      holdType: data.holdType,
+      status: data.status
     });
     emitEvent(req, 'compliance:hold_updated', { holdId: data.id, status: data.status, entityType: data.entityType, entityId: data.entityId });
     return res.json({ success: true, data });
@@ -260,6 +291,12 @@ router.post('/appeals/:id/resolve', requirePermission('appeals.manage'), async (
       entityId: data.id,
       message: 'Compliance appeal resolved',
       metadata: { appeal: data }
+    });
+    await publishIntegrationEvent('compliance.appeal.resolved', {
+      appealId: data.id,
+      caseId: data.caseId,
+      requesterUserId: data.requesterUserId,
+      status: data.status
     });
     emitEvent(req, 'compliance:appeal_updated', { appealId: data.id, status: data.status });
     return res.json({ success: true, data });

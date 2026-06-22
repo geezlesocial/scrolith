@@ -16,6 +16,7 @@ const hashValue = (value: string) => crypto.createHash('sha256').update(value).d
 const signPayload = (payload: any, secret: string) =>
   crypto.createHmac('sha256', secret).update(JSON.stringify(payload || {})).digest('hex');
 const WEBHOOK_SECRET_KEY = 'webhookSecret';
+const GLOBAL_WEBHOOK_EVENT = '*';
 
 const stripWebhookSecret = (metadata: any) => {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata || null;
@@ -34,6 +35,24 @@ const sanitizeEndpoint = (endpoint: any) => {
 
 const getStoredWebhookSecret = (endpoint: any) =>
   maybeDecryptSecret(endpoint?.metadata?.[WEBHOOK_SECRET_KEY]) || '';
+
+const toEventTypes = (value: any): string[] =>
+  Array.isArray(value)
+    ? value.map((entry) => cleanString(entry)).filter(Boolean)
+    : [];
+
+const eventMatches = (eventType: string, subscriptions: string[]) => {
+  const normalizedEvent = cleanString(eventType).toLowerCase();
+  if (!normalizedEvent) return false;
+  if (!subscriptions.length) return true;
+  return subscriptions.some((entry) => {
+    const candidate = cleanString(entry).toLowerCase();
+    if (!candidate) return false;
+    if (candidate === GLOBAL_WEBHOOK_EVENT) return true;
+    if (candidate.endsWith('.*')) return normalizedEvent.startsWith(candidate.slice(0, -1));
+    return candidate === normalizedEvent;
+  });
+};
 
 export const getTalentCloudSettings = async () => {
   const record = await prisma.appSetting.findUnique({ where: { scope: SETTINGS_SCOPE } });
@@ -211,6 +230,41 @@ export const queueWebhookDelivery = async (endpointId: string, eventType: string
       nextAttemptAt: new Date(Date.now() + 5 * 60 * 1000)
     }
   });
+};
+
+export const publishIntegrationEvent = async (
+  eventType: string,
+  payload: any,
+  metadata?: Record<string, any> | null
+) => {
+  const normalizedEvent = cleanString(eventType);
+  if (!normalizedEvent) throw new Error('eventType is required');
+
+  const endpoints = await prisma.integrationEndpoint.findMany({
+    where: { status: 'ACTIVE', type: 'WEBHOOK' },
+    orderBy: [{ createdAt: 'asc' }]
+  });
+
+  const matched = endpoints.filter((endpoint) => eventMatches(normalizedEvent, toEventTypes(endpoint.eventTypes)));
+  const deliveries = [];
+  for (const endpoint of matched) {
+    deliveries.push(
+      await queueWebhookDelivery(endpoint.id, normalizedEvent, {
+        ...(payload || {}),
+        _event: {
+          type: normalizedEvent,
+          emittedAt: new Date().toISOString(),
+          metadata: metadata || null
+        }
+      })
+    );
+  }
+
+  return {
+    eventType: normalizedEvent,
+    matchedEndpointCount: matched.length,
+    deliveryIds: deliveries.map((delivery) => delivery.id)
+  };
 };
 
 export const retryWebhookDelivery = async (id: string) => {
