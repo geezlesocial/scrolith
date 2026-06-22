@@ -36,6 +36,11 @@ const trimText = (value: unknown, max = 255) => {
   return text.slice(0, max);
 };
 
+const toCoordinateLabel = (latitude: number | null | undefined, longitude: number | null | undefined) => {
+  if (!Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return 'Selected location';
+  return `${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)}`;
+};
+
 const toNullableCoordinate = (value: unknown) => {
   if (value === null || value === undefined || value === '') return null;
   const numeric = Number(value);
@@ -218,6 +223,27 @@ export const reverseGeocodeLocation = async (
   const payload = (await fetchGeocoderJson('/reverse', params, options.language)) as any;
   const feature = Array.isArray(payload?.features) ? payload.features[0] : payload?.features?.[0];
   return mapFeatureToLocation(feature) || null;
+};
+
+export const buildCoordinateLocationFallback = (latitude: number, longitude: number): LocationSearchResult => {
+  const label = toCoordinateLabel(latitude, longitude);
+  return {
+    id: `coords:${Number(latitude).toFixed(7)}:${Number(longitude).toFixed(7)}`,
+    label,
+    subtitle: null,
+    location: label,
+    formattedAddress: label,
+    country: null,
+    countryCode: null,
+    state: null,
+    city: null,
+    region: null,
+    postalCode: null,
+    latitude: toNullableCoordinate(latitude),
+    longitude: toNullableCoordinate(longitude),
+    placeId: null,
+    locationSource: 'coordinates_fallback'
+  };
 };
 
 const pickPayloadValue = (payload: Record<string, any>, camel: string, snake: string) => {

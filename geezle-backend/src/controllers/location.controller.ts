@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import {
+  buildCoordinateLocationFallback,
   reverseGeocodeLocation,
   searchLocations,
   toLocationResponse
@@ -37,31 +38,43 @@ export const searchLocationOptions = async (req: Request, res: Response) => {
 };
 
 export const reverseLocationLookup = async (req: Request, res: Response) => {
+  const latitude = parseCoordinate(req.query.lat ?? req.query.latitude);
+  const longitude = parseCoordinate(req.query.lng ?? req.query.lon ?? req.query.longitude);
   try {
-    const latitude = parseCoordinate(req.query.lat ?? req.query.latitude);
-    const longitude = parseCoordinate(req.query.lng ?? req.query.lon ?? req.query.longitude);
     if (latitude === null || longitude === null) {
       return res.status(400).json({ success: false, error: 'lat and lng are required.' });
     }
     const location = await reverseGeocodeLocation(latitude, longitude, {
       language: resolveLanguage(req)
     });
-    return res.json({ success: true, data: { location: toLocationResponse(location) } });
+    const resolved = location || buildCoordinateLocationFallback(latitude, longitude);
+    return res.json({ success: true, data: { location: toLocationResponse(resolved) } });
   } catch (error: any) {
     console.error('reverseLocationLookup error:', error);
+    if (latitude !== null && longitude !== null) {
+      const fallback = buildCoordinateLocationFallback(latitude, longitude);
+      return res.json({
+        success: true,
+        data: {
+          location: toLocationResponse(fallback),
+          degraded: true
+        }
+      });
+    }
     return res.status(502).json({ success: false, error: error?.message || 'Failed to reverse geocode location.' });
   }
 };
 
 export const resolveLocation = async (req: Request, res: Response) => {
+  const latitude = parseCoordinate(req.body?.lat ?? req.body?.latitude);
+  const longitude = parseCoordinate(req.body?.lng ?? req.body?.lon ?? req.body?.longitude);
   try {
-    const latitude = parseCoordinate(req.body?.lat ?? req.body?.latitude);
-    const longitude = parseCoordinate(req.body?.lng ?? req.body?.lon ?? req.body?.longitude);
     if (latitude !== null && longitude !== null) {
       const location = await reverseGeocodeLocation(latitude, longitude, {
         language: resolveLanguage(req)
       });
-      return res.json({ success: true, data: { location: toLocationResponse(location) } });
+      const resolved = location || buildCoordinateLocationFallback(latitude, longitude);
+      return res.json({ success: true, data: { location: toLocationResponse(resolved) } });
     }
 
     const query = String(req.body?.query || req.body?.q || '').trim();
@@ -76,6 +89,16 @@ export const resolveLocation = async (req: Request, res: Response) => {
     return res.json({ success: true, data: { location: toLocationResponse(bestMatch) } });
   } catch (error: any) {
     console.error('resolveLocation error:', error);
+    if (latitude !== null && longitude !== null) {
+      const fallback = buildCoordinateLocationFallback(latitude, longitude);
+      return res.json({
+        success: true,
+        data: {
+          location: toLocationResponse(fallback),
+          degraded: true
+        }
+      });
+    }
     return res.status(502).json({ success: false, error: error?.message || 'Failed to resolve location.' });
   }
 };

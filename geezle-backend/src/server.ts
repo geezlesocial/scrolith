@@ -2603,6 +2603,8 @@ const getConfiguredFaviconUrl = async () => {
   }
 };
 
+const BRAND_FAVICON_ASSETS_DIR = path.join(__dirname, '..', 'assets', 'brand');
+
 const serveFaviconFromUploads = (res: Response) => {
   const uploadsDir = path.join(__dirname, '..', 'uploads');
   if (!fs.existsSync(uploadsDir)) return false;
@@ -2614,7 +2616,33 @@ const serveFaviconFromUploads = (res: Response) => {
   return true;
 };
 
-const faviconHandler = async (_req: Request, res: Response) => {
+const serveBundledFaviconAsset = (requestPath: string, res: Response) => {
+  const normalizedPath = String(requestPath || '').trim().toLowerCase();
+  const candidates =
+    normalizedPath === '/apple-touch-icon.png'
+      ? ['apple-touch-icon.png', 'favicon.png']
+      : normalizedPath === '/favicon.ico'
+        ? ['favicon.ico', 'favicon.png']
+        : ['favicon.png', 'favicon.ico'];
+
+  for (const assetName of candidates) {
+    const assetPath = path.join(BRAND_FAVICON_ASSETS_DIR, assetName);
+    if (fs.existsSync(assetPath)) {
+      res.sendFile(assetPath);
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const normalizeFaviconAliasPath = (value: string) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed.startsWith('/')) return '';
+  return trimmed.replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+};
+
+const faviconHandler = async (req: Request, res: Response) => {
   try {
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     res.setHeader(
@@ -2622,6 +2650,7 @@ const faviconHandler = async (_req: Request, res: Response) => {
       resolveStaticAssetCacheControl(getRuntimeOptimizationConfig(), 300, 'favicon.ico')
     );
     const configured = await getConfiguredFaviconUrl();
+    const requestedAlias = normalizeFaviconAliasPath(req.path);
 
     if (configured) {
       if (configured.startsWith('http://') || configured.startsWith('https://')) {
@@ -2632,11 +2661,15 @@ const faviconHandler = async (_req: Request, res: Response) => {
         if (fs.existsSync(localPath)) return res.sendFile(localPath);
       }
       if (configured.startsWith('/')) {
-        return res.redirect(302, configured);
+        const configuredAlias = normalizeFaviconAliasPath(configured);
+        if (configuredAlias && configuredAlias !== requestedAlias) {
+          return res.redirect(302, configured);
+        }
       }
     }
 
     if (serveFaviconFromUploads(res)) return;
+    if (serveBundledFaviconAsset(req.path, res)) return;
     return res.status(404).end();
   } catch (e) {
     console.error('Failed to serve favicon', e);
