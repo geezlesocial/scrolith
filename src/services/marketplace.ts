@@ -74,6 +74,8 @@ const normalizeListing = (listing: any): MarketplaceListing => {
     categoryId: listing?.categoryId ?? listing?.category_id ?? null,
     subcategoryId: listing?.subcategoryId ?? listing?.subcategory_id ?? null,
     condition: listing?.condition ?? 'other',
+    brand: listing?.brand ?? null,
+    tags: Array.isArray(listing?.tags) ? listing.tags.map(String) : [],
     price: listing?.price ?? 0,
     currency: listing?.currency ?? 'USD',
     negotiable: normalizeBoolean(listing?.negotiable),
@@ -81,6 +83,15 @@ const normalizeListing = (listing: any): MarketplaceListing => {
     location: listing?.location ?? null,
     latitude: listing?.latitude ?? null,
     longitude: listing?.longitude ?? null,
+    meetupPreferences: Array.isArray(listing?.meetupPreferences)
+      ? listing.meetupPreferences
+      : Array.isArray(listing?.meetup_preferences)
+        ? listing.meetup_preferences
+        : [],
+    hideFromFriendsAndFollowers:
+      normalizeBoolean(
+        listing?.hideFromFriendsAndFollowers ?? listing?.hide_from_friends_and_followers
+      ),
     deliveryOptions: Array.isArray(listing?.deliveryOptions)
       ? listing.deliveryOptions
       : Array.isArray(listing?.delivery_options)
@@ -110,7 +121,8 @@ const normalizeListing = (listing: any): MarketplaceListing => {
     updatedAt: listing?.updatedAt ?? listing?.updated_at ?? undefined,
     contactPreference: listing?.contactPreference ?? listing?.contact_preference ?? null,
     phoneNumber: listing?.phoneNumber ?? listing?.phone_number ?? null,
-    coverImage
+    coverImage,
+    distanceKm: listing?.distanceKm ?? listing?.distance_km ?? null
   } as MarketplaceListing;
 };
 
@@ -171,6 +183,13 @@ export const listMarketplaceListings = async (query: MarketplaceQuery = {}) => {
     return {
       ...data,
       listings: data.listings.map(normalizeListing)
+    };
+  }
+  if (Array.isArray(data?.items)) {
+    return {
+      ...data,
+      items: data.items.map(normalizeListing),
+      listings: data.items.map(normalizeListing)
     };
   }
   return data;

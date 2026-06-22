@@ -11,6 +11,7 @@ export type MarketplaceCondition =
 
 export type MarketplaceDeliveryOption = 'pickup' | 'local_delivery' | 'shipping' | 'cash_on_delivery';
 
+export type MarketplaceMeetupPreference = 'public_meetup' | 'door_pickup' | 'door_dropoff';
 export type MarketplacePaymentMethod = string;
 
 export type MarketplaceListingStatus =
@@ -35,6 +36,8 @@ export interface MarketplaceQuery {
   minPrice?: number | null;
   maxPrice?: number | null;
   location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   deliveryOption?: string | null;
   status?: string | null;
   sort?: string | null;
@@ -96,6 +99,8 @@ export interface MarketplaceListing {
   category?: MarketplaceCategory | null;
   subcategoryId?: string | null;
   condition?: MarketplaceCondition;
+  brand?: string | null;
+  tags?: string[] | null;
   price?: number | string | null;
   currency?: string | null;
   negotiable?: boolean;
@@ -103,6 +108,8 @@ export interface MarketplaceListing {
   location?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  meetupPreferences?: MarketplaceMeetupPreference[] | string[] | null;
+  hideFromFriendsAndFollowers?: boolean;
   deliveryOptions?: MarketplaceDeliveryOption[] | string[] | null;
   paymentMethods?: MarketplacePaymentMethod[] | string[] | null;
   images?: MarketplaceListingMedia[] | string[] | null;
@@ -128,6 +135,7 @@ export interface MarketplaceListing {
   priceLabel?: string | null;
   coverImage?: string | null;
   summary?: string | null;
+  distanceKm?: number | null;
 }
 
 export interface MarketplaceSettings {
@@ -164,11 +172,17 @@ export interface MarketplaceListingFormValues {
   description: string;
   categoryId: string;
   condition: MarketplaceCondition;
+  brand: string;
+  tags: string;
   price: string;
   currency: string;
   negotiable: boolean;
   quantity: string;
   location: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  meetupPreferences: MarketplaceMeetupPreference[];
+  hideFromFriendsAndFollowers: boolean;
   deliveryOptions: MarketplaceDeliveryOption[];
   paymentMethods: string[];
   contactPreference: string;

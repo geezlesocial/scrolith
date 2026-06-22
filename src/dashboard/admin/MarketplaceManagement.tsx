@@ -15,12 +15,14 @@ import {
   Trash2,
   X
 } from 'lucide-react';
+import LocationPicker from '../../components/common/LocationPicker';
 import { useNotification } from '../../context/NotificationContext';
 import { AdminService } from '../../services/admin';
 import type { Currency } from '../../types';
 import type {
   MarketplaceCategory,
   MarketplaceListing,
+  MarketplaceMeetupPreference,
   MarketplaceReport,
   MarketplaceSettings
 } from '../../types/marketplace';
@@ -32,10 +34,17 @@ type ListingDraft = {
   description: string;
   categoryId: string;
   condition: string;
+  brand: string;
+  tags: string;
   price: string;
   currency: string;
   quantity: string;
   location: string;
+  latitude: string;
+  longitude: string;
+  meetupPreferences: MarketplaceMeetupPreference[];
+  hideFromFriendsAndFollowers: boolean;
+  contactPreference: string;
   status: string;
   reviewStatus: string;
   featured: boolean;
@@ -43,6 +52,13 @@ type ListingDraft = {
   rejectionReason: string;
   sellerId: string;
 };
+
+const ADMIN_CONDITION_OPTIONS = ['new', 'used_like_new', 'used_good', 'used_fair'];
+const ADMIN_MEETUP_OPTIONS: Array<{ value: MarketplaceMeetupPreference; label: string }> = [
+  { value: 'public_meetup', label: 'Public meetup' },
+  { value: 'door_pickup', label: 'Door pickup' },
+  { value: 'door_dropoff', label: 'Door dropoff' }
+];
 
 type CategoryDraft = Partial<MarketplaceCategory> & {
   id?: string;
@@ -93,11 +109,18 @@ const emptyListingDraft = (defaultCurrencyCode = 'USD'): ListingDraft => ({
   title: '',
   description: '',
   categoryId: '',
-  condition: 'other',
+  condition: 'new',
+  brand: '',
+  tags: '',
   price: '',
   currency: normalizeCurrencyCode(defaultCurrencyCode),
   quantity: '1',
   location: '',
+  latitude: '',
+  longitude: '',
+  meetupPreferences: ['public_meetup'],
+  hideFromFriendsAndFollowers: false,
+  contactPreference: 'message',
   status: 'draft',
   reviewStatus: 'pending',
   featured: false,
@@ -232,11 +255,20 @@ const MarketplaceManagement: React.FC = () => {
       title: selected.title || '',
       description: selected.description || '',
       categoryId: selected.categoryId || '',
-      condition: String(selected.condition || 'other'),
+      condition: String(selected.condition || 'new'),
+      brand: selected.brand || '',
+      tags: Array.isArray(selected.tags) ? selected.tags.join(', ') : '',
       price: selected.price != null ? String(selected.price) : '',
       currency: normalizeCurrencyCode(selected.currency, defaultCurrencyCode),
       quantity: String(selected.quantity ?? 1),
       location: selected.location || '',
+      latitude: selected.latitude != null ? String(selected.latitude) : '',
+      longitude: selected.longitude != null ? String(selected.longitude) : '',
+      meetupPreferences: Array.isArray(selected.meetupPreferences) && selected.meetupPreferences.length
+        ? (selected.meetupPreferences.filter(Boolean) as MarketplaceMeetupPreference[])
+        : ['public_meetup'],
+      hideFromFriendsAndFollowers: Boolean(selected.hideFromFriendsAndFollowers),
+      contactPreference: selected.contactPreference || 'message',
       status: String(selected.status || 'draft'),
       reviewStatus: String(selected.reviewStatus || 'pending'),
       featured: Boolean(selected.featured),
@@ -290,9 +322,14 @@ const MarketplaceManagement: React.FC = () => {
     try {
       const payload = {
         ...listingDraft,
+        brand: listingDraft.brand.trim(),
+        tags: listingDraft.tags,
         price: listingDraft.price === '' ? null : Number(listingDraft.price),
         quantity: listingDraft.quantity === '' ? null : Number(listingDraft.quantity),
+        latitude: listingDraft.latitude === '' ? null : Number(listingDraft.latitude),
+        longitude: listingDraft.longitude === '' ? null : Number(listingDraft.longitude),
         featured: Boolean(listingDraft.featured),
+        hideFromFriendsAndFollowers: Boolean(listingDraft.hideFromFriendsAndFollowers),
         title: listingDraft.title.trim(),
         description: listingDraft.description.trim(),
         location: listingDraft.location.trim(),
@@ -304,7 +341,7 @@ const MarketplaceManagement: React.FC = () => {
       if (!ok) throw new Error('Marketplace listing save failed');
       showNotification('success', 'Listing saved', selectedListingId ? 'Marketplace listing updated.' : 'Marketplace listing created.');
       setSelectedListingId('');
-      setListingDraft(emptyListingDraft());
+      setListingDraft(emptyListingDraft(defaultCurrencyCode));
       await loadAll();
     } catch (error: any) {
       showNotification('error', 'Listing save failed', error?.message || 'Unable to save marketplace listing.');
@@ -435,6 +472,14 @@ const MarketplaceManagement: React.FC = () => {
     () => listings.find((listing) => listing.id === selectedListingId) || null,
     [listings, selectedListingId]
   );
+
+  const toggleListingMeetupPreference = (value: MarketplaceMeetupPreference) => {
+    setListingDraft((previous) => {
+      const current = Array.isArray(previous.meetupPreferences) ? previous.meetupPreferences : [];
+      const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+      return { ...previous, meetupPreferences: next.length ? next : [value] };
+    });
+  };
 
   if (loading) {
     return (
@@ -620,8 +665,56 @@ const MarketplaceManagement: React.FC = () => {
                   <Input label="Quantity" type="number" value={listingDraft.quantity} onChange={(value) => setListingDraft((prev) => ({ ...prev, quantity: value }))} />
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Input label="Condition" value={listingDraft.condition} onChange={(value) => setListingDraft((prev) => ({ ...prev, condition: value }))} />
-                  <Input label="Location" value={listingDraft.location} onChange={(value) => setListingDraft((prev) => ({ ...prev, location: value }))} />
+                  <SelectField label="Condition" value={listingDraft.condition} onChange={(value) => setListingDraft((prev) => ({ ...prev, condition: value }))} options={ADMIN_CONDITION_OPTIONS} />
+                  <Input label="Brand" value={listingDraft.brand} onChange={(value) => setListingDraft((prev) => ({ ...prev, brand: value }))} />
+                </div>
+                <Input label="Tags" value={listingDraft.tags} onChange={(value) => setListingDraft((prev) => ({ ...prev, tags: value }))} />
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="mb-2 text-sm font-semibold text-slate-900">Location</p>
+                  <LocationPicker
+                    value={{
+                      location: listingDraft.location,
+                      formattedAddress: listingDraft.location,
+                      latitude: listingDraft.latitude === '' ? null : Number(listingDraft.latitude),
+                      longitude: listingDraft.longitude === '' ? null : Number(listingDraft.longitude)
+                    }}
+                    onChange={(next) =>
+                      setListingDraft((prev) => ({
+                        ...prev,
+                        location: String(next.location || next.formattedAddress || next.formatted_address || '').trim(),
+                        latitude: next.latitude != null ? String(next.latitude) : '',
+                        longitude: next.longitude != null ? String(next.longitude) : ''
+                      }))
+                    }
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <SelectField label="Contact preference" value={listingDraft.contactPreference} onChange={(value) => setListingDraft((prev) => ({ ...prev, contactPreference: value }))} options={['message', 'call', 'email', 'any']} />
+                  <ToggleField
+                    label="Hide from friends and followers"
+                    checked={listingDraft.hideFromFriendsAndFollowers}
+                    onChange={(value) => setListingDraft((prev) => ({ ...prev, hideFromFriendsAndFollowers: value }))}
+                  />
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm font-semibold text-slate-900">Meetup preferences</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {ADMIN_MEETUP_OPTIONS.map((option) => {
+                      const active = listingDraft.meetupPreferences.includes(option.value);
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => toggleListingMeetupPreference(option.value)}
+                          className={`rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                            active ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-3">
                   <SelectField label="Status" value={listingDraft.status} onChange={(value) => setListingDraft((prev) => ({ ...prev, status: value }))} options={['draft', 'pending_review', 'approved', 'active', 'reserved', 'sold', 'removed', 'suspended']} />
@@ -674,6 +767,8 @@ const MarketplaceManagement: React.FC = () => {
                     <Info label="Category" value={selectedListing.category?.name || 'Uncategorized'} />
                     <Info label="Status" value={String(selectedListing.status || 'draft')} />
                     <Info label="Price" value={selectedListing.price != null ? `${selectedListing.currency || 'USD'} ${selectedListing.price}` : 'Price on request'} />
+                    <Info label="Brand" value={selectedListing.brand || 'Not set'} />
+                    <Info label="Privacy" value={selectedListing.hideFromFriendsAndFollowers ? 'Hidden from friends/followers' : 'Standard visibility'} />
                   </div>
                 </div>
               ) : (

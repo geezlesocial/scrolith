@@ -13,11 +13,13 @@ import {
   Heart,
   Image as ImageIcon,
   Loader2,
+  LocateFixed,
   MapPin,
   MessageCircle,
   MoreHorizontal,
   Package2,
   Plus,
+  RotateCcw,
   Search,
   Send,
   Share2,
@@ -29,6 +31,7 @@ import {
   Video,
   X
 } from 'lucide-react';
+import LocationPicker from '../../components/common/LocationPicker';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
@@ -59,11 +62,13 @@ import type {
   MarketplaceListing,
   MarketplaceListingFormValues,
   MarketplaceListingMedia,
+  MarketplaceMeetupPreference,
   MarketplaceListingStatus,
   MarketplaceQuery,
   MarketplaceSettings
 } from '../../types/marketplace';
-import type { Currency } from '../../types';
+import type { Currency, StructuredLocationFields } from '../../types';
+import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
 
 type MarketplaceVariant = 'public' | 'dashboard';
 type MarketplaceRouteMode = 'browse' | 'category' | 'detail' | 'sell' | 'edit' | 'mine' | 'saved';
@@ -85,10 +90,7 @@ const CONDITION_OPTIONS: Array<{ value: MarketplaceCondition; label: string }> =
   { value: 'new', label: 'New' },
   { value: 'used_like_new', label: 'Used - Like new' },
   { value: 'used_good', label: 'Used - Good' },
-  { value: 'used_fair', label: 'Used - Fair' },
-  { value: 'refurbished', label: 'Refurbished' },
-  { value: 'handmade', label: 'Handmade' },
-  { value: 'other', label: 'Other' }
+  { value: 'used_fair', label: 'Used - Fair' }
 ];
 
 const DELIVERY_OPTIONS: Array<{ value: MarketplaceDeliveryOption; label: string }> = [
@@ -106,6 +108,12 @@ const PAYMENT_METHODS = [
   { value: 'gcash', label: 'GCash' },
   { value: 'paystack', label: 'Paystack' },
   { value: 'stripe', label: 'Stripe' }
+];
+
+const MEETUP_PREFERENCE_OPTIONS: Array<{ value: MarketplaceMeetupPreference; label: string; help: string }> = [
+  { value: 'public_meetup', label: 'Public meetup', help: 'Meetup at a public space' },
+  { value: 'door_pickup', label: 'Door pickup', help: 'Buyer pickup at your door' },
+  { value: 'door_dropoff', label: 'Door dropoff', help: 'Seller drops the item at buyer door' }
 ];
 
 const STATUS_LABELS: Record<MarketplaceListingStatus, string> = {
@@ -185,16 +193,25 @@ const getCoverImage = (listing: MarketplaceListing | null | undefined) => {
   return getMediaUrl(firstImage) || '';
 };
 
+const formatMeetupPreference = (value: string) =>
+  MEETUP_PREFERENCE_OPTIONS.find((option) => option.value === value)?.label || value.replace(/_/g, ' ');
+
 const defaultFormValues = (currency = DEFAULT_CURRENCY): MarketplaceListingFormValues => ({
   title: '',
   description: '',
   categoryId: '',
-  condition: 'other',
+  condition: 'new',
+  brand: '',
+  tags: '',
   price: '',
   currency: normalizeCurrencyCode(currency, DEFAULT_CURRENCY),
   negotiable: false,
   quantity: '1',
   location: '',
+  latitude: null,
+  longitude: null,
+  meetupPreferences: ['public_meetup'],
+  hideFromFriendsAndFollowers: false,
   deliveryOptions: ['pickup'],
   paymentMethods: ['cash_on_delivery'],
   contactPreference: 'message'
@@ -204,12 +221,18 @@ const listingToFormValues = (listing: MarketplaceListing | null | undefined, fal
   title: listing?.title ?? '',
   description: listing?.description ?? '',
   categoryId: listing?.categoryId ?? '',
-  condition: (listing?.condition ?? 'other') as MarketplaceCondition,
+  condition: (listing?.condition ?? 'new') as MarketplaceCondition,
+  brand: listing?.brand ?? '',
+  tags: Array.isArray(listing?.tags) ? listing.tags.join(', ') : '',
   price: listing?.price ? String(listing.price) : '',
   currency: normalizeCurrencyCode(listing?.currency, fallbackCurrency),
   negotiable: Boolean(listing?.negotiable),
   quantity: listing?.quantity ? String(listing.quantity) : '1',
   location: listing?.location ?? '',
+  latitude: listing?.latitude ?? null,
+  longitude: listing?.longitude ?? null,
+  meetupPreferences: (Array.isArray(listing?.meetupPreferences) ? listing.meetupPreferences : ['public_meetup']) as MarketplaceMeetupPreference[],
+  hideFromFriendsAndFollowers: Boolean(listing?.hideFromFriendsAndFollowers),
   deliveryOptions: (Array.isArray(listing?.deliveryOptions) ? listing!.deliveryOptions : ['pickup']) as MarketplaceDeliveryOption[],
   paymentMethods: Array.isArray(listing?.paymentMethods) ? listing.paymentMethods.map(String) : [],
   contactPreference: listing?.contactPreference ?? 'message'
@@ -306,6 +329,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [notice, setNotice] = useState<string | null>(null);
   const [searchDraft, setSearchDraft] = useState('');
   const [query, setQuery] = useState<MarketplaceQuery>({ page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: 'newest' });
+  const [viewerCoordinates, setViewerCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [form, setForm] = useState<MarketplaceListingFormValues>(defaultFormValues(defaultCurrencyCode));
   const [existingMedia, setExistingMedia] = useState<MarketplaceListingMedia[]>([]);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
@@ -462,6 +486,23 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
 
   useEffect(() => {
     if (!(isBrowseRoute || isCategoryRoute)) return;
+    if (query.sort !== 'nearest' || viewerCoordinates) return;
+    let mounted = true;
+    void getCurrentDeviceCoordinates()
+      .then((coords) => {
+        if (!mounted) return;
+        if (coords && Number.isFinite(coords.latitude) && Number.isFinite(coords.longitude)) {
+          setViewerCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
+        }
+      })
+      .catch(() => null);
+    return () => {
+      mounted = false;
+    };
+  }, [isBrowseRoute, isCategoryRoute, query.sort, viewerCoordinates]);
+
+  useEffect(() => {
+    if (!(isBrowseRoute || isCategoryRoute)) return;
     let mounted = true;
     const run = async () => {
       setLoading(true);
@@ -471,6 +512,8 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
           ...query,
           categoryId: activeCategoryId || query.categoryId || null,
           search: query.search || undefined,
+          latitude: query.sort === 'nearest' ? viewerCoordinates?.latitude ?? null : null,
+          longitude: query.sort === 'nearest' ? viewerCoordinates?.longitude ?? null : null,
           includeMine: Boolean(user?.id && isDashboardVariant)
         };
         const response = await listMarketplaceListings(payload);
@@ -494,7 +537,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       mounted = false;
       window.clearTimeout(timer);
     };
-  }, [activeCategoryId, isBrowseRoute, isCategoryRoute, isDashboardVariant, query, user?.id]);
+  }, [activeCategoryId, isBrowseRoute, isCategoryRoute, isDashboardVariant, query, user?.id, viewerCoordinates]);
 
   useEffect(() => {
     if (!(isMyListingsRoute || isSavedRoute || isDashboardVariant)) return;
@@ -612,7 +655,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     setForm((previous) => ({ ...previous, [key]: value }));
   };
 
-  const toggleArrayValue = <T extends string>(key: 'deliveryOptions' | 'paymentMethods', value: T) => {
+  const toggleArrayValue = <T extends string>(key: 'deliveryOptions' | 'paymentMethods' | 'meetupPreferences', value: T) => {
     setForm((previous) => {
       const current = Array.isArray(previous[key]) ? previous[key] : [];
       const next = current.includes(value as any) ? current.filter((item) => item !== value) : [...current, value];
@@ -684,11 +727,17 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
         description: form.description.trim(),
         categoryId: form.categoryId,
         condition: form.condition,
+        brand: form.brand.trim(),
+        tags: form.tags,
         price: form.price ? Number(form.price) : 0,
         currency: normalizeCurrencyCode(form.currency, defaultCurrencyCode),
         negotiable: Boolean(form.negotiable),
         quantity: form.quantity ? Number(form.quantity) : 1,
         location: form.location.trim(),
+        latitude: form.latitude ?? null,
+        longitude: form.longitude ?? null,
+        meetupPreferences: form.meetupPreferences,
+        hideFromFriendsAndFollowers: Boolean(form.hideFromFriendsAndFollowers),
         deliveryOptions: form.deliveryOptions,
         paymentMethods: form.paymentMethods,
         contactPreference: form.contactPreference,
@@ -949,6 +998,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
               <option value="newest">Newest</option>
               <option value="price_low">Price low to high</option>
               <option value="price_high">Price high to low</option>
+              <option value="nearest">Nearest</option>
               <option value="popular">Popular</option>
               <option value="recommended">Recommended</option>
             </select>
@@ -994,6 +1044,22 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             </button>
             <button
               type="button"
+              onClick={() => {
+                void getCurrentDeviceCoordinates()
+                  .then((coords) => {
+                    if (!coords) return;
+                    setViewerCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
+                    setQuery((previous) => ({ ...previous, sort: 'nearest', page: 1 }));
+                  })
+                  .catch(() => setError('Unable to access your current location for nearby listings'));
+              }}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              <LocateFixed className="h-4 w-4" />
+              Nearby
+            </button>
+            <button
+              type="button"
               onClick={() => setQuery((previous) => ({ ...previous, search: searchDraft.trim(), page: 1 }))}
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white"
             >
@@ -1005,6 +1071,11 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
 
         {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
         {notice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
+        {query.sort === 'nearest' && !viewerCoordinates && !loading && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Nearby sorting needs your location. Use the Nearby button to enable it.
+          </div>
+        )}
 
         {loading ? (
           <MarketplaceSkeleton />
@@ -1235,6 +1306,12 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                             {selectedListing.location}
                           </span>
                         )}
+                        {typeof selectedListing.distanceKm === 'number' && (
+                          <span className="inline-flex items-center gap-1">
+                            <LocateFixed className="h-4 w-4" />
+                            {selectedListing.distanceKm.toFixed(1)} km away
+                          </span>
+                        )}
                         <span className="inline-flex items-center gap-1">
                           <Eye className="h-4 w-4" />
                           {selectedListing.viewCount || 0} views
@@ -1249,17 +1326,28 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                       {formatMoney(selectedListing.price, selectedListing.currency)}
                     </div>
                     {selectedListing.negotiable && <MarketplaceBadge>Negotiable</MarketplaceBadge>}
+                    {selectedListing.brand && <MarketplaceBadge>{selectedListing.brand}</MarketplaceBadge>}
                     {selectedListing.deliveryOptions?.map((option) => (
                       <MarketplaceBadge key={String(option)}>{String(option).replace(/_/g, ' ')}</MarketplaceBadge>
                     ))}
                     {selectedListing.paymentMethods?.map((method) => (
                       <MarketplaceBadge key={String(method)}>{String(method).replace(/_/g, ' ')}</MarketplaceBadge>
                     ))}
+                    {selectedListing.meetupPreferences?.map((preference) => (
+                      <MarketplaceBadge key={String(preference)}>{formatMeetupPreference(String(preference))}</MarketplaceBadge>
+                    ))}
                   </div>
 
                   <div className="mt-4 space-y-3">
                     <h2 className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">About this item</h2>
                     <p className="whitespace-pre-line text-sm leading-7 text-slate-700">{selectedListing.description || 'No description provided.'}</p>
+                    {Array.isArray(selectedListing.tags) && selectedListing.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {selectedListing.tags.map((tag) => (
+                          <MarketplaceBadge key={tag}>#{tag}</MarketplaceBadge>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1566,11 +1654,23 @@ const MarketplaceListingCard: React.FC<{
             </div>
           </div>
           <p className="line-clamp-2 text-sm leading-6 text-slate-600">{listing.summary || listing.description || 'Scrolith marketplace listing.'}</p>
+          <div className="flex flex-wrap gap-2">
+            {listing.brand && <MarketplaceBadge>{listing.brand}</MarketplaceBadge>}
+            {Array.isArray(listing.tags) && listing.tags.slice(0, 3).map((tag) => (
+              <MarketplaceBadge key={tag}>#{tag}</MarketplaceBadge>
+            ))}
+          </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
             {listing.location && (
               <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1">
                 <MapPin className="h-3.5 w-3.5" />
                 {listing.location}
+              </span>
+            )}
+            {typeof listing.distanceKm === 'number' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1">
+                <LocateFixed className="h-3.5 w-3.5" />
+                {listing.distanceKm.toFixed(1)} km
               </span>
             )}
             <span className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1">
@@ -1638,7 +1738,7 @@ const MarketplaceForm: React.FC<{
   selectedListing: MarketplaceListing | null;
   onBack: () => void;
   onFieldChange: <K extends keyof MarketplaceListingFormValues>(key: K, value: MarketplaceListingFormValues[K]) => void;
-  onToggleArrayValue: (key: 'deliveryOptions' | 'paymentMethods', value: string) => void;
+  onToggleArrayValue: (key: 'deliveryOptions' | 'paymentMethods' | 'meetupPreferences', value: string) => void;
   onImagesChange: (files: File[]) => void;
   onVideoChange: (file: File | null) => void;
   onRemoveExistingMedia: (media: MarketplaceListingMedia) => void;
@@ -1741,11 +1841,30 @@ const MarketplaceForm: React.FC<{
             <Field label="Quantity">
               <input value={form.quantity} onChange={(event) => onFieldChange('quantity', event.target.value)} className="input" placeholder="1" inputMode="numeric" />
             </Field>
+            <Field label="Brand">
+              <input value={form.brand} onChange={(event) => onFieldChange('brand', event.target.value)} className="input" placeholder="Item brand name" />
+            </Field>
+            <Field label="Tags">
+              <input value={form.tags} onChange={(event) => onFieldChange('tags', event.target.value)} className="input" placeholder="sony xperia, used sony xperia, Xperia 1 IV" />
+              <p className="mt-2 text-xs text-slate-500">Up to 6 tags. Separate each tag with a comma.</p>
+            </Field>
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Location">
-              <input value={form.location} onChange={(event) => onFieldChange('location', event.target.value)} className="input" placeholder="City, country" />
+              <LocationPicker
+                value={{
+                  location: form.location,
+                  formattedAddress: form.location,
+                  latitude: form.latitude,
+                  longitude: form.longitude
+                }}
+                onChange={(next) => {
+                  onFieldChange('location', String(next.location || next.formattedAddress || next.formatted_address || '').trim());
+                  onFieldChange('latitude', next.latitude ?? null);
+                  onFieldChange('longitude', next.longitude ?? null);
+                }}
+              />
             </Field>
             <Field label="Contact preference">
               <select value={form.contactPreference} onChange={(event) => onFieldChange('contactPreference', event.target.value)} className="input">
@@ -1767,6 +1886,24 @@ const MarketplaceForm: React.FC<{
           </Field>
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <Field label="Meetup preferences">
+              <div className="flex flex-wrap gap-2">
+                {MEETUP_PREFERENCE_OPTIONS.map((option) => (
+                  <MarketplaceChip
+                    key={option.value}
+                    active={form.meetupPreferences.includes(option.value)}
+                    onClick={() => onToggleArrayValue('meetupPreferences', option.value)}
+                  >
+                    {option.label}
+                  </MarketplaceChip>
+                ))}
+              </div>
+              <div className="mt-2 space-y-1 text-xs text-slate-500">
+                {MEETUP_PREFERENCE_OPTIONS.map((option) => (
+                  <p key={option.value}>{option.label}: {option.help}</p>
+                ))}
+              </div>
+            </Field>
             <Field label="Delivery options">
               <div className="flex flex-wrap gap-2">
                 {DELIVERY_OPTIONS.map((option) => (
@@ -1780,6 +1917,9 @@ const MarketplaceForm: React.FC<{
                 ))}
               </div>
             </Field>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Payment methods">
               <div className="flex flex-wrap gap-2">
                 {paymentOptions.map((option) => (
@@ -1792,6 +1932,20 @@ const MarketplaceForm: React.FC<{
                   </MarketplaceChip>
                 ))}
               </div>
+            </Field>
+            <Field label="Privacy settings">
+              <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={form.hideFromFriendsAndFollowers}
+                  onChange={(event) => onFieldChange('hideFromFriendsAndFollowers', event.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900"
+                />
+                <span>
+                  <span className="block font-semibold">Hide from friends and followers</span>
+                  <span className="mt-1 block text-xs text-slate-500">People already connected to you will not see this listing in marketplace browsing.</span>
+                </span>
+              </label>
             </Field>
           </div>
 
@@ -1868,7 +2022,7 @@ const MarketplaceForm: React.FC<{
                   </div>
                 )}
               </div>
-              {(imagePreviews.length > 1 || selectedVideo) && (
+              {(imagePreviews.length > 1 || videoPreview) && (
                 <div className="grid grid-cols-4 gap-3">
                   {imagePreviews.slice(0, 4).map((preview, index) => (
                     <img key={preview} src={preview} alt={`Image preview ${index + 1}`} className="aspect-[4/3] rounded-2xl object-cover" />
@@ -1898,6 +2052,16 @@ const MarketplaceForm: React.FC<{
               <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Payment</p>
                 <p className="mt-1 text-sm text-slate-700">{form.paymentMethods.map((method) => PAYMENT_METHODS.find((item) => item.value === method)?.label || method).join(', ') || 'Admin controlled'}</p>
+              </div>
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Meetup and privacy</p>
+                <p className="mt-1 text-sm text-slate-700">{form.meetupPreferences.map((item) => formatMeetupPreference(item)).join(', ') || 'Select meetup preferences'}</p>
+                <p className="mt-2 text-xs text-slate-500">{form.hideFromFriendsAndFollowers ? 'Hidden from friends and followers' : 'Visible under your normal marketplace privacy'}</p>
+              </div>
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Brand and tags</p>
+                <p className="mt-1 text-sm text-slate-700">{form.brand || 'No brand added'}</p>
+                <p className="mt-2 text-xs text-slate-500">{form.tags || 'No tags added'}</p>
               </div>
             </div>
           </div>
