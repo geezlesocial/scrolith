@@ -448,6 +448,10 @@ export const AdminService = {
     return data || { permissions: [], groups: [] };
   },
 
+  getCurrentAdminAccess: async (): Promise<any> => {
+    return adminGet<any>('/rbac/me');
+  },
+
   getPolicySummary: async (): Promise<any> => {
     return adminGet<any>('/policies/summary');
   },
@@ -541,6 +545,88 @@ export const AdminService = {
 
   deactivateUserPermissionOverride: async (id: string): Promise<any> => {
     return adminDelete<any>(`/policies/overrides/${encodeURIComponent(id)}`);
+  },
+
+  getApprovalPolicySummary: async (): Promise<any> => {
+    return adminGet<any>('/approvals/summary');
+  },
+
+  getApprovalPolicies: async (): Promise<any[]> => {
+    const data = await adminGet<any[]>('/approvals/policies');
+    return Array.isArray(data) ? data : [];
+  },
+
+  createApprovalPolicy: async (payload: {
+    moduleKey: string;
+    actionKey: string;
+    entityType: string;
+    label: string;
+    description?: string | null;
+    mode?: 'AUDIT_ONLY' | 'ENFORCED' | 'DISABLED';
+    minApprovals?: number;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/approvals/policies', payload);
+  },
+
+  updateApprovalPolicy: async (id: string, payload: Record<string, any>): Promise<any> => {
+    return adminPut<any>(`/approvals/policies/${encodeURIComponent(id)}`, payload);
+  },
+
+  getApprovalRequests: async (params?: { status?: string; moduleKey?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/approvals/requests', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  observeApprovalRequest: async (payload: Record<string, any>): Promise<any> => {
+    return adminPost<any>('/approvals/requests/observe', payload);
+  },
+
+  approveApprovalRequest: async (id: string, reason?: string): Promise<any> => {
+    return adminPost<any>(`/approvals/requests/${encodeURIComponent(id)}/approve`, { reason });
+  },
+
+  rejectApprovalRequest: async (id: string, reason?: string): Promise<any> => {
+    return adminPost<any>(`/approvals/requests/${encodeURIComponent(id)}/reject`, { reason });
+  },
+
+  getAuditSummary: async (): Promise<any> => {
+    return adminGet<any>('/audit/summary');
+  },
+
+  getAuditEvents: async (params?: {
+    actor?: string;
+    entityType?: string;
+    moduleKey?: string;
+    severity?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/audit/events', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getSecurityAlertSummary: async (): Promise<any> => {
+    return adminGet<any>('/security-alerts/summary');
+  },
+
+  getSecurityAlerts: async (params?: { status?: string; severity?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/security-alerts', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  acknowledgeSecurityAlert: async (id: string): Promise<any> => {
+    return adminPost<any>(`/security-alerts/${encodeURIComponent(id)}/acknowledge`);
+  },
+
+  resolveSecurityAlert: async (id: string): Promise<any> => {
+    return adminPost<any>(`/security-alerts/${encodeURIComponent(id)}/resolve`);
+  },
+
+  dismissSecurityAlert: async (id: string): Promise<any> => {
+    return adminPost<any>(`/security-alerts/${encodeURIComponent(id)}/dismiss`);
   },
 
   getFeatureControlSummary: async (): Promise<any> => {
@@ -2170,6 +2256,279 @@ export const AdminService = {
 
   async deleteSystemBackups(backupIds: string[]): Promise<{ deletedCount: number; deleted: any[] }> {
     return adminPost<{ deletedCount: number; deleted: any[] }>('/system-backups/delete-batch', { backupIds });
+  },
+
+  async getProcurementSummary(): Promise<any> {
+    return adminGet<any>('/procurement/summary');
+  },
+
+  async getProcurementSettings(): Promise<any> {
+    return adminGet<any>('/procurement/settings');
+  },
+
+  async updateProcurementSettings(payload: any): Promise<any> {
+    return adminPut<any>('/procurement/settings', payload);
+  },
+
+  async getProcurementCostCenters(): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/cost-centers');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createProcurementCostCenter(payload: any): Promise<any> {
+    return adminPost<any>('/procurement/cost-centers', payload);
+  },
+
+  async updateProcurementCostCenter(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/procurement/cost-centers/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getBudgetRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/budget-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createBudgetRule(payload: any): Promise<any> {
+    return adminPost<any>('/procurement/budget-rules', payload);
+  },
+
+  async updateBudgetRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/procurement/budget-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getProcurementPurchaseRequests(params?: Record<string, any>): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/purchase-requests', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getProcurementApprovalQueue(): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/approvals/queue');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async decideProcurementRequest(id: string, decision: 'approve' | 'reject' | 'hold', payload?: any): Promise<any> {
+    return adminPost<any>(`/procurement/purchase-requests/${encodeURIComponent(id)}/${decision}`, payload || {});
+  },
+
+  async getProcurementInvoices(params?: Record<string, any>): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/invoices', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createProcurementInvoice(payload: any): Promise<any> {
+    return adminPost<any>('/procurement/invoices', payload);
+  },
+
+  async approveProcurementInvoice(id: string): Promise<any> {
+    return adminPost<any>(`/procurement/invoices/${encodeURIComponent(id)}/approve`, {});
+  },
+
+  async reconcileProcurementInvoice(id: string): Promise<any> {
+    return adminPost<any>(`/procurement/invoices/${encodeURIComponent(id)}/reconcile`, {});
+  },
+
+  async createCreditNote(id: string, payload: any): Promise<any> {
+    return adminPost<any>(`/procurement/invoices/${encodeURIComponent(id)}/credit-notes`, payload);
+  },
+
+  async getComplianceSummary(): Promise<any> {
+    return adminGet<any>('/compliance/summary');
+  },
+
+  async getComplianceSettings(): Promise<any> {
+    return adminGet<any>('/compliance/settings');
+  },
+
+  async updateComplianceSettings(payload: any): Promise<any> {
+    return adminPut<any>('/compliance/settings', payload);
+  },
+
+  async getComplianceCases(params?: Record<string, any>): Promise<any[]> {
+    const data = await adminGet<any[]>('/compliance/cases', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createComplianceCase(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/cases', payload);
+  },
+
+  async addComplianceEvidence(caseId: string, payload: any): Promise<any> {
+    return adminPost<any>(`/compliance/cases/${encodeURIComponent(caseId)}/evidence`, payload);
+  },
+
+  async addComplianceDecision(caseId: string, payload: any): Promise<any> {
+    return adminPost<any>(`/compliance/cases/${encodeURIComponent(caseId)}/decisions`, payload);
+  },
+
+  async getRiskRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/compliance/risk-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createRiskRule(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/risk-rules', payload);
+  },
+
+  async updateRiskRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/compliance/risk-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  async createRiskSnapshot(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/risk-snapshots', payload);
+  },
+
+  async createHoldAction(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/holds', payload);
+  },
+
+  async releaseHoldAction(id: string, payload?: any): Promise<any> {
+    return adminPost<any>(`/compliance/holds/${encodeURIComponent(id)}/release`, payload || {});
+  },
+
+  async getComplianceAppeals(): Promise<any[]> {
+    const data = await adminGet<any[]>('/compliance/appeals');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async resolveComplianceAppeal(id: string, payload: any): Promise<any> {
+    return adminPost<any>(`/compliance/appeals/${encodeURIComponent(id)}/resolve`, payload);
+  },
+
+  async getTalentCloudSummary(): Promise<any> {
+    return adminGet<any>('/talent-cloud/summary');
+  },
+
+  async getTalentCloudSettings(): Promise<any> {
+    return adminGet<any>('/talent-cloud/settings');
+  },
+
+  async updateTalentCloudSettings(payload: any): Promise<any> {
+    return adminPut<any>('/talent-cloud/settings', payload);
+  },
+
+  async getTalentPools(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/pools');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createTalentPool(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/pools', payload);
+  },
+
+  async updateTalentPool(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/pools/${encodeURIComponent(id)}`, payload);
+  },
+
+  async saveTalentPoolMember(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/pool-members', payload);
+  },
+
+  async savePrivateAccessRule(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/access-rules', payload);
+  },
+
+  async getVendorRequirements(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/vendor-requirements');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createVendorRequirement(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/vendor-requirements', payload);
+  },
+
+  async updateVendorRequirement(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/vendor-requirements/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getIntegrationEndpoints(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/integrations');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createIntegrationEndpoint(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/integrations', payload);
+  },
+
+  async updateIntegrationEndpoint(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/integrations/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getWebhookDeliveries(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/webhook-deliveries');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async retryWebhookDelivery(id: string): Promise<any> {
+    return adminPost<any>(`/talent-cloud/webhook-deliveries/${encodeURIComponent(id)}/retry`, {});
+  },
+
+  async getApiCredentials(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/api-keys');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createApiCredential(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/api-keys', payload);
+  },
+
+  async getScrolithaManagedSummary(): Promise<any> {
+    return adminGet<any>('/scrolitha-managed/summary');
+  },
+
+  async getScrolithaManagedSettings(): Promise<any> {
+    return adminGet<any>('/scrolitha-managed/settings');
+  },
+
+  async updateScrolithaManagedSettings(payload: any): Promise<any> {
+    return adminPut<any>('/scrolitha-managed/settings', payload);
+  },
+
+  async getAiOutputs(): Promise<any[]> {
+    const data = await adminGet<any[]>('/scrolitha-managed/ai-outputs');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createAiOutput(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/ai-outputs', payload);
+  },
+
+  async reviewAiOutput(id: string, payload: any): Promise<any> {
+    return adminPost<any>(`/scrolitha-managed/ai-outputs/${encodeURIComponent(id)}/review`, payload);
+  },
+
+  async getManagedProjects(): Promise<any[]> {
+    const data = await adminGet<any[]>('/scrolitha-managed/projects');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createManagedProject(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/projects', payload);
+  },
+
+  async updateManagedProject(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/scrolitha-managed/projects/${encodeURIComponent(id)}`, payload);
+  },
+
+  async saveManagedMilestone(payload: any, id?: string): Promise<any> {
+    if (id) return adminPut<any>(`/scrolitha-managed/milestones/${encodeURIComponent(id)}`, payload);
+    return adminPost<any>('/scrolitha-managed/milestones', payload);
+  },
+
+  async saveManagedAssignment(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/assignments', payload);
+  },
+
+  async getManagedEscalationRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/scrolitha-managed/escalation-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createManagedEscalationRule(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/escalation-rules', payload);
+  },
+
+  async updateManagedEscalationRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/scrolitha-managed/escalation-rules/${encodeURIComponent(id)}`, payload);
   },
 
   // ---- Form Builder ----
