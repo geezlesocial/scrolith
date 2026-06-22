@@ -6,6 +6,7 @@ import { sendSystemEmail } from '../services/email.service';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import { sendPushToUser } from '../services/pushNotifications';
 import { ensureDefaultSupportTicketCategories } from '../services/defaultCategorySeed.service';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const COMPANY_NAME = 'Scrolith';
 const SUPPORT_MAILBOX = 'support@scrolith.com';
@@ -458,6 +459,14 @@ export const createTicket = async (req: Request, res: Response) => {
     });
 
     await Promise.allSettled([notifyAdminsOfTicket(ticket), notifyTicketSenderReceived(ticket)]);
+    await publishIntegrationEvent('dispute.ticket.created', {
+      ticketId: ticket.id,
+      trackingCode: ticket.trackingCode,
+      userId: ticket.userId,
+      category: ticket.category,
+      status: ticket.status,
+      priority: ticket.priority
+    });
     return res.json({ success: true, data: mapTicket(ticket) });
   } catch (error: any) {
     console.error('Create support ticket error:', error);
@@ -540,6 +549,14 @@ export const replyToTicket = async (req: Request, res: Response) => {
       await notifyAdminsOfReply(ticket, reply);
     }
 
+    await publishIntegrationEvent('dispute.ticket.replied', {
+      ticketId: ticket.id,
+      replyId: reply.id,
+      userId: user?.id || null,
+      isFromAdmin: reply.isFromAdmin,
+      internalNote: reply.internalNote
+    });
+
     return res.json({ success: true, data: mapReply(reply) });
   } catch (error: any) {
     console.error('Reply to support ticket error:', error);
@@ -606,6 +623,11 @@ export const updateTicketStatus = async (req: Request, res: Response) => {
     await prisma.supportTicket.update({
       where: { id: req.params.id },
       data: { status }
+    });
+    await publishIntegrationEvent('dispute.ticket.status_changed', {
+      ticketId: req.params.id,
+      status,
+      actorUserId: user?.id || null
     });
 
     return res.json({ success: true, data: null });

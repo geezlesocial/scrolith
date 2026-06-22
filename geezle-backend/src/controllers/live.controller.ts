@@ -25,6 +25,7 @@ import {
   normalizeStoredContentOfferTags,
   resolveSubmittedContentOfferTags
 } from '../services/contentOfferTagging.service';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const LIVE_VISIBILITIES = new Set(['public', 'network', 'followers', 'private']);
 const LIVE_REACTION_TYPES = new Set(['like', 'love']);
@@ -786,6 +787,13 @@ export const createLiveSession = async (req: Request, res: Response) => {
     });
 
     const payload = await buildSessionPayload(await fetchSessionById(session.id), hostUserId);
+    await publishIntegrationEvent('live.session.created', {
+      sessionId: session.id,
+      hostUserId,
+      visibility: session.visibility,
+      status: session.status,
+      roomName: session.roomName
+    });
     emitLiveEvent(req, 'live:session_created', { session: payload }, { sessionId: session.id });
     return res.status(201).json({ success: true, data: payload, timestamp: nowIso() });
   } catch (error: any) {
@@ -865,6 +873,13 @@ export const startLiveSession = async (req: Request, res: Response) => {
     await notifyLiveStartRecipients(req, startedSession);
 
     const payload = await buildSessionPayload(startedSession, userId);
+    await publishIntegrationEvent('live.session.started', {
+      sessionId,
+      hostUserId: startedSession.hostUserId,
+      visibility: startedSession.visibility,
+      status: startedSession.status,
+      startedAt: startedSession.startedAt
+    });
     emitLiveEvent(
       req,
       'live:started',
@@ -995,6 +1010,12 @@ export const endLiveSession = async (req: Request, res: Response) => {
     });
 
     const payload = await buildSessionPayload(await fetchSessionById(sessionId), userId);
+    await publishIntegrationEvent('live.session.ended', {
+      sessionId,
+      hostUserId: session.hostUserId,
+      status: 'ENDED',
+      endedAt
+    });
     emitLiveEvent(req, 'live:ended', { session: payload, sessionId }, { sessionId });
     return ok(res, payload);
   } catch (error: any) {
@@ -1788,6 +1809,12 @@ export const acceptLiveInvite = async (req: Request, res: Response) => {
     });
 
     const payload = await buildSessionPayload(await fetchSessionById(invite.sessionId), userId);
+    await publishIntegrationEvent('live.session.invite_accepted', {
+      sessionId: invite.sessionId,
+      inviteId,
+      userId,
+      role: 'GUEST'
+    });
     emitLiveEvent(
       req,
       'live:participant_joined',

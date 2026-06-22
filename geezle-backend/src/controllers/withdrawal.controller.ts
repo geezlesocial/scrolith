@@ -6,6 +6,7 @@ import { createFxLock, quoteFxAmount } from '../services/fxLock.service';
 import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { maybeDecryptSecret } from '../utils/secretCipher';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -579,6 +580,14 @@ export const requestWithdrawal = async (req: Request, res: Response) => {
       console.warn('Withdrawal request notification failed', notifyError);
     }
 
+    await publishIntegrationEvent('payout.withdrawal.requested', {
+      withdrawalId: result.id,
+      userId,
+      amount: result.amount,
+      method: result.method,
+      status: result.status
+    });
+
     return ok(res, mapWithdrawal(result), 'Withdrawal requested successfully');
   } catch (error: any) {
     console.error('Withdrawal request error:', error);
@@ -686,6 +695,12 @@ export const savePayoutAccountDetails = async (req: Request, res: Response) => {
     };
 
     const saved = await savePayoutAccount(userId, nextPayload);
+    await publishIntegrationEvent('payout.account.updated', {
+      userId,
+      preferredMethod: preferredMethod || null,
+      country: payload.country || userRecord?.country || null,
+      currency: payload.currency || defaultCurrency || null
+    });
     return ok(res, sanitizePayoutData(saved), 'Payout account saved');
   } catch (error: any) {
     console.error('Save payout account error:', error);

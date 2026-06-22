@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { sendSystemMessage } from '../services/systemMessaging';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const normalizeRole = (role?: string) => (role || '').toString().toLowerCase();
 
@@ -173,9 +174,17 @@ export const deliverOrder = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
-    await prisma.order.update({
+    const updated = await prisma.order.update({
       where: { id: order.id },
       data: { status: 'UNDER_REVIEW' }
+    });
+    await publishIntegrationEvent('order.delivered', {
+      orderId: updated.id,
+      gigId: updated.gigId,
+      clientId: updated.clientId,
+      freelancerId: updated.freelancerId,
+      status: updated.status,
+      amount: updated.amount
     });
 
     try {
@@ -219,6 +228,15 @@ export const requestOrderInfo = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
+    await publishIntegrationEvent('order.info_requested', {
+      orderId: order.id,
+      gigId: order.gigId,
+      clientId: order.clientId,
+      freelancerId: order.freelancerId,
+      status: order.status,
+      requestedByUserId: user?.id || null
+    });
+
     return res.json({ success: true, data: null, message: 'Request sent' });
   } catch (error: any) {
     console.error('Request info error:', error);
@@ -235,9 +253,17 @@ export const proposeRevision = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
-    await prisma.order.update({
+    const updated = await prisma.order.update({
       where: { id: order.id },
       data: { status: 'DISPUTED' }
+    });
+    await publishIntegrationEvent('order.dispute_opened', {
+      orderId: updated.id,
+      gigId: updated.gigId,
+      clientId: updated.clientId,
+      freelancerId: updated.freelancerId,
+      status: updated.status,
+      amount: updated.amount
     });
 
     try {

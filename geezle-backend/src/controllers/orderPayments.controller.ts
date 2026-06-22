@@ -8,6 +8,7 @@ import { sendSystemMessage } from '../services/systemMessaging';
 import { maybeDecryptSecret } from '../utils/secretCipher';
 import { getStripeClient } from '../services/stripeConfig.service';
 import { awardAffiliateFirstPurchaseCommission } from '../services/affiliateProgram.service';
+import { publishIntegrationEvent } from '../services/talentCloud.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -613,6 +614,18 @@ export const purchaseGig = async (req: Request, res: Response) => {
     } catch (notifyError) {
       console.warn('Order pending notification failed', notifyError);
     }
+
+    await publishIntegrationEvent('order.created', {
+      orderId: order.id,
+      gigId: gig.id,
+      clientId: user.id,
+      freelancerId: gig.userId,
+      status: order.status,
+      amount: order.amount,
+      provider,
+      orderPaymentIntentId: intent.id,
+      currency
+    });
 
     const frontendBase = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000';
     const role = (user.role || '').toString().toLowerCase();
