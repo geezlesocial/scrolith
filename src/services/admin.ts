@@ -2445,12 +2445,25 @@ export const AdminService = {
     return Array.isArray(data) ? data : [];
   },
 
+  async getInboundConnectors(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/connectors');
+    return Array.isArray(data) ? data : [];
+  },
+
   async createIntegrationEndpoint(payload: any): Promise<any> {
     return adminPost<any>('/talent-cloud/integrations', payload);
   },
 
+  async createInboundConnector(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/connectors', payload);
+  },
+
   async updateIntegrationEndpoint(id: string, payload: any): Promise<any> {
     return adminPut<any>(`/talent-cloud/integrations/${encodeURIComponent(id)}`, payload);
+  },
+
+  async updateInboundConnector(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/connectors/${encodeURIComponent(id)}`, payload);
   },
 
   async getWebhookDeliveries(): Promise<any[]> {
