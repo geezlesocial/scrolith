@@ -87,6 +87,7 @@ import phase3Routes from './routes/phase3.routes';
 import procurementRoutes from './routes/procurement.routes';
 import ecosystemRoutes from './routes/ecosystem.routes';
 import insightsRoutes from './routes/insights.routes';
+import { dispatchQueuedWebhookDeliveries, getTalentCloudSettings } from './services/talentCloud.service';
 import { authMiddleware } from './middleware/auth.middleware';
 import { adminMiddleware } from './middleware/admin.middleware';
 import { maintenanceModeMiddleware } from './middleware/maintenance.middleware';
@@ -3515,7 +3516,7 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
     console.error('[fx] Failed to register FX jobs:', error);
   });
   startDemoAutomationScheduler();
-  server.listen(PORT, () => {
+  server.listen(PORT, async () => {
     console.log(`========================================`);
     console.log(`🚀 Scrolith Marketplace Backend Started`);
     console.log(`📍 Port: ${PORT}`);
@@ -3566,6 +3567,21 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
       }
     } catch (err) {
       console.error('Failed to initialize reconcileAdPayments cron job:', err);
+    }
+
+    try {
+      const talentCloudSettings = await getTalentCloudSettings();
+      if (talentCloudSettings.enabled && talentCloudSettings.webhooksEnabled) {
+        setInterval(() => {
+          dispatchQueuedWebhookDeliveries(10).catch((error) => {
+            console.error('[webhooks] failed to dispatch queued deliveries', error);
+          });
+        }, 30 * 1000);
+      } else {
+        console.log('[webhooks] Talent cloud webhooks disabled; dispatcher not started.');
+      }
+    } catch (error) {
+      console.error('[webhooks] Failed to initialize webhook dispatcher', error);
     }
   });
 } else {

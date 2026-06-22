@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import prisma from '../utils/prismaClient';
+import { encryptSecret, maybeDecryptSecret } from '../utils/secretCipher';
 
 const SETTINGS_SCOPE = 'talent_cloud_phase4';
 
@@ -14,6 +15,25 @@ const randomToken = (prefix: string, size = 24) => `${prefix}_${crypto.randomByt
 const hashValue = (value: string) => crypto.createHash('sha256').update(value).digest('hex');
 const signPayload = (payload: any, secret: string) =>
   crypto.createHmac('sha256', secret).update(JSON.stringify(payload || {})).digest('hex');
+const WEBHOOK_SECRET_KEY = 'webhookSecret';
+
+const stripWebhookSecret = (metadata: any) => {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata || null;
+  const next = { ...(metadata || {}) };
+  delete next[WEBHOOK_SECRET_KEY];
+  return next;
+};
+
+const sanitizeEndpoint = (endpoint: any) => {
+  if (!endpoint) return endpoint;
+  return {
+    ...endpoint,
+    metadata: stripWebhookSecret(endpoint.metadata)
+  };
+};
+
+const getStoredWebhookSecret = (endpoint: any) =>
+  maybeDecryptSecret(endpoint?.metadata?.[WEBHOOK_SECRET_KEY]) || '';
 
 export const getTalentCloudSettings = async () => {
   const record = await prisma.appSetting.findUnique({ where: { scope: SETTINGS_SCOPE } });
@@ -135,13 +155,22 @@ export const saveVendorRequirement = async (input: any, id?: string) => {
 };
 
 export const listIntegrationEndpoints = async () =>
-  prisma.integrationEndpoint.findMany({
+  (await prisma.integrationEndpoint.findMany({
     include: { webhookDeliveries: { orderBy: { createdAt: 'desc' }, take: 10 } },
     orderBy: [{ status: 'asc' }, { createdAt: 'desc' }]
-  });
+  })).map(sanitizeEndpoint);
 
 export const saveIntegrationEndpoint = async (input: any, id?: string) => {
   const secretPlain = cleanString(input.secretPlain) || randomToken('whsec', 16);
+  const previous = id ? await prisma.integrationEndpoint.findUnique({ where: { id } }) : null;
+  const existingMetadata =
+    previous?.metadata && typeof previous.metadata === 'object' && !Array.isArray(previous.metadata)
+      ? { ...(previous.metadata as Record<string, any>) }
+      : {};
+  const inputMetadata =
+    input?.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
+      ? { ...(input.metadata as Record<string, any>) }
+      : {};
   const data = {
     name: cleanString(input.name),
     type: cleanString(input.type || 'WEBHOOK').toUpperCase(),
@@ -151,20 +180,26 @@ export const saveIntegrationEndpoint = async (input: any, id?: string) => {
     status: cleanString(input.status || 'ACTIVE').toUpperCase(),
     retryPolicy: input.retryPolicy || { maxAttempts: 5, backoffMinutes: 15 },
     deadLetterEnabled: input.deadLetterEnabled !== false,
-    metadata: input.metadata || null
+    metadata: {
+      ...existingMetadata,
+      ...inputMetadata,
+      [WEBHOOK_SECRET_KEY]: encryptSecret(secretPlain)
+    }
   };
   if (!data.name) throw new Error('name is required');
   const endpoint = id
     ? await prisma.integrationEndpoint.update({ where: { id }, data })
     : await prisma.integrationEndpoint.create({ data });
-  return { ...endpoint, secretPlain };
+  return { ...sanitizeEndpoint(endpoint), secretPlain };
 };
 
 export const queueWebhookDelivery = async (endpointId: string, eventType: string, payload: any) => {
   const endpoint = await prisma.integrationEndpoint.findUnique({ where: { id: endpointId } });
   if (!endpoint) throw new Error('Integration endpoint not found');
+  if (cleanString(endpoint.status).toUpperCase() !== 'ACTIVE') throw new Error('Integration endpoint is not active');
   const secretPlain = cleanString(payload?.secretPlain);
-  const signature = signPayload(payload, secretPlain || endpoint.secretHash || 'scrolith');
+  const storedSecret = getStoredWebhookSecret(endpoint);
+  const signature = signPayload(payload, secretPlain || storedSecret || endpoint.secretHash || 'scrolith');
   return prisma.webhookDeliveryLog.create({
     data: {
       endpointId,
@@ -194,11 +229,116 @@ export const retryWebhookDelivery = async (id: string) => {
 };
 
 export const listWebhookDeliveries = async () =>
-  prisma.webhookDeliveryLog.findMany({
+  (await prisma.webhookDeliveryLog.findMany({
     include: { endpoint: true },
     orderBy: [{ createdAt: 'desc' }],
     take: 200
+  })).map((delivery) => ({
+    ...delivery,
+    endpoint: sanitizeEndpoint(delivery.endpoint)
+  }));
+
+export const dispatchWebhookDelivery = async (id: string) => {
+  const row = await prisma.webhookDeliveryLog.findUnique({
+    where: { id },
+    include: { endpoint: true }
   });
+  if (!row) throw new Error('Webhook delivery not found');
+  if (!row.endpoint) throw new Error('Webhook endpoint not found');
+
+  const endpoint = row.endpoint;
+  if (cleanString(endpoint.status).toUpperCase() !== 'ACTIVE') {
+    return prisma.webhookDeliveryLog.update({
+      where: { id },
+      data: {
+        status: 'FAILED',
+        lastError: 'Endpoint is inactive',
+        nextAttemptAt: null
+      },
+      include: { endpoint: true }
+    });
+  }
+
+  const retryPolicy =
+    endpoint.retryPolicy && typeof endpoint.retryPolicy === 'object' && !Array.isArray(endpoint.retryPolicy)
+      ? (endpoint.retryPolicy as Record<string, any>)
+      : {};
+  const maxAttempts = Math.max(1, Number(retryPolicy.maxAttempts || 5));
+  const backoffMinutes = Math.max(1, Number(retryPolicy.backoffMinutes || 15));
+  const targetUrl = cleanString(endpoint.targetUrl);
+  if (!targetUrl) throw new Error('Webhook endpoint target URL is required');
+
+  const secret = getStoredWebhookSecret(endpoint);
+  const signature = signPayload(row.payload || {}, secret || row.signature || endpoint.secretHash || 'scrolith');
+  const nextAttemptNumber = Number(row.attempts || 0) + 1;
+
+  try {
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-scrolith-event': cleanString(row.eventType),
+        'x-scrolith-signature': signature,
+        'x-scrolith-delivery-id': row.id
+      },
+      body: JSON.stringify(row.payload || {})
+    });
+
+    if (!response.ok) {
+      throw new Error(`Webhook delivery failed with status ${response.status}`);
+    }
+
+    return prisma.webhookDeliveryLog.update({
+      where: { id: row.id },
+      data: {
+        status: 'DELIVERED',
+        attempts: nextAttemptNumber,
+        deliveredAt: new Date(),
+        nextAttemptAt: null,
+        lastError: null,
+        signature
+      },
+      include: { endpoint: true }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Webhook delivery failed';
+    const shouldDeadLetter = nextAttemptNumber >= maxAttempts || endpoint.deadLetterEnabled === false;
+    return prisma.webhookDeliveryLog.update({
+      where: { id: row.id },
+      data: {
+        attempts: nextAttemptNumber,
+        status: shouldDeadLetter ? 'DEAD_LETTER' : 'RETRYING',
+        deliveredAt: null,
+        lastError: message,
+        nextAttemptAt: shouldDeadLetter ? null : new Date(Date.now() + backoffMinutes * nextAttemptNumber * 60 * 1000),
+        signature
+      },
+      include: { endpoint: true }
+    });
+  }
+};
+
+export const dispatchQueuedWebhookDeliveries = async (limit = 10) => {
+  const rows = await prisma.webhookDeliveryLog.findMany({
+    where: {
+      status: { in: ['QUEUED', 'RETRYING'] },
+      OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: new Date() } }]
+    },
+    include: { endpoint: true },
+    orderBy: [{ createdAt: 'asc' }],
+    take: Math.max(1, Math.min(50, Number(limit || 10)))
+  });
+
+  const results = [];
+  for (const row of rows) {
+    const delivery = await dispatchWebhookDelivery(row.id);
+    results.push({
+      ...delivery,
+      endpoint: sanitizeEndpoint((delivery as any).endpoint)
+    });
+  }
+  return results;
+};
 
 export const createApiCredential = async (input: any) => {
   const name = cleanString(input.name);
