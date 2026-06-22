@@ -54,6 +54,9 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
         success: true,
         data: {
           rewrittenText: result.enhancedText,
+          enhancedText: result.enhancedText,
+          rewrite: result.enhancedText,
+          text: result.enhancedText,
           mode: result.mode,
           ...buildScrolithaMeta(result)
         },
@@ -72,6 +75,9 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
       success: true,
       data: {
         rewrittenText: result.text,
+        enhancedText: result.text,
+        rewrite: result.text,
+        text: result.text,
         ...buildScrolithaMeta(result)
       },
       message: 'Rewrite completed'
