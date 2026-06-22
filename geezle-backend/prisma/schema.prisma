@@ -2437,6 +2437,8 @@ model MarketplaceListing {
   categoryId      String?
   subcategoryId   String?
   condition       String   @default("new")
+  brand           String?
+  tags            String[] @default([])
   price           Float
   currency        String   @default("USD")
   negotiable      Boolean  @default(false)
@@ -2444,8 +2446,11 @@ model MarketplaceListing {
   location        String?
   latitude        Float?
   longitude       Float?
+  meetupPreferences String[] @default([])
+  hideFromFriendsAndFollowers Boolean @default(false)
   deliveryOptions String[] @default([])
   paymentMethods  String[] @default([])
+  contactPreference String? @default("message")
   status          String   @default("draft")
   reviewStatus    String   @default("pending")
   rejectionReason String?

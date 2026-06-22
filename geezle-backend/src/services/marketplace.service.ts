@@ -1,5 +1,6 @@
 import prisma from '../utils/prismaClient';
 import { notifyAdmins, notifyUser } from '../utils/notify';
+import { DEFAULT_MARKETPLACE_CATEGORIES } from '../config/marketplaceCategories';
 
 type User = any;
 type JsonValue = any;
@@ -121,6 +122,20 @@ const toStringArray = (value: unknown): string[] => {
   }
   return [];
 };
+
+const clampTags = (value: unknown): string[] =>
+  Array.from(new Set(toStringArray(value).map((entry) => entry.slice(0, 60))))
+    .filter(Boolean)
+    .slice(0, 6);
+
+const normalizeMeetupPreferences = (value: unknown): string[] =>
+  Array.from(
+    new Set(
+      toStringArray(value)
+        .map((entry) => entry.toLowerCase())
+        .filter((entry) => ['public_meetup', 'door_pickup', 'door_dropoff'].includes(entry))
+    )
+  );
 
 const normalizeStatus = (value: unknown): MarketplaceStatus => {
   const normalized = String(value || '').trim().toLowerCase();
@@ -263,6 +278,9 @@ const normalizeListing = (listing: any, viewerId?: string | null) => {
     featured: Boolean(listing.featured),
     pinned: Boolean(listing.pinned),
     promoted: Boolean(listing.promoted),
+    hideFromFriendsAndFollowers: Boolean(listing.hideFromFriendsAndFollowers),
+    tags: Array.isArray(listing.tags) ? listing.tags.map(String) : [],
+    meetupPreferences: Array.isArray(listing.meetupPreferences) ? listing.meetupPreferences.map(String) : [],
     isOwner: viewerId ? String(listing.sellerId || '') === String(viewerId) : false,
     media,
     coverImage: media.find((entry: any) => entry.type === 'image')?.url || media[0]?.url || null
@@ -307,6 +325,42 @@ const resolveListingVisibilityForViewer = (listing: any, userId?: string | null,
   const publicAllowed = listing.reviewStatus === 'approved' && ['active', 'reserved'].includes(String(listing.status || ''));
   if (publicAllowed || isOwner || isAdmin) return listing;
   return null;
+};
+
+const ensureMarketplaceCategoriesSeeded = async () => {
+  const existing = await prisma.category.findMany({
+    where: {
+      slug: { in: DEFAULT_MARKETPLACE_CATEGORIES.map((category) => category.slug) }
+    },
+    select: { slug: true }
+  });
+  const existingSlugs = new Set(existing.map((row) => String(row.slug || '').trim().toLowerCase()));
+  const missing = DEFAULT_MARKETPLACE_CATEGORIES.filter((category) => !existingSlugs.has(category.slug));
+  if (!missing.length) return;
+
+  await prisma.$transaction(
+    missing.map((category, index) =>
+      prisma.category.create({
+        data: {
+          name: category.name,
+          slug: category.slug,
+          description: category.description,
+          type: 'MARKETPLACE',
+          isActive: true,
+          order: index + 1
+        }
+      })
+    )
+  ).catch(() => null);
+};
+
+const resolveHiddenSellerIdsForViewer = async (viewerId?: string | null) => {
+  if (!viewerId) return [];
+  const rows = await prisma.userFollow.findMany({
+    where: { followerId: String(viewerId) },
+    select: { followeeId: true }
+  });
+  return Array.from(new Set(rows.map((row) => String(row.followeeId || '').trim()).filter(Boolean)));
 };
 
 const resolveCategoryIds = async (categoryId?: string | null, subcategoryId?: string | null) => {
@@ -363,6 +417,8 @@ const evaluateApprovalMode = async (userId: string, input: any, settings: any) =
 const validateListingPayload = async (input: any, settings: any) => {
   const title = String(input?.title || '').trim();
   const description = String(input?.description || '').trim();
+  const brand = String(input?.brand || '').trim();
+  const tags = clampTags(input?.tags);
   const price = toNumber(input?.price, NaN);
   const quantity = Math.max(1, toInt(input?.quantity, 1));
   const currency = String(input?.currency || 'USD').trim().toUpperCase() || 'USD';
@@ -370,14 +426,17 @@ const validateListingPayload = async (input: any, settings: any) => {
   const status = normalizeStatus(input?.status || 'draft');
   const reviewStatus = normalizeReviewStatus(input?.reviewStatus || 'pending');
   const deliveryOptions = Array.from(new Set(toStringArray(input?.deliveryOptions)));
+  const meetupPreferences = normalizeMeetupPreferences(input?.meetupPreferences);
   const paymentMethods = Array.from(new Set(toStringArray(input?.paymentMethods)));
   const location = String(input?.location || '').trim();
   const latitude = input?.latitude !== undefined && input?.latitude !== null ? toNumber(input.latitude, NaN) : null;
   const longitude = input?.longitude !== undefined && input?.longitude !== null ? toNumber(input.longitude, NaN) : null;
   const negotiable = Boolean(input?.negotiable);
+  const hideFromFriendsAndFollowers = Boolean(input?.hideFromFriendsAndFollowers);
   const featured = Boolean(input?.featured);
   const pinned = Boolean(input?.pinned);
   const promoted = Boolean(input?.promoted);
+  const contactPreference = String(input?.contactPreference || 'message').trim().toLowerCase() || 'message';
   const categoryIds = await resolveCategoryIds(input?.categoryId, input?.subcategoryId);
   const mediaSummary = {
     imageCount: toInt(input?.imageCount, 0),
@@ -388,6 +447,7 @@ const validateListingPayload = async (input: any, settings: any) => {
   if (title.length < 3) errors.push('title must be at least 3 characters');
   if (title.length > 140) errors.push('title must be at most 140 characters');
   if (description.length < 20) errors.push('description must be at least 20 characters');
+  if (brand.length > 80) errors.push('brand must be at most 80 characters');
   if (!Number.isFinite(price) || price < 0) errors.push('price must be a non-negative number');
   if (quantity < 1) errors.push('quantity must be at least 1');
   if (String(currency).length < 3) errors.push('currency must be a valid ISO currency code');
@@ -401,6 +461,7 @@ const validateListingPayload = async (input: any, settings: any) => {
     errors.push(`videos cannot exceed ${settings.maxVideosPerListing}`);
   }
   if (!deliveryOptions.length) errors.push('at least one delivery option is required');
+  if (!meetupPreferences.length) errors.push('at least one meetup preference is required');
   if (!paymentMethods.length && settings?.allowedPaymentMethods?.length) {
     errors.push('at least one payment method is required');
   }
@@ -429,6 +490,8 @@ const validateListingPayload = async (input: any, settings: any) => {
     categoryId: categoryIds?.categoryId || null,
     subcategoryId: categoryIds?.subcategoryId || null,
     condition,
+    brand: brand || null,
+    tags,
     price,
     currency,
     negotiable,
@@ -436,8 +499,11 @@ const validateListingPayload = async (input: any, settings: any) => {
     location: location || null,
     latitude: Number.isFinite(latitude as number) ? latitude : null,
     longitude: Number.isFinite(longitude as number) ? longitude : null,
+    meetupPreferences,
+    hideFromFriendsAndFollowers,
     deliveryOptions,
     paymentMethods,
+    contactPreference,
     featured,
     pinned,
     promoted,
@@ -449,8 +515,9 @@ const validateListingPayload = async (input: any, settings: any) => {
 
 const buildMarketplaceOrderNumber = () => `MKT-${Date.now().toString().slice(-8)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
-export const listMarketplaceCategories = async (includeInactive = false) =>
-  prisma.category.findMany({
+export const listMarketplaceCategories = async (includeInactive = false) => {
+  await ensureMarketplaceCategoriesSeeded();
+  return prisma.category.findMany({
     where: {
       type: { in: ['MARKETPLACE', 'BOTH'] as any },
       ...(includeInactive ? {} : { isActive: true })
@@ -468,6 +535,7 @@ export const listMarketplaceCategories = async (includeInactive = false) =>
       parentId: true
     }
   });
+};
 
 export const listMarketplaceListings = async (params: {
   page?: number;
@@ -478,6 +546,8 @@ export const listMarketplaceListings = async (params: {
   minPrice?: number | null;
   maxPrice?: number | null;
   location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   deliveryOption?: string | null;
   status?: string | null;
   sort?: string | null;
@@ -490,6 +560,7 @@ export const listMarketplaceListings = async (params: {
   const page = Math.max(1, toInt(params.page, 1));
   const pageSize = Math.min(50, Math.max(1, toInt(params.pageSize, 24)));
   const where: any = {};
+  const hiddenSellerIds = !params.includeAll ? await resolveHiddenSellerIdsForViewer(params.viewerId) : [];
 
   if (!params.includeAll) {
     if (params.includeMine && params.viewerId) {
@@ -522,6 +593,14 @@ export const listMarketplaceListings = async (params: {
   if (params.deliveryOption) {
     where.deliveryOptions = { has: String(params.deliveryOption).trim().toLowerCase() } as any;
   }
+  if (hiddenSellerIds.length) {
+    where.NOT = {
+      AND: [
+        { hideFromFriendsAndFollowers: true },
+        { sellerId: { in: hiddenSellerIds } }
+      ]
+    };
+  }
   if (params.search) {
     const term = String(params.search).trim();
     if (term) {
@@ -529,7 +608,9 @@ export const listMarketplaceListings = async (params: {
         ...(Array.isArray(where.OR) ? (where.OR as any[]) : []),
         { title: { contains: term, mode: 'insensitive' } },
         { description: { contains: term, mode: 'insensitive' } },
+        { brand: { contains: term, mode: 'insensitive' } },
         { location: { contains: term, mode: 'insensitive' } },
+        { tags: { has: term } },
         { category: { name: { contains: term, mode: 'insensitive' } } },
         { category: { slug: { contains: term, mode: 'insensitive' } } }
       ] as any;
@@ -538,9 +619,9 @@ export const listMarketplaceListings = async (params: {
 
   const sort = String(params.sort || 'newest').toLowerCase();
   const orderBy =
-    sort === 'price_asc'
+    sort === 'price_asc' || sort === 'price_low'
       ? [{ price: 'asc' as const }, { createdAt: 'desc' as const }]
-      : sort === 'price_desc'
+      : sort === 'price_desc' || sort === 'price_high'
         ? [{ price: 'desc' as const }, { createdAt: 'desc' as const }]
         : sort === 'popular'
           ? [{ viewCount: 'desc' as const }, { createdAt: 'desc' as const }]
@@ -550,16 +631,46 @@ export const listMarketplaceListings = async (params: {
               ? [{ createdAt: 'desc' as const }]
               : [{ createdAt: 'desc' as const }];
 
-  if (sort === 'nearest' && params.viewerId) {
-    // In-memory nearest sort fallback until geospatial search is introduced.
+  if (
+    sort === 'nearest' &&
+    params.latitude !== undefined &&
+    params.latitude !== null &&
+    params.longitude !== undefined &&
+    params.longitude !== null
+  ) {
+    const viewerLatitude = Number(params.latitude);
+    const viewerLongitude = Number(params.longitude);
     const rows = await prisma.marketplaceListing.findMany({
       where,
       include: normalizeListingInclude,
       orderBy: [{ createdAt: 'desc' }]
     });
     const normalized = rows
-      .map((row) => normalizeListing(row, params.viewerId))
-      .filter(Boolean) as any[];
+      .map((row) => {
+        const normalizedRow = normalizeListing(row, params.viewerId) as any;
+        if (!normalizedRow) return null;
+        const hasCoords =
+          Number.isFinite(Number(normalizedRow.latitude)) &&
+          Number.isFinite(Number(normalizedRow.longitude));
+        const distanceKm = hasCoords
+          ? Math.hypot(
+              (Number(normalizedRow.latitude) - viewerLatitude) * 111,
+              (Number(normalizedRow.longitude) - viewerLongitude) *
+                111 *
+                Math.cos((viewerLatitude * Math.PI) / 180)
+            )
+          : Number.POSITIVE_INFINITY;
+        return {
+          ...normalizedRow,
+          distanceKm: Number.isFinite(distanceKm) ? Number(distanceKm.toFixed(2)) : null
+        };
+      })
+      .filter(Boolean)
+      .sort(
+        (left: any, right: any) =>
+          (left.distanceKm ?? Number.POSITIVE_INFINITY) -
+          (right.distanceKm ?? Number.POSITIVE_INFINITY)
+      ) as any[];
     const total = normalized.length;
     const items = normalized.slice((page - 1) * pageSize, page * pageSize);
     return { items, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)), settings };
@@ -595,6 +706,17 @@ export const getMarketplaceListingByIdOrSlug = async (idOrSlug: string, viewerId
     include: normalizeListingInclude
   });
   if (!listing) return null;
+  if (
+    listing.hideFromFriendsAndFollowers &&
+    viewerId &&
+    String(listing.sellerId || '') !== String(viewerId) &&
+    !['ADMIN', 'SUPERADMIN'].includes(normalizeRole(viewerRole))
+  ) {
+    const hiddenSellerIds = await resolveHiddenSellerIdsForViewer(viewerId);
+    if (hiddenSellerIds.includes(String(listing.sellerId || ''))) {
+      return null;
+    }
+  }
   return resolveListingVisibilityForViewer(listing, viewerId, viewerRole)
     ? normalizeListing(listing, viewerId)
     : null;
@@ -647,8 +769,13 @@ export const createMarketplaceListing = async (user: User, input: any, allowAdmi
       location: normalized.location,
       latitude: normalized.latitude,
       longitude: normalized.longitude,
+      brand: normalized.brand,
+      tags: normalized.tags,
+      meetupPreferences: normalized.meetupPreferences,
+      hideFromFriendsAndFollowers: normalized.hideFromFriendsAndFollowers,
       deliveryOptions: normalized.deliveryOptions,
       paymentMethods: normalized.paymentMethods,
+      contactPreference: normalized.contactPreference,
       featured: normalized.featured,
       pinned: normalized.pinned,
       promoted: normalized.promoted,
@@ -738,8 +865,13 @@ export const updateMarketplaceListing = async (listingId: string, user: User, in
       location: normalized.location,
       latitude: normalized.latitude,
       longitude: normalized.longitude,
+      brand: normalized.brand,
+      tags: normalized.tags,
+      meetupPreferences: normalized.meetupPreferences,
+      hideFromFriendsAndFollowers: normalized.hideFromFriendsAndFollowers,
       deliveryOptions: normalized.deliveryOptions,
       paymentMethods: normalized.paymentMethods,
+      contactPreference: normalized.contactPreference,
       featured: normalized.featured,
       pinned: normalized.pinned,
       promoted: normalized.promoted,
@@ -1360,12 +1492,14 @@ export const adminResolveMarketplaceReport = async (reportId: string, actor: Use
   return report;
 };
 
-export const adminListMarketplaceCategories = async () =>
-  prisma.category.findMany({
+export const adminListMarketplaceCategories = async () => {
+  await ensureMarketplaceCategoriesSeeded();
+  return prisma.category.findMany({
     where: { type: { in: ['MARKETPLACE', 'BOTH'] as any } },
     orderBy: [{ order: 'asc' }, { name: 'asc' }],
     include: { children: true }
   });
+};
 
 export const adminUpsertMarketplaceCategory = async (input: any, actor: User, categoryId?: string) => {
   const name = String(input?.name || '').trim();

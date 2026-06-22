@@ -32,6 +32,11 @@ const parseNumber = (value: unknown, fallback?: number) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const parseNullableNumber = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const parseBoolean = (value: unknown, fallback = false) => {
   if (typeof value === 'boolean') return value;
   const normalized = String(value ?? '').trim().toLowerCase();
@@ -90,6 +95,8 @@ router.get('/listings', optionalAuthMiddleware, async (req, res) => {
       minPrice: parseNumber(req.query.minPrice),
       maxPrice: parseNumber(req.query.maxPrice),
       location: parseOptionalString(req.query.location),
+      latitude: parseNullableNumber(req.query.latitude),
+      longitude: parseNullableNumber(req.query.longitude),
       deliveryOption: parseOptionalString(req.query.deliveryOption),
       status: parseOptionalString(req.query.status),
       sort: parseOptionalString(req.query.sort),
