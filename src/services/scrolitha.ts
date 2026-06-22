@@ -10,6 +10,25 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
+const normalizeRewriteResponse = (payload: any) => {
+  const rewrittenText = String(
+    payload?.rewrittenText ||
+      payload?.enhancedText ||
+      payload?.rewrite ||
+      payload?.text ||
+      payload?.reply ||
+      ''
+  ).trim();
+
+  return {
+    ...(payload && typeof payload === 'object' ? payload : {}),
+    rewrittenText,
+    enhancedText: rewrittenText,
+    rewrite: rewrittenText,
+    text: rewrittenText || String(payload?.text || '').trim()
+  };
+};
+
 export type ScrolithaSuggestedAction = {
   actionId: string;
   actionKey: string;
@@ -109,7 +128,7 @@ export class ScrolithaService {
     mode?: ScrolithaRewriteMode;
   }): Promise<any> {
     const response = await api.post('/scrolitha/rewrite', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
-    return extractData<any>(response);
+    return normalizeRewriteResponse(extractData<any>(response));
   }
 
   static async hashtags(payload: { text: string; scope?: string; limit?: number }): Promise<any> {

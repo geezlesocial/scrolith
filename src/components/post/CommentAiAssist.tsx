@@ -99,7 +99,9 @@ const CommentAiAssist: React.FC<CommentAiAssistProps> = ({
         goal: action.goal,
         scope: `comment-${scopeLabel}`
       });
-      const enhancedText = String(result?.rewrite || result?.enhancedText || result?.text || '').trim();
+      const enhancedText = String(
+        result?.rewrittenText || result?.rewrite || result?.enhancedText || result?.text || ''
+      ).trim();
       if (!enhancedText) {
         showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
         return;
