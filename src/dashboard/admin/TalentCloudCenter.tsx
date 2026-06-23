@@ -53,6 +53,12 @@ const defaultRequirementDraft = {
   isActive: true
 };
 
+const defaultApiCredentialDraft = {
+  name: '',
+  scopes: 'talent_cloud.read, talent_cloud.manage',
+  status: 'ACTIVE'
+};
+
 const toEventTypes = (value: string) =>
   value
     .split(',')
@@ -99,7 +105,10 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
   const [editingAccessRuleId, setEditingAccessRuleId] = useState<string | null>(null);
   const [requirementDraft, setRequirementDraft] = useState<any>(defaultRequirementDraft);
   const [editingRequirementId, setEditingRequirementId] = useState<string | null>(null);
+  const [apiCredentialDraft, setApiCredentialDraft] = useState<any>(defaultApiCredentialDraft);
+  const [editingApiCredentialId, setEditingApiCredentialId] = useState<string | null>(null);
   const [issuedConnectorSecrets, setIssuedConnectorSecrets] = useState<any | null>(null);
+  const [issuedApiCredential, setIssuedApiCredential] = useState<any | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
   const load = async () => {
@@ -194,6 +203,20 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
       showNotification('alert', 'Error', error?.message || 'Failed to retry webhook delivery');
     } finally {
       setSaving(null);
+    }
+  };
+
+  const copyToClipboard = async (value: string, label: string) => {
+    const text = String(value || '').trim();
+    if (!text) {
+      showNotification('alert', 'Nothing to copy', `${label} is empty`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      showNotification('success', 'Copied', `${label} copied to clipboard`);
+    } catch {
+      showNotification('alert', 'Copy failed', `Unable to copy ${label.toLowerCase()}`);
     }
   };
 
@@ -385,6 +408,69 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
       await load();
     } catch (error: any) {
       showNotification('alert', 'Error', error?.message || 'Failed to save vendor requirement');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const resetApiCredentialDraft = () => {
+    setEditingApiCredentialId(null);
+    setApiCredentialDraft(defaultApiCredentialDraft);
+  };
+
+  const startApiCredentialEdit = (credential: any) => {
+    setIssuedApiCredential(null);
+    setEditingApiCredentialId(credential.id);
+    setApiCredentialDraft({
+      name: credential.name || '',
+      scopes: stringifyList(credential.scopes),
+      status: credential.status || 'ACTIVE'
+    });
+  };
+
+  const saveApiCredential = async () => {
+    setSaving('api-key');
+    try {
+      const payload = {
+        name: apiCredentialDraft.name,
+        scopes: toList(apiCredentialDraft.scopes),
+        status: apiCredentialDraft.status
+      };
+      if (editingApiCredentialId) {
+        await AdminService.updateApiCredential(editingApiCredentialId, payload);
+        setIssuedApiCredential(null);
+        showNotification('success', 'Saved', 'API credential updated');
+      } else {
+        const response = await AdminService.createApiCredential(payload);
+        setIssuedApiCredential({
+          name: response?.record?.name || apiCredentialDraft.name,
+          keyPrefix: response?.record?.keyPrefix || '',
+          plainKey: response?.plainKey || ''
+        });
+        showNotification('success', 'Saved', 'API credential created');
+      }
+      resetApiCredentialDraft();
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to save API credential');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const updateApiCredentialStatus = async (credential: any, status: 'ACTIVE' | 'PAUSED') => {
+    setSaving(`api-key:${credential.id}`);
+    try {
+      await AdminService.updateApiCredential(credential.id, {
+        name: credential.name,
+        scopes: Array.isArray(credential.scopes) ? credential.scopes : [],
+        status
+      });
+      if (editingApiCredentialId === credential.id) resetApiCredentialDraft();
+      showNotification('success', 'Saved', status === 'PAUSED' ? 'API credential paused' : 'API credential enabled');
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to update API credential status');
     } finally {
       setSaving(null);
     }
@@ -779,8 +865,22 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
             {issuedConnectorSecrets ? (
               <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                 <div className="font-medium">Store these credentials now for {issuedConnectorSecrets.connectorName}.</div>
-                <div className="mt-2">API key: <span className="font-mono">{issuedConnectorSecrets.apiKeyPlain || 'Not rotated'}</span></div>
-                <div className="mt-1">Shared secret: <span className="font-mono">{issuedConnectorSecrets.sharedSecretPlain || 'Not rotated'}</span></div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span>API key: <span className="font-mono">{issuedConnectorSecrets.apiKeyPlain || 'Not rotated'}</span></span>
+                  {issuedConnectorSecrets.apiKeyPlain ? (
+                    <button onClick={() => copyToClipboard(issuedConnectorSecrets.apiKeyPlain, 'Connector API key')} className="rounded-md border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-900">
+                      Copy
+                    </button>
+                  ) : null}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span>Shared secret: <span className="font-mono">{issuedConnectorSecrets.sharedSecretPlain || 'Not rotated'}</span></span>
+                  {issuedConnectorSecrets.sharedSecretPlain ? (
+                    <button onClick={() => copyToClipboard(issuedConnectorSecrets.sharedSecretPlain, 'Connector shared secret')} className="rounded-md border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-900">
+                      Copy
+                    </button>
+                  ) : null}
+                </div>
                 <div className="mt-1">Auth header: <span className="font-mono">{issuedConnectorSecrets.authHeaderName}</span></div>
               </div>
             ) : null}
@@ -838,11 +938,82 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
 
           <section className={cardClass}>
             <h2 className="text-lg font-semibold text-slate-900">API credentials</h2>
+            <p className="mt-1 text-sm text-slate-500">Create scoped keys for trusted integrations. Plain keys are shown only once after creation.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <label className="text-sm text-slate-600">
+                <div className="mb-1 font-medium">Credential name</div>
+                <input
+                  value={apiCredentialDraft.name}
+                  onChange={(e) => setApiCredentialDraft((current: any) => ({ ...current, name: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="Acme Talent Cloud API Key"
+                />
+              </label>
+              <label className="text-sm text-slate-600">
+                <div className="mb-1 font-medium">Status</div>
+                <select
+                  value={apiCredentialDraft.status}
+                  onChange={(e) => setApiCredentialDraft((current: any) => ({ ...current, status: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                >
+                  <option value="ACTIVE">Active</option>
+                  <option value="PAUSED">Paused</option>
+                </select>
+              </label>
+              <label className="text-sm text-slate-600 md:col-span-2">
+                <div className="mb-1 font-medium">Scopes</div>
+                <input
+                  value={apiCredentialDraft.scopes}
+                  onChange={(e) => setApiCredentialDraft((current: any) => ({ ...current, scopes: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2"
+                  placeholder="talent_cloud.read, talent_cloud.manage"
+                />
+              </label>
+            </div>
+            <div className="mt-4">
+              <button onClick={saveApiCredential} disabled={saving === 'api-key'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+                {saving === 'api-key' ? 'Saving...' : editingApiCredentialId ? 'Update API credential' : 'Create API credential'}
+              </button>
+              {editingApiCredentialId ? (
+                <button onClick={resetApiCredentialDraft} className="ml-3 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700">
+                  Cancel edit
+                </button>
+              ) : null}
+            </div>
+            {issuedApiCredential?.plainKey ? (
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                <div className="font-medium">Store this API key now for {issuedApiCredential.name}.</div>
+                <div className="mt-2">Key prefix: <span className="font-mono">{issuedApiCredential.keyPrefix || 'n/a'}</span></div>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span>Plain key: <span className="font-mono break-all">{issuedApiCredential.plainKey}</span></span>
+                  <button onClick={() => copyToClipboard(issuedApiCredential.plainKey, 'API key')} className="rounded-md border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-900">
+                    Copy
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className="mt-4 space-y-3">
               {apiKeys.slice(0, 8).map((entry) => (
                 <div key={entry.id} className="rounded-lg border border-slate-200 p-3">
-                  <div className="font-medium text-slate-900">{entry.name}</div>
-                  <div className="text-sm text-slate-500">{entry.keyPrefix} - {entry.status}</div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-slate-900">{entry.name}</div>
+                      <div className="text-sm text-slate-500">{entry.keyPrefix} - {entry.status}</div>
+                      <div className="mt-1 text-xs text-slate-500">Scopes: {stringifyList(entry.scopes) || 'None'}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => startApiCredentialEdit(entry)} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => updateApiCredentialStatus(entry, entry.status === 'PAUSED' ? 'ACTIVE' : 'PAUSED')}
+                        disabled={saving === `api-key:${entry.id}`}
+                        className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700 disabled:opacity-60"
+                      >
+                        {saving === `api-key:${entry.id}` ? 'Saving...' : entry.status === 'PAUSED' ? 'Enable' : 'Disable'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

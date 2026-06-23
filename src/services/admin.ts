@@ -2497,6 +2497,10 @@ export const AdminService = {
     return adminPost<any>('/talent-cloud/api-keys', payload);
   },
 
+  async updateApiCredential(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/api-keys/${encodeURIComponent(id)}`, payload);
+  },
+
   async getScrolithaManagedSummary(): Promise<any> {
     return adminGet<any>('/scrolitha-managed/summary');
   },
