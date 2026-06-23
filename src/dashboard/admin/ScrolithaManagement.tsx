@@ -562,6 +562,7 @@ const ScrolithaManagement: React.FC = () => {
   };
 
   const totals = useMemo(() => analytics?.totals || {}, [analytics]);
+  const runtimeAnalytics = useMemo(() => analytics?.runtime || {}, [analytics]);
 
   return (
     <div className="space-y-4">
@@ -1537,6 +1538,55 @@ const ScrolithaManagement: React.FC = () => {
             <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Avg Rating: {Number(totals.avgRating || 0).toFixed(2)}</p>
             <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Feedback Count: {totals.feedbackCount || 0}</p>
             <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Estimated Minutes Saved: {totals.estimatedMinutesSaved || 0}</p>
+          </div>
+
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold uppercase text-slate-500">Runtime Analytics</h4>
+              <p className="text-[11px] text-slate-500">Fallback, block, and latency visibility for Scrolitha generation paths.</p>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Requests: {Number(runtimeAnalytics.totalRequests || totals.runtimeRequests || 0)}</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Fallbacks: {Number(runtimeAnalytics.fallbackCount || totals.runtimeFallbacks || 0)}</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Prompt Blocks: {Number(runtimeAnalytics.blockedCount || totals.runtimePromptBlocks || 0)}</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Avg Latency: {Number(runtimeAnalytics.avgLatencyMs || totals.runtimeAvgLatencyMs || 0).toFixed(0)} ms</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">P95 Latency: {Number(runtimeAnalytics.p95LatencyMs || totals.runtimeP95LatencyMs || 0).toFixed(0)} ms</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Fallback Rate: {Number(runtimeAnalytics.fallbackRate || 0).toFixed(3)}</p>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div>
+                <h5 className="text-xs font-semibold uppercase text-slate-500">Recent Alerts</h5>
+                <div className="mt-2 space-y-2">
+                  {(runtimeAnalytics.recentAlerts || []).map((entry: any, index: number) => (
+                    <div key={`${entry.type}_${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase text-slate-600">{String(entry.severity || 'info')}</span>
+                        <span className="text-[11px] text-slate-500">{formatDate(entry.lastSeenAt)}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-700">{String(entry.message || entry.type || 'Runtime alert')}</p>
+                    </div>
+                  ))}
+                  {!Array.isArray(runtimeAnalytics.recentAlerts) || runtimeAnalytics.recentAlerts.length === 0 ? (
+                    <p className="text-xs text-slate-500">No runtime alerts detected.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div>
+                <h5 className="text-xs font-semibold uppercase text-slate-500">Top Runtime Routes</h5>
+                <div className="mt-2 space-y-1">
+                  {(runtimeAnalytics.routes || []).map((entry: any) => (
+                    <p key={entry.routeKey} className="text-sm text-slate-700">
+                      {entry.routeKey}: {Number(entry.count || 0)} requests, {Number(entry.fallbacks || 0)} fallbacks, {Number(entry.avgLatencyMs || 0).toFixed(0)} ms avg
+                    </p>
+                  ))}
+                  {!Array.isArray(runtimeAnalytics.routes) || runtimeAnalytics.routes.length === 0 ? (
+                    <p className="text-xs text-slate-500">No runtime route data yet.</p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="mt-4">
