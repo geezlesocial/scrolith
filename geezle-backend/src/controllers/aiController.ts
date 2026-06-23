@@ -539,7 +539,8 @@ export const postEnhance = async (req: Request, res: Response) => {
       text,
       mode: modeRaw,
       safeMode: Boolean(config.safeMode),
-      scope: 'user'
+      scope: 'user',
+      actor
     });
 
     await writeScrolithaAuditLog({
@@ -656,7 +657,8 @@ export const postInsight = async (req: Request, res: Response) => {
       tone: settings.insightTone,
       maxLength: settings.maxInsightLength,
       safeMode: Boolean(settings.insightSafeMode || config.safeMode),
-      scope: 'user'
+      scope: 'user',
+      actor
     });
 
     await writeScrolithaAuditLog({
@@ -689,7 +691,7 @@ export const postInsight = async (req: Request, res: Response) => {
       resultSummary: safePreview(message, 180)
     });
     const lower = message.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : 500;
+    const status = isScrolithaPromptPolicyError(error) ? 400 : lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: message });
   }
 };

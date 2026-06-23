@@ -47,7 +47,8 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
       const result = await enhancePostDraftWithAi({
         text,
         mode,
-        scope: actor.scope
+        scope: actor.scope,
+        actor
       });
 
       return res.json({

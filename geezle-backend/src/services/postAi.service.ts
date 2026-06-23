@@ -1,15 +1,13 @@
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { ScrolithaService, createSystemScrolithaActor } from '../modules/scrolitha/inference/scrolitha.service';
 import { writeScrolithaAuditLog } from './scrolitha/scrolitha.audit';
 import { incrementMinuteCounter } from './scrolitha/scrolitha.cache';
 import {
-  generateScrolithaText,
   SCROLITHA_BACKUP_WARNING_CODE,
   SCROLITHA_BACKUP_WARNING_MESSAGE
 } from './scrolitha/scrolitha.ollama';
 import {
-  createScrolithaPromptPolicyError,
-  detectPromptInjectionAttempt,
   ensureScrolithaConfig,
   isScrolithaPromptPolicyError
 } from './scrolitha/scrolitha.policy';
@@ -416,23 +414,39 @@ const runScrolithaText = async (input: {
   systemPrompt: string;
   userPrompt: string;
   maxTokens?: number;
+  actor?: {
+    id?: string | null;
+    role?: string | null;
+    scope?: ScrolithaScope;
+    isAdmin?: boolean;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  } | null;
 }) => {
-  const config = await ensureScrolithaConfig(input.scope);
-  const blocked = detectPromptInjectionAttempt(input.userPrompt, config.promptBlocklist || []);
-  if (blocked.blocked) {
-    throw createScrolithaPromptPolicyError(blocked.pattern);
-  }
-  const result = await generateScrolithaText({
+  const routeKey = String(input.routeKey || 'post_ai').trim() || 'post_ai';
+  const actor =
+    input.actor?.id
+      ? {
+          id: String(input.actor.id),
+          role: String(input.actor.role || (input.scope === 'admin' ? 'admin' : 'user')),
+          scope: input.actor.scope || input.scope,
+          isAdmin: Boolean(input.actor.isAdmin),
+          ipAddress: input.actor.ipAddress || null,
+          userAgent: input.actor.userAgent || null
+        }
+      : createSystemScrolithaActor(input.scope, routeKey, input.scope === 'admin' ? 'system_admin' : 'system_user');
+  const result = await ScrolithaService.generate({
     scope: input.scope,
-    routeKey: input.routeKey,
-    systemPrompt: input.systemPrompt,
-    userPrompt: input.userPrompt,
+    actor,
+    routeKey,
+    system: input.systemPrompt,
+    prompt: input.userPrompt,
     maxTokens: input.maxTokens || 420
   });
   return {
     text: String(result.text || '').trim(),
     model: result.model,
-    usedBackupProcessing: Boolean(result.usedBackupProcessing),
+    usedBackupProcessing: Boolean(result.usedFallback),
     warning: result.warning,
     warningCode: result.warningCode
   };
@@ -462,6 +476,14 @@ export const enhancePostDraftWithAi = async (input: {
   mode: PostEnhanceMode | string; // Allow string for aliases
   safeMode?: boolean;
   scope?: ScrolithaScope;
+  actor?: {
+    id?: string | null;
+    role?: string | null;
+    scope?: ScrolithaScope;
+    isAdmin?: boolean;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  } | null;
 }) => {
   const text = String(input.text || '').trim();
   if (!text) throw new Error('text is required');
@@ -558,7 +580,8 @@ export const enhancePostDraftWithAi = async (input: {
         routeKey: 'post_enhance',
         systemPrompt: attemptPrompt,
         userPrompt: buildEnhanceUserPrompt(text, mode),
-        maxTokens: 420
+        maxTokens: 420,
+        actor: input.actor
       });
 
       if (!response?.text) {
@@ -626,6 +649,14 @@ export const generatePostInsightText = async (input: {
   maxLength?: number;
   safeMode?: boolean;
   scope?: ScrolithaScope;
+  actor?: {
+    id?: string | null;
+    role?: string | null;
+    scope?: ScrolithaScope;
+    isAdmin?: boolean;
+    ipAddress?: string | null;
+    userAgent?: string | null;
+  } | null;
 }) => {
   const text = String(input.text || '').trim();
   if (!text) throw new Error('text is required');
@@ -656,7 +687,8 @@ export const generatePostInsightText = async (input: {
       routeKey: 'post_insight',
       systemPrompt,
       userPrompt: text,
-      maxTokens: 260
+      maxTokens: 260,
+      actor: input.actor
     });
   } catch (error) {
     if (isScrolithaPromptPolicyError(error)) {
@@ -779,7 +811,8 @@ export const generateAndPersistPostInsight = async (input: {
     tone: settings.insightTone,
     maxLength: settings.maxInsightLength,
     safeMode,
-    scope: 'admin'
+    scope: 'admin',
+    actor: input.actor
   });
 
   const updated = await prisma.communityPost.update({

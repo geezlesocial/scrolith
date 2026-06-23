@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import prisma from '../utils/prismaClient';
-import { generateScrolithaText } from './scrolitha/scrolitha.ollama';
+import { ScrolithaService, createSystemScrolithaActor } from '../modules/scrolitha/inference/scrolitha.service';
 
 type DemoProfileSeed = {
   name: string;
@@ -208,9 +208,10 @@ const createDemoPostContent = async (profile: { name: string; profession: string
       `Output post text only.`
     ].join('\n');
 
-    const result = await generateScrolithaText({
-      userPrompt: prompt,
-      systemPrompt: 'You are Scrolitha writing concise professional updates for enterprise marketplace users.',
+    const result = await ScrolithaService.generate({
+      actor: createSystemScrolithaActor('admin', 'system_demo_accounts_post', 'system_admin'),
+      prompt,
+      system: 'You are Scrolitha writing concise professional updates for enterprise marketplace users.',
       routeKey: 'system_demo_accounts_post',
       scope: 'admin',
       maxTokens: 220,

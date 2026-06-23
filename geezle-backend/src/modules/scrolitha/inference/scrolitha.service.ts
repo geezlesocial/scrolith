@@ -10,7 +10,10 @@ import {
   ensureScrolithaConfig
 } from '../../../services/scrolitha/scrolitha.policy';
 import type { ScrolithaActor, ScrolithaScope } from '../../../services/scrolitha/scrolitha.types';
+import { incrementMinuteCounter, scrolithaCache } from '../../../services/scrolitha/scrolitha.cache';
 import { writeScrolithaAuditLog } from '../../../services/scrolitha/scrolitha.audit';
+import realtime from '../../../utils/realtime';
+import { notifyAdmins } from '../../../utils/notify';
 import prisma from '../../../utils/prismaClient';
 
 type GenerateInput = {
@@ -21,6 +24,67 @@ type GenerateInput = {
   maxTokens?: number;
   temperature?: number;
   routeKey?: string;
+};
+
+const SCROLITHA_RUNTIME_ALERT_COOLDOWN_MS = 10 * 60_000;
+const SCROLITHA_RUNTIME_ALERT_PREFIX = 'scrolitha:runtime-alert:';
+
+export const createSystemScrolithaActor = (
+  scope: ScrolithaScope,
+  routeKey: string,
+  role = 'system'
+): ScrolithaActor => ({
+  id: `scrolitha-system:${scope}:${String(routeKey || 'task').trim() || 'task'}`,
+  role,
+  scope,
+  isAdmin: scope === 'admin',
+  ipAddress: null,
+  userAgent: 'scrolitha-system'
+});
+
+const maybeNotifyScrolithaRuntimeAlert = (input: {
+  type: 'fallback' | 'latency' | 'prompt_block';
+  routeKey: string;
+  scope: ScrolithaScope;
+  count: number;
+  threshold: number;
+  message: string;
+  severity: 'info' | 'warning';
+  warningCode?: string | null;
+  latencyMs?: number | null;
+}) => {
+  if (input.count < input.threshold) return;
+  const cacheKey = `${SCROLITHA_RUNTIME_ALERT_PREFIX}${input.type}:${input.scope}:${input.routeKey}`;
+  if (scrolithaCache.get(cacheKey)) return;
+  scrolithaCache.set(cacheKey, true, SCROLITHA_RUNTIME_ALERT_COOLDOWN_MS);
+
+  const payload = {
+    type: 'scrolitha.runtime.alert',
+    title: 'Scrolitha runtime alert',
+    body: input.message,
+    link: '/admin/dashboard?tab=scrolitha',
+    meta: {
+      alertType: input.type,
+      severity: input.severity,
+      routeKey: input.routeKey,
+      scope: input.scope,
+      count: input.count,
+      threshold: input.threshold,
+      warningCode: input.warningCode || null,
+      latencyMs: input.latencyMs || null
+    }
+  };
+
+  try {
+    realtime.emitToRoom('community:admin', 'scrolitha:runtime_alert', {
+      ...payload.meta,
+      title: payload.title,
+      body: payload.body,
+      createdAt: new Date().toISOString()
+    });
+  } catch {}
+
+  notifyAdmins(payload);
 };
 
 const hashPrompt = (value: string) => createHash('sha256').update(String(value || '')).digest('hex');
@@ -75,6 +139,7 @@ export const ScrolithaService = {
     const config = await ensureScrolithaConfig(input.scope);
     const blocked = detectPromptInjectionAttempt(prompt, config.promptBlocklist || []);
     if (blocked.blocked) {
+      const blockCount = incrementMinuteCounter(`scrolitha:runtime:block:${input.scope}:${routeKey}`, 15 * 60_000);
       await prisma.aICopilotLog.create({
         data: {
           userId: input.actor.id || null,
@@ -104,6 +169,15 @@ export const ScrolithaService = {
         redactedPayload: { scope: input.scope, promptHash, routeKey, blocked: true },
         resultStatus: 'blocked',
         resultSummary: blocked.pattern ? `Matched prompt policy pattern: ${blocked.pattern}` : 'Prompt policy blocked request.'
+      });
+      maybeNotifyScrolithaRuntimeAlert({
+        type: 'prompt_block',
+        routeKey,
+        scope: input.scope,
+        count: blockCount,
+        threshold: 3,
+        severity: 'warning',
+        message: `Scrolitha blocked ${blockCount} prompt-policy requests on ${routeKey} (${input.scope}) in the last 15 minutes.`
       });
       throw createScrolithaPromptPolicyError(blocked.pattern);
     }
@@ -185,6 +259,34 @@ export const ScrolithaService = {
     });
 
     if (usedFallback || latencyMs >= 15_000) {
+      if (usedFallback) {
+        const fallbackCount = incrementMinuteCounter(`scrolitha:runtime:fallback:${input.scope}:${routeKey}`, 10 * 60_000);
+        maybeNotifyScrolithaRuntimeAlert({
+          type: 'fallback',
+          routeKey,
+          scope: input.scope,
+          count: fallbackCount,
+          threshold: 2,
+          severity: 'warning',
+          warningCode: warningCode || null,
+          latencyMs,
+          message: `Scrolitha fallback triggered ${fallbackCount} times on ${routeKey} (${input.scope}) in the last 10 minutes.`
+        });
+      }
+      if (latencyMs >= 15_000) {
+        const slowCount = incrementMinuteCounter(`scrolitha:runtime:latency:${input.scope}:${routeKey}`, 10 * 60_000);
+        maybeNotifyScrolithaRuntimeAlert({
+          type: 'latency',
+          routeKey,
+          scope: input.scope,
+          count: slowCount,
+          threshold: latencyMs >= 30_000 ? 1 : 3,
+          severity: latencyMs >= 30_000 ? 'warning' : 'info',
+          warningCode: warningCode || null,
+          latencyMs,
+          message: `Scrolitha latency reached ${latencyMs}ms on ${routeKey} (${input.scope}); ${slowCount} slow requests in the last 10 minutes.`
+        });
+      }
       await writeScrolithaAuditLog({
         actor: input.actor,
         eventType: 'SCROLITHA_RUNTIME_ALERT',
