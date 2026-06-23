@@ -2411,6 +2411,10 @@ export const AdminService = {
     return Array.isArray(data) ? data : [];
   },
 
+  async seedTalentCloudExamples(): Promise<any> {
+    return adminPost<any>('/talent-cloud/seed-examples', {});
+  },
+
   async createTalentPool(payload: any): Promise<any> {
     return adminPost<any>('/talent-cloud/pools', payload);
   },
@@ -2425,6 +2429,15 @@ export const AdminService = {
 
   async savePrivateAccessRule(payload: any): Promise<any> {
     return adminPost<any>('/talent-cloud/access-rules', payload);
+  },
+
+  async getPrivateAccessRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/access-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async updatePrivateAccessRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/access-rules/${encodeURIComponent(id)}`, payload);
   },
 
   async getVendorRequirements(): Promise<any[]> {

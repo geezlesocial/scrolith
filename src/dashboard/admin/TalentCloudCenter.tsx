@@ -18,7 +18,48 @@ const defaultConnectorDraft = {
   rotateCredentials: false
 };
 
+const defaultPoolDraft = {
+  name: '',
+  slug: '',
+  description: '',
+  visibility: 'PRIVATE',
+  isActive: true
+};
+
+const defaultMemberDraft = {
+  poolId: '',
+  userId: '',
+  membershipType: 'APPROVED',
+  status: 'ACTIVE',
+  tags: '',
+  internalNotes: ''
+};
+
+const defaultAccessRuleDraft = {
+  entityType: 'job',
+  entityId: '',
+  poolId: '',
+  visibilityScope: 'POOL_ONLY',
+  note: ''
+};
+
+const defaultRequirementDraft = {
+  code: '',
+  name: '',
+  requiredDocuments: '',
+  requiredKycTier: '',
+  requiredComplianceChecks: '',
+  requireContractAcceptance: true,
+  isActive: true
+};
+
 const toEventTypes = (value: string) =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const toList = (value: string) =>
   value
     .split(',')
     .map((entry) => entry.trim())
@@ -30,6 +71,11 @@ const toLocalDateTime = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? 'Invalid date' : parsed.toLocaleString();
 };
 
+const stringifyList = (value: unknown) =>
+  Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean).join(', ') : '';
+
+const compactName = (user: any) => String(user?.name || user?.username || user?.email || user?.id || '').trim();
+
 const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
@@ -38,12 +84,21 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
   const [settings, setSettings] = useState<any>({});
   const [pools, setPools] = useState<any[]>([]);
   const [requirements, setRequirements] = useState<any[]>([]);
+  const [accessRules, setAccessRules] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
   const [integrations, setIntegrations] = useState<any[]>([]);
   const [connectors, setConnectors] = useState<any[]>([]);
   const [deliveries, setDeliveries] = useState<any[]>([]);
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [connectorDraft, setConnectorDraft] = useState<any>(defaultConnectorDraft);
   const [editingConnectorId, setEditingConnectorId] = useState<string | null>(null);
+  const [poolDraft, setPoolDraft] = useState<any>(defaultPoolDraft);
+  const [editingPoolId, setEditingPoolId] = useState<string | null>(null);
+  const [memberDraft, setMemberDraft] = useState<any>(defaultMemberDraft);
+  const [accessRuleDraft, setAccessRuleDraft] = useState<any>(defaultAccessRuleDraft);
+  const [editingAccessRuleId, setEditingAccessRuleId] = useState<string | null>(null);
+  const [requirementDraft, setRequirementDraft] = useState<any>(defaultRequirementDraft);
+  const [editingRequirementId, setEditingRequirementId] = useState<string | null>(null);
   const [issuedConnectorSecrets, setIssuedConnectorSecrets] = useState<any | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -55,6 +110,8 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
         settingsData,
         poolsData,
         requirementsData,
+        accessRulesData,
+        usersData,
         integrationsData,
         connectorsData,
         deliveriesData,
@@ -64,6 +121,8 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
         AdminService.getTalentCloudSettings(),
         AdminService.getTalentPools(),
         AdminService.getVendorRequirements(),
+        AdminService.getPrivateAccessRules(),
+        AdminService.getUsers(),
         AdminService.getIntegrationEndpoints(),
         AdminService.getInboundConnectors(),
         AdminService.getWebhookDeliveries(),
@@ -73,6 +132,8 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
       setSettings(settingsData || {});
       setPools(Array.isArray(poolsData) ? poolsData : []);
       setRequirements(Array.isArray(requirementsData) ? requirementsData : []);
+      setAccessRules(Array.isArray(accessRulesData) ? accessRulesData : []);
+      setUsers(Array.isArray(usersData) ? usersData : []);
       setIntegrations(Array.isArray(integrationsData) ? integrationsData : []);
       setConnectors(Array.isArray(connectorsData) ? connectorsData : []);
       setDeliveries(Array.isArray(deliveriesData) ? deliveriesData : []);
@@ -85,8 +146,17 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
   };
 
   useEffect(() => {
-    load();
+    void load();
   }, []);
+
+  useEffect(() => {
+    if (!memberDraft.poolId && pools.length) {
+      setMemberDraft((current: any) => ({ ...current, poolId: pools[0].id }));
+    }
+    if (!accessRuleDraft.poolId && pools.length) {
+      setAccessRuleDraft((current: any) => ({ ...current, poolId: pools[0].id }));
+    }
+  }, [pools]);
 
   const saveSettings = async () => {
     setSaving('settings');
@@ -96,6 +166,19 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
       await load();
     } catch (error: any) {
       showNotification('alert', 'Error', error?.message || 'Failed to save talent cloud settings');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const seedExamples = async () => {
+    setSaving('seed');
+    try {
+      await AdminService.seedTalentCloudExamples();
+      showNotification('success', 'Seeded', 'Demo private talent cloud examples loaded');
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to load demo examples');
     } finally {
       setSaving(null);
     }
@@ -168,6 +251,145 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
     }
   };
 
+  const resetPoolDraft = () => {
+    setEditingPoolId(null);
+    setPoolDraft(defaultPoolDraft);
+  };
+
+  const startPoolEdit = (pool: any) => {
+    setEditingPoolId(pool.id);
+    setPoolDraft({
+      name: pool.name || '',
+      slug: pool.slug || '',
+      description: pool.description || '',
+      visibility: pool.visibility || 'PRIVATE',
+      isActive: pool.isActive !== false
+    });
+  };
+
+  const savePool = async () => {
+    setSaving('pool');
+    try {
+      const payload = {
+        name: poolDraft.name,
+        slug: poolDraft.slug,
+        description: poolDraft.description,
+        visibility: poolDraft.visibility,
+        isActive: poolDraft.isActive
+      };
+      if (editingPoolId) await AdminService.updateTalentPool(editingPoolId, payload);
+      else await AdminService.createTalentPool(payload);
+      showNotification('success', 'Saved', editingPoolId ? 'Talent pool updated' : 'Talent pool created');
+      resetPoolDraft();
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to save talent pool');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const saveMember = async () => {
+    setSaving('member');
+    try {
+      await AdminService.saveTalentPoolMember({
+        poolId: memberDraft.poolId,
+        userId: memberDraft.userId,
+        membershipType: memberDraft.membershipType,
+        status: memberDraft.status,
+        tags: toList(memberDraft.tags),
+        internalNotes: memberDraft.internalNotes
+      });
+      showNotification('success', 'Saved', 'Pool membership updated');
+      setMemberDraft((current: any) => ({ ...defaultMemberDraft, poolId: current.poolId }));
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to save pool membership');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const resetAccessRuleDraft = () => {
+    setEditingAccessRuleId(null);
+    setAccessRuleDraft((current: any) => ({ ...defaultAccessRuleDraft, poolId: current.poolId || defaultAccessRuleDraft.poolId }));
+  };
+
+  const startAccessRuleEdit = (rule: any) => {
+    setEditingAccessRuleId(rule.id);
+    setAccessRuleDraft({
+      entityType: rule.entityType || 'job',
+      entityId: rule.entityId || '',
+      poolId: rule.poolId || '',
+      visibilityScope: rule.visibilityScope || 'POOL_ONLY',
+      note: String(rule.metadata?.title || rule.metadata?.note || '')
+    });
+  };
+
+  const saveAccessRule = async () => {
+    setSaving('access');
+    try {
+      const payload = {
+        entityType: accessRuleDraft.entityType,
+        entityId: accessRuleDraft.entityId,
+        poolId: accessRuleDraft.poolId,
+        visibilityScope: accessRuleDraft.visibilityScope,
+        metadata: accessRuleDraft.note ? { note: accessRuleDraft.note, title: accessRuleDraft.note } : null
+      };
+      if (editingAccessRuleId) await AdminService.updatePrivateAccessRule(editingAccessRuleId, payload);
+      else await AdminService.savePrivateAccessRule(payload);
+      showNotification('success', 'Saved', editingAccessRuleId ? 'Private visibility rule updated' : 'Private visibility rule created');
+      resetAccessRuleDraft();
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to save private visibility rule');
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const resetRequirementDraft = () => {
+    setEditingRequirementId(null);
+    setRequirementDraft(defaultRequirementDraft);
+  };
+
+  const startRequirementEdit = (requirement: any) => {
+    setEditingRequirementId(requirement.id);
+    setRequirementDraft({
+      code: requirement.code || '',
+      name: requirement.name || '',
+      requiredDocuments: stringifyList(requirement.requiredDocuments),
+      requiredKycTier: requirement.requiredKycTier || '',
+      requiredComplianceChecks: stringifyList(requirement.requiredComplianceChecks),
+      requireContractAcceptance: requirement.requireContractAcceptance === true,
+      isActive: requirement.isActive !== false
+    });
+  };
+
+  const saveRequirement = async () => {
+    setSaving('requirement');
+    try {
+      const payload = {
+        code: requirementDraft.code,
+        name: requirementDraft.name,
+        requiredDocuments: toList(requirementDraft.requiredDocuments),
+        requiredKycTier: requirementDraft.requiredKycTier,
+        requiredComplianceChecks: toList(requirementDraft.requiredComplianceChecks),
+        requireContractAcceptance: requirementDraft.requireContractAcceptance,
+        isActive: requirementDraft.isActive
+      };
+      if (editingRequirementId) await AdminService.updateVendorRequirement(editingRequirementId, payload);
+      else await AdminService.createVendorRequirement(payload);
+      showNotification('success', 'Saved', editingRequirementId ? 'Vendor requirement updated' : 'Vendor requirement created');
+      resetRequirementDraft();
+      await load();
+    } catch (error: any) {
+      showNotification('alert', 'Error', error?.message || 'Failed to save vendor requirement');
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (loading) return <div className={cardClass}>Loading private talent cloud...</div>;
 
   return (
@@ -193,14 +415,19 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
       </div>
 
       <section className={cardClass}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Enterprise settings</h2>
             <p className="text-sm text-slate-500">Invite-only network and webhook delivery controls.</p>
           </div>
-          <button onClick={saveSettings} disabled={saving === 'settings'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
-            {saving === 'settings' ? 'Saving...' : 'Save settings'}
-          </button>
+          <div className="flex gap-3">
+            <button onClick={seedExamples} disabled={saving === 'seed'} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-60">
+              {saving === 'seed' ? 'Loading examples...' : 'Load demo examples'}
+            </button>
+            <button onClick={saveSettings} disabled={saving === 'settings'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+              {saving === 'settings' ? 'Saving...' : 'Save settings'}
+            </button>
+          </div>
         </div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <label className="text-sm text-slate-600">
@@ -228,31 +455,275 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
       </section>
 
       {activeSection === 'talent' ? (
-        <div className="grid gap-6 xl:grid-cols-2">
-          <section className={cardClass}>
-            <h2 className="text-lg font-semibold text-slate-900">Talent pools</h2>
-            <div className="mt-4 space-y-3">
-              {pools.slice(0, 8).map((pool) => (
-                <div key={pool.id} className="rounded-lg border border-slate-200 p-3">
-                  <div className="font-medium text-slate-900">{pool.name}</div>
-                  <div className="text-sm text-slate-500">{pool.slug} - {pool.visibility}</div>
-                  <div className="mt-1 text-sm text-slate-600">{pool.description || 'No description'}</div>
-                </div>
-              ))}
+        <div className="space-y-6">
+          <section className={`${cardClass} bg-slate-50`}>
+            <h2 className="text-lg font-semibold text-slate-900">Example enterprise flow</h2>
+            <div className="mt-3 grid gap-4 lg:grid-cols-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Admin flow</div>
+                <p className="mt-1 text-sm text-slate-600">Create a private pool, add approved members, define vendor requirements, then attach a private visibility rule to a job or listing.</p>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Buyer flow</div>
+                <p className="mt-1 text-sm text-slate-600">Enterprise buyers publish a private opportunity that is visible only to selected pools and receive responses from pre-approved vendors.</p>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-900">Vendor flow</div>
+                <p className="mt-1 text-sm text-slate-600">Approved vendors satisfy KYC and document rules, join the private pool, and then see only the opportunities intended for that network.</p>
+              </div>
             </div>
           </section>
 
-          <section className={cardClass}>
-            <h2 className="text-lg font-semibold text-slate-900">Vendor requirements</h2>
-            <div className="mt-4 space-y-3">
-              {requirements.slice(0, 8).map((rule) => (
-                <div key={rule.id} className="rounded-lg border border-slate-200 p-3">
-                  <div className="font-medium text-slate-900">{rule.code} - {rule.name}</div>
-                  <div className="text-sm text-slate-500">{rule.requiredKycTier || 'No KYC tier'} - {rule.isActive ? 'Active' : 'Inactive'}</div>
+          <div className="grid gap-6 xl:grid-cols-2">
+            <section className={cardClass}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Talent pools</h2>
+                  <p className="text-sm text-slate-500">Create and edit invite-only talent groups for enterprise buyers.</p>
                 </div>
-              ))}
-            </div>
-          </section>
+                {editingPoolId ? (
+                  <button onClick={resetPoolDraft} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">Cancel edit</button>
+                ) : null}
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Pool name</div>
+                  <input value={poolDraft.name} onChange={(e) => setPoolDraft((current: any) => ({ ...current, name: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="Acme Preferred Designers" />
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Slug</div>
+                  <input value={poolDraft.slug} onChange={(e) => setPoolDraft((current: any) => ({ ...current, slug: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="acme-preferred-designers" />
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Visibility</div>
+                  <select value={poolDraft.visibility} onChange={(e) => setPoolDraft((current: any) => ({ ...current, visibility: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="PRIVATE">Private</option>
+                    <option value="INVITE_ONLY">Invite only</option>
+                  </select>
+                </label>
+                <label className="flex items-center gap-2 pt-7 text-sm text-slate-600">
+                  <input type="checkbox" checked={Boolean(poolDraft.isActive)} onChange={(e) => setPoolDraft((current: any) => ({ ...current, isActive: e.target.checked }))} />
+                  Active
+                </label>
+                <label className="text-sm text-slate-600 md:col-span-2">
+                  <div className="mb-1 font-medium">Description</div>
+                  <textarea value={poolDraft.description} onChange={(e) => setPoolDraft((current: any) => ({ ...current, description: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" rows={3} placeholder="Invite-only design partners approved for enterprise briefs." />
+                </label>
+              </div>
+              <div className="mt-4">
+                <button onClick={savePool} disabled={saving === 'pool'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+                  {saving === 'pool' ? 'Saving...' : editingPoolId ? 'Update pool' : 'Create pool'}
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                {pools.map((pool) => (
+                  <div key={pool.id} className="rounded-lg border border-slate-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-slate-900">{pool.name}</div>
+                        <div className="text-sm text-slate-500">{pool.slug} - {pool.visibility} - {pool.isActive ? 'Active' : 'Inactive'}</div>
+                        <div className="mt-1 text-sm text-slate-600">{pool.description || 'No description'}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Members: {Array.isArray(pool.members) ? pool.members.length : 0} | Access rules: {Array.isArray(pool.privateAccessRules) ? pool.privateAccessRules.length : 0}
+                        </div>
+                      </div>
+                      <button onClick={() => startPoolEdit(pool)} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">Edit</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className={cardClass}>
+              <h2 className="text-lg font-semibold text-slate-900">Membership management</h2>
+              <p className="text-sm text-slate-500">Add or update approved vendors inside a private pool.</p>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Pool</div>
+                  <select value={memberDraft.poolId} onChange={(e) => setMemberDraft((current: any) => ({ ...current, poolId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="">Select pool</option>
+                    {pools.map((pool) => <option key={pool.id} value={pool.id}>{pool.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">User</div>
+                  <select value={memberDraft.userId} onChange={(e) => setMemberDraft((current: any) => ({ ...current, userId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="">Select user</option>
+                    {users.slice(0, 100).map((user) => <option key={user.id} value={user.id}>{compactName(user)}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Membership type</div>
+                  <select value={memberDraft.membershipType} onChange={(e) => setMemberDraft((current: any) => ({ ...current, membershipType: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="APPROVED">Approved</option>
+                    <option value="INVITED">Invited</option>
+                    <option value="PREFERRED">Preferred</option>
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Status</div>
+                  <select value={memberDraft.status} onChange={(e) => setMemberDraft((current: any) => ({ ...current, status: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="ACTIVE">Active</option>
+                    <option value="PAUSED">Paused</option>
+                    <option value="BLOCKED">Blocked</option>
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600 md:col-span-2">
+                  <div className="mb-1 font-medium">Tags</div>
+                  <input value={memberDraft.tags} onChange={(e) => setMemberDraft((current: any) => ({ ...current, tags: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="design, approved, enterprise" />
+                </label>
+                <label className="text-sm text-slate-600 md:col-span-2">
+                  <div className="mb-1 font-medium">Internal notes</div>
+                  <textarea value={memberDraft.internalNotes} onChange={(e) => setMemberDraft((current: any) => ({ ...current, internalNotes: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" rows={3} placeholder="Strong fit for enterprise brand refresh work." />
+                </label>
+              </div>
+              <div className="mt-4">
+                <button onClick={saveMember} disabled={saving === 'member'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+                  {saving === 'member' ? 'Saving...' : 'Save membership'}
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                {pools.flatMap((pool) =>
+                  (Array.isArray(pool.members) ? pool.members : []).map((member: any) => (
+                    <div key={member.id} className="rounded-lg border border-slate-200 p-3">
+                      <div className="font-medium text-slate-900">{pool.name}</div>
+                      <div className="text-sm text-slate-500">User {member.userId} - {member.membershipType} - {member.status}</div>
+                      <div className="mt-1 text-xs text-slate-500">{stringifyList(member.tags) || 'No tags'}{member.internalNotes ? ` - ${member.internalNotes}` : ''}</div>
+                    </div>
+                  ))
+                )}
+                {pools.every((pool) => !Array.isArray(pool.members) || pool.members.length === 0) ? (
+                  <div className="text-sm text-slate-500">No pool memberships yet.</div>
+                ) : null}
+              </div>
+            </section>
+
+            <section className={cardClass}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Private visibility rules</h2>
+                  <p className="text-sm text-slate-500">Restrict a job, gig, or listing so only selected pools can view it.</p>
+                </div>
+                {editingAccessRuleId ? (
+                  <button onClick={resetAccessRuleDraft} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">Cancel edit</button>
+                ) : null}
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Entity type</div>
+                  <select value={accessRuleDraft.entityType} onChange={(e) => setAccessRuleDraft((current: any) => ({ ...current, entityType: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="job">Job</option>
+                    <option value="gig">Gig</option>
+                    <option value="listing">Listing</option>
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Entity id / slug</div>
+                  <input value={accessRuleDraft.entityId} onChange={(e) => setAccessRuleDraft((current: any) => ({ ...current, entityId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="job_123 or demo-job-acme-brand-refresh" />
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Pool</div>
+                  <select value={accessRuleDraft.poolId} onChange={(e) => setAccessRuleDraft((current: any) => ({ ...current, poolId: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="">Select pool</option>
+                    {pools.map((pool) => <option key={pool.id} value={pool.id}>{pool.name}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Visibility scope</div>
+                  <select value={accessRuleDraft.visibilityScope} onChange={(e) => setAccessRuleDraft((current: any) => ({ ...current, visibilityScope: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2">
+                    <option value="POOL_ONLY">Pool only</option>
+                    <option value="INVITED_ONLY">Invited only</option>
+                  </select>
+                </label>
+                <label className="text-sm text-slate-600 md:col-span-2">
+                  <div className="mb-1 font-medium">Rule note / title</div>
+                  <input value={accessRuleDraft.note} onChange={(e) => setAccessRuleDraft((current: any) => ({ ...current, note: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="Acme Brand Refresh Job" />
+                </label>
+              </div>
+              <div className="mt-4">
+                <button onClick={saveAccessRule} disabled={saving === 'access'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+                  {saving === 'access' ? 'Saving...' : editingAccessRuleId ? 'Update access rule' : 'Create access rule'}
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                {accessRules.map((rule) => (
+                  <div key={rule.id} className="rounded-lg border border-slate-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-slate-900">{rule.metadata?.title || rule.entityId}</div>
+                        <div className="text-sm text-slate-500">{rule.entityType} - {rule.visibilityScope} - {rule.pool?.name || rule.poolId}</div>
+                        <div className="mt-1 text-xs text-slate-500">Entity id: {rule.entityId}</div>
+                      </div>
+                      <button onClick={() => startAccessRuleEdit(rule)} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">Edit</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className={cardClass}>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-900">Vendor requirements</h2>
+                  <p className="text-sm text-slate-500">Define compliance and onboarding rules before vendors can participate.</p>
+                </div>
+                {editingRequirementId ? (
+                  <button onClick={resetRequirementDraft} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">Cancel edit</button>
+                ) : null}
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Code</div>
+                  <input value={requirementDraft.code} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, code: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="REQ_KYC_TIER2" />
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Name</div>
+                  <input value={requirementDraft.name} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, name: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="Tier 2 KYC + NDA" />
+                </label>
+                <label className="text-sm text-slate-600 md:col-span-2">
+                  <div className="mb-1 font-medium">Required documents</div>
+                  <input value={requirementDraft.requiredDocuments} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, requiredDocuments: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="Government ID, Signed NDA" />
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Required KYC tier</div>
+                  <input value={requirementDraft.requiredKycTier} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, requiredKycTier: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="TIER_2" />
+                </label>
+                <label className="text-sm text-slate-600">
+                  <div className="mb-1 font-medium">Compliance checks</div>
+                  <input value={requirementDraft.requiredComplianceChecks} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, requiredComplianceChecks: e.target.value }))} className="w-full rounded-lg border border-slate-200 px-3 py-2" placeholder="sanctions, geo_review" />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={Boolean(requirementDraft.requireContractAcceptance)} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, requireContractAcceptance: e.target.checked }))} />
+                  Require contract acceptance
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={Boolean(requirementDraft.isActive)} onChange={(e) => setRequirementDraft((current: any) => ({ ...current, isActive: e.target.checked }))} />
+                  Active
+                </label>
+              </div>
+              <div className="mt-4">
+                <button onClick={saveRequirement} disabled={saving === 'requirement'} className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+                  {saving === 'requirement' ? 'Saving...' : editingRequirementId ? 'Update requirement' : 'Create requirement'}
+                </button>
+              </div>
+              <div className="mt-4 space-y-3">
+                {requirements.map((rule) => (
+                  <div key={rule.id} className="rounded-lg border border-slate-200 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-slate-900">{rule.code} - {rule.name}</div>
+                        <div className="text-sm text-slate-500">{rule.requiredKycTier || 'No KYC tier'} - {rule.isActive ? 'Active' : 'Inactive'}</div>
+                        <div className="mt-1 text-xs text-slate-500">
+                          Docs: {stringifyList(rule.requiredDocuments) || 'None'} | Checks: {stringifyList(rule.requiredComplianceChecks) || 'None'}
+                        </div>
+                      </div>
+                      <button onClick={() => startRequirementEdit(rule)} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">Edit</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
         </div>
       ) : (
         <div className="grid gap-6 xl:grid-cols-2">
