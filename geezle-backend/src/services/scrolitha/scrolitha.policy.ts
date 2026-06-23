@@ -405,6 +405,24 @@ export const detectPromptInjectionAttempt = (
   return { blocked: false };
 };
 
+export const SCROLITHA_PROMPT_POLICY_BLOCK_MESSAGE =
+  'Request blocked by security policy. Rephrase without hidden/system-instruction directives.';
+
+export const createScrolithaPromptPolicyError = (pattern?: string) => {
+  const error = new Error(SCROLITHA_PROMPT_POLICY_BLOCK_MESSAGE) as Error & {
+    statusCode?: number;
+    code?: string;
+    promptPattern?: string;
+  };
+  error.statusCode = 400;
+  error.code = 'SCROLITHA_PROMPT_POLICY_BLOCKED';
+  error.promptPattern = pattern;
+  return error;
+};
+
+export const isScrolithaPromptPolicyError = (error: unknown): boolean =>
+  (error as { code?: string } | null | undefined)?.code === 'SCROLITHA_PROMPT_POLICY_BLOCKED';
+
 export const canUseTool = (
   actor: ScrolithaActor,
   tool: ScrolithaToolDefinition,

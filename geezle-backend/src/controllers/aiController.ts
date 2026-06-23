@@ -1,13 +1,10 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { getScrolithaKnowledgeBundle } from '../services/scrolitha/scrolitha.knowledge';
-import {
-  generateScrolithaText,
-  resolveScrolithaLlmRuntime,
-  sanitizeScrolithaUserMessage
-} from '../services/scrolitha/scrolitha.ollama';
+import { resolveScrolithaLlmRuntime, sanitizeScrolithaUserMessage } from '../services/scrolitha/scrolitha.ollama';
 import { resolveActorFromRequest, writeScrolithaAuditLog } from '../services/scrolitha/scrolitha.audit';
-import { ensureScrolithaConfig } from '../services/scrolitha/scrolitha.policy';
+import { ensureScrolithaConfig, isScrolithaPromptPolicyError } from '../services/scrolitha/scrolitha.policy';
+import { ScrolithaService } from '../modules/scrolitha/inference/scrolitha.service';
 import {
   enhancePostDraftWithAi,
   enforcePostEnhanceRateLimit,
@@ -35,20 +32,28 @@ const getSystemAiConfig = async () => {
 };
 
 const askScrolithaText = async (
+  actor: ReturnType<typeof resolveActorFromRequest>,
   prompt: string,
   options?: { system?: string; routeKey?: string }
 ) => {
   const runtime = await resolveScrolithaLlmRuntime('user');
-  const result = await generateScrolithaText({
+  const result = await ScrolithaService.generate({
+    actor,
     scope: 'user',
     routeKey: options?.routeKey || 'scrolitha_core',
-    systemPrompt: options?.system,
-    userPrompt: prompt,
+    system: options?.system,
+    prompt,
     maxTokens: runtime.maxTokens,
-    temperature: runtime.temperature,
-    topP: runtime.topP
+    temperature: runtime.temperature
   });
-  return { provider: 'scrolitha' as const, model: SCROLITHA_MODEL_LABEL, text: result.text || '' };
+  return {
+    provider: 'scrolitha' as const,
+    model: SCROLITHA_MODEL_LABEL,
+    text: result.text || '',
+    warning: result.warning || null,
+    warningCode: result.warningCode || null,
+    usedFallback: Boolean(result.usedFallback)
+  };
 };
 
 const buildKnowledgeBlock = (audience?: string) => {
@@ -299,10 +304,11 @@ export const getAIConfig = async (_req: Request, res: Response) => {
 
 export const answerQuestion = async (req: Request, res: Response) => {
   try {
+    const actor = resolveActorFromRequest(req);
     const prompt = buildQaPrompt(req.body || {});
 
     try {
-      const result = await askScrolithaText(prompt, { routeKey: 'support_chat' });
+      const result = await askScrolithaText(actor, prompt, { routeKey: 'support_chat' });
       return res.json({
         success: true,
         data: {
@@ -311,7 +317,8 @@ export const answerQuestion = async (req: Request, res: Response) => {
           answer: result.text
         }
       });
-    } catch {
+    } catch (error) {
+      if (isScrolithaPromptPolicyError(error)) throw error;
       return res.json({
         success: true,
         data: {
@@ -325,18 +332,20 @@ export const answerQuestion = async (req: Request, res: Response) => {
     console.error('AI answer error:', error);
     const msg = sanitizeScrolithaUserMessage(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : 500;
+    const status = isScrolithaPromptPolicyError(error) ? 400 : lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
   }
 };
 
 export const answerQuestionWithScrolitha = async (req: Request, res: Response) => {
   try {
+    const actor = resolveActorFromRequest(req);
     const prompt = buildQaPrompt(req.body || {});
     let result;
     try {
-      result = await askScrolithaText(prompt, { routeKey: 'support_chat' });
-    } catch {
+      result = await askScrolithaText(actor, prompt, { routeKey: 'support_chat' });
+    } catch (error) {
+      if (isScrolithaPromptPolicyError(error)) throw error;
       return res.json({
         success: true,
         data: {
@@ -358,17 +367,18 @@ export const answerQuestionWithScrolitha = async (req: Request, res: Response) =
     console.error('Scrolitha-only answer error:', error);
     const msg = sanitizeScrolithaUserMessage(error?.message || 'Scrolitha request failed');
     const lower = msg.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : 500;
+    const status = isScrolithaPromptPolicyError(error) ? 400 : lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
   }
 };
 
 export const generateGuide = async (req: Request, res: Response) => {
   try {
+    const actor = resolveActorFromRequest(req);
     const prompt = buildGuidePrompt(req.body || {});
 
     try {
-      const result = await askScrolithaText(prompt, { routeKey: 'seo_tags' });
+      const result = await askScrolithaText(actor, prompt, { routeKey: 'seo_tags' });
       return res.json({
         success: true,
         data: {
@@ -377,7 +387,8 @@ export const generateGuide = async (req: Request, res: Response) => {
           guide: result.text
         }
       });
-    } catch {
+    } catch (error) {
+      if (isScrolithaPromptPolicyError(error)) throw error;
       return res.json({
         success: true,
         data: {
@@ -391,18 +402,20 @@ export const generateGuide = async (req: Request, res: Response) => {
     console.error('AI guide error:', error);
     const msg = sanitizeScrolithaUserMessage(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : 500;
+    const status = isScrolithaPromptPolicyError(error) ? 400 : lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
   }
 };
 
 export const generateGuideWithScrolitha = async (req: Request, res: Response) => {
   try {
+    const actor = resolveActorFromRequest(req);
     const prompt = buildGuidePrompt(req.body || {});
     let result;
     try {
-      result = await askScrolithaText(prompt, { routeKey: 'seo_tags' });
-    } catch {
+      result = await askScrolithaText(actor, prompt, { routeKey: 'seo_tags' });
+    } catch (error) {
+      if (isScrolithaPromptPolicyError(error)) throw error;
       return res.json({
         success: true,
         data: {
@@ -424,7 +437,7 @@ export const generateGuideWithScrolitha = async (req: Request, res: Response) =>
     console.error('Scrolitha-only guide error:', error);
     const msg = sanitizeScrolithaUserMessage(error?.message || 'Scrolitha request failed');
     const lower = msg.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : 500;
+    const status = isScrolithaPromptPolicyError(error) ? 400 : lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
   }
 };
@@ -432,6 +445,7 @@ export const generateGuideWithScrolitha = async (req: Request, res: Response) =>
 // Public, guest-safe support chat (used by the support widget when not authenticated).
 export const supportChat = async (req: Request, res: Response) => {
   try {
+    const actor = resolveActorFromRequest(req);
     const message = String(req.body?.message || '').trim();
     if (!message) return res.status(400).json({ success: false, error: 'message is required' });
 
@@ -458,7 +472,7 @@ export const supportChat = async (req: Request, res: Response) => {
       : `User: ${message}\nAgent:`;
 
     try {
-      const result = await askScrolithaText(prompt, { system, routeKey: 'support_chat' });
+      const result = await askScrolithaText(actor, prompt, { system, routeKey: 'support_chat' });
       return res.json({
         success: true,
         data: {
@@ -468,7 +482,8 @@ export const supportChat = async (req: Request, res: Response) => {
         },
         message: 'Support reply ready'
       });
-    } catch {
+    } catch (error) {
+      if (isScrolithaPromptPolicyError(error)) throw error;
       return res.json({
         success: true,
         data: {
@@ -482,7 +497,7 @@ export const supportChat = async (req: Request, res: Response) => {
   } catch (error: any) {
     const msg = sanitizeScrolithaUserMessage(error?.message || 'AI request failed');
     const lower = msg.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : 500;
+    const status = isScrolithaPromptPolicyError(error) ? 400 : lower.includes('not configured') ? 503 : 500;
     return res.status(status).json({ success: false, error: msg });
   }
 };
@@ -561,7 +576,13 @@ export const postEnhance = async (req: Request, res: Response) => {
       resultSummary: safePreview(message, 180)
     });
     const lower = message.toLowerCase();
-    const status = lower.includes('not configured') ? 503 : lower.includes('rate limit') ? 429 : 500;
+    const status = isScrolithaPromptPolicyError(error)
+      ? 400
+      : lower.includes('not configured')
+        ? 503
+        : lower.includes('rate limit')
+          ? 429
+          : 500;
     return res.status(status).json({ success: false, error: message });
   }
 };

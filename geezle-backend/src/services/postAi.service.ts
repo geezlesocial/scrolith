@@ -7,7 +7,12 @@ import {
   SCROLITHA_BACKUP_WARNING_CODE,
   SCROLITHA_BACKUP_WARNING_MESSAGE
 } from './scrolitha/scrolitha.ollama';
-import { ensureScrolithaConfig } from './scrolitha/scrolitha.policy';
+import {
+  createScrolithaPromptPolicyError,
+  detectPromptInjectionAttempt,
+  ensureScrolithaConfig,
+  isScrolithaPromptPolicyError
+} from './scrolitha/scrolitha.policy';
 import type { ScrolithaScope } from './scrolitha/scrolitha.types';
 
 export type PostEnhanceMode = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand';
@@ -412,6 +417,11 @@ const runScrolithaText = async (input: {
   userPrompt: string;
   maxTokens?: number;
 }) => {
+  const config = await ensureScrolithaConfig(input.scope);
+  const blocked = detectPromptInjectionAttempt(input.userPrompt, config.promptBlocklist || []);
+  if (blocked.blocked) {
+    throw createScrolithaPromptPolicyError(blocked.pattern);
+  }
   const result = await generateScrolithaText({
     scope: input.scope,
     routeKey: input.routeKey,
@@ -583,6 +593,9 @@ export const enhancePostDraftWithAi = async (input: {
       warning = response.warning || SCROLITHA_BACKUP_WARNING_MESSAGE;
     }
   } catch (error: any) {
+    if (isScrolithaPromptPolicyError(error)) {
+      throw error;
+    }
     fallbackUsed = true;
     warning = SCROLITHA_BACKUP_WARNING_MESSAGE;
     response = {
@@ -645,7 +658,10 @@ export const generatePostInsightText = async (input: {
       userPrompt: text,
       maxTokens: 260
     });
-  } catch {
+  } catch (error) {
+    if (isScrolithaPromptPolicyError(error)) {
+      throw error;
+    }
     response = {
       text: fallbackInsightText(text, tone, maxLength),
       model: 'scrolitha-core'

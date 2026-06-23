@@ -1433,7 +1433,9 @@ export const getScrolithaAnalyticsForAdmin = async () => {
     feedbackAgg,
     convCount,
     auditCount,
-    toolUsage
+    toolUsage,
+    runtimeLogs,
+    runtimeAlerts
   ] = await Promise.all([
     prisma.scrolithaActionPlan.findMany({
       select: {
@@ -1453,6 +1455,34 @@ export const getScrolithaAnalyticsForAdmin = async () => {
     prisma.scrolithaActionPlan.groupBy({
       by: ['toolKey'],
       _count: { _all: true }
+    }),
+    prisma.aICopilotLog.findMany({
+      where: {
+        scope: { in: ['admin', 'user'] }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+      select: {
+        id: true,
+        scope: true,
+        riskLevel: true,
+        metadata: true,
+        createdAt: true
+      }
+    }),
+    prisma.scrolithaAuditLog.findMany({
+      where: {
+        eventType: { in: ['SCROLITHA_RUNTIME_ALERT', 'SCROLITHA_PROMPT_BLOCKED'] }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        eventType: true,
+        resultStatus: true,
+        resultSummary: true,
+        createdAt: true
+      }
     })
   ]);
 
@@ -1469,6 +1499,135 @@ export const getScrolithaAnalyticsForAdmin = async () => {
         }, 0) / completedActions
     : 0;
 
+  const now = Date.now();
+  const last24Hours = now - 24 * 60 * 60 * 1000;
+  const runtimeEntries = runtimeLogs.map((entry) => {
+    const metadata =
+      entry.metadata && typeof entry.metadata === 'object' && !Array.isArray(entry.metadata)
+        ? (entry.metadata as Record<string, any>)
+        : {};
+    return {
+      id: entry.id,
+      scope: entry.scope,
+      createdAt: entry.createdAt,
+      routeKey: String(metadata.routeKey || 'unknown').trim() || 'unknown',
+      provider: String(metadata.provider || 'scrolitha').trim() || 'scrolitha',
+      model: String(metadata.model || 'scrolitha-core').trim() || 'scrolitha-core',
+      blocked: Boolean(metadata.blocked),
+      usedFallback: Boolean(metadata.usedFallback),
+      warningCode: String(metadata.warningCode || '').trim() || null,
+      runtimeStatus: String(metadata.runtimeStatus || 'ok').trim() || 'ok',
+      latencyMs: Number.isFinite(Number(metadata.latencyMs)) ? Number(metadata.latencyMs) : null,
+      riskLevel: String(entry.riskLevel || 'low').trim() || 'low'
+    };
+  });
+  const runtimeLast24h = runtimeEntries.filter((entry) => entry.createdAt.getTime() >= last24Hours);
+  const runtimeTotal = runtimeEntries.length;
+  const blockedCount = runtimeEntries.filter((entry) => entry.blocked).length;
+  const fallbackCount = runtimeEntries.filter((entry) => entry.usedFallback).length;
+  const successfulEntries = runtimeEntries.filter((entry) => !entry.blocked);
+  const latencyValues = successfulEntries
+    .map((entry) => (entry.latencyMs && entry.latencyMs >= 0 ? entry.latencyMs : null))
+    .filter((entry): entry is number => entry !== null)
+    .sort((a, b) => a - b);
+  const avgLatencyMs = latencyValues.length
+    ? latencyValues.reduce((sum, value) => sum + value, 0) / latencyValues.length
+    : 0;
+  const p95LatencyMs = latencyValues.length
+    ? latencyValues[Math.min(latencyValues.length - 1, Math.floor(latencyValues.length * 0.95))]
+    : 0;
+
+  type RuntimeRouteAggregate = {
+    routeKey: string;
+    count: number;
+    blocked: number;
+    fallbacks: number;
+    totalLatencyMs: number;
+    latencySamples: number;
+  };
+
+  const routeMap = runtimeEntries.reduce(
+    (acc, entry) => {
+      const current = acc[entry.routeKey] || {
+        routeKey: entry.routeKey,
+        count: 0,
+        blocked: 0,
+        fallbacks: 0,
+        totalLatencyMs: 0,
+        latencySamples: 0
+      };
+      current.count += 1;
+      if (entry.blocked) current.blocked += 1;
+      if (entry.usedFallback) current.fallbacks += 1;
+      if (typeof entry.latencyMs === 'number' && entry.latencyMs >= 0) {
+        current.totalLatencyMs += entry.latencyMs;
+        current.latencySamples += 1;
+      }
+      acc[entry.routeKey] = current;
+      return acc;
+    },
+    {} as Record<string, RuntimeRouteAggregate>
+  );
+  const routeEntries = Object.values(routeMap) as RuntimeRouteAggregate[];
+
+  const warningCodeMap = runtimeEntries.reduce((acc, entry) => {
+    if (!entry.warningCode) return acc;
+    acc[entry.warningCode] = (acc[entry.warningCode] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const providerMap = runtimeEntries.reduce((acc, entry) => {
+    const key = `${entry.provider}:${entry.model}`;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const recentAlerts = [
+    ...(fallbackCount
+      ? [
+          {
+            type: 'fallback_rate',
+            severity: runtimeLast24h.filter((entry) => entry.usedFallback).length >= 5 ? 'warning' : 'info',
+            count: runtimeLast24h.filter((entry) => entry.usedFallback).length,
+            message: `${runtimeLast24h.filter((entry) => entry.usedFallback).length} fallback runtime events in the last 24 hours.`,
+            lastSeenAt: runtimeLast24h.find((entry) => entry.usedFallback)?.createdAt?.toISOString?.() || null
+          }
+        ]
+      : []),
+    ...(blockedCount
+      ? [
+          {
+            type: 'prompt_policy',
+            severity: 'warning',
+            count: runtimeLast24h.filter((entry) => entry.blocked).length,
+            message: `${runtimeLast24h.filter((entry) => entry.blocked).length} prompt-policy blocks in the last 24 hours.`,
+            lastSeenAt: runtimeLast24h.find((entry) => entry.blocked)?.createdAt?.toISOString?.() || null
+          }
+        ]
+      : []),
+    ...(runtimeLast24h.some((entry) => (entry.latencyMs || 0) >= 15_000)
+      ? [
+          {
+            type: 'latency',
+            severity: p95LatencyMs >= 20_000 ? 'warning' : 'info',
+            count: runtimeLast24h.filter((entry) => (entry.latencyMs || 0) >= 15_000).length,
+            message: `Scrolitha p95 latency is ${Math.round(p95LatencyMs)}ms with ${runtimeLast24h.filter((entry) => (entry.latencyMs || 0) >= 15_000).length} slow requests in the last 24 hours.`,
+            lastSeenAt:
+              runtimeLast24h.find((entry) => (entry.latencyMs || 0) >= 15_000)?.createdAt?.toISOString?.() || null
+          }
+        ]
+      : []),
+    ...runtimeAlerts.slice(0, 10).map((entry) => ({
+      type: String(entry.eventType || 'runtime_alert').toLowerCase(),
+      severity: entry.resultStatus === 'warning' ? 'warning' : 'info',
+      count: 1,
+      message: String(entry.resultSummary || entry.eventType || 'Scrolitha runtime alert'),
+      lastSeenAt: entry.createdAt.toISOString()
+    }))
+  ]
+    .filter((entry, index, arr) => arr.findIndex((item) => item.type === entry.type && item.message === entry.message) === index)
+    .slice(0, 10);
+
   return {
     totals: {
       conversations: convCount,
@@ -1480,7 +1639,12 @@ export const getScrolithaAnalyticsForAdmin = async () => {
       avgDurationSeconds,
       avgRating: Number(feedbackAgg._avg.rating || 0),
       feedbackCount: feedbackAgg._count._all || 0,
-      estimatedMinutesSaved: completedActions * 2
+      estimatedMinutesSaved: completedActions * 2,
+      runtimeRequests: runtimeTotal,
+      runtimeFallbacks: fallbackCount,
+      runtimePromptBlocks: blockedCount,
+      runtimeAvgLatencyMs: Number(avgLatencyMs.toFixed(2)),
+      runtimeP95LatencyMs: p95LatencyMs
     },
     topTools: toolUsage
       .map((entry) => ({ toolKey: entry.toolKey, count: entry._count._all }))
@@ -1490,7 +1654,34 @@ export const getScrolithaAnalyticsForAdmin = async () => {
       .reduce((acc: Record<string, number>, entry) => {
         acc[entry.actionKey] = (acc[entry.actionKey] || 0) + 1;
         return acc;
-      }, {})
+      }, {}),
+    runtime: {
+      totalRequests: runtimeTotal,
+      blockedCount,
+      fallbackCount,
+      fallbackRate: runtimeTotal ? fallbackCount / runtimeTotal : 0,
+      promptBlockRate: runtimeTotal ? blockedCount / runtimeTotal : 0,
+      avgLatencyMs: Number(avgLatencyMs.toFixed(2)),
+      p95LatencyMs,
+      requestsLast24h: runtimeLast24h.length,
+      warningCodes: Object.entries(warningCodeMap)
+        .map(([warningCode, count]) => ({ warningCode, count: Number(count || 0) }))
+        .sort((a, b) => b.count - a.count),
+      providers: Object.entries(providerMap)
+        .map(([providerModel, count]) => ({ providerModel, count: Number(count || 0) }))
+        .sort((a, b) => b.count - a.count),
+      routes: routeEntries
+        .map((entry) => ({
+          routeKey: entry.routeKey,
+          count: entry.count,
+          blocked: entry.blocked,
+          fallbacks: entry.fallbacks,
+          avgLatencyMs: entry.latencySamples ? Number((entry.totalLatencyMs / entry.latencySamples).toFixed(2)) : 0
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 12),
+      recentAlerts
+    }
   };
 };
 
