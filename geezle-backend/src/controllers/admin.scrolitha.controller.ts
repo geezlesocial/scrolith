@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
-import { getScrolithaRuntimeHealth, sanitizeScrolithaUserMessage } from '../services/scrolitha/scrolitha.ollama';
+import {
+  ensureScrolithaRuntimeModel,
+  getScrolithaRuntimeHealth,
+  sanitizeScrolithaUserMessage
+} from '../services/scrolitha/scrolitha.ollama';
 import { clearPostInsights, regeneratePostInsightsBatch } from '../services/postAi.service';
 import {
   createScrolithaSkill,
@@ -70,7 +74,9 @@ export const getAdminScrolithaHealthController = async (req: Request, res: Respo
 export const getAdminScrolithaModelsController = async (req: Request, res: Response) => {
   try {
     const scope = String(req.query.scope || 'admin').trim().toLowerCase();
-    const health = await getScrolithaRuntimeHealth(scope === 'user' ? 'user' : 'admin');
+    const normalizedScope = scope === 'user' ? 'user' : 'admin';
+    const runtimeLoad = await ensureScrolithaRuntimeModel(normalizedScope);
+    const health = await getScrolithaRuntimeHealth(normalizedScope);
     return res.json({
       success: true,
       data: {
@@ -79,11 +85,21 @@ export const getAdminScrolithaModelsController = async (req: Request, res: Respo
         enabled: Boolean(health?.enabled),
         host: health?.host || null,
         model: asScrolithaModelLabel(health?.model),
-        models: Array.isArray((health as any)?.models) ? (health as any).models : [],
-        modelPresent: Boolean((health as any)?.modelPresent),
-        autoPulled: Boolean((health as any)?.autoPulled),
+        models: Array.isArray(runtimeLoad?.models) && runtimeLoad.models.length
+          ? runtimeLoad.models
+          : Array.isArray((health as any)?.models)
+            ? (health as any).models
+            : [],
+        modelPresent:
+          typeof runtimeLoad?.modelPresent === 'boolean'
+            ? runtimeLoad.modelPresent
+            : Boolean((health as any)?.modelPresent),
+        autoPulled: Boolean(runtimeLoad?.pulled || (health as any)?.autoPulled),
         status: (health as any)?.status || null,
-        note: (health as any)?.note || null,
+        note:
+          runtimeLoad?.pulled
+            ? 'Scrolitha Core model was pulled into the local runtime.'
+            : (health as any)?.note || null,
         warning: (health as any)?.warning || null,
         error: (health as any)?.error || null
       },

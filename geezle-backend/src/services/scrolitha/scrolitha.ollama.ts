@@ -47,6 +47,14 @@ const SERVICE_IDENTITY_TOKEN_TTL_MS = 45 * 60_000;
 const METADATA_IDENTITY_ENDPOINT =
   'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity';
 
+const getBackupEngineStatus = (runtime: Pick<ScrolithaLlmRuntime, 'allowGeminiFallback'>) =>
+  runtime.allowGeminiFallback ? 'available' : 'disabled by policy';
+
+const getSelfHostedUnavailableWarning = (runtime: Pick<ScrolithaLlmRuntime, 'allowGeminiFallback'>) =>
+  runtime.allowGeminiFallback
+    ? 'Scrolitha Core is unavailable. Managed backup processing remains available.'
+    : 'Scrolitha Core is unavailable. Managed backup processing is disabled by policy.';
+
 const asBool = (value: unknown, fallback: boolean) => {
   const v = String(value ?? '').trim().toLowerCase();
   if (!v) return fallback;
@@ -108,10 +116,10 @@ const isLocalEndpoint = (value: unknown) => {
 };
 
 const isSelfHostedProvider = (provider: ScrolithaLlmRuntime['provider']) =>
-  provider === 'ollama';
+  provider === 'core' || provider === 'ollama';
 
 const isSidecarRuntimeAllowed = (runtime: Pick<ScrolithaLlmRuntime, 'host' | 'sidecarMode'>) =>
-  Boolean(runtime.sidecarMode) || !isLocalEndpoint(runtime.host);
+  !isLocalEndpoint(runtime.host) || Boolean(runtime.sidecarMode) || !isProductionRuntime();
 
 const isSelfHostedRuntimeUsable = (runtime: Pick<ScrolithaLlmRuntime, 'provider' | 'runtimeConfigured' | 'host' | 'sidecarMode'>) =>
   isSelfHostedProvider(runtime.provider) && runtime.runtimeConfigured && isSidecarRuntimeAllowed(runtime);
@@ -413,7 +421,7 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
     acceleratorActive: false,
     status: 'operational',
     host: envHost,
-    model: envProvider === 'ollama' ? envModel || 'llama3.2:3b' : envModel || 'scrolitha-core',
+    model: envModel || 'llama3.2:3b',
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(process.env.SCROLITHA_MAX_TOKENS, 1024)))),
     temperature: Math.max(0, Math.min(2, asNumber(process.env.SCROLITHA_TEMPERATURE, 0.7))),
     topP: Math.max(0, Math.min(1, asNumber(process.env.SCROLITHA_TOP_P, 0.9))),
@@ -597,7 +605,7 @@ const callCoreProvider = async (
 
 const probeCoreRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
   const lastCheckedAt = new Date().toISOString();
-  const backupEngineStatus = 'available';
+  const backupEngineStatus = getBackupEngineStatus(runtime);
   const candidates = await resolveCoreProviderCandidates('health_probe', {
     maxTokens: Math.max(64, Math.min(256, runtime.maxTokens || 128)),
     temperature: 0
@@ -773,9 +781,7 @@ export const generateScrolithaText = async (
     temperature: Math.max(0, Math.min(1.5, Number(input.temperature ?? runtime.temperature ?? 0.35)))
   };
 
-  const useCoreAsPrimary = runtime.provider === 'core';
-
-  if (!useCoreAsPrimary && isSelfHostedRuntimeUsable(runtime) && runtime.host && runtime.model) {
+  if (isSelfHostedRuntimeUsable(runtime) && runtime.host && runtime.model) {
     try {
       const result = await ollamaChat({
         host: runtime.host,
@@ -815,7 +821,7 @@ export const generateScrolithaText = async (
     });
   }
 
-  if (!useCoreAsPrimary && !runtime.allowGeminiFallback) {
+  if (!runtime.allowGeminiFallback) {
     throw new Error('Scrolitha Core is unavailable');
   }
 
@@ -829,7 +835,7 @@ export const generateScrolithaText = async (
     try {
       const text = await callCoreProvider(candidate, safeInput);
       if (!text) throw new Error('Scrolitha returned an empty response');
-      const usedBackupProcessing = !useCoreAsPrimary;
+      const usedBackupProcessing = true;
       return {
         text,
         model: 'scrolitha-core',
@@ -876,6 +882,36 @@ export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<
     .sort((a: string, b: string) => a.localeCompare(b));
 };
 
+export const ensureScrolithaRuntimeModel = async (scope: ScrolithaScope) => {
+  const runtime = await resolveScrolithaLlmRuntime(scope);
+  if (!runtime.enabled || !isSelfHostedProvider(runtime.provider) || !runtime.host || !runtime.model) {
+    return {
+      runtime,
+      pulled: false,
+      models: [] as string[],
+      modelPresent: false
+    };
+  }
+
+  let models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
+  let modelPresent = hasOllamaModel(models, runtime.model);
+  let pulled = false;
+
+  if (!modelPresent && shouldAutoPullModel(runtime)) {
+    await ollamaPullModel(runtime.host, runtime.model, Math.max(OLLAMA_MODEL_PULL_TIMEOUT_MS, runtime.timeoutMs * 4));
+    pulled = true;
+    models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
+    modelPresent = hasOllamaModel(models, runtime.model);
+  }
+
+  return {
+    runtime,
+    pulled,
+    models,
+    modelPresent
+  };
+};
+
 const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
   const cacheKey = [runtime.provider, runtime.host, runtime.model, runtime.sidecarMode ? 'sidecar' : 'remote'].join('::');
   const now = Date.now();
@@ -885,7 +921,7 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
   }
 
   const lastCheckedAt = new Date(now).toISOString();
-  const backupEngineStatus = 'available';
+  const backupEngineStatus = getBackupEngineStatus(runtime);
 
   const base = {
     ok: true,
@@ -950,7 +986,7 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
         modelPresent: false,
         autoPulled: false,
         endpointConfigured: true,
-        warning: 'Scrolitha Core is unavailable. Backup processing remains available.',
+        warning: getSelfHostedUnavailableWarning(runtime),
         diagnostics: {
           runtime: runtime.provider,
           endpoint: runtime.host,
@@ -1006,7 +1042,7 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
       modelPresent: false,
       autoPulled: false,
       endpointConfigured: true,
-      warning: 'Scrolitha Core is unavailable. Backup processing remains available.',
+      warning: getSelfHostedUnavailableWarning(runtime),
       diagnostics: {
         runtime: runtime.provider,
         endpoint: runtime.host,
@@ -1022,7 +1058,7 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
 export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
   const runtime = await resolveScrolithaLlmRuntime(scope);
   const lastCheckedAt = new Date().toISOString();
-  const backupEngineStatus = 'available';
+  const backupEngineStatus = getBackupEngineStatus(runtime);
   if (!runtime.enabled) {
     return {
       ok: false,

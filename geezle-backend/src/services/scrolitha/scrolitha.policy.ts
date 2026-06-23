@@ -23,13 +23,13 @@ const buildDefaultMetadata = (scope: ScrolithaScope) => {
   const llm = {
     enabled: true,
     provider: 'core',
-    host: '',
-    coreEndpoint: '',
-    ollamaHost: '',
-    model: scope === 'admin' ? 'scrolitha-admin-core' : 'scrolitha-core',
+    host: 'http://127.0.0.1:11434',
+    coreEndpoint: 'http://127.0.0.1:11434',
+    ollamaHost: 'http://127.0.0.1:11434',
+    model: 'llama3.2:3b',
     coreModel: 'llama3.2:3b',
     ollamaModel: 'llama3.2:3b',
-    sidecarMode: false,
+    sidecarMode: true,
     maxTokens: scope === 'admin' ? 1536 : 1024,
     temperature: 0.35,
     topP: 0.9,
@@ -185,6 +185,24 @@ export const ensureScrolithaConfig = async (scope: ScrolithaScope) => {
   });
 
   const normalized = normalizeConfigRecord(row, scope);
+  const sourceMetadata =
+    row?.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+      ? (row.metadata as Record<string, any>)
+      : {};
+  const normalizedMetadata = normalized?.metadata && typeof normalized.metadata === 'object' && !Array.isArray(normalized.metadata)
+    ? (normalized.metadata as Record<string, any>)
+    : {};
+
+  if (JSON.stringify(sourceMetadata) !== JSON.stringify(normalizedMetadata)) {
+    const backfilled = await prisma.scrolithaConfig.update({
+      where: { id: row.id },
+      data: { metadata: normalizedMetadata }
+    });
+    const hydrated = normalizeConfigRecord(backfilled, scope);
+    scrolithaCache.set(key, hydrated, CONFIG_CACHE_TTL_MS);
+    return hydrated;
+  }
+
   scrolithaCache.set(key, normalized, CONFIG_CACHE_TTL_MS);
   return normalized;
 };
