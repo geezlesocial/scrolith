@@ -294,7 +294,7 @@ export default function MobilePostScreen({
   const runPostAi = async (mode: PostEnhanceMode) => {
     const text = String(content || '').trim();
     if (!text) {
-      showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
+      showNotification('warning', 'Scrolitha', 'Write some text first, then run Scrolitha enhancement.');
       return;
     }
     if (aiLoading || busy) return;
@@ -305,7 +305,7 @@ export default function MobilePostScreen({
       const result = await AIService.enhancePostDraft({ text, mode });
       const enhancedText = String(result?.enhancedText || '').trim();
       if (!enhancedText) {
-        showNotification('warning', 'AI Assistant', 'No suggestion was returned. Please try again.');
+        showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
         return;
       }
       setAiOriginalText(content);
@@ -323,7 +323,7 @@ export default function MobilePostScreen({
     } catch (error: any) {
       showNotification(
         'error',
-        'AI Assistant',
+        'Scrolitha',
         error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to enhance text right now.'
       );
     } finally {

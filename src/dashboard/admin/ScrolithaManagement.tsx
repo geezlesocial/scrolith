@@ -203,6 +203,7 @@ const ScrolithaManagement: React.FC = () => {
   const coreEndpointValue = String(llmMetadata.coreEndpoint || llmMetadata.ollamaHost || llmMetadata.host || '').trim();
   const coreEndpointConfigured = Boolean(coreEndpointValue);
   const coreEndpointLooksLocalhost = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?/i.test(coreEndpointValue);
+  const localEngineModeEnabled = Boolean(llmMetadata.sidecarMode ?? llmMetadata.coreSidecarMode ?? coreEndpointLooksLocalhost);
 
   const updateLlmMetadata = (patch: Record<string, any>) => {
     setConfig((prev: any) => {
@@ -779,8 +780,8 @@ const ScrolithaManagement: React.FC = () => {
                       value={llmProvider}
                       onChange={(event) => updateLlmMetadata({ provider: event.target.value })}
                     >
-                      <option value="core">Self-hosted Scrolitha Engine (recommended)</option>
-                      <option value="ollama">Legacy self-hosted compatibility</option>
+                      <option value="core">Scrolitha Core Runtime (recommended)</option>
+                      <option value="ollama">Legacy imported runtime compatibility</option>
                       <option value="disabled">Disabled</option>
                     </select>
                   </label>
@@ -789,14 +790,15 @@ const ScrolithaManagement: React.FC = () => {
                     Scrolitha Core Endpoint
                     <input
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                      placeholder="https://scrolitha-core.example.com"
+                      placeholder="http://127.0.0.1:11434"
                       disabled={llmProvider === 'disabled'}
                       value={coreEndpointValue}
                       onChange={(event) =>
                         updateLlmMetadata({
                           coreEndpoint: event.target.value,
                           ollamaHost: event.target.value,
-                          host: event.target.value
+                          host: event.target.value,
+                          sidecarMode: /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?/i.test(String(event.target.value || '').trim())
                         })
                       }
                     />
@@ -884,6 +886,16 @@ const ScrolithaManagement: React.FC = () => {
                     <input
                       type="checkbox"
                       className="mr-2"
+                      checked={localEngineModeEnabled}
+                      onChange={(event) => updateLlmMetadata({ sidecarMode: event.target.checked })}
+                    />
+                    Local Scrolitha runtime mode
+                  </label>
+
+                  <label className="text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
                       checked={Boolean(llmMetadata.allowGeminiFallback)}
                       onChange={(event) => updateLlmMetadata({ allowGeminiFallback: event.target.checked })}
                     />
@@ -902,13 +914,13 @@ const ScrolithaManagement: React.FC = () => {
                 </div>
 
                 <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-                  Scrolitha Core is the default enterprise runtime. Backup processing remains available if the primary
-                  engine is unavailable.
+                  Scrolitha Core runs as your branded enterprise assistant. When you point it at a local runtime, the
+                  underlying Ollama engine stays fully hidden from user-facing Scrolitha experiences.
                 </div>
 
-                {llmProvider !== 'disabled' && (!coreEndpointConfigured || coreEndpointLooksLocalhost) ? (
+                {llmProvider !== 'disabled' && !coreEndpointConfigured ? (
                   <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                    Scrolitha Core endpoint is not configured for production.
+                    Scrolitha Core endpoint is not configured.
                   </div>
                 ) : null}
 
@@ -936,7 +948,9 @@ const ScrolithaManagement: React.FC = () => {
                         ? 'Disabled'
                         : coreEndpointConfigured
                           ? coreEndpointLooksLocalhost
-                            ? 'Scrolitha Core endpoint requires sidecar mode'
+                            ? localEngineModeEnabled
+                              ? 'Configured for local Scrolitha runtime'
+                              : 'Local endpoint configured without local runtime mode'
                             : 'Configured'
                           : 'Not configured'}
                     </div>

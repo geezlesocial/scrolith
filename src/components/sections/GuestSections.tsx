@@ -1321,7 +1321,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                       </div>
                     ) : (
                       <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
-                        <p className="text-sm font-semibold text-slate-700">AI Assistant preview is temporarily unavailable.</p>
+                        <p className="text-sm font-semibold text-slate-700">Scrolitha preview is temporarily unavailable.</p>
                       </div>
                     )}
                   </div>

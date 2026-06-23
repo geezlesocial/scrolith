@@ -791,7 +791,7 @@ const CreateGig = () => {
                             onClick={() => setShowAIModal(true)}
                             className="bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg font-bold flex items-center hover:bg-indigo-200 transition"
                         >
-                            <Sparkles className="w-4 h-4 mr-2" /> AI Assistant
+                            <Sparkles className="w-4 h-4 mr-2" /> Scrolitha
                         </button>
                     )}
                 </div>

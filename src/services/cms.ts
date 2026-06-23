@@ -656,7 +656,7 @@ const fallbackGuestHomepage = () => normalizeHomepagePayload({
                     { id: 'marketplace', title: 'Freelance Marketplace', description: 'Offer services or hire verified professionals.' },
                     { id: 'messaging', title: 'Messaging', description: 'Real-time chat, voice notes, and collaborative communication.' },
                     { id: 'payments', title: 'Wallet & Payments', description: 'Secure transactions and enterprise-grade payment flow.' },
-                    { id: 'ai', title: 'AI Assistant', description: 'Automate content, insights, and productivity workflows.' },
+                    { id: 'ai', title: 'Scrolitha', description: 'Automate content, insights, and productivity workflows.' },
                     { id: 'pages', title: 'Business Pages', description: 'Grow your brand with dedicated page presence and community.' }
                 ]
             },
@@ -697,7 +697,7 @@ const fallbackGuestHomepage = () => normalizeHomepagePayload({
                     { id: 'marketplace', label: 'Marketplace', title: 'Professional services marketplace', description: 'Discover and deliver high-value services globally.' },
                     { id: 'community', label: 'Community', title: 'High-engagement community feed', description: 'Share updates, stories, and scroll content in real time.' },
                     { id: 'messaging', label: 'Messaging', title: 'Instant communication tools', description: 'Reliable chat infrastructure for teams and clients.' },
-                    { id: 'ai', label: 'AI Assistant', title: 'Productivity with AI', description: 'Generate ideas, optimize content, and automate repetitive tasks.' },
+                    { id: 'ai', label: 'Scrolitha', title: 'Productivity with Scrolitha', description: 'Generate ideas, optimize content, and automate repetitive tasks.' },
                     { id: 'payments', label: 'Payments', title: 'Secure wallet and payout stack', description: 'Enterprise-grade checkout, payouts, and fund management.' },
                     { id: 'trust', label: 'Trust & Verification', title: 'Verified quality at scale', description: 'KYC, moderation, and safety-first controls for confidence.' }
                 ]

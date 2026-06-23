@@ -3431,7 +3431,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     async (mode: PostEnhanceMode) => {
       const text = getPostDraftText().trim();
       if (!text) {
-        showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
+        showNotification('warning', 'Scrolitha', 'Write some text first, then run Scrolitha enhancement.');
         return;
       }
       if (aiLoading) return;
@@ -3444,7 +3444,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         const result = await AIService.enhancePostDraft({ text, mode });
         const enhancedText = String(result?.enhancedText || '').trim();
         if (!enhancedText) {
-          showNotification('warning', 'AI Assistant', 'No suggestion was returned. Please try again.');
+          showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
           return;
         }
 
@@ -3461,7 +3461,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       } catch (error: any) {
         console.error('Failed to run post AI', error);
         setAiError(error?.message || 'An unknown error occurred');
-        showNotification('error', 'AI Enhancement Failed', 'Scrolitha could not improve this text right now. Please try again.');
+        showNotification('error', 'Scrolitha', 'Scrolitha could not improve this text right now. Please try again.');
       } finally {
         setAiLoading(false);
         setAiRunningMode(null);
