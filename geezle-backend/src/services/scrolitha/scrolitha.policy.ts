@@ -97,6 +97,119 @@ const DEFAULT_CONFIG = {
 const isPlainObject = (value: unknown): value is Record<string, any> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
+const LOCAL_LLM_ENDPOINT_PATTERN = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?(\/.*)?$/i;
+const PRIVATE_IPV4_LLM_ENDPOINT_PATTERN =
+  /^(https?:\/\/)?(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?(\/.*)?$/i;
+
+const normalizeHttpUrl = (value: unknown) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const candidate = /^[a-z]+:\/\//i.test(raw) ? raw : `http://${raw}`;
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new Error('Scrolitha Core endpoint must be a valid http(s) URL.');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('Scrolitha Core endpoint must use http or https.');
+  }
+
+  parsed.hash = '';
+  if (parsed.pathname === '/') parsed.pathname = '';
+  return parsed.toString().replace(/\/$/, '');
+};
+
+const isLocalOrPrivateLlmEndpoint = (value: string) =>
+  LOCAL_LLM_ENDPOINT_PATTERN.test(value) || PRIVATE_IPV4_LLM_ENDPOINT_PATTERN.test(value);
+
+const asFiniteNumber = (value: unknown, fallback: number) => {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+export const sanitizeScrolithaLlmMetadata = (
+  scope: ScrolithaScope,
+  existing: Record<string, any>,
+  incoming: Record<string, any>
+) => {
+  const defaults = buildDefaultMetadata(scope).llm as Record<string, any>;
+  const source = mergeMetadataObjects(existing, incoming);
+  const providerCandidate = String(source.provider || defaults.provider || 'core').trim().toLowerCase();
+  const provider = providerCandidate === 'disabled' ? 'disabled' : providerCandidate === 'ollama' ? 'ollama' : 'core';
+
+  const endpointCandidate =
+    incoming.coreEndpoint ??
+    incoming.ollamaHost ??
+    incoming.host ??
+    source.coreEndpoint ??
+    source.ollamaHost ??
+    source.host ??
+    defaults.coreEndpoint;
+  const host = normalizeHttpUrl(endpointCandidate);
+  const model = String(incoming.coreModel ?? incoming.ollamaModel ?? incoming.model ?? source.coreModel ?? source.ollamaModel ?? source.model ?? defaults.coreModel).trim();
+  const sidecarRequested =
+    typeof incoming.sidecarMode === 'boolean'
+      ? incoming.sidecarMode
+      : typeof incoming.coreSidecarMode === 'boolean'
+        ? incoming.coreSidecarMode
+        : typeof source.sidecarMode === 'boolean'
+          ? source.sidecarMode
+          : typeof source.coreSidecarMode === 'boolean'
+            ? source.coreSidecarMode
+            : Boolean(existing.sidecarMode ?? defaults.sidecarMode);
+  const sidecarMode = sidecarRequested && LOCAL_LLM_ENDPOINT_PATTERN.test(host);
+
+  if (sidecarRequested && !LOCAL_LLM_ENDPOINT_PATTERN.test(host)) {
+    throw new Error('Local Scrolitha runtime mode only supports localhost endpoints.');
+  }
+
+  if (provider !== 'disabled' && !host) {
+    throw new Error('Scrolitha Core endpoint is required when the runtime is enabled.');
+  }
+
+  if (provider !== 'disabled' && !model) {
+    throw new Error('Scrolitha Core model is required when the runtime is enabled.');
+  }
+
+  if (provider !== 'disabled' && !sidecarMode && !isLocalOrPrivateLlmEndpoint(host) && /^http:\/\//i.test(host)) {
+    throw new Error('Remote Scrolitha Core endpoints must use HTTPS unless they are local or private network addresses.');
+  }
+
+  return {
+    ...source,
+    enabled: typeof source.enabled === 'boolean' ? source.enabled : existing.enabled ?? defaults.enabled,
+    provider,
+    host,
+    coreEndpoint: host,
+    ollamaHost: host,
+    model,
+    coreModel: model,
+    ollamaModel: model,
+    sidecarMode,
+    coreSidecarMode: sidecarMode,
+    maxTokens: Math.max(64, Math.min(8192, Math.floor(asFiniteNumber(source.maxTokens, Number(existing.maxTokens ?? defaults.maxTokens))))),
+    temperature: Math.max(0, Math.min(1.5, asFiniteNumber(source.temperature, Number(existing.temperature ?? defaults.temperature)))),
+    topP: Math.max(0.05, Math.min(1, asFiniteNumber(source.topP, Number(existing.topP ?? defaults.topP)))),
+    timeoutMs: Math.max(5_000, Math.min(120_000, Math.floor(asFiniteNumber(source.timeoutMs, Number(existing.timeoutMs ?? defaults.timeoutMs))))),
+    enableStreaming: typeof source.enableStreaming === 'boolean' ? source.enableStreaming : Boolean(existing.enableStreaming ?? defaults.enableStreaming),
+    allowGeminiFallback:
+      typeof source.allowGeminiFallback === 'boolean'
+        ? source.allowGeminiFallback
+        : Boolean(existing.allowGeminiFallback ?? defaults.allowGeminiFallback)
+  };
+};
+
+export const sanitizeScrolithaMetadata = (scope: ScrolithaScope, metadata: Record<string, any>) => {
+  const defaults = buildDefaultMetadata(scope) as Record<string, any>;
+  const merged = mergeMetadataObjects(defaults, metadata);
+  const llmBase = isPlainObject(defaults.llm) ? (defaults.llm as Record<string, any>) : {};
+  const llmIncoming = isPlainObject(metadata.llm) ? (metadata.llm as Record<string, any>) : {};
+  merged.llm = sanitizeScrolithaLlmMetadata(scope, llmBase, llmIncoming);
+  return merged;
+};
+
 const mergeMetadataObjects = (
   base: Record<string, any>,
   patch: Record<string, any>
@@ -154,7 +267,7 @@ const normalizeConfigRecord = (record: any, scope: ScrolithaScope) => {
         record?.metadata && typeof record.metadata === 'object' && !Array.isArray(record.metadata)
           ? (record.metadata as Record<string, any>)
           : {};
-      return mergeMetadataObjects(defaults, source);
+      return sanitizeScrolithaMetadata(scope, mergeMetadataObjects(defaults, source));
     })(),
     createdAt: record?.createdAt,
     updatedAt: record?.updatedAt
@@ -253,7 +366,7 @@ export const updateScrolithaConfig = async (input: {
     metadata: (() => {
       if (!isPlainObject(input.metadata)) return existing.metadata;
       const base = isPlainObject(existing.metadata) ? (existing.metadata as Record<string, any>) : {};
-      return mergeMetadataObjects(base, input.metadata);
+      return sanitizeScrolithaMetadata(scope, mergeMetadataObjects(base, input.metadata));
     })(),
     updatedBy: input.updatedBy || null
   };
