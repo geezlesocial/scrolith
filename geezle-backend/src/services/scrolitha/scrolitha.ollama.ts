@@ -108,7 +108,7 @@ const isLocalEndpoint = (value: unknown) => {
 };
 
 const isSelfHostedProvider = (provider: ScrolithaLlmRuntime['provider']) =>
-  provider === 'core' || provider === 'ollama';
+  provider === 'ollama';
 
 const isSidecarRuntimeAllowed = (runtime: Pick<ScrolithaLlmRuntime, 'host' | 'sidecarMode'>) =>
   Boolean(runtime.sidecarMode) || !isLocalEndpoint(runtime.host);
@@ -595,6 +595,95 @@ const callCoreProvider = async (
   return callOpenAiProvider(provider, input);
 };
 
+const probeCoreRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
+  const lastCheckedAt = new Date().toISOString();
+  const backupEngineStatus = 'available';
+  const candidates = await resolveCoreProviderCandidates('health_probe', {
+    maxTokens: Math.max(64, Math.min(256, runtime.maxTokens || 128)),
+    temperature: 0
+  });
+
+  const base = {
+    ok: true,
+    provider: 'scrolitha',
+    runtime: runtime.provider,
+    enabled: true,
+    host: runtime.host || null,
+    model: 'scrolitha-core',
+    backupEngineStatus,
+    lastCheckedAt
+  };
+
+  if (!candidates.length) {
+    return {
+      ...base,
+      status: 'degraded',
+      availability: 'misconfigured',
+      models: [],
+      modelPresent: false,
+      autoPulled: false,
+      endpointConfigured: false,
+      warning: 'Scrolitha Core providers are not configured.',
+      diagnostics: {
+        runtime: runtime.provider,
+        configuredModel: runtime.model || null
+      }
+    };
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const text = await callCoreProvider(candidate, {
+        scope: 'admin',
+        routeKey: 'health_probe',
+        systemPrompt: 'You are the Scrolitha Core health probe. Reply with READY only.',
+        userPrompt: 'READY',
+        maxTokens: Math.min(64, candidate.maxTokens),
+        temperature: 0
+      });
+
+      if (!String(text || '').trim()) {
+        throw new Error('Scrolitha Core probe returned an empty response');
+      }
+
+      return {
+        ...base,
+        status: 'operational',
+        availability: 'online',
+        models: candidates.map((entry) => entry.model),
+        modelPresent: true,
+        autoPulled: false,
+        endpointConfigured: true,
+        note: `Scrolitha Core is online via ${candidate.kind}.`,
+        diagnostics: {
+          runtime: runtime.provider,
+          transport: candidate.kind,
+          configuredModel: candidate.model
+        }
+      };
+    } catch (error) {
+      logProviderFailure('Scrolitha Core health probe failed', error, {
+        transport: candidate.kind
+      });
+    }
+  }
+
+  return {
+    ...base,
+    status: 'degraded',
+    availability: 'unavailable',
+    models: candidates.map((entry) => entry.model),
+    modelPresent: false,
+    autoPulled: false,
+    endpointConfigured: true,
+    warning: 'Scrolitha Core is unavailable.',
+    diagnostics: {
+      runtime: runtime.provider,
+      configuredModel: candidates[0]?.model || null
+    }
+  };
+};
+
 const logProviderFailure = (label: string, error: unknown, details?: Record<string, unknown>) => {
   console.warn(`[scrolitha] ${label}`, {
     ...details,
@@ -684,7 +773,9 @@ export const generateScrolithaText = async (
     temperature: Math.max(0, Math.min(1.5, Number(input.temperature ?? runtime.temperature ?? 0.35)))
   };
 
-  if (isSelfHostedRuntimeUsable(runtime) && runtime.host && runtime.model) {
+  const useCoreAsPrimary = runtime.provider === 'core';
+
+  if (!useCoreAsPrimary && isSelfHostedRuntimeUsable(runtime) && runtime.host && runtime.model) {
     try {
       const result = await ollamaChat({
         host: runtime.host,
@@ -724,7 +815,7 @@ export const generateScrolithaText = async (
     });
   }
 
-  if (!runtime.allowGeminiFallback) {
+  if (!useCoreAsPrimary && !runtime.allowGeminiFallback) {
     throw new Error('Scrolitha Core is unavailable');
   }
 
@@ -738,7 +829,7 @@ export const generateScrolithaText = async (
     try {
       const text = await callCoreProvider(candidate, safeInput);
       if (!text) throw new Error('Scrolitha returned an empty response');
-      const usedBackupProcessing = true;
+      const usedBackupProcessing = !useCoreAsPrimary;
       return {
         text,
         model: 'scrolitha-core',
@@ -949,23 +1040,7 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
   }
 
   if (!isSelfHostedProvider(runtime.provider)) {
-    return {
-      ok: true,
-      provider: 'scrolitha',
-      runtime: runtime.provider,
-      enabled: true,
-      status: 'degraded',
-      availability: 'misconfigured',
-      host: runtime.host || null,
-      model: runtime.model || 'scrolitha-core',
-      models: [],
-      modelPresent: false,
-      autoPulled: false,
-      endpointConfigured: false,
-      backupEngineStatus,
-      lastCheckedAt,
-      warning: SCROLITHA_PRODUCTION_ENDPOINT_WARNING
-    };
+    return probeCoreRuntimeHealth(runtime);
   }
 
   return probeSelfHostedRuntimeHealth(runtime);
