@@ -77,6 +77,11 @@ const toLocalDateTime = (value?: string | null) => {
   return Number.isNaN(parsed.getTime()) ? 'Invalid date' : parsed.toLocaleString();
 };
 
+const formatCredentialCreator = (value: any) => {
+  if (!value || typeof value !== 'object') return 'Unknown';
+  return String(value.name || value.email || value.id || 'Unknown').trim() || 'Unknown';
+};
+
 const stringifyList = (value: unknown) =>
   Array.isArray(value) ? value.map((entry) => String(entry || '').trim()).filter(Boolean).join(', ') : '';
 
@@ -1000,6 +1005,9 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
                       <div className="font-medium text-slate-900">{entry.name}</div>
                       <div className="text-sm text-slate-500">{entry.keyPrefix} - {entry.status}</div>
                       <div className="mt-1 text-xs text-slate-500">Scopes: {stringifyList(entry.scopes) || 'None'}</div>
+                      <div className="mt-1 text-xs text-slate-500">Created by: {formatCredentialCreator(entry.createdBy || entry.metadata?.createdBy)}</div>
+                      <div className="text-xs text-slate-500">Last used: {toLocalDateTime(entry.lastUsedAt)}</div>
+                      <div className="text-xs text-slate-500">Last rotated: {toLocalDateTime(entry.lastRotatedAt || entry.metadata?.lastRotatedAt || entry.createdAt)}</div>
                     </div>
                     <div className="flex gap-2">
                       <button onClick={() => startApiCredentialEdit(entry)} className="rounded-md border border-slate-200 px-3 py-1 text-xs font-medium text-slate-700">
