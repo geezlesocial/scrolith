@@ -161,6 +161,28 @@ export const savePrivateAccessRule = async (input: any) =>
     }
   });
 
+export const listPrivateAccessRules = async () =>
+  prisma.privateOpportunityAccess.findMany({
+    include: { pool: true },
+    orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }]
+  });
+
+export const updatePrivateAccessRule = async (id: string, input: any) => {
+  const accessRuleId = cleanString(id);
+  if (!accessRuleId) throw new Error('access rule id is required');
+  return prisma.privateOpportunityAccess.update({
+    where: { id: accessRuleId },
+    data: {
+      entityType: cleanString(input.entityType),
+      entityId: cleanString(input.entityId),
+      poolId: cleanString(input.poolId),
+      visibilityScope: cleanString(input.visibilityScope || 'POOL_ONLY').toUpperCase(),
+      metadata: input.metadata || null
+    },
+    include: { pool: true }
+  });
+};
+
 export const listVendorRequirements = async () =>
   prisma.vendorRequirement.findMany({ where: {}, orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }] });
 
@@ -580,3 +602,248 @@ export const createApiCredential = async (input: any) => {
 
 export const listApiCredentials = async () =>
   prisma.apiCredential.findMany({ orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] });
+
+export const seedTalentCloudDemoExamples = async () => {
+  const settings = await updateTalentCloudSettings({
+    ...(await getTalentCloudSettings()),
+    enabled: true,
+    manualInvitesOnly: true,
+    webhooksEnabled: true
+  });
+
+  const users = await prisma.user.findMany({
+    where: { isActive: true },
+    orderBy: [{ createdAt: 'asc' }],
+    take: 6,
+    select: { id: true, name: true, email: true }
+  });
+
+  const poolA = await prisma.talentPool.upsert({
+    where: { slug: 'acme-preferred-designers' },
+    create: {
+      name: 'Acme Preferred Designers',
+      slug: 'acme-preferred-designers',
+      description: 'Invite-only design partners approved for Acme enterprise briefs.',
+      visibility: 'PRIVATE',
+      isActive: true,
+      metadata: { example: true, buyerOrg: 'Acme Logistics' }
+    },
+    update: {
+      name: 'Acme Preferred Designers',
+      description: 'Invite-only design partners approved for Acme enterprise briefs.',
+      visibility: 'PRIVATE',
+      isActive: true,
+      metadata: { example: true, buyerOrg: 'Acme Logistics' }
+    }
+  });
+
+  const poolB = await prisma.talentPool.upsert({
+    where: { slug: 'nova-compliance-vendors' },
+    create: {
+      name: 'Nova Compliance Vendors',
+      slug: 'nova-compliance-vendors',
+      description: 'Curated vendors cleared for regulated delivery work and compliance reviews.',
+      visibility: 'PRIVATE',
+      isActive: true,
+      metadata: { example: true, buyerOrg: 'Nova Health' }
+    },
+    update: {
+      name: 'Nova Compliance Vendors',
+      description: 'Curated vendors cleared for regulated delivery work and compliance reviews.',
+      visibility: 'PRIVATE',
+      isActive: true,
+      metadata: { example: true, buyerOrg: 'Nova Health' }
+    }
+  });
+
+  for (const [index, user] of users.slice(0, 4).entries()) {
+    await prisma.talentPoolMember.upsert({
+      where: { poolId_userId: { poolId: index % 2 === 0 ? poolA.id : poolB.id, userId: user.id } },
+      create: {
+        poolId: index % 2 === 0 ? poolA.id : poolB.id,
+        userId: user.id,
+        membershipType: 'APPROVED',
+        status: 'ACTIVE',
+        internalNotes: `Example member seeded for ${index % 2 === 0 ? 'Acme' : 'Nova'} private network.`,
+        tags: ['example', index % 2 === 0 ? 'design' : 'compliance'],
+        scorecard: { reliability: 4 + (index % 2), communication: 5, delivery: 4 }
+      },
+      update: {
+        membershipType: 'APPROVED',
+        status: 'ACTIVE',
+        internalNotes: `Example member seeded for ${index % 2 === 0 ? 'Acme' : 'Nova'} private network.`,
+        tags: ['example', index % 2 === 0 ? 'design' : 'compliance'],
+        scorecard: { reliability: 4 + (index % 2), communication: 5, delivery: 4 }
+      }
+    });
+  }
+
+  const existingAccessA = await prisma.privateOpportunityAccess.findFirst({
+    where: { entityType: 'job', entityId: 'demo-job-acme-brand-refresh', poolId: poolA.id }
+  });
+  const accessRuleA = existingAccessA
+    ? await prisma.privateOpportunityAccess.update({
+        where: { id: existingAccessA.id },
+        data: {
+          visibilityScope: 'POOL_ONLY',
+          metadata: { example: true, title: 'Acme Brand Refresh Job' }
+        },
+        include: { pool: true }
+      })
+    : await prisma.privateOpportunityAccess.create({
+        data: {
+          entityType: 'job',
+          entityId: 'demo-job-acme-brand-refresh',
+          poolId: poolA.id,
+          visibilityScope: 'POOL_ONLY',
+          metadata: { example: true, title: 'Acme Brand Refresh Job' }
+        },
+        include: { pool: true }
+      });
+
+  const existingAccessB = await prisma.privateOpportunityAccess.findFirst({
+    where: { entityType: 'listing', entityId: 'demo-listing-nova-regulatory-audit', poolId: poolB.id }
+  });
+  const accessRuleB = existingAccessB
+    ? await prisma.privateOpportunityAccess.update({
+        where: { id: existingAccessB.id },
+        data: {
+          visibilityScope: 'POOL_ONLY',
+          metadata: { example: true, title: 'Nova Regulatory Audit Listing' }
+        },
+        include: { pool: true }
+      })
+    : await prisma.privateOpportunityAccess.create({
+        data: {
+          entityType: 'listing',
+          entityId: 'demo-listing-nova-regulatory-audit',
+          poolId: poolB.id,
+          visibilityScope: 'POOL_ONLY',
+          metadata: { example: true, title: 'Nova Regulatory Audit Listing' }
+        },
+        include: { pool: true }
+      });
+
+  const requirementA = await prisma.vendorRequirement.upsert({
+    where: { code: 'REQ_KYC_TIER2' },
+    create: {
+      code: 'REQ_KYC_TIER2',
+      name: 'Tier 2 KYC + NDA',
+      requiredDocuments: ['Government ID', 'Signed NDA'],
+      requiredKycTier: 'TIER_2',
+      requiredComplianceChecks: ['sanctions', 'geo_review'],
+      requireContractAcceptance: true,
+      isActive: true,
+      metadata: { example: true }
+    },
+    update: {
+      name: 'Tier 2 KYC + NDA',
+      requiredDocuments: ['Government ID', 'Signed NDA'],
+      requiredKycTier: 'TIER_2',
+      requiredComplianceChecks: ['sanctions', 'geo_review'],
+      requireContractAcceptance: true,
+      isActive: true,
+      metadata: { example: true }
+    }
+  });
+
+  const requirementB = await prisma.vendorRequirement.upsert({
+    where: { code: 'REQ_PORTFOLIO_INSURANCE' },
+    create: {
+      code: 'REQ_PORTFOLIO_INSURANCE',
+      name: 'Portfolio + Liability Insurance',
+      requiredDocuments: ['Portfolio URL', 'Insurance Certificate'],
+      requiredKycTier: 'TIER_1',
+      requiredComplianceChecks: ['identity_review'],
+      requireContractAcceptance: false,
+      isActive: true,
+      metadata: { example: true }
+    },
+    update: {
+      name: 'Portfolio + Liability Insurance',
+      requiredDocuments: ['Portfolio URL', 'Insurance Certificate'],
+      requiredKycTier: 'TIER_1',
+      requiredComplianceChecks: ['identity_review'],
+      requireContractAcceptance: false,
+      isActive: true,
+      metadata: { example: true }
+    }
+  });
+
+  const existingWebhook = await prisma.integrationEndpoint.findFirst({
+    where: { type: 'WEBHOOK', name: 'Acme Procurement Webhook' }
+  });
+  const webhookSecret = randomToken('whsec', 16);
+  const webhookEndpoint = existingWebhook
+    ? await prisma.integrationEndpoint.update({
+        where: { id: existingWebhook.id },
+        data: {
+          targetUrl: 'https://example.invalid/acme/procurement/webhooks',
+          eventTypes: ['talent_cloud.*', 'vendor.*'],
+          status: 'ACTIVE',
+          retryPolicy: { maxAttempts: 5, backoffMinutes: 15 },
+          deadLetterEnabled: true,
+          secretHash: hashValue(webhookSecret),
+          metadata: {
+            ...(existingWebhook.metadata && typeof existingWebhook.metadata === 'object' && !Array.isArray(existingWebhook.metadata)
+              ? existingWebhook.metadata
+              : {}),
+            example: true,
+            [WEBHOOK_SECRET_KEY]: encryptSecret(webhookSecret)
+          }
+        }
+      })
+    : await prisma.integrationEndpoint.create({
+        data: {
+          name: 'Acme Procurement Webhook',
+          type: 'WEBHOOK',
+          targetUrl: 'https://example.invalid/acme/procurement/webhooks',
+          eventTypes: ['talent_cloud.*', 'vendor.*'],
+          status: 'ACTIVE',
+          retryPolicy: { maxAttempts: 5, backoffMinutes: 15 },
+          deadLetterEnabled: true,
+          secretHash: hashValue(webhookSecret),
+          metadata: {
+            example: true,
+            [WEBHOOK_SECRET_KEY]: encryptSecret(webhookSecret)
+          }
+        }
+      });
+
+  const connector = await saveInboundConnector({
+    name: 'Acme ERP Connector',
+    providerKey: 'acme-erp',
+    authMode: 'HEADER',
+    authHeaderName: 'x-scrolith-connector-key',
+    eventTypes: ['invoice.*', 'vendor.*', 'talent_pool.*'],
+    status: 'ACTIVE'
+  }, (await prisma.integrationEndpoint.findFirst({
+    where: { type: 'INBOUND_CONNECTOR', name: 'Acme ERP Connector' }
+  }))?.id);
+
+  const existingQueued = await prisma.webhookDeliveryLog.findFirst({
+    where: {
+      endpointId: webhookEndpoint.id,
+      eventType: 'talent_cloud.pool.created',
+      status: { in: ['QUEUED', 'RETRYING'] }
+    }
+  });
+  if (!existingQueued) {
+    await queueWebhookDelivery(webhookEndpoint.id, 'talent_cloud.pool.created', {
+      poolId: poolA.id,
+      name: poolA.name,
+      slug: poolA.slug,
+      example: true
+    });
+  }
+
+  return {
+    settings,
+    pools: [poolA, poolB],
+    requirements: [requirementA, requirementB],
+    accessRules: [accessRuleA, accessRuleB],
+    webhookEndpoint: sanitizeEndpoint(webhookEndpoint),
+    connector: sanitizeEndpoint(connector),
+    usersSeeded: users.slice(0, 4).map((user) => ({ id: user.id, name: user.name, email: user.email }))
+  };
+};

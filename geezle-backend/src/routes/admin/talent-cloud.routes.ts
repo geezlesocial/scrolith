@@ -5,11 +5,13 @@ import {
   getTalentCloudSettings,
   getTalentCloudSummary,
   listApiCredentials,
+  listPrivateAccessRules,
   listInboundConnectors,
   listIntegrationEndpoints,
   listTalentPools,
   listVendorRequirements,
   listWebhookDeliveries,
+  seedTalentCloudDemoExamples,
   retryWebhookDelivery,
   saveInboundConnector,
   saveIntegrationEndpoint,
@@ -17,6 +19,7 @@ import {
   saveTalentPool,
   saveTalentPoolMember,
   saveVendorRequirement,
+  updatePrivateAccessRule,
   updateTalentCloudSettings,
   publishIntegrationEvent
 } from '../../services/talentCloud.service';
@@ -71,6 +74,27 @@ router.get('/summary', requirePermission('talent_cloud.read'), async (_req, res)
     return res.json({ success: true, data: await getTalentCloudSummary() });
   } catch (error) {
     return handleError(res, error, 'Failed to load talent cloud summary');
+  }
+});
+
+router.post('/seed-examples', requirePermission('talent_cloud.manage'), async (req, res) => {
+  try {
+    const data = await seedTalentCloudDemoExamples();
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'talent_cloud',
+      actionKey: 'seed_examples',
+      entityType: 'talent_cloud_seed',
+      entityId: 'talent_cloud_demo_examples',
+      message: 'Private Talent Cloud demo examples seeded',
+      metadata: { seeded: true }
+    });
+    emitEvent(req, 'talent-cloud:seeded', {
+      pools: Array.isArray(data?.pools) ? data.pools.length : 0,
+      requirements: Array.isArray(data?.requirements) ? data.requirements.length : 0
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to seed talent cloud demo examples');
   }
 });
 
@@ -180,6 +204,39 @@ router.post('/access-rules', requirePermission('talent_cloud.manage'), async (re
     return res.status(201).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to save access rule');
+  }
+});
+
+router.get('/access-rules', requirePermission('talent_cloud.read'), async (_req, res) => {
+  try {
+    return res.json({ success: true, data: await listPrivateAccessRules() });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load access rules');
+  }
+});
+
+router.put('/access-rules/:id', requirePermission('talent_cloud.manage'), async (req, res) => {
+  try {
+    const data = await updatePrivateAccessRule(req.params.id, req.body || {});
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'talent_cloud',
+      actionKey: 'access_rule_update',
+      entityType: 'private_opportunity_access',
+      entityId: data.id,
+      message: 'Private opportunity access rule updated',
+      metadata: { accessRule: data }
+    });
+    await publishIntegrationEvent('talent_cloud.access_rule.updated', {
+      accessRuleId: data.id,
+      entityType: data.entityType,
+      entityId: data.entityId,
+      poolId: data.poolId,
+      visibilityScope: data.visibilityScope
+    });
+    emitEvent(req, 'talent-cloud:access_updated', { entityType: data.entityType, entityId: data.entityId, poolId: data.poolId });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to update access rule');
   }
 });
 
