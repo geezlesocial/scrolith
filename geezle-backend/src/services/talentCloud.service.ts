@@ -19,6 +19,7 @@ const WEBHOOK_SECRET_KEY = 'webhookSecret';
 const CONNECTOR_SHARED_SECRET_KEY = 'connectorSharedSecret';
 const CONNECTOR_API_KEY_KEY = 'connectorApiKey';
 const GLOBAL_WEBHOOK_EVENT = '*';
+const API_CREDENTIAL_HEADER = 'x-scrolith-api-key';
 
 const stripWebhookSecret = (metadata: any) => {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return metadata || null;
@@ -59,6 +60,20 @@ const getStoredConnectorSharedSecret = (endpoint: any) =>
 
 const getStoredConnectorApiKey = (endpoint: any) =>
   maybeDecryptSecret(endpoint?.metadata?.[CONNECTOR_API_KEY_KEY]) || '';
+
+const toScopeList = (value: any): string[] =>
+  Array.isArray(value)
+    ? value.map((entry) => cleanString(entry).toLowerCase()).filter(Boolean)
+    : typeof value === 'string'
+      ? value.split(',').map((entry) => cleanString(entry).toLowerCase()).filter(Boolean)
+      : [];
+
+const hasRequiredApiScope = (credentialScopes: any, requiredScopes: string[]) => {
+  const normalized = new Set(toScopeList(credentialScopes));
+  if (!normalized.size) return requiredScopes.length === 0;
+  if (normalized.has('*')) return true;
+  return requiredScopes.some((scope) => normalized.has(cleanString(scope).toLowerCase()));
+};
 
 const toEventTypes = (value: any): string[] =>
   Array.isArray(value)
@@ -336,6 +351,30 @@ const readHeaderValue = (headers: Record<string, any>, name: string) => {
   return Array.isArray(direct) ? cleanString(direct[0]) : cleanString(direct);
 };
 
+const readApiCredentialToken = (headers: Record<string, any>) =>
+  readHeaderValue(headers || {}, API_CREDENTIAL_HEADER);
+
+export const authenticateApiCredential = async (token: string, requiredScopes: string[] = []) => {
+  const plain = cleanString(token);
+  if (!plain) throw new Error('API credential is required');
+  const credential = await prisma.apiCredential.findFirst({
+    where: {
+      keyPrefix: plain.slice(0, 12),
+      secretHash: hashValue(plain),
+      status: 'ACTIVE'
+    }
+  });
+  if (!credential) throw new Error('Invalid API credential');
+  if (!hasRequiredApiScope(credential.scopes, requiredScopes)) {
+    throw new Error('API credential scope is not allowed');
+  }
+  const updated = await prisma.apiCredential.update({
+    where: { id: credential.id },
+    data: { lastUsedAt: new Date() }
+  });
+  return sanitizeApiCredential(updated);
+};
+
 const verifyInboundConnectorAuth = (endpoint: any, headers: Record<string, any>) => {
   const metadata = endpoint?.metadata || {};
   const authMode = cleanString(metadata.authMode || 'bearer').toUpperCase();
@@ -359,7 +398,12 @@ export const ingestInboundConnectorEvent = async (endpointId: string, headers: R
   }
   if (cleanString(endpoint.status).toUpperCase() !== 'ACTIVE') throw new Error('Inbound connector is not active');
 
-  verifyInboundConnectorAuth(endpoint, headers || {});
+  const credentialToken = readApiCredentialToken(headers || {});
+  if (credentialToken) {
+    await authenticateApiCredential(credentialToken, ['integrations.ingest', 'integrations.manage', 'talent_cloud.manage']);
+  } else {
+    verifyInboundConnectorAuth(endpoint, headers || {});
+  }
 
   const providerKey = cleanString(endpoint?.metadata?.providerKey || endpoint.name || 'custom')
     .toLowerCase()

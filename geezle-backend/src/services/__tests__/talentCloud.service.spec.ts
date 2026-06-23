@@ -38,6 +38,7 @@ const mockPrisma: any = {
   apiCredential: {
     count: jest.fn(),
     create: jest.fn(),
+    findFirst: jest.fn(),
     findMany: jest.fn(),
     findUnique: jest.fn(),
     update: jest.fn()
@@ -62,6 +63,7 @@ describe('talentCloud.service', () => {
     mockPrisma.webhookDeliveryLog.count.mockResolvedValue(0);
     mockPrisma.webhookDeliveryLog.findMany.mockResolvedValue([]);
     mockPrisma.apiCredential.count.mockResolvedValue(0);
+    mockPrisma.apiCredential.findFirst.mockResolvedValue(null);
     mockPrisma.apiCredential.findMany.mockResolvedValue([]);
   });
 
@@ -279,6 +281,108 @@ describe('talentCloud.service', () => {
         forwardedEventType: 'connector.erp.invoice.approved'
       })
     );
+  });
+
+  test('stamps lastUsedAt when inbound connector ingestion uses an API credential', async () => {
+    mockPrisma.integrationEndpoint.findUnique.mockResolvedValue({
+      id: 'connector-2',
+      name: 'ERP Connector',
+      type: 'INBOUND_CONNECTOR',
+      status: 'ACTIVE',
+      eventTypes: ['invoice.*'],
+      secretHash: 'hash-connector',
+      metadata: {
+        providerKey: 'erp',
+        authMode: 'HEADER',
+        authHeaderName: 'x-scrolith-connector-key',
+        connectorApiKey: 'abcd',
+        connectorSharedSecret: 'shared-secret',
+        receivedCount: 0
+      }
+    });
+    mockPrisma.apiCredential.findFirst.mockResolvedValue({
+      id: 'cred-live-1',
+      name: 'Enterprise Ingest Key',
+      keyPrefix: 'sk_123456789',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.manage'],
+      status: 'ACTIVE',
+      metadata: {}
+    });
+    mockPrisma.apiCredential.update.mockResolvedValue({
+      id: 'cred-live-1',
+      name: 'Enterprise Ingest Key',
+      keyPrefix: 'sk_123456789',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.manage'],
+      status: 'ACTIVE',
+      lastUsedAt: new Date('2026-06-24T12:00:00.000Z'),
+      metadata: {}
+    });
+    mockPrisma.integrationEndpoint.findMany.mockResolvedValue([
+      {
+        id: 'endpoint-forwarder',
+        status: 'ACTIVE',
+        type: 'WEBHOOK',
+        eventTypes: ['connector.erp.*', 'integrations.connector.ingested'],
+        secretHash: 'hash-forwarder',
+        metadata: {}
+      }
+    ]);
+    mockPrisma.integrationEndpoint.update.mockResolvedValue({
+      id: 'connector-2',
+      metadata: { receivedCount: 1 }
+    });
+    mockPrisma.webhookDeliveryLog.create
+      .mockResolvedValueOnce({ id: 'delivery-connector-event' })
+      .mockResolvedValueOnce({ id: 'delivery-connector-audit' });
+
+    const service = await import('../talentCloud.service');
+    const result = await service.ingestInboundConnectorEvent(
+      'connector-2',
+      { 'x-scrolith-api-key': 'sk_1234567890abcdefghijklmnop' },
+      { eventType: 'invoice.approved', invoiceId: 'inv-8' }
+    );
+
+    expect(mockPrisma.apiCredential.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          keyPrefix: 'sk_123456789'
+        })
+      })
+    );
+    expect(mockPrisma.apiCredential.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'cred-live-1' },
+        data: expect.objectContaining({
+          lastUsedAt: expect.any(Date)
+        })
+      })
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        accepted: true,
+        connectorId: 'connector-2'
+      })
+    );
+  });
+
+  test('rejects API credentials without ingest scope', async () => {
+    mockPrisma.apiCredential.findFirst.mockResolvedValue({
+      id: 'cred-live-2',
+      name: 'Read Only Key',
+      keyPrefix: 'sk_readonly1',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.read'],
+      status: 'ACTIVE',
+      metadata: {}
+    });
+
+    const service = await import('../talentCloud.service');
+
+    await expect(
+      service.authenticateApiCredential('sk_readonly1234567890abcdef', ['integrations.ingest', 'integrations.manage', 'talent_cloud.manage'])
+    ).rejects.toThrow('API credential scope is not allowed');
   });
 
   test('creates API credentials with creator metadata and rotation timestamp', async () => {
