@@ -603,6 +603,22 @@ export const createApiCredential = async (input: any) => {
 export const listApiCredentials = async () =>
   prisma.apiCredential.findMany({ orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] });
 
+export const updateApiCredential = async (id: string, input: any) => {
+  const credentialId = cleanString(id);
+  const name = cleanString(input?.name);
+  if (!credentialId) throw new Error('api credential id is required');
+  if (!name) throw new Error('name is required');
+  return prisma.apiCredential.update({
+    where: { id: credentialId },
+    data: {
+      name,
+      scopes: input?.scopes || [],
+      status: cleanString(input?.status || 'ACTIVE').toUpperCase(),
+      metadata: input?.metadata || null
+    }
+  });
+};
+
 export const seedTalentCloudDemoExamples = async () => {
   const settings = await updateTalentCloudSettings({
     ...(await getTalentCloudSettings()),

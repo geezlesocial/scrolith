@@ -19,6 +19,7 @@ import {
   saveTalentPool,
   saveTalentPoolMember,
   saveVendorRequirement,
+  updateApiCredential,
   updatePrivateAccessRule,
   updateTalentCloudSettings,
   publishIntegrationEvent
@@ -431,6 +432,27 @@ router.post('/api-keys', requirePermission('api_keys.manage'), async (req, res) 
     return res.status(201).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to create API credential');
+  }
+});
+
+router.put('/api-keys/:id', requirePermission('api_keys.manage'), async (req, res) => {
+  try {
+    const data = await updateApiCredential(req.params.id, req.body || {});
+    await recordGovernedAdminAction(req, {
+      moduleKey: 'integrations',
+      actionKey: 'api_key_update',
+      entityType: 'api_credential',
+      entityId: data.id,
+      message: `API credential updated: ${data.name}`,
+      metadata: { apiCredential: data }
+    });
+    emitEvent(req, 'integrations:api_key_updated', {
+      apiCredentialId: data.id,
+      status: data.status
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to update API credential');
   }
 });
 
