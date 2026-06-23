@@ -38,7 +38,9 @@ const mockPrisma: any = {
   apiCredential: {
     count: jest.fn(),
     create: jest.fn(),
-    findMany: jest.fn()
+    findMany: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn()
   }
 };
 
@@ -60,6 +62,7 @@ describe('talentCloud.service', () => {
     mockPrisma.webhookDeliveryLog.count.mockResolvedValue(0);
     mockPrisma.webhookDeliveryLog.findMany.mockResolvedValue([]);
     mockPrisma.apiCredential.count.mockResolvedValue(0);
+    mockPrisma.apiCredential.findMany.mockResolvedValue([]);
   });
 
   test('queues signed webhook deliveries for active endpoints', async () => {
@@ -276,5 +279,89 @@ describe('talentCloud.service', () => {
         forwardedEventType: 'connector.erp.invoice.approved'
       })
     );
+  });
+
+  test('creates API credentials with creator metadata and rotation timestamp', async () => {
+    mockPrisma.apiCredential.create.mockImplementation(async ({ data }: any) => ({
+      id: 'cred-1',
+      ...data,
+      createdAt: '2026-06-24T12:00:00.000Z',
+      updatedAt: '2026-06-24T12:00:00.000Z'
+    }));
+
+    const service = await import('../talentCloud.service');
+    const result = await service.createApiCredential({
+      name: 'Acme API',
+      scopes: ['talent_cloud.read'],
+      metadata: {
+        createdBy: {
+          id: 'admin-1',
+          email: 'admin@example.com',
+          name: 'Admin User'
+        }
+      }
+    });
+
+    expect(mockPrisma.apiCredential.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          name: 'Acme API',
+          metadata: expect.objectContaining({
+            createdBy: expect.objectContaining({
+              id: 'admin-1',
+              email: 'admin@example.com'
+            }),
+            lastRotatedAt: expect.any(String)
+          })
+        })
+      })
+    );
+    expect(result.record).toEqual(
+      expect.objectContaining({
+        createdBy: expect.objectContaining({
+          id: 'admin-1',
+          email: 'admin@example.com'
+        }),
+        lastRotatedAt: expect.any(String)
+      })
+    );
+    expect(result.plainKey).toEqual(expect.stringMatching(/^sk_/));
+  });
+
+  test('lists API credentials with masked history metadata', async () => {
+    mockPrisma.apiCredential.findMany.mockResolvedValue([
+      {
+        id: 'cred-2',
+        name: 'Finance Connector',
+        keyPrefix: 'sk_abcd1234',
+        secretHash: 'hash',
+        scopes: ['talent_cloud.read'],
+        status: 'ACTIVE',
+        lastUsedAt: '2026-06-23T10:00:00.000Z',
+        metadata: {
+          createdBy: {
+            id: 'admin-2',
+            email: 'ops@example.com',
+            name: 'Ops Admin'
+          },
+          lastRotatedAt: '2026-06-22T08:00:00.000Z'
+        }
+      }
+    ]);
+
+    const service = await import('../talentCloud.service');
+    const result = await service.listApiCredentials();
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 'cred-2',
+        createdBy: expect.objectContaining({
+          id: 'admin-2',
+          email: 'ops@example.com'
+        }),
+        lastRotatedAt: '2026-06-22T08:00:00.000Z',
+        lastUsedAt: '2026-06-23T10:00:00.000Z'
+      })
+    ]);
   });
 });

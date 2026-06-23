@@ -419,7 +419,19 @@ router.get('/api-keys', requirePermission('api_keys.read'), async (_req, res) =>
 
 router.post('/api-keys', requirePermission('api_keys.manage'), async (req, res) => {
   try {
-    const data = await createApiCredential(req.body || {});
+    const actor = (req.user || {}) as any;
+    const data = await createApiCredential({
+      ...(req.body || {}),
+      metadata: {
+        ...((req.body?.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata)) ? req.body.metadata : {}),
+        createdBy: {
+          id: actor?.id || null,
+          email: actor?.email || null,
+          name: actor?.name || actor?.username || actor?.email || 'Unknown admin',
+          staffId: req.staffContext?.staffId || null
+        }
+      }
+    });
     const record = data?.record || data;
     await recordGovernedAdminAction(req, {
       moduleKey: 'integrations',

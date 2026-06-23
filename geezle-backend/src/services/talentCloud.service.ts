@@ -37,6 +37,20 @@ const sanitizeEndpoint = (endpoint: any) => {
   };
 };
 
+const sanitizeApiCredential = (credential: any) => {
+  if (!credential) return credential;
+  const metadata =
+    credential?.metadata && typeof credential.metadata === 'object' && !Array.isArray(credential.metadata)
+      ? { ...(credential.metadata as Record<string, any>) }
+      : {};
+  return {
+    ...credential,
+    metadata,
+    createdBy: metadata.createdBy || null,
+    lastRotatedAt: metadata.lastRotatedAt || null
+  };
+};
+
 const getStoredWebhookSecret = (endpoint: any) =>
   maybeDecryptSecret(endpoint?.metadata?.[WEBHOOK_SECRET_KEY]) || '';
 
@@ -585,38 +599,58 @@ export const createApiCredential = async (input: any) => {
   const name = cleanString(input.name);
   if (!name) throw new Error('name is required');
   const plain = randomToken('sk');
+  const metadata =
+    input?.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
+      ? { ...(input.metadata as Record<string, any>) }
+      : {};
+  const now = new Date().toISOString();
   return {
-    record: await prisma.apiCredential.create({
+    record: sanitizeApiCredential(await prisma.apiCredential.create({
       data: {
         name,
         keyPrefix: plain.slice(0, 12),
         secretHash: hashValue(plain),
         scopes: input.scopes || [],
         status: cleanString(input.status || 'ACTIVE').toUpperCase(),
-        metadata: input.metadata || null
+        metadata: {
+          ...metadata,
+          lastRotatedAt: metadata.lastRotatedAt || now
+        }
       }
-    }),
+    })),
     plainKey: plain
   };
 };
 
 export const listApiCredentials = async () =>
-  prisma.apiCredential.findMany({ orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] });
+  (await prisma.apiCredential.findMany({ orderBy: [{ status: 'asc' }, { createdAt: 'desc' }] })).map(sanitizeApiCredential);
 
 export const updateApiCredential = async (id: string, input: any) => {
   const credentialId = cleanString(id);
   const name = cleanString(input?.name);
   if (!credentialId) throw new Error('api credential id is required');
   if (!name) throw new Error('name is required');
-  return prisma.apiCredential.update({
+  const previous = await prisma.apiCredential.findUnique({ where: { id: credentialId } });
+  const previousMetadata =
+    previous?.metadata && typeof previous.metadata === 'object' && !Array.isArray(previous.metadata)
+      ? { ...(previous.metadata as Record<string, any>) }
+      : {};
+  const inputMetadata =
+    input?.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata)
+      ? { ...(input.metadata as Record<string, any>) }
+      : {};
+  return sanitizeApiCredential(await prisma.apiCredential.update({
     where: { id: credentialId },
     data: {
       name,
       scopes: input?.scopes || [],
       status: cleanString(input?.status || 'ACTIVE').toUpperCase(),
-      metadata: input?.metadata || null
+      metadata: {
+        ...previousMetadata,
+        ...inputMetadata
+      }
     }
-  });
+  }));
 };
 
 export const seedTalentCloudDemoExamples = async () => {
