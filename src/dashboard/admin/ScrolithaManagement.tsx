@@ -62,6 +62,25 @@ const formatDate = (value?: string | Date | null) => {
   return date.toLocaleString();
 };
 
+const normalizeRuntimeAlert = (value: any) => {
+  const type = String(value?.type || 'runtime_alert').trim() || 'runtime_alert';
+  const message =
+    String(value?.message || value?.body || value?.title || 'Scrolitha runtime alert').trim() ||
+    'Scrolitha runtime alert';
+  const severity = String(value?.severity || 'info').trim().toLowerCase() || 'info';
+  const count = Number(value?.count || 0) || 0;
+  const routeKey = String(value?.routeKey || '').trim() || null;
+  const createdAt = String(value?.createdAt || value?.lastSeenAt || new Date().toISOString());
+  return {
+    type,
+    severity,
+    count,
+    routeKey,
+    message,
+    lastSeenAt: createdAt
+  };
+};
+
 const toScrolithaModelLabel = (value: any) => {
   const normalized = String(value || '').trim();
   if (!normalized) return '-';
@@ -329,17 +348,46 @@ const ScrolithaManagement: React.FC = () => {
       void loadLearningInsights();
       void loadChatRecords();
     };
+    const handleRuntimeAlert = (payload: any) => {
+      const alert = normalizeRuntimeAlert(payload);
+      setAnalytics((prev: any) => {
+        const current = prev && typeof prev === 'object' ? prev : {};
+        const runtime = current.runtime && typeof current.runtime === 'object' ? { ...current.runtime } : {};
+        const existing = Array.isArray(runtime.recentAlerts) ? runtime.recentAlerts : [];
+        const deduped = [
+          alert,
+          ...existing.filter(
+            (entry: any) =>
+              !(
+                String(entry?.type || '') === alert.type &&
+                String(entry?.message || '') === alert.message &&
+                String(entry?.lastSeenAt || '') === alert.lastSeenAt
+              )
+          )
+        ].slice(0, 10);
+        runtime.recentAlerts = deduped;
+        return { ...current, runtime };
+      });
+      showNotification(
+        alert.severity === 'warning' ? 'warning' : 'info',
+        'Scrolitha Runtime',
+        alert.message
+      );
+      void loadAudit(null);
+    };
     socket.on('scrolitha:config_updated', refresh);
     socket.on('scrolitha:skills_updated', refresh);
     socket.on('scrolitha:action_completed', refresh);
     socket.on('scrolitha:learning_updated', refresh);
     socket.on('scrolitha:post_ai_updated', refresh);
+    socket.on('scrolitha:runtime_alert', handleRuntimeAlert);
     return () => {
       socket.off('scrolitha:config_updated', refresh);
       socket.off('scrolitha:skills_updated', refresh);
       socket.off('scrolitha:action_completed', refresh);
       socket.off('scrolitha:learning_updated', refresh);
       socket.off('scrolitha:post_ai_updated', refresh);
+      socket.off('scrolitha:runtime_alert', handleRuntimeAlert);
     };
   }, [socket, configScope, chatRecordScope, chatRecordUserId]);
 
