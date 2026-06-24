@@ -385,6 +385,68 @@ describe('talentCloud.service', () => {
     ).rejects.toThrow('API credential scope is not allowed');
   });
 
+  test('returns inbound connector status for read-scoped API credentials and stamps usage', async () => {
+    mockPrisma.apiCredential.findFirst.mockResolvedValue({
+      id: 'cred-read-1',
+      name: 'Read Status Key',
+      keyPrefix: 'sk_status1234',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.read'],
+      status: 'ACTIVE',
+      metadata: {}
+    });
+    mockPrisma.apiCredential.update.mockResolvedValue({
+      id: 'cred-read-1',
+      name: 'Read Status Key',
+      keyPrefix: 'sk_status1234',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.read'],
+      status: 'ACTIVE',
+      lastUsedAt: new Date('2026-06-24T14:00:00.000Z'),
+      metadata: {}
+    });
+    mockPrisma.integrationEndpoint.findUnique.mockResolvedValue({
+      id: 'connector-read-1',
+      name: 'ERP Connector',
+      type: 'INBOUND_CONNECTOR',
+      status: 'ACTIVE',
+      eventTypes: ['invoice.*', 'refund.*'],
+      updatedAt: new Date('2026-06-24T13:30:00.000Z'),
+      metadata: {
+        providerKey: 'erp',
+        authMode: 'HEADER',
+        authHeaderName: 'x-scrolith-connector-key',
+        lastReceivedAt: '2026-06-24T13:00:00.000Z',
+        lastEventType: 'invoice.approved',
+        receivedCount: 7
+      }
+    });
+
+    const service = await import('../talentCloud.service');
+    const result = await service.getInboundConnectorStatus('connector-read-1', {
+      'x-scrolith-api-key': 'sk_status1234abcdefghijklmnop'
+    });
+
+    expect(mockPrisma.apiCredential.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'cred-read-1' },
+        data: expect.objectContaining({
+          lastUsedAt: expect.any(Date)
+        })
+      })
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: 'connector-read-1',
+        providerKey: 'erp',
+        authMode: 'HEADER',
+        allowedEventTypes: ['invoice.*', 'refund.*'],
+        lastEventType: 'invoice.approved',
+        receivedCount: 7
+      })
+    );
+  });
+
   test('creates API credentials with creator metadata and rotation timestamp', async () => {
     mockPrisma.apiCredential.create.mockImplementation(async ({ data }: any) => ({
       id: 'cred-1',

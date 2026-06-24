@@ -1,5 +1,5 @@
 import express from 'express';
-import { ingestInboundConnectorEvent } from '../services/talentCloud.service';
+import { getInboundConnectorStatus, ingestInboundConnectorEvent } from '../services/talentCloud.service';
 
 const router = express.Router();
 
@@ -29,6 +29,15 @@ router.post('/inbound/:id', async (req, res) => {
     return res.status(202).json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to ingest connector event');
+  }
+});
+
+router.get('/inbound/:id/status', async (req, res) => {
+  try {
+    const data = await getInboundConnectorStatus(String(req.params.id || '').trim(), req.headers as Record<string, any>);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load connector status');
   }
 });
 

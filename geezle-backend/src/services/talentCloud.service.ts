@@ -375,6 +375,40 @@ export const authenticateApiCredential = async (token: string, requiredScopes: s
   return sanitizeApiCredential(updated);
 };
 
+export const getInboundConnectorStatus = async (endpointId: string, headers: Record<string, any>) => {
+  const credentialToken = readApiCredentialToken(headers || {});
+  await authenticateApiCredential(credentialToken, [
+    'talent_cloud.read',
+    'integrations.read',
+    'talent_cloud.manage',
+    'integrations.manage'
+  ]);
+
+  const endpoint = await prisma.integrationEndpoint.findUnique({ where: { id: cleanString(endpointId) } });
+  if (!endpoint || cleanString(endpoint.type).toUpperCase() !== 'INBOUND_CONNECTOR') {
+    throw new Error('Inbound connector not found');
+  }
+
+  const metadata =
+    endpoint?.metadata && typeof endpoint.metadata === 'object' && !Array.isArray(endpoint.metadata)
+      ? (endpoint.metadata as Record<string, any>)
+      : {};
+
+  return {
+    id: endpoint.id,
+    name: endpoint.name,
+    status: cleanString(endpoint.status || 'UNKNOWN').toUpperCase(),
+    providerKey: cleanString(metadata.providerKey || endpoint.name || 'custom').toLowerCase(),
+    authMode: cleanString(metadata.authMode || 'HEADER').toUpperCase(),
+    authHeaderName: cleanString(metadata.authHeaderName || 'x-scrolith-connector-key'),
+    allowedEventTypes: toEventTypes(endpoint.eventTypes),
+    lastReceivedAt: metadata.lastReceivedAt || null,
+    lastEventType: metadata.lastEventType || null,
+    receivedCount: Number(metadata.receivedCount || 0),
+    updatedAt: endpoint.updatedAt || null
+  };
+};
+
 const verifyInboundConnectorAuth = (endpoint: any, headers: Record<string, any>) => {
   const metadata = endpoint?.metadata || {};
   const authMode = cleanString(metadata.authMode || 'bearer').toUpperCase();
