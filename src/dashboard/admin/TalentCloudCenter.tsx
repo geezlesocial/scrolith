@@ -821,6 +821,11 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
           <section className={cardClass}>
             <h2 className="text-lg font-semibold text-slate-900">Inbound connectors</h2>
             <p className="mt-1 text-sm text-slate-500">Secure enterprise sources that ingest external events into Scrolith governance and webhook delivery.</p>
+            <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-900">
+              Use <span className="font-mono">x-scrolith-api-key</span> with an enterprise API credential for connector requests.
+              Write-capable keys can post to <span className="font-mono">/api/integrations/inbound/&lt;connector-id&gt;</span>.
+              Read-capable keys can check status at <span className="font-mono">/api/integrations/inbound/&lt;connector-id&gt;/status</span>.
+            </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="text-sm text-slate-600">
                 <div className="mb-1 font-medium">Connector name</div>
