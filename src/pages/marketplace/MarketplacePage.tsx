@@ -372,6 +372,19 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return categoryMap.get(slug.toLowerCase())?.id || '';
   }, [categoryMap, params.slug]);
 
+  useEffect(() => {
+    if (!(isBrowseRoute || isCategoryRoute)) return;
+    const params = new URLSearchParams(location.search);
+    const search = String(params.get('search') || params.get('q') || '').trim();
+    if (!search) return;
+    setSearchDraft(search);
+    setQuery((previous) => (
+      previous.search === search
+        ? previous
+        : { ...previous, search, page: 1 }
+    ));
+  }, [isBrowseRoute, isCategoryRoute, location.search]);
+
   const reportingReasons = useMemo(
     () => Array.isArray(settings?.reportingReasons) && settings.reportingReasons.length > 0
       ? settings.reportingReasons

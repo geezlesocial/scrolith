@@ -20,7 +20,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon, ShoppingBag } from 'lucide-react';
 import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
@@ -39,6 +39,8 @@ import { gigsApi, Gig } from '../../services/gigs';
 import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
+import { listMarketplaceListings } from '../../services/marketplace';
+import type { MarketplaceListing } from '../../types/marketplace';
 import { CMSService } from '../../services/cms';
 import ProBadge from '../ProBadge';
 import ExpandablePreviewText from '../common/ExpandablePreviewText';
@@ -361,16 +363,26 @@ type SearchResultItem = {
   meta?: Record<string, any>;
 };
 
-type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'posts';
+type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'marketplace' | 'posts';
 type SearchGroupMap = Record<SearchGroupKey, SearchResultItem[]>;
 
-const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs', 'posts'];
+const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs', 'marketplace', 'posts'];
 const SEARCH_GROUP_LABELS: Record<SearchGroupKey, string> = {
   people: 'Users',
   pages: 'Pages',
   jobs: 'Jobs',
   gigs: 'Gigs',
+  marketplace: 'Marketplace',
   posts: 'Posts'
+};
+
+const SEARCH_GROUP_BADGES: Record<SearchGroupKey, string> = {
+  people: 'User',
+  pages: 'Page',
+  jobs: 'Job',
+  gigs: 'Gig',
+  marketplace: 'Item',
+  posts: 'Post'
 };
 
 const emptySearchGroups = (): SearchGroupMap => ({
@@ -378,6 +390,7 @@ const emptySearchGroups = (): SearchGroupMap => ({
   pages: [],
   jobs: [],
   gigs: [],
+  marketplace: [],
   posts: []
 });
 
@@ -2012,6 +2025,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         return id ? `/gigs/${encodeURIComponent(id)}` : '';
       }
 
+      if (kind === 'marketplace' || kind === 'marketplace_listing' || kind === 'listing' || kind === 'product' || kind === 'item') {
+        const id = String(item?.slug || item?.id || item?._id || item?.listingId || item?.listing_id || '').trim();
+        return id ? `/marketplace/listing/${encodeURIComponent(id)}` : '/marketplace';
+      }
+
       if (kind === 'posts' || kind === 'post') {
         const id = String(item?.id || item?._id || item?.postId || item?.post_id || '').trim();
         return id ? `/post/${encodeURIComponent(id)}` : '';
@@ -3086,6 +3104,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (key === 'pages' || key === 'page') return 'pages';
     if (key === 'jobs' || key === 'job') return 'jobs';
     if (key === 'gigs' || key === 'gig') return 'gigs';
+    if (key === 'marketplace' || key === 'marketplace_listing' || key === 'listing' || key === 'product' || key === 'item') return 'marketplace';
     if (key === 'posts' || key === 'post') return 'posts';
     return undefined;
   }, []);
@@ -3110,6 +3129,38 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       meta: item.meta || {}
     };
   }, [normalizeSearchType, resolveSearchItemUrl]);
+
+  const normalizeMarketplaceSearchItem = useCallback((listing: MarketplaceListing): SearchResultItem => {
+    const categoryName = String(listing?.category?.name || '').trim();
+    const location = String(listing?.location || '').trim();
+    const price = listing?.price !== undefined && listing?.price !== null && listing.price !== ''
+      ? `${listing.currency || 'USD'} ${listing.price}`
+      : '';
+    const subtitle = [price, categoryName, location].filter(Boolean).join(' - ');
+    const image =
+      listing.coverImage ||
+      (Array.isArray(listing.images) && listing.images.length
+        ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url)
+        : null) ||
+      null;
+    return {
+      id: listing.id,
+      type: 'marketplace',
+      title: listing.title || 'Marketplace item',
+      subtitle: subtitle || 'Marketplace listing',
+      description: listing.description || undefined,
+      url: `/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}`,
+      avatarUrl: image,
+      image: image || undefined,
+      category: categoryName || 'Marketplace',
+      meta: {
+        price: listing.price,
+        currency: listing.currency,
+        brand: listing.brand,
+        location: listing.location
+      }
+    };
+  }, []);
 
   const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
     const next = emptySearchGroups();
@@ -3136,6 +3187,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const encoded = encodeURIComponent(clean);
       return [
         { label: `Search all Scrolith for "${clean}"`, url: `/search?q=${encoded}` },
+        { label: `Marketplace items matching "${clean}"`, url: `/marketplace?search=${encoded}` },
         { label: `People matching "${clean}"`, url: `/search?q=${encoded}&type=people` },
         { label: `Posts mentioning "${clean}"`, url: `/search?q=${encoded}&type=posts` },
         { label: `Pages related to "${clean}"`, url: `/search?q=${encoded}&type=pages` }
@@ -3161,21 +3213,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setSearchLoading(true);
     try {
       const perType = Math.max(2, Math.min(6, Math.ceil(maxSearchResults / 2)));
-      const [unified, posts] = await Promise.all([
+      const [unified, posts, marketplaceResponse] = await Promise.all([
         SearchService.searchUnified(clean, {
           limit: Math.max(maxSearchResults, 12),
           perType
         }),
-        SearchService.search(clean, { type: 'posts', limit: Math.max(4, Math.min(8, maxSearchResults)) }).catch(() => [])
+        SearchService.search(clean, { type: 'posts', limit: Math.max(4, Math.min(8, maxSearchResults)) }).catch(() => []),
+        listMarketplaceListings({
+          search: clean,
+          page: 1,
+          pageSize: Math.max(4, Math.min(8, maxSearchResults)),
+          sort: 'recommended'
+        }).catch(() => null)
       ]);
+      const marketplaceListings = Array.isArray(marketplaceResponse)
+        ? marketplaceResponse
+        : Array.isArray((marketplaceResponse as any)?.listings)
+          ? (marketplaceResponse as any).listings
+          : Array.isArray((marketplaceResponse as any)?.items)
+            ? (marketplaceResponse as any).items
+            : [];
+      const marketplaceItems = marketplaceListings.map(normalizeMarketplaceSearchItem);
       const groups = normalizeSearchGroups({
         ...(unified.groups || {}),
         posts: Array.isArray((unified.groups as any)?.posts) && (unified.groups as any).posts.length
           ? (unified.groups as any).posts
-          : posts
+          : posts,
+        marketplace: marketplaceItems
       });
       const merged = Array.isArray(unified.results) && unified.results.length
-        ? [...unified.results, ...(posts || [])].map(normalizeSearchItem)
+        ? [...unified.results, ...(posts || [])].map(normalizeSearchItem).concat(marketplaceItems)
         : SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
       const unique = Array.from(
         new Map(
@@ -3203,7 +3270,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         setSearchLoading(false);
       }
     }
-  }, [maxSearchResults, normalizeSearchGroups, normalizeSearchItem, user?.id]);
+  }, [maxSearchResults, normalizeMarketplaceSearchItem, normalizeSearchGroups, normalizeSearchItem, user?.id]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -6378,6 +6445,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                         <Compass className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       ) : typeKey === 'jobs' ? (
                                         <Briefcase className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
+                                      ) : typeKey === 'marketplace' ? (
+                                        <ShoppingBag className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       ) : (
                                         <Sparkles className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       )}
@@ -6387,7 +6456,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                       <p className="truncate text-xs text-slate-500">{subtitle}</p>
                                     </div>
                                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
-                                      {section.label.slice(0, -1)}
+                                      {SEARCH_GROUP_BADGES[typeKey] || section.label}
                                     </span>
                                   </div>
                                 );
