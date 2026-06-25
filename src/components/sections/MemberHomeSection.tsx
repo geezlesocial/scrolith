@@ -2108,8 +2108,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     content?.gigCreationQuickActionSubtitle ||
     (content as any)?.gig_creation_quick_action_subtitle ||
     'Generate your gig setup with AI guidance';
-  const searchPlaceholder = content?.searchPlaceholder || 'Search posts, jobs, gigs, people, or pages';
-  const searchHint = content?.searchHint || 'Search across posts, jobs, gigs, people, and pages.';
+  const searchPlaceholder = content?.searchPlaceholder || 'Search posts, jobs, gigs, people, pages, or marketplace items';
+  const searchHint = content?.searchHint || 'Search across marketplace items, posts, jobs, gigs, people, and pages.';
 
   const normalizePost = useCallback((post: any): FeedPost => {
     const interactions = { ...(post.interactions || {}) };

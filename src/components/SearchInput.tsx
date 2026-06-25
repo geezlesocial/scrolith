@@ -9,6 +9,12 @@ import {
 } from './icons/ShellIcons';
 import { useNavigate } from 'react-router-dom';
 import { SearchService } from '../services/search';
+import {
+    GLOBAL_SEARCH_GROUP_BADGES,
+    GLOBAL_SEARCH_GROUP_LABELS,
+    GLOBAL_SEARCH_GROUP_ORDER,
+    searchGlobalWithMarketplace
+} from '../services/globalSearch';
 import { SearchSuggestion } from '../types';
 import { useUser } from '../context/UserContext';
 
@@ -122,9 +128,32 @@ const SearchInput: React.FC<SearchInputProps> = ({
             }
             setIsThinking(true);
             try {
-                const results = await SearchService.getSuggestions(clean, user?.role);
+                const [results, globalResults] = await Promise.all([
+                    SearchService.getSuggestions(clean, user?.role).catch(() => []),
+                    searchGlobalWithMarketplace(clean, { maxResults: 8 }).catch(() => null)
+                ]);
                 if (suggestionRequestSeqRef.current !== requestSeq) return;
-                setSuggestions(Array.isArray(results) ? results : []);
+                const liveRows: SearchSuggestion[] = [];
+                if (globalResults?.groups) {
+                    GLOBAL_SEARCH_GROUP_ORDER.forEach((key) => {
+                        (globalResults.groups[key] || []).slice(0, key === 'marketplace' ? 4 : 2).forEach((item: any) => {
+                            const text = String(item?.title || item?.name || item?.username || '').trim();
+                            if (!text) return;
+                            liveRows.push({
+                                text,
+                                type: 'result',
+                                category: GLOBAL_SEARCH_GROUP_BADGES[key] || GLOBAL_SEARCH_GROUP_LABELS[key],
+                                url: item.url,
+                                description:
+                                    item.subtitle ||
+                                    item.description ||
+                                    item.excerpt ||
+                                    (item.username ? `@${item.username}` : GLOBAL_SEARCH_GROUP_LABELS[key])
+                            } as SearchSuggestion);
+                        });
+                    });
+                }
+                setSuggestions([...(Array.isArray(results) ? results : []), ...liveRows]);
                 setSuggestionsResolvedFor(clean);
             } catch (error) {
                 if (suggestionRequestSeqRef.current !== requestSeq) return;
@@ -317,7 +346,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
                             </span>
                         </div>
                         {cleanQuery.length >= 2 ? (
-                            <p className="mt-1 text-xs text-gray-500">Real-time matches across posts, people, pages, jobs, and gigs.</p>
+                            <p className="mt-1 text-xs text-gray-500">Real-time matches across marketplace items, posts, people, pages, jobs, and gigs.</p>
                         ) : null}
                     </div>
                     <div className="py-2">
@@ -342,7 +371,20 @@ const SearchInput: React.FC<SearchInputProps> = ({
                             return (
                                 <button
                                     key={`${s.text}-${i}`}
-                                    onClick={() => handleSearch(s.text)}
+                                    onClick={() => {
+                                        const url = String((s as any).url || '').trim();
+                                        if (url) {
+                                            setQuery(s.text);
+                                            setIsOpen(false);
+                                            if (url.startsWith('http')) {
+                                                window.location.href = url;
+                                            } else {
+                                                navigate(url);
+                                            }
+                                            return;
+                                        }
+                                        handleSearch(s.text);
+                                    }}
                                     className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
                                 >
                                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 group-hover:bg-slate-900 group-hover:text-white">

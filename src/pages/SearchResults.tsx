@@ -9,6 +9,7 @@ import {
   Grid3X3,
   Loader,
   Search,
+  ShoppingBag,
   Sparkles,
   Star,
   TrendingUp,
@@ -18,32 +19,24 @@ import SearchInput from '../components/SearchInput';
 import OptimizedImage from '../components/media/OptimizedImage';
 import { useCurrency } from '../context/CurrencyContext';
 import { SearchService } from '../services/search';
+import {
+  GLOBAL_SEARCH_GROUP_ORDER,
+  emptyGlobalSearchGroups,
+  normalizeGlobalSearchType,
+  resolveGlobalSearchItemUrl,
+  searchGlobalWithMarketplace,
+  type GlobalSearchGroupKey,
+  type GlobalSearchGroups,
+  type GlobalSearchItem
+} from '../services/globalSearch';
 
-type SearchFilter = 'all' | 'people' | 'pages' | 'jobs' | 'gigs' | 'posts';
+type SearchFilter = 'all' | GlobalSearchGroupKey;
 
-type SearchItem = {
-  id: string;
-  type: SearchFilter | 'job' | 'gig' | 'post' | 'page' | 'person' | string;
-  title?: string;
-  name?: string;
-  username?: string;
-  subtitle?: string;
-  description?: string;
-  image?: string | null;
-  avatarUrl?: string | null;
-  url?: string;
-  meta?: any;
-};
+type SearchItem = GlobalSearchItem;
 
-type SearchGroups = Record<Exclude<SearchFilter, 'all'>, SearchItem[]>;
+type SearchGroups = GlobalSearchGroups;
 
-const EMPTY_GROUPS: SearchGroups = {
-  people: [],
-  pages: [],
-  jobs: [],
-  gigs: [],
-  posts: []
-};
+const EMPTY_GROUPS: SearchGroups = emptyGlobalSearchGroups();
 
 const FILTERS: Array<{ key: SearchFilter; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { key: 'all', label: 'All', icon: Grid3X3 },
@@ -51,17 +44,11 @@ const FILTERS: Array<{ key: SearchFilter; label: string; icon: React.ComponentTy
   { key: 'pages', label: 'Pages', icon: Building2 },
   { key: 'jobs', label: 'Jobs', icon: Briefcase },
   { key: 'gigs', label: 'Gigs', icon: Sparkles },
+  { key: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
   { key: 'posts', label: 'Posts', icon: FileText }
 ];
 
-const normalizeType = (value: unknown): Exclude<SearchFilter, 'all'> => {
-  const type = String(value || '').trim().toLowerCase();
-  if (type === 'person' || type === 'user' || type === 'users' || type === 'people') return 'people';
-  if (type === 'page' || type === 'pages') return 'pages';
-  if (type === 'job' || type === 'jobs') return 'jobs';
-  if (type === 'gig' || type === 'gigs') return 'gigs';
-  return 'posts';
-};
+const normalizeType = (value: unknown): Exclude<SearchFilter, 'all'> => normalizeGlobalSearchType(value) || 'posts';
 
 const getTitle = (item: SearchItem) => item.title || item.name || item.username || 'Search result';
 
@@ -69,18 +56,22 @@ const getSubtitle = (item: SearchItem, type: string) =>
   item.subtitle ||
   item.description ||
   (item.username ? `@${item.username}` : '') ||
-  (type === 'people' ? 'Scrolith member' : type === 'pages' ? 'Scrolith page' : type === 'jobs' ? 'Open job' : type === 'gigs' ? 'Available gig' : 'Community post');
+  (type === 'people'
+    ? 'Scrolith member'
+    : type === 'pages'
+      ? 'Scrolith page'
+      : type === 'jobs'
+        ? 'Open job'
+        : type === 'gigs'
+          ? 'Available gig'
+          : type === 'marketplace'
+            ? 'Marketplace item'
+            : 'Community post');
 
 const getUrl = (item: SearchItem, type: Exclude<SearchFilter, 'all'>) => {
   const raw = String(item.url || '').trim();
   if (raw) return raw;
-  const id = encodeURIComponent(String(item.id || '').trim());
-  if (!id) return '/search';
-  if (type === 'people') return item.username ? `/u/${encodeURIComponent(item.username)}` : `/profile/${id}`;
-  if (type === 'pages') return `/company/${id}`;
-  if (type === 'jobs') return `/jobs/${id}`;
-  if (type === 'gigs') return `/gigs/${id}`;
-  return `/post/${id}`;
+  return resolveGlobalSearchItemUrl(item, type);
 };
 
 const mergeUnique = (items: SearchItem[]) => {
@@ -121,26 +112,24 @@ const SearchResults = () => {
 
       setLoading(true);
       try {
-        const [unified, posts] = await Promise.all([
-          mode === 'semantic'
-            ? SearchService.performSearch(clean, 'semantic').then(({ results }) => ({
-                groups: { people: [], pages: [], jobs: [], gigs: [] },
-                results
-              }))
-            : SearchService.searchUnified(clean, { limit: 24, perType: 6 }),
-          SearchService.search(clean, { type: 'posts', limit: 12 }).catch(() => [])
-        ]);
+        const payload = mode === 'semantic'
+          ? await SearchService.performSearch(clean, 'semantic').then(({ results }) => {
+              const groups = emptyGlobalSearchGroups();
+              (results || []).forEach((item: any) => {
+                const type = normalizeType(item.type);
+                groups[type].push(item);
+              });
+              return { groups };
+            })
+          : await searchGlobalWithMarketplace(clean, { maxResults: 24 });
 
         if (cancelled) return;
 
-        const unifiedGroups = unified?.groups || {};
-        setGroups({
-          people: mergeUnique([...(unifiedGroups.people || []), ...(unified?.results || []).filter((item: any) => normalizeType(item.type) === 'people')]),
-          pages: mergeUnique([...(unifiedGroups.pages || []), ...(unified?.results || []).filter((item: any) => normalizeType(item.type) === 'pages')]),
-          jobs: mergeUnique([...(unifiedGroups.jobs || []), ...(unified?.results || []).filter((item: any) => normalizeType(item.type) === 'jobs')]),
-          gigs: mergeUnique([...(unifiedGroups.gigs || []), ...(unified?.results || []).filter((item: any) => normalizeType(item.type) === 'gigs')]),
-          posts: mergeUnique([...(posts || []), ...(unified?.results || []).filter((item: any) => normalizeType(item.type) === 'posts')])
+        const nextGroups = emptyGlobalSearchGroups();
+        GLOBAL_SEARCH_GROUP_ORDER.forEach((key) => {
+          nextGroups[key] = mergeUnique((payload.groups as any)?.[key] || []);
         });
+        setGroups(nextGroups);
       } catch (err: any) {
         if (!cancelled) {
           setError(err?.message || 'Search failed. Please try again.');
@@ -188,7 +177,7 @@ const SearchResults = () => {
               Scrolith embedded search
             </div>
             <SearchInput
-              placeholder="Search posts, jobs, gigs, people, pages"
+              placeholder="Search posts, jobs, gigs, people, pages, and marketplace items"
               className="max-w-4xl"
               searchMode={mode}
               searchPath="/search"
@@ -226,7 +215,7 @@ const SearchResults = () => {
               {cleanQuery ? (loading ? 'Searching Scrolith...' : `${visibleItems.length} result${visibleItems.length === 1 ? '' : 's'} for "${cleanQuery}"`) : 'Search Scrolith'}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              Search posts, members, pages, jobs, and gigs with one real-time result experience.
+              Search marketplace items, posts, members, pages, jobs, and gigs with one real-time result experience.
             </p>
           </div>
           {mode === 'semantic' ? (
@@ -290,7 +279,17 @@ function ResultCard({
   type: Exclude<SearchFilter, 'all'>;
   formatPrice: (value: number) => string;
 }) {
-  const Icon = type === 'people' ? User : type === 'pages' ? Building2 : type === 'jobs' ? Briefcase : type === 'gigs' ? Sparkles : FileText;
+  const Icon = type === 'people'
+    ? User
+    : type === 'pages'
+      ? Building2
+      : type === 'jobs'
+        ? Briefcase
+        : type === 'gigs'
+          ? Sparkles
+          : type === 'marketplace'
+            ? ShoppingBag
+            : FileText;
   const title = getTitle(item);
   const subtitle = getSubtitle(item, type);
   const image = item.avatarUrl || item.image || null;
@@ -324,7 +323,7 @@ function ResultCard({
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
               {type.slice(0, -1) || type}
             </span>
-            {type === 'gigs' && Number.isFinite(Number(item.meta?.price)) ? (
+            {(type === 'gigs' || type === 'marketplace') && Number.isFinite(Number(item.meta?.price)) ? (
               <span className="text-xs font-semibold text-emerald-700">{formatPrice(Number(item.meta.price))}</span>
             ) : null}
           </div>
@@ -335,7 +334,7 @@ function ResultCard({
 
       <div className="mt-auto flex items-center justify-between pt-4 text-xs font-semibold text-slate-400">
         <span className="inline-flex items-center gap-1">
-          {type === 'jobs' ? <Clock className="h-3.5 w-3.5" /> : type === 'gigs' ? <Star className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
+          {type === 'jobs' ? <Clock className="h-3.5 w-3.5" /> : type === 'gigs' ? <Star className="h-3.5 w-3.5" /> : type === 'marketplace' ? <ShoppingBag className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
           Open result
         </span>
         <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
