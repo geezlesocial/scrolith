@@ -825,6 +825,7 @@ const TalentCloudCenter: React.FC<Props> = ({ initialSection = 'talent' }) => {
               Use <span className="font-mono">x-scrolith-api-key</span> with an enterprise API credential for connector requests.
               Write-capable keys can post to <span className="font-mono">/api/integrations/inbound/&lt;connector-id&gt;</span>.
               Read-capable keys can check status at <span className="font-mono">/api/integrations/inbound/&lt;connector-id&gt;/status</span>.
+              Read-scoped enterprise keys can also fetch the Private Talent Cloud snapshot at <span className="font-mono">/api/integrations/enterprise/talent-cloud/snapshot</span>.
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
               <label className="text-sm text-slate-600">
