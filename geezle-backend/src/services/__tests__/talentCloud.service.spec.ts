@@ -21,6 +21,9 @@ const mockPrisma: any = {
     create: jest.fn(),
     update: jest.fn()
   },
+  privateOpportunityAccess: {
+    findMany: jest.fn()
+  },
   integrationEndpoint: {
     count: jest.fn(),
     findMany: jest.fn(),
@@ -65,6 +68,7 @@ describe('talentCloud.service', () => {
     mockPrisma.apiCredential.count.mockResolvedValue(0);
     mockPrisma.apiCredential.findFirst.mockResolvedValue(null);
     mockPrisma.apiCredential.findMany.mockResolvedValue([]);
+    mockPrisma.privateOpportunityAccess.findMany.mockResolvedValue([]);
   });
 
   test('queues signed webhook deliveries for active endpoints', async () => {
@@ -443,6 +447,89 @@ describe('talentCloud.service', () => {
         allowedEventTypes: ['invoice.*', 'refund.*'],
         lastEventType: 'invoice.approved',
         receivedCount: 7
+      })
+    );
+  });
+
+  test('returns an enterprise talent cloud snapshot for read-scoped API credentials', async () => {
+    mockPrisma.apiCredential.findFirst.mockResolvedValue({
+      id: 'cred-read-2',
+      name: 'Enterprise Snapshot Key',
+      keyPrefix: 'sk_snapshot1',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.read'],
+      status: 'ACTIVE',
+      metadata: {}
+    });
+    mockPrisma.apiCredential.update.mockResolvedValue({
+      id: 'cred-read-2',
+      name: 'Enterprise Snapshot Key',
+      keyPrefix: 'sk_snapshot1',
+      secretHash: 'stored-hash',
+      scopes: ['talent_cloud.read'],
+      status: 'ACTIVE',
+      lastUsedAt: new Date('2026-06-24T15:00:00.000Z'),
+      metadata: {}
+    });
+    mockPrisma.talentPool.findMany.mockResolvedValue([
+      {
+        id: 'pool-1',
+        name: 'Acme Preferred Designers',
+        slug: 'acme-preferred-designers',
+        visibility: 'PRIVATE',
+        isActive: true,
+        members: [],
+        privateAccessRules: []
+      }
+    ]);
+    mockPrisma.vendorRequirement.findMany.mockResolvedValue([
+      {
+        id: 'vr-1',
+        code: 'KYC-2',
+        name: 'KYC Tier 2',
+        isActive: true
+      }
+    ]);
+    mockPrisma.privateOpportunityAccess.findMany.mockResolvedValue([
+      {
+        id: 'access-1',
+        entityType: 'job',
+        entityId: 'job-1',
+        poolId: 'pool-1',
+        visibilityScope: 'POOL_ONLY',
+        pool: { id: 'pool-1', name: 'Acme Preferred Designers' }
+      }
+    ]);
+
+    const service = await import('../talentCloud.service');
+    const result = await service.getEnterpriseTalentCloudSnapshot({
+      'x-scrolith-api-key': 'sk_snapshot1abcdefghijklmnop'
+    });
+
+    expect(mockPrisma.apiCredential.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'cred-read-2' },
+        data: expect.objectContaining({
+          lastUsedAt: expect.any(Date)
+        })
+      })
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        credential: expect.objectContaining({
+          id: 'cred-read-2',
+          name: 'Enterprise Snapshot Key',
+          keyPrefix: 'sk_snapshot1'
+        }),
+        summary: expect.objectContaining({
+          pools: expect.any(Number)
+        }),
+        settings: expect.objectContaining({
+          enabled: expect.any(Boolean)
+        }),
+        pools: expect.any(Array),
+        vendorRequirements: expect.any(Array),
+        accessRules: expect.any(Array)
       })
     );
   });

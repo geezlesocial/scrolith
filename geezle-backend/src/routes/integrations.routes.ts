@@ -1,5 +1,9 @@
 import express from 'express';
-import { getInboundConnectorStatus, ingestInboundConnectorEvent } from '../services/talentCloud.service';
+import {
+  getEnterpriseTalentCloudSnapshot,
+  getInboundConnectorStatus,
+  ingestInboundConnectorEvent
+} from '../services/talentCloud.service';
 
 const router = express.Router();
 
@@ -38,6 +42,15 @@ router.get('/inbound/:id/status', async (req, res) => {
     return res.json({ success: true, data });
   } catch (error) {
     return handleError(res, error, 'Failed to load connector status');
+  }
+});
+
+router.get('/enterprise/talent-cloud/snapshot', async (req, res) => {
+  try {
+    const data = await getEnterpriseTalentCloudSnapshot(req.headers as Record<string, any>);
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load enterprise talent cloud snapshot');
   }
 });
 

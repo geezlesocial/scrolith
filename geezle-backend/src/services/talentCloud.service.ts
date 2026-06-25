@@ -409,6 +409,34 @@ export const getInboundConnectorStatus = async (endpointId: string, headers: Rec
   };
 };
 
+export const getEnterpriseTalentCloudSnapshot = async (headers: Record<string, any>) => {
+  const credentialToken = readApiCredentialToken(headers || {});
+  const credential = await authenticateApiCredential(credentialToken, ['talent_cloud.read', 'integrations.read']);
+
+  const [summary, settings, pools, vendorRequirements, accessRules] = await Promise.all([
+    getTalentCloudSummary(),
+    getTalentCloudSettings(),
+    listTalentPools(),
+    listVendorRequirements(),
+    listPrivateAccessRules()
+  ]);
+
+  return {
+    credential: {
+      id: credential.id,
+      name: credential.name,
+      keyPrefix: credential.keyPrefix,
+      status: credential.status,
+      lastUsedAt: credential.lastUsedAt || null
+    },
+    summary,
+    settings,
+    pools,
+    vendorRequirements,
+    accessRules
+  };
+};
+
 const verifyInboundConnectorAuth = (endpoint: any, headers: Record<string, any>) => {
   const metadata = endpoint?.metadata || {};
   const authMode = cleanString(metadata.authMode || 'bearer').toUpperCase();
