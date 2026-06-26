@@ -2684,6 +2684,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     user
   ]);
 
+  const extractMarketplacePreviewListings = useCallback((value: any): MarketplaceListing[] => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.listings)) return value.listings;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+  }, []);
+
   const loadSidebar = useCallback(async () => {
     if (!user) return;
     setViewersLoading(true);
@@ -3185,13 +3192,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const resolveMarketplaceListingUrl = useCallback((listing: MarketplaceListing) => {
     const slugOrId = String(listing?.slug || listing?.id || '').trim();
     return slugOrId ? `/marketplace/listing/${encodeURIComponent(slugOrId)}` : '/marketplace';
-  }, []);
-
-  const extractMarketplacePreviewListings = useCallback((value: any): MarketplaceListing[] => {
-    if (Array.isArray(value)) return value;
-    if (Array.isArray(value?.listings)) return value.listings;
-    if (Array.isArray(value?.items)) return value.items;
-    return [];
   }, []);
 
   const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
