@@ -75,6 +75,7 @@ import AdCard from '../components/AdCard';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryAuthorAvatar from '../components/stories/StoryAuthorAvatar';
 import StoryReplySheet from '../components/stories/StoryReplySheet';
+import SearchInput from '../components/SearchInput';
 import { pickInterestSurveyCandidateIds } from '../components/recommendation/ContentInterestSurvey';
 import { RecoService } from '../services/reco';
 import {
@@ -3073,17 +3074,14 @@ const CommunityHome = () => {
             {/* Search Bar */}
             {showSearchBar && (
               <div className="rounded-xl bg-white p-3 shadow-sm sm:p-4">
-                <div className="flex items-center gap-2 rounded-[28px] border border-gray-200 bg-slate-50 px-3 py-2">
-                  <Search className="h-5 w-5 shrink-0 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder={isMobileViewport ? 'Search jobs, gigs, people...' : 'Search discussions, topics, or people...'}
-                    className="w-full bg-transparent py-2 text-sm text-gray-700 outline-none placeholder:text-gray-400"
-                  />
-                  <button className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-blue-600 p-3 text-white transition hover:bg-blue-700">
-                    <Filter className="w-4 h-4" />
-                  </button>
-                </div>
+                <SearchInput
+                  placeholder={isMobileViewport ? 'Search jobs, gigs, people...' : 'Search discussions, topics, or people...'}
+                  searchPath="/search"
+                  className="w-full"
+                  showButton
+                  buttonLabel={isMobileViewport ? 'Search' : 'Search'}
+                  buttonAriaLabel="Search community content"
+                />
               </div>
             )}
 
