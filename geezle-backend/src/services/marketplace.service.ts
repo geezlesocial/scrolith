@@ -45,7 +45,7 @@ export const DEFAULT_MARKETPLACE_SETTINGS = {
   sellerEligibility: {
     requireVerifiedEmail: false,
     requireVerifiedKyc: false,
-    blockedRoles: ['ADMIN', 'MODERATOR']
+    blockedRoles: ['MODERATOR']
   },
   reportingReasons: [
     'scam_fraud',
@@ -726,7 +726,8 @@ export const getMarketplaceListingByIdOrSlug = async (idOrSlug: string, viewerId
 export const createMarketplaceListing = async (user: User, input: any, allowAdmin = false) => {
   const settings = await assertMarketplaceEnabled();
   const normalizedRole = normalizeRole(user.role);
-  if (!allowAdmin && settings?.sellerEligibility?.blockedRoles?.includes(normalizedRole)) {
+  const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(normalizedRole);
+  if (!allowAdmin && !isAdmin && settings?.sellerEligibility?.blockedRoles?.includes(normalizedRole)) {
     const error = new Error('Your account is not eligible to sell');
     (error as any).status = 403;
     throw error;
