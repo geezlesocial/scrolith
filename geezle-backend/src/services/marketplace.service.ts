@@ -39,6 +39,7 @@ export const DEFAULT_MARKETPLACE_SETTINGS = {
   maxImagesPerListing: 10,
   maxVideosPerListing: 1,
   allowedPaymentMethods: ['cash_on_delivery'],
+  enabledPaymentMethods: ['cash_on_delivery'],
   cashOnDeliveryEnabled: true,
   onlineCheckoutEnabled: false,
   paymentRequiredBeforeContact: false,
@@ -165,17 +166,47 @@ const normalizeReviewStatus = (value: unknown) => {
 
 const normalizeRole = (role?: string | null) => String(role || '').trim().toUpperCase();
 
+const resolveMarketplacePaymentMethodWhitelist = (settings: any) => {
+  const allowed = toStringArray(settings?.allowedPaymentMethods);
+  if (allowed.length) return Array.from(new Set(allowed));
+  const enabled = toStringArray(settings?.enabledPaymentMethods);
+  if (enabled.length) return Array.from(new Set(enabled));
+  const legacy = toStringArray(settings?.paymentMethods);
+  if (legacy.length) return Array.from(new Set(legacy));
+  return [];
+};
+
 const getMarketplaceSettingsRow = async () =>
   prisma.appSetting.findUnique({ where: { scope: MARKETPLACE_SETTINGS_SCOPE } });
 
 export const getMarketplaceSettings = async () => {
   const row = await getMarketplaceSettingsRow();
-  return deepMerge(DEFAULT_MARKETPLACE_SETTINGS, row?.data || {});
+  const merged = deepMerge(DEFAULT_MARKETPLACE_SETTINGS, row?.data || {});
+  const paymentMethods = resolveMarketplacePaymentMethodWhitelist(merged);
+  if (paymentMethods.length) {
+    merged.allowedPaymentMethods = paymentMethods;
+    merged.enabledPaymentMethods = paymentMethods;
+    merged.paymentMethods = paymentMethods;
+  }
+  return merged;
 };
 
 export const updateMarketplaceSettings = async (patch: any, actorId?: string | null) => {
   const existing = await getMarketplaceSettings();
-  const merged = deepMerge(existing, patch || {});
+  const incoming = patch || {};
+  const merged = deepMerge(existing, incoming);
+  const whitelistKeys = ['allowedPaymentMethods', 'enabledPaymentMethods', 'paymentMethods'];
+  const whitelistSource = whitelistKeys.some((key) => Object.prototype.hasOwnProperty.call(incoming, key)) ? incoming : merged;
+  const paymentMethods = resolveMarketplacePaymentMethodWhitelist(whitelistSource);
+  if (paymentMethods.length) {
+    merged.allowedPaymentMethods = paymentMethods;
+    merged.enabledPaymentMethods = paymentMethods;
+    merged.paymentMethods = paymentMethods;
+  } else if (whitelistKeys.some((key) => Object.prototype.hasOwnProperty.call(incoming, key))) {
+    merged.allowedPaymentMethods = [];
+    merged.enabledPaymentMethods = [];
+    merged.paymentMethods = [];
+  }
   const saved = await prisma.appSetting.upsert({
     where: { scope: MARKETPLACE_SETTINGS_SCOPE },
     update: { data: merged },
@@ -467,6 +498,10 @@ const validateListingPayload = async (input: any, settings: any) => {
     errors.push('at least one payment method is required');
   }
   const allowedPaymentMethods = new Set(toStringArray(settings?.allowedPaymentMethods).map((value) => value.toLowerCase()));
+  const fallbackPaymentMethods = resolveMarketplacePaymentMethodWhitelist(settings);
+  if (!allowedPaymentMethods.size && fallbackPaymentMethods.length) {
+    fallbackPaymentMethods.forEach((method) => allowedPaymentMethods.add(String(method).toLowerCase()));
+  }
   if (paymentMethods.length) {
     const invalid = paymentMethods.filter((method) => !allowedPaymentMethods.has(method.toLowerCase()));
     if (invalid.length) errors.push(`invalid payment methods: ${invalid.join(', ')}`);
