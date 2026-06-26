@@ -152,6 +152,7 @@ export interface MarketplaceSettings {
   requireApprovalForNewSellers?: boolean;
   paymentMethods?: string[];
   enabledPaymentMethods?: string[];
+  allowedPaymentMethods?: string[];
   reportingReasons?: string[];
   categoriesRequireApproval?: string[];
   sellerLimits?: {

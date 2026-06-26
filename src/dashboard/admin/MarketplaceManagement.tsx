@@ -468,6 +468,7 @@ const MarketplaceManagement: React.FC = () => {
   const saveSettings = async () => {
     setSaving(true);
     try {
+      const activeMarketplaceMethods = asList(settingsDraft.enabledPaymentMethodsText);
       const payload: Partial<MarketplaceSettings> = {
         enabled: settingsDraft.enabled,
         publicBrowsing: settingsDraft.publicBrowsing,
@@ -481,7 +482,8 @@ const MarketplaceManagement: React.FC = () => {
         requireApprovalForVideo: settingsDraft.requireApprovalForVideo,
         requireApprovalForNewSellers: settingsDraft.requireApprovalForNewSellers,
         paymentMethods: asList(settingsDraft.paymentMethodsText),
-        enabledPaymentMethods: asList(settingsDraft.enabledPaymentMethodsText),
+        enabledPaymentMethods: activeMarketplaceMethods,
+        allowedPaymentMethods: activeMarketplaceMethods,
         reportingReasons: asList(settingsDraft.reportingReasonsText),
         categoriesRequireApproval: asList(settingsDraft.categoriesRequireApprovalText),
         sellerLimits: {

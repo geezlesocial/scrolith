@@ -140,6 +140,15 @@ const normalizeSettings = (settings: any): MarketplaceSettings => ({
   requireApprovalForVideo: settings?.requireApprovalForVideo ?? settings?.require_approval_for_video ?? false,
   requireApprovalForNewSellers:
     settings?.requireApprovalForNewSellers ?? settings?.require_approval_for_new_sellers ?? false,
+  allowedPaymentMethods: Array.isArray(settings?.allowedPaymentMethods)
+    ? settings.allowedPaymentMethods
+    : Array.isArray(settings?.allowed_payment_methods)
+      ? settings.allowed_payment_methods
+      : Array.isArray(settings?.enabledPaymentMethods)
+        ? settings.enabledPaymentMethods
+        : Array.isArray(settings?.paymentMethods)
+          ? settings.paymentMethods
+          : undefined,
   paymentMethods: Array.isArray(settings?.paymentMethods)
     ? settings.paymentMethods
     : Array.isArray(settings?.payment_methods)
