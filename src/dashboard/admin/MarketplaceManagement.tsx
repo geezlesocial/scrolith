@@ -18,7 +18,9 @@ import {
 import LocationPicker from '../../components/common/LocationPicker';
 import { useNotification } from '../../context/NotificationContext';
 import { AdminService } from '../../services/admin';
+import { PaymentService } from '../../services/payment';
 import type { Currency } from '../../types';
+import type { PaymentGateway } from '../../types';
 import type {
   MarketplaceCategory,
   MarketplaceListing,
@@ -182,6 +184,7 @@ const MarketplaceManagement: React.FC = () => {
   const [reports, setReports] = useState<MarketplaceReport[]>([]);
   const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [activePaymentMethods, setActivePaymentMethods] = useState<PaymentGateway[]>([]);
   const [settings, setSettings] = useState<MarketplaceSettings | null>(null);
   const [search, setSearch] = useState('');
   const [selectedListingId, setSelectedListingId] = useState('');
@@ -189,24 +192,57 @@ const MarketplaceManagement: React.FC = () => {
   const [categoryDraft, setCategoryDraft] = useState<CategoryDraft>(emptyCategoryDraft());
   const [settingsDraft, setSettingsDraft] = useState<SettingsDraft>(emptySettingsDraft());
   const defaultCurrencyCode = useMemo(() => resolveDefaultCurrencyCode(currencies), [currencies]);
+  const activePaymentMethodIds = useMemo(
+    () =>
+      Array.from(
+        new Map(
+          activePaymentMethods
+            .map((method) => ({
+              id: String(method?.id || '').trim(),
+              name: String(method?.name || method?.id || '').trim(),
+              isEnabled: method?.is_enabled ?? method?.isEnabled ?? false
+            }))
+            .filter((method) => method.id && method.isEnabled)
+            .map((method) => [method.id, method] as const)
+        ).values()
+      ),
+    [activePaymentMethods]
+  );
+  const activeMarketplacePaymentMethods = useMemo(
+    () =>
+      activePaymentMethodIds.map((method) => ({
+        id: method.id,
+        label: method.name,
+        selected: (settingsDraft.enabledPaymentMethodsText || '')
+          .split(/[\n,]/)
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+          .includes(method.id)
+      })),
+    [activePaymentMethodIds, settingsDraft.enabledPaymentMethodsText]
+  );
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [listingRows, reportRows, categoryRows, settingsRows, currencyRows] = await Promise.all([
+      const [listingRows, reportRows, categoryRows, settingsRows, currencyRows, paymentMethodsRows] = await Promise.all([
         AdminService.getMarketplaceListings({ limit: 200 }),
         AdminService.getMarketplaceReports(),
         AdminService.getMarketplaceCategories(),
         AdminService.getMarketplaceSettings(),
-        AdminService.getActiveCurrencies().catch(() => [])
+        AdminService.getActiveCurrencies().catch(() => []),
+        PaymentService.getActivePaymentMethods().catch(() => [])
       ]);
       const normalizedCurrencies = Array.isArray(currencyRows) ? currencyRows : [];
+      const normalizedPaymentMethods = Array.isArray(paymentMethodsRows) ? paymentMethodsRows : [];
       const resolvedCurrencyCode = resolveDefaultCurrencyCode(normalizedCurrencies);
       setListings(Array.isArray(listingRows) ? listingRows : []);
       setReports(Array.isArray(reportRows) ? reportRows : []);
       setCategories(Array.isArray(categoryRows) ? categoryRows : []);
       setCurrencies(normalizedCurrencies);
+      setActivePaymentMethods(normalizedPaymentMethods);
       setSettings(settingsRows);
+      const currentEnabledPaymentMethods = settingsRows?.enabledPaymentMethods || settingsRows?.paymentMethods || ['cash_on_delivery', 'wallet', 'card', 'bank_transfer'];
       setSettingsDraft({
         ...emptySettingsDraft(resolvedCurrencyCode),
         enabled: settingsRows?.enabled ?? true,
@@ -220,8 +256,8 @@ const MarketplaceManagement: React.FC = () => {
         allowBuyerMessaging: settingsRows?.allowBuyerMessaging ?? true,
         requireApprovalForVideo: settingsRows?.requireApprovalForVideo ?? false,
         requireApprovalForNewSellers: settingsRows?.requireApprovalForNewSellers ?? true,
-        paymentMethodsText: (settingsRows?.paymentMethods || settingsRows?.enabledPaymentMethods || ['cash_on_delivery', 'wallet', 'card', 'bank_transfer']).join(', '),
-        enabledPaymentMethodsText: (settingsRows?.enabledPaymentMethods || settingsRows?.paymentMethods || ['cash_on_delivery', 'wallet', 'card', 'bank_transfer']).join(', '),
+        paymentMethodsText: (settingsRows?.paymentMethods || currentEnabledPaymentMethods).join(', '),
+        enabledPaymentMethodsText: currentEnabledPaymentMethods.join(', '),
         reportingReasonsText: (settingsRows?.reportingReasons || emptySettingsDraft().reportingReasonsText.split('\n')).join('\n'),
         categoriesRequireApprovalText: (settingsRows?.categoriesRequireApproval || []).join('\n'),
         sellerCanSell: settingsRows?.sellerLimits?.canSell ?? true,
@@ -315,6 +351,23 @@ const MarketplaceManagement: React.FC = () => {
     if (refreshing) return;
     setRefreshing(true);
     await loadAll();
+  };
+
+  const toggleMarketplacePaymentMethod = (methodId: string) => {
+    const normalized = String(methodId || '').trim();
+    if (!normalized) return;
+    setSettingsDraft((previous) => {
+      const current = asList(previous.enabledPaymentMethodsText);
+      const next = current.includes(normalized)
+        ? current.filter((entry) => entry !== normalized)
+        : [...current, normalized];
+      return { ...previous, enabledPaymentMethodsText: next.join(', ') };
+    });
+  };
+
+  const syncMarketplacePaymentMethods = () => {
+    const activeIds = activePaymentMethodIds.map((method) => method.id);
+    setSettingsDraft((previous) => ({ ...previous, enabledPaymentMethodsText: activeIds.join(', ') }));
   };
 
   const saveListing = async () => {
@@ -947,6 +1000,57 @@ const MarketplaceManagement: React.FC = () => {
             <div className="grid gap-4 sm:grid-cols-2">
               <Input label="Commission rate" type="number" value={settingsDraft.commissionRate} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionRate: value }))} />
               <Input label="Commission fixed fee" type="number" value={settingsDraft.commissionFixedFee} onChange={(value) => setSettingsDraft((prev) => ({ ...prev, commissionFixedFee: value }))} />
+            </div>
+          </div>
+          <div className="mt-5 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Live active payment methods</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Fetched from the platform's active checkout gateways. Select which ones should be active on Marketplace.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={syncMarketplacePaymentMethods}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                >
+                  Use all active methods
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettingsDraft((prev) => ({ ...prev, enabledPaymentMethodsText: '' }))}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                >
+                  Clear selection
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {activeMarketplacePaymentMethods.length ? (
+                activeMarketplacePaymentMethods.map((method) => (
+                  <button
+                    key={method.id}
+                    type="button"
+                    onClick={() => toggleMarketplacePaymentMethod(method.id)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold transition ${
+                      method.selected
+                        ? 'border-blue-600 bg-blue-600 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{method.label}</span>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                      method.selected ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                      {method.id}
+                    </span>
+                  </button>
+                ))
+              ) : (
+                <div className="text-sm text-slate-500">No active payment gateways are available right now.</div>
+              )}
             </div>
           </div>
           <div className="mt-5">
