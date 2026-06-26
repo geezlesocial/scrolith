@@ -1380,6 +1380,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [sidebarTopAd, setSidebarTopAd] = useState<SidebarAdCard | null>(null);
   const [sidebarFeaturedAd, setSidebarFeaturedAd] = useState<SidebarAdCard | null>(null);
   const [sidebarMiddleAd, setSidebarMiddleAd] = useState<SidebarAdCard | null>(null);
+  const [marketplacePreviewListings, setMarketplacePreviewListings] = useState<MarketplaceListing[]>([]);
+  const [marketplacePreviewLoading, setMarketplacePreviewLoading] = useState(false);
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [gigs, setGigs] = useState<Gig[]>([]);
@@ -2685,6 +2687,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const loadSidebar = useCallback(async () => {
     if (!user) return;
     setViewersLoading(true);
+    setMarketplacePreviewLoading(true);
     try {
       const tasks: Promise<any>[] = [];
       tasks.push(
@@ -2764,8 +2767,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             })
           : Promise.resolve([])
       );
+      tasks.push(
+        showDiscover
+          ? listMarketplaceListings({
+              page: 1,
+              pageSize: 4,
+              sort: 'recommended'
+            }).catch(() => [])
+          : Promise.resolve([])
+      );
 
-      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes] = await Promise.allSettled(tasks);
+      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes, marketplaceRes] = await Promise.allSettled(tasks);
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
         ? profilesRes.value.slice(0, maxProfiles).map((p: any) => ({
@@ -2906,10 +2918,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setSidebarTopAd(topAd);
       setSidebarFeaturedAd(featuredAd);
       setSidebarMiddleAd(middleAd);
+      setMarketplacePreviewListings(
+        marketplaceRes.status === 'fulfilled'
+          ? extractMarketplacePreviewListings(marketplaceRes.value).slice(0, 3)
+          : []
+      );
     } catch (error) {
       console.error('Failed to load member home sidebar data', error);
     } finally {
       setViewersLoading(false);
+      setMarketplacePreviewLoading(false);
     }
   }, [
     user,
@@ -2932,6 +2950,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     showTopSidebarAd,
     showFeaturedSidebarAd,
     showMiddleSidebarAd,
+    showDiscover,
+    extractMarketplacePreviewListings,
     normalizeSidebarAd,
     normalizeRecommendedPage
   ]);
@@ -3160,6 +3180,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         location: listing.location
       }
     };
+  }, []);
+
+  const resolveMarketplaceListingUrl = useCallback((listing: MarketplaceListing) => {
+    const slugOrId = String(listing?.slug || listing?.id || '').trim();
+    return slugOrId ? `/marketplace/listing/${encodeURIComponent(slugOrId)}` : '/marketplace';
+  }, []);
+
+  const extractMarketplacePreviewListings = useCallback((value: any): MarketplaceListing[] => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.listings)) return value.listings;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
   }, []);
 
   const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
@@ -6671,6 +6703,78 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       )}
                     </div>
                   ) : null}
+
+                  <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-cyan-50 px-3 py-3 text-left shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <ShoppingBag className="h-4 w-4 text-emerald-600" />
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Marketplace</p>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">Recommended items picked for this feed.</p>
+                      </div>
+                      <Link
+                        to="/marketplace"
+                        className="inline-flex shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+                      >
+                        Open
+                      </Link>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {marketplacePreviewLoading ? (
+                        <div className="space-y-2">
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                        </div>
+                      ) : marketplacePreviewListings.length > 0 ? (
+                        marketplacePreviewListings.map((listing) => {
+                          const image = listing.coverImage || (Array.isArray(listing.images) && listing.images.length ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url) : '');
+                          const price = formatListingAmount(listing.price, listing.currency || 'USD');
+                          const location = String(listing.location || '').trim();
+                          return (
+                            <Link
+                              key={listing.id}
+                              to={resolveMarketplaceListingUrl(listing)}
+                              className="group flex items-center gap-3 rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm"
+                            >
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                                {image ? (
+                                  <img src={image} alt={listing.title || 'Marketplace item'} className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center">
+                                    <ShoppingBag className="h-5 w-5 text-slate-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-slate-900">{listing.title || 'Marketplace item'}</p>
+                                <p className="mt-0.5 truncate text-xs text-slate-500">
+                                  {price}
+                                  {location ? ` · ${location}` : ''}
+                                </p>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                    Recommended
+                                  </span>
+                                  {listing.brand ? (
+                                    <span className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                                      {listing.brand}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-emerald-600" />
+                            </Link>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/80 px-3 py-3 text-xs text-slate-600">
+                          Marketplace recommendations will appear here once active listings are available.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
