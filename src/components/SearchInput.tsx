@@ -29,6 +29,7 @@ interface SearchInputProps {
     searchPath?: string;
     initialQuery?: string;
     onSearch?: (term: string) => void;
+    disableNavigation?: boolean;
 }
 
 const DEFAULT_SEARCH_RECOMMENDATIONS: SearchSuggestion[] = [
@@ -52,7 +53,8 @@ const SearchInput: React.FC<SearchInputProps> = ({
     searchMode = "keyword",
     searchPath,
     initialQuery = "",
-    onSearch
+    onSearch,
+    disableNavigation = false
 }) => {
     const [query, setQuery] = useState(initialQuery);
     const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
@@ -196,6 +198,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
         setQuery(cleanTerm);
         setIsOpen(false);
         if (onSearch) onSearch(cleanTerm);
+        if (disableNavigation) return;
 
         const basePath = searchPath && searchPath.trim() ? searchPath.trim() : "/search";
         const isExternal = basePath.startsWith("http");

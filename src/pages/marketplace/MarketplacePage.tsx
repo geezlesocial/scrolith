@@ -32,6 +32,7 @@ import {
   X
 } from 'lucide-react';
 import LocationPicker from '../../components/common/LocationPicker';
+import SearchInput from '../../components/SearchInput';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
@@ -979,18 +980,16 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       <div className="space-y-4">
         <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr_1fr]">
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={searchDraft}
-                onChange={(event) => setSearchDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') setQuery((previous) => ({ ...previous, search: searchDraft.trim(), page: 1 }));
-                }}
-                placeholder="Search items, brands, sellers..."
-                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-              />
-            </label>
+            <SearchInput
+              placeholder="Search items, brands, sellers..."
+              className="lg:col-span-1"
+              initialQuery={searchDraft}
+              disableNavigation
+              onSearch={(term) => {
+                setSearchDraft(term);
+                setQuery((previous) => ({ ...previous, search: term, page: 1 }));
+              }}
+            />
             <select
               value={query.categoryId || activeCategoryId || ''}
               onChange={(event) => setQuery((previous) => ({ ...previous, categoryId: event.target.value || null, page: 1 }))}
