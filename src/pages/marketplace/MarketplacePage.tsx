@@ -763,29 +763,23 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
         ? await updateMarketplaceListing(existingId, payload)
         : await createMarketplaceListing(payload);
 
-      const fileIds: string[] = [];
-      const uploadTasks = [
+      const mediaUploads = [
         ...selectedImages.map(async (file) => {
           const uploaded = await FileService.uploadFile(file, 'portfolio', {
             userId: user.id,
             visibility: 'public'
           });
-          fileIds.push(String(uploaded.id || uploaded.fileId || ''));
+          return String(uploaded.id || uploaded.fileId || '');
         }),
         ...(selectedVideo
-          ? [async () => {
-              const uploaded = await FileService.uploadFile(selectedVideo, 'portfolio', {
-                userId: user.id,
-                visibility: 'public'
-              });
-              fileIds.push(String(uploaded.id || uploaded.fileId || ''));
-            }]
+          ? [FileService.uploadFile(selectedVideo, 'portfolio', {
+              userId: user.id,
+              visibility: 'public'
+            }).then((uploaded) => String(uploaded.id || uploaded.fileId || ''))]
           : [])
       ];
 
-      for (const task of uploadTasks) {
-        await task();
-      }
+      const fileIds = (await Promise.all(mediaUploads)).filter(Boolean);
 
       if (fileIds.length > 0) {
         await uploadMarketplaceListingMedia(listing.id, fileIds);
