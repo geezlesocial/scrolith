@@ -578,6 +578,43 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   }, [isDashboardVariant, isMyListingsRoute, isSavedRoute, user?.id]);
 
   useEffect(() => {
+    if (!isMyListingsRoute) return;
+    if (!user?.id) return;
+    let mounted = true;
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await listMarketplaceListings({
+          includeMine: true,
+          page: 1,
+          pageSize: 100,
+          sort: 'newest'
+        });
+        if (!mounted) return;
+        if (Array.isArray(response)) {
+          setListings(response);
+        } else if (Array.isArray((response as any)?.items)) {
+          setListings((response as any).items);
+        } else if (Array.isArray((response as any)?.listings)) {
+          setListings((response as any).listings);
+        } else {
+          setListings([]);
+        }
+      } catch (err: any) {
+        if (!mounted) return;
+        setError(err?.response?.data?.error || err?.message || 'Failed to load your marketplace listings');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [isMyListingsRoute, user?.id]);
+
+  useEffect(() => {
     if (selectedImages.length === 0) {
       setImagePreviews([]);
       return;
