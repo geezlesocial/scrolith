@@ -409,19 +409,37 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return null;
   }, [selectedListing]);
 
+  const favoriteListings = useMemo(
+    () => (Array.isArray(dashboard?.favorites) ? dashboard.favorites : []),
+    [dashboard?.favorites]
+  );
+
+  const favoriteListingIds = useMemo(
+    () => new Set(favoriteListings.map((item: MarketplaceListing) => String(item.id || '')).filter(Boolean)),
+    [favoriteListings]
+  );
+
   const visibleListings = useMemo(() => {
     const base = Array.isArray(listings) ? listings : [];
     if (isDetailRoute || isSellRoute || isEditRoute) return base;
     if (isSavedRoute) {
-      return Array.isArray(dashboard?.favorites) ? dashboard.favorites : [];
+      return favoriteListings;
     }
     if (isMyListingsRoute || isDashboardVariant) {
       return Array.isArray(dashboard?.listings) ? dashboard.listings : base;
     }
     return base;
-  }, [dashboard?.favorites, dashboard?.listings, isDashboardVariant, isDetailRoute, isEditRoute, isMyListingsRoute, isSavedRoute, isSellRoute, listings]);
+  }, [dashboard?.listings, favoriteListings, isDashboardVariant, isDetailRoute, isEditRoute, isMyListingsRoute, isSavedRoute, isSellRoute, listings]);
 
-  const summary = dashboard?.summary || {};
+  const summary = useMemo(() => {
+    const raw = dashboard?.summary || {};
+    return {
+      totalListings: raw.totalListings ?? Number(dashboard?.active || 0) + Number(dashboard?.pending || 0) + Number(dashboard?.drafts || 0) + Number(dashboard?.sold || 0),
+      activeListings: raw.activeListings ?? Number(dashboard?.active || 0),
+      draftListings: raw.draftListings ?? Number(dashboard?.drafts || 0),
+      savedListings: raw.savedListings ?? (Array.isArray(dashboard?.favorites) ? dashboard.favorites.length : Number(dashboard?.favorites || 0))
+    };
+  }, [dashboard]);
 
   const resetForm = (listing?: MarketplaceListing | null) => {
     const next = listingToFormValues(listing ?? null, defaultCurrencyCode);
@@ -731,7 +749,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     }
     setActionLoading(true);
     try {
-      const isFavorited = Boolean(dashboard?.favorites?.some((item: MarketplaceListing) => item.id === listing.id));
+      const isFavorited = favoriteListingIds.has(String(listing.id || ''));
       if (isFavorited) {
         await unfavoriteMarketplaceListing(listing.id);
         setNotice('Removed from saved items');
@@ -1143,7 +1161,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 <MarketplaceListingCard
                   key={listing.id}
                   listing={listing}
-                  isSaved={Boolean(dashboard?.favorites?.some((item: MarketplaceListing) => item.id === listing.id))}
+                  isSaved={favoriteListingIds.has(String(listing.id || ''))}
                   onOpen={() => navigate(`/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}`)}
                   onFavorite={() => void handleFavoriteToggle(listing)}
                   onShare={() => void handleShare(listing)}
@@ -1529,7 +1547,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
           <MarketplaceListingCard
             key={listing.id}
             listing={listing}
-            isSaved={Boolean(dashboard?.favorites?.some((item: MarketplaceListing) => item.id === listing.id))}
+            isSaved={favoriteListingIds.has(String(listing.id || ''))}
             onOpen={() => navigate(`/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}`)}
             onFavorite={() => void handleFavoriteToggle(listing)}
             onShare={() => void handleShare(listing)}
