@@ -1245,7 +1245,10 @@ export const AdminService = {
     limit?: number;
   }): Promise<MarketplaceListing[]> {
     const data = await adminGet<MarketplaceListing[]>('/marketplace/listings', filters);
-    return Array.isArray(data) ? data : [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray((data as any)?.items)) return (data as any).items;
+    if (Array.isArray((data as any)?.listings)) return (data as any).listings;
+    return [];
   },
 
   async getMarketplaceListing(id: string): Promise<MarketplaceListing | null> {
@@ -1295,7 +1298,10 @@ export const AdminService = {
 
   async getMarketplaceReports(): Promise<MarketplaceReport[]> {
     const data = await adminGet<MarketplaceReport[]>('/marketplace/reports');
-    return Array.isArray(data) ? data : [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray((data as any)?.items)) return (data as any).items;
+    if (Array.isArray((data as any)?.reports)) return (data as any).reports;
+    return [];
   },
 
   async resolveMarketplaceReport(id: string, payload?: Record<string, unknown>): Promise<boolean> {
