@@ -864,15 +864,15 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   };
 
   const handleDeleteListing = async (listing: MarketplaceListing) => {
-    if (!window.confirm('Archive this listing?')) return;
+    if (!window.confirm('Delist this listing from the marketplace?')) return;
     setActionLoading(true);
     try {
       await archiveMarketplaceListing(listing.id);
-      setNotice('Listing archived');
+      setNotice('Listing delisted');
       await refreshDashboard();
       navigate('/marketplace/my-listings');
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Unable to archive listing');
+      setError(err?.response?.data?.error || err?.message || 'Unable to delist listing');
     } finally {
       setActionLoading(false);
     }
@@ -1310,7 +1310,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 </button>
               </div>
             </div>
-            <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_180px]">
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
               <div className="space-y-3">
                 <div className="overflow-hidden rounded-[24px] bg-slate-100">
                   {cover ? (
@@ -1350,7 +1350,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 )}
               </div>
 
-              <div className="space-y-4">
+              <div className="min-w-0 space-y-4">
                 <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1451,6 +1451,15 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                           <CheckCircle2 className="h-4 w-4" />
                           Mark sold
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteListing(selectedListing)}
+                          disabled={actionLoading}
+                          className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700 disabled:opacity-60"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Delist
+                        </button>
                       </>
                     )}
                   </div>
@@ -1527,7 +1536,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   >
                     <span className="inline-flex items-center gap-2">
                       <Trash2 className="h-4 w-4" />
-                      Archive listing
+                      Delist listing
                     </span>
                     <ChevronRight className="h-4 w-4" />
                   </button>
@@ -1551,8 +1560,9 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             onOpen={() => navigate(`/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}`)}
             onFavorite={() => void handleFavoriteToggle(listing)}
             onShare={() => void handleShare(listing)}
-            onContact={() => navigate(`/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}?contact=1`)}
+            onContact={listingIsEditable(listing, user?.id, isAdmin) ? undefined : () => navigate(`/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}?contact=1`)}
             onEdit={listingIsEditable(listing, user?.id, isAdmin) ? () => navigate(`/marketplace/edit/${encodeURIComponent(listing.id)}`) : undefined}
+            onDelist={listingIsEditable(listing, user?.id, isAdmin) ? () => handleDeleteListing(listing) : undefined}
           />
         ))}
       </div>
@@ -1656,9 +1666,10 @@ const MarketplaceListingCard: React.FC<{
   onOpen: () => void;
   onFavorite: () => void;
   onShare: () => void;
-  onContact: () => void;
+  onContact?: () => void;
   onEdit?: () => void;
-}> = ({ listing, isSaved, onOpen, onFavorite, onShare, onContact, onEdit }) => {
+  onDelist?: () => void;
+}> = ({ listing, isSaved, onOpen, onFavorite, onShare, onContact, onEdit, onDelist }) => {
   const cover = getCoverImage(listing);
   const seller = listing.seller;
 
@@ -1746,14 +1757,36 @@ const MarketplaceListingCard: React.FC<{
         </div>
       </button>
 
-      <div className="flex items-center gap-2 border-t border-slate-100 px-4 py-3">
-        <button
-          type="button"
-          onClick={onContact}
-          className="flex-1 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-        >
-          Contact
-        </button>
+      <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-4 py-3">
+        {onContact && (
+          <button
+            type="button"
+            onClick={onContact}
+            className="min-w-[8.5rem] flex-1 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+          >
+            Contact
+          </button>
+        )}
+        {onDelist && (
+          <button
+            type="button"
+            onClick={onDelist}
+            className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delist
+          </button>
+        )}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+          >
+            <Edit3 className="h-4 w-4" />
+            Edit
+          </button>
+        )}
         <button
           type="button"
           onClick={onShare}
@@ -1761,15 +1794,6 @@ const MarketplaceListingCard: React.FC<{
         >
           <Send className="h-4 w-4" />
         </button>
-        {onEdit && (
-          <button
-            type="button"
-            onClick={onEdit}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 text-slate-700"
-          >
-            <Edit3 className="h-4 w-4" />
-          </button>
-        )}
       </div>
     </article>
   );

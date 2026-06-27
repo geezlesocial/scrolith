@@ -64,6 +64,9 @@ const normalizeListing = (listing: any): MarketplaceListing => {
     (Array.isArray(images) && images.length > 0 ? (typeof images[0] === 'string' ? images[0] : images[0]?.url) : null) ||
     null;
 
+  const rawStatus = String(listing?.status ?? 'draft').trim().toLowerCase();
+  const normalizedStatus = rawStatus === 'inactive' ? 'removed' : rawStatus;
+
   return {
     ...listing,
     id: String(listing?.id ?? listing?._id ?? ''),
@@ -104,7 +107,7 @@ const normalizeListing = (listing: any): MarketplaceListing => {
         : [],
     images,
     video: videoSource,
-    status: listing?.status ?? 'draft',
+    status: normalizedStatus,
     reviewStatus: listing?.reviewStatus ?? listing?.review_status ?? 'draft',
     rejectionReason: listing?.rejectionReason ?? listing?.rejection_reason ?? null,
     adminNotes: listing?.adminNotes ?? listing?.admin_notes ?? null,
