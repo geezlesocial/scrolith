@@ -1015,7 +1015,7 @@ export const archiveMarketplaceListing = async (listingId: string, user: User) =
   const updated = await prisma.marketplaceListing.update({
     where: { id: listingId },
     data: {
-      status: 'inactive',
+      status: 'removed',
       removedAt: new Date()
     },
     include: normalizeListingInclude
@@ -1031,7 +1031,7 @@ export const archiveMarketplaceListing = async (listingId: string, user: User) =
     data: {
       listingId,
       actorId: user.id,
-      action: 'listing.archive'
+      action: 'listing.delist'
     }
   }).catch(() => null);
 
