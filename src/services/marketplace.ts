@@ -52,12 +52,15 @@ const normalizeMedia = (media: any): MarketplaceListingMedia => ({
 });
 
 const normalizeListing = (listing: any): MarketplaceListing => {
-  const images = Array.isArray(listing?.images)
-    ? listing.images.map((media: any) => (typeof media === 'string' ? media : normalizeMedia(media)))
-    : [];
+  const mediaSource = Array.isArray(listing?.media) ? listing.media : [];
+  const imageSource = Array.isArray(listing?.images) ? listing.images : mediaSource;
+  const normalizedMedia = imageSource
+    .map((media: any) => (typeof media === 'string' ? media : normalizeMedia(media)))
+    .filter(Boolean);
+  const images = normalizedMedia.filter((media: any) => typeof media === 'string' || media?.type !== 'video');
   const videoSource = listing?.video
     ? (typeof listing.video === 'string' ? listing.video : normalizeMedia(listing.video))
-    : null;
+    : normalizedMedia.find((media: any) => typeof media !== 'string' && media?.type === 'video') || null;
   const coverImage =
     listing?.coverImage ||
     listing?.cover_image ||

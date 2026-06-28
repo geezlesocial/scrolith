@@ -1,6 +1,6 @@
 import api from './api';
 
-export type FavoriteEntityType = 'gig' | 'job' | 'freelancer';
+export type FavoriteEntityType = 'gig' | 'job' | 'freelancer' | 'marketplace';
 
 export interface FavoriteItem {
   entityType: FavoriteEntityType;
@@ -72,13 +72,14 @@ export const FavoritesService = {
     return extractData<any>(res);
   },
 
-  getExpanded: async (): Promise<{ gigs: any[]; jobs: any[]; freelancers: any[] }> => {
+  getExpanded: async (): Promise<{ gigs: any[]; jobs: any[]; freelancers: any[]; marketplace: any[] }> => {
     const res = await api.get('/favorites/expanded', favoritesReadConfig());
     const data = extractData<any>(res);
     return {
       gigs: Array.isArray(data?.gigs) ? data.gigs : [],
       jobs: Array.isArray(data?.jobs) ? data.jobs : [],
-      freelancers: Array.isArray(data?.freelancers) ? data.freelancers : []
+      freelancers: Array.isArray(data?.freelancers) ? data.freelancers : [],
+      marketplace: Array.isArray(data?.marketplace) ? data.marketplace : []
     };
   },
 

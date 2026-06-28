@@ -35,14 +35,15 @@ import LocationPicker from '../../components/common/LocationPicker';
 import SearchInput from '../../components/SearchInput';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
+import { useFavorites } from '../../context/FavoritesContext';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import { FileService } from '../../services/files';
+import { FavoritesService } from '../../services/favorites';
 import {
   archiveMarketplaceListing,
   contactMarketplaceSeller,
   createMarketplaceListing,
   deleteMarketplaceListingMedia,
-  favoriteMarketplaceListing,
   getMarketplaceCategories,
   getMarketplaceDashboard,
   getMarketplaceListing,
@@ -52,7 +53,6 @@ import {
   reportMarketplaceListing,
   reserveMarketplaceListing,
   submitMarketplaceListing,
-  unfavoriteMarketplaceListing,
   updateMarketplaceListing,
   uploadMarketplaceListingMedia
 } from '../../services/marketplace';
@@ -301,6 +301,7 @@ const MarketplaceSkeleton = () => (
 
 const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant = 'public' }) => {
   const { user } = useUser();
+  const { favorites, toggleFavorite, refreshFavorites } = useFavorites();
   const { availableCurrencies } = useCurrency();
   const navigate = useNavigate();
   const location = useLocation();
@@ -321,6 +322,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [categories, setCategories] = useState<MarketplaceCategory[]>([]);
   const [listings, setListings] = useState<MarketplaceListing[]>([]);
   const [dashboard, setDashboard] = useState<any>(null);
+  const [savedMarketplaceListings, setSavedMarketplaceListings] = useState<MarketplaceListing[]>([]);
   const [selectedListing, setSelectedListing] = useState<MarketplaceListing | null>(null);
   const [selectedMediaIndex, setSelectedMediaIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -342,7 +344,6 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [contactMessage, setContactMessage] = useState('');
   const [activePanel, setActivePanel] = useState<'browse' | 'mine' | 'saved' | 'sell'>('browse');
   const [shareState, setShareState] = useState<'closed' | 'open' | 'copied'>('closed');
-  const [galleryFocus, setGalleryFocus] = useState<string | null>(null);
 
   const mainRef = useRef<HTMLDivElement | null>(null);
 
@@ -409,27 +410,28 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return null;
   }, [selectedListing]);
 
-  const favoriteListings = useMemo(
-    () => (Array.isArray(dashboard?.favorites) ? dashboard.favorites : []),
-    [dashboard?.favorites]
-  );
-
-  const favoriteListingIds = useMemo(
-    () => new Set(favoriteListings.map((item: MarketplaceListing) => String(item.id || '')).filter(Boolean)),
-    [favoriteListings]
-  );
+  const favoriteListingIds = useMemo(() => {
+    const ids = new Set<string>();
+    favorites
+      .filter((item) => item.entityType === 'marketplace')
+      .forEach((item) => ids.add(String(item.entityId || '')));
+    if (Array.isArray(dashboard?.favorites)) {
+      dashboard.favorites.forEach((item: MarketplaceListing) => ids.add(String(item.id || '')));
+    }
+    return ids;
+  }, [dashboard?.favorites, favorites]);
 
   const visibleListings = useMemo(() => {
     const base = Array.isArray(listings) ? listings : [];
     if (isDetailRoute || isSellRoute || isEditRoute) return base;
     if (isSavedRoute) {
-      return favoriteListings;
+      return savedMarketplaceListings;
     }
     if (isMyListingsRoute || isDashboardVariant) {
       return Array.isArray(dashboard?.listings) ? dashboard.listings : base;
     }
     return base;
-  }, [dashboard?.listings, favoriteListings, isDashboardVariant, isDetailRoute, isEditRoute, isMyListingsRoute, isSavedRoute, isSellRoute, listings]);
+  }, [dashboard?.listings, isDashboardVariant, isDetailRoute, isEditRoute, isMyListingsRoute, isSavedRoute, isSellRoute, listings, savedMarketplaceListings]);
 
   const summary = useMemo(() => {
     const raw = dashboard?.summary || {};
@@ -437,9 +439,9 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       totalListings: raw.totalListings ?? Number(dashboard?.active || 0) + Number(dashboard?.pending || 0) + Number(dashboard?.drafts || 0) + Number(dashboard?.sold || 0),
       activeListings: raw.activeListings ?? Number(dashboard?.active || 0),
       draftListings: raw.draftListings ?? Number(dashboard?.drafts || 0),
-      savedListings: raw.savedListings ?? (Array.isArray(dashboard?.favorites) ? dashboard.favorites.length : Number(dashboard?.favorites || 0))
+      savedListings: raw.savedListings ?? favoriteListingIds.size
     };
-  }, [dashboard]);
+  }, [dashboard, favoriteListingIds.size]);
 
   const resetForm = (listing?: MarketplaceListing | null) => {
     const next = listingToFormValues(listing ?? null, defaultCurrencyCode);
@@ -596,6 +598,30 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   }, [isDashboardVariant, isMyListingsRoute, isSavedRoute, user?.id]);
 
   useEffect(() => {
+    if (!isSavedRoute) return;
+    if (!user?.id) return;
+    let mounted = true;
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await FavoritesService.getExpanded();
+        if (!mounted) return;
+        setSavedMarketplaceListings(Array.isArray(data.marketplace) ? data.marketplace : []);
+      } catch (err: any) {
+        if (!mounted) return;
+        setError(err?.response?.data?.error || err?.message || 'Failed to load saved marketplace listings');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [favorites, isSavedRoute, user?.id]);
+
+  useEffect(() => {
     if (!isMyListingsRoute) return;
     if (!user?.id) return;
     let mounted = true;
@@ -742,6 +768,22 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     }
   };
 
+  const refreshSelectedListing = async (listing?: MarketplaceListing | null) => {
+    const target = listing || selectedListing;
+    if (!target) return;
+    try {
+      const refreshed = await getMarketplaceListing(String(target.slug || target.id || ''));
+      setSelectedListing(refreshed);
+      setExistingMedia(
+        Array.isArray(refreshed.images)
+          ? (refreshed.images.filter((item): item is MarketplaceListingMedia => typeof item !== 'string') as MarketplaceListingMedia[])
+          : []
+      );
+    } catch {
+      // ignore
+    }
+  };
+
   const handleFavoriteToggle = async (listing: MarketplaceListing) => {
     if (!user?.id) {
       navigate('/auth/login');
@@ -750,14 +792,9 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     setActionLoading(true);
     try {
       const isFavorited = favoriteListingIds.has(String(listing.id || ''));
-      if (isFavorited) {
-        await unfavoriteMarketplaceListing(listing.id);
-        setNotice('Removed from saved items');
-      } else {
-        await favoriteMarketplaceListing(listing.id);
-        setNotice('Saved to your favorites');
-      }
-      await refreshDashboard();
+      await toggleFavorite('marketplace', listing.id);
+      setNotice(isFavorited ? 'Removed from saved items' : 'Saved to your favorites');
+      await Promise.all([refreshFavorites({ force: true }), refreshDashboard(), refreshSelectedListing(listing)]);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Unable to update saved state');
     } finally {
@@ -869,7 +906,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     try {
       await archiveMarketplaceListing(listing.id);
       setNotice('Listing delisted');
-      await refreshDashboard();
+      await Promise.all([refreshDashboard(), refreshFavorites({ force: true })]);
       navigate('/marketplace/my-listings');
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Unable to delist listing');
@@ -883,7 +920,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     try {
       await reserveMarketplaceListing(listing.id);
       setNotice('Listing reserved');
-      await refreshDashboard();
+      await Promise.all([refreshDashboard(), refreshSelectedListing(listing)]);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Unable to reserve listing');
     } finally {
@@ -896,7 +933,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     try {
       await markMarketplaceListingSold(listing.id);
       setNotice('Listing marked as sold');
-      await refreshDashboard();
+      await Promise.all([refreshDashboard(), refreshSelectedListing(listing)]);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Unable to mark listing sold');
     } finally {
@@ -1412,7 +1449,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   </div>
                 </div>
 
-                <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                <div data-marketplace-report-panel className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="text-lg font-semibold text-slate-950">Contact seller</h3>
                   <p className="mt-2 text-sm text-slate-600">Send a message or start a marketplace conversation.</p>
                   <textarea
@@ -1462,6 +1499,40 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         </button>
                       </>
                     )}
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="text-lg font-semibold text-slate-950">Report listing</h3>
+                  <p className="mt-2 text-sm text-slate-600">Flag scams, policy violations, misleading details, or any other review concern.</p>
+                  <select
+                    value={reportReason}
+                    onChange={(event) => setReportReason(event.target.value)}
+                    className="mt-3 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  >
+                    <option value="">Choose a reason</option>
+                    {reportingReasons.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason}
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    value={reportDetails}
+                    onChange={(event) => setReportDetails(event.target.value)}
+                    placeholder="Add optional evidence or context for the review team."
+                    className="mt-3 min-h-[110px] w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none focus:border-slate-400"
+                  />
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void handleSubmitReport(selectedListing)}
+                      disabled={actionLoading}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                    >
+                      <Flag className="h-4 w-4" />
+                      Submit report
+                    </button>
                   </div>
                 </div>
               </div>
@@ -1519,7 +1590,9 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNotice('Report panel is available below')}
+                  onClick={() => {
+                    mainRef.current?.querySelector('[data-marketplace-report-panel]')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}
                   className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm font-medium text-slate-700"
                 >
                   <span className="inline-flex items-center gap-2">
