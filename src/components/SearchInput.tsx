@@ -13,10 +13,12 @@ import {
     GLOBAL_SEARCH_GROUP_BADGES,
     GLOBAL_SEARCH_GROUP_LABELS,
     GLOBAL_SEARCH_GROUP_ORDER,
+    normalizeGlobalSearchType,
     searchGlobalWithMarketplace
 } from '../services/globalSearch';
 import { SearchSuggestion } from '../types';
 import { useUser } from '../context/UserContext';
+import { CompassIcon as Compass, ShoppingCartIcon as ShoppingCart, UserIcon as User, UsersIcon as Users } from './icons/ShellIcons';
 
 interface SearchInputProps {
     placeholder?: string;
@@ -42,6 +44,92 @@ const DEFAULT_SEARCH_RECOMMENDATIONS: SearchSuggestion[] = [
 
 const normalizeSuggestionText = (value: any) =>
     String(value?.text || value?.keyword || value?.title || value?.name || value?.query || '').trim();
+
+type SearchSuggestionVisualType =
+    | 'people'
+    | 'pages'
+    | 'jobs'
+    | 'gigs'
+    | 'marketplace'
+    | 'posts'
+    | 'history'
+    | 'keyword';
+
+const normalizeSuggestionVisualType = (suggestion: SearchSuggestion): SearchSuggestionVisualType => {
+    const normalizedGroup = normalizeGlobalSearchType((suggestion as any)?.group || suggestion.category || suggestion.type);
+    if (normalizedGroup) return normalizedGroup;
+
+    const category = String(suggestion.category || '').trim().toLowerCase();
+    if (category === 'user' || category === 'users' || category === 'people' || category === 'person') return 'people';
+    if (category === 'page' || category === 'pages' || category === 'company') return 'pages';
+    if (category === 'job' || category === 'jobs') return 'jobs';
+    if (category === 'gig' || category === 'gigs') return 'gigs';
+    if (category === 'item' || category === 'product' || category === 'marketplace') return 'marketplace';
+    if (category === 'post' || category === 'posts') return 'posts';
+    if (suggestion.type === 'history') return 'history';
+    return 'keyword';
+};
+
+const resolveSuggestionImage = (suggestion: SearchSuggestion) =>
+    String(
+        suggestion.avatarUrl ||
+        suggestion.image ||
+        suggestion.thumbnailUrl ||
+        (suggestion as any)?.avatar ||
+        (suggestion as any)?.thumbnail ||
+        ''
+    ).trim() || null;
+
+const suggestionVisualConfig: Record<SearchSuggestionVisualType, { icon: React.ComponentType<{ className?: string }>; shell: string; badge: string; shape: string }> = {
+    people: {
+        icon: Users,
+        shell: 'bg-[linear-gradient(135deg,#dbeafe_0%,#eff6ff_100%)] text-blue-700',
+        badge: 'bg-white/80 text-blue-700',
+        shape: 'rounded-full'
+    },
+    pages: {
+        icon: Compass,
+        shell: 'bg-[linear-gradient(135deg,#ede9fe_0%,#f5f3ff_100%)] text-violet-700',
+        badge: 'bg-white/80 text-violet-700',
+        shape: 'rounded-2xl'
+    },
+    jobs: {
+        icon: Briefcase,
+        shell: 'bg-[linear-gradient(135deg,#dcfce7_0%,#f0fdf4_100%)] text-emerald-700',
+        badge: 'bg-white/80 text-emerald-700',
+        shape: 'rounded-2xl'
+    },
+    gigs: {
+        icon: Sparkles,
+        shell: 'bg-[linear-gradient(135deg,#fef3c7_0%,#fff7ed_100%)] text-amber-700',
+        badge: 'bg-white/80 text-amber-700',
+        shape: 'rounded-2xl'
+    },
+    marketplace: {
+        icon: ShoppingCart,
+        shell: 'bg-[linear-gradient(135deg,#dbeafe_0%,#e0f2fe_100%)] text-cyan-700',
+        badge: 'bg-white/80 text-cyan-700',
+        shape: 'rounded-2xl'
+    },
+    posts: {
+        icon: Search,
+        shell: 'bg-[linear-gradient(135deg,#e2e8f0_0%,#f8fafc_100%)] text-slate-700',
+        badge: 'bg-white/80 text-slate-700',
+        shape: 'rounded-2xl'
+    },
+    history: {
+        icon: History,
+        shell: 'bg-[linear-gradient(135deg,#f1f5f9_0%,#ffffff_100%)] text-slate-600',
+        badge: 'bg-white/80 text-slate-600',
+        shape: 'rounded-2xl'
+    },
+    keyword: {
+        icon: User,
+        shell: 'bg-[linear-gradient(135deg,#f8fafc_0%,#ffffff_100%)] text-slate-600',
+        badge: 'bg-white/80 text-slate-600',
+        shape: 'rounded-2xl'
+    }
+};
 
 const SearchInput: React.FC<SearchInputProps> = ({
     placeholder = "",
@@ -144,8 +232,14 @@ const SearchInput: React.FC<SearchInputProps> = ({
                             liveRows.push({
                                 text,
                                 type: 'result',
+                                group: key,
                                 category: GLOBAL_SEARCH_GROUP_BADGES[key] || GLOBAL_SEARCH_GROUP_LABELS[key],
                                 url: item.url,
+                                title: item?.title || item?.name,
+                                username: item?.username,
+                                image: item?.image || item?.avatarUrl || null,
+                                avatarUrl: item?.avatarUrl || item?.image || null,
+                                thumbnailUrl: item?.thumbnailUrl || item?.image || item?.avatarUrl || null,
                                 description:
                                     item.subtitle ||
                                     item.description ||
@@ -370,7 +464,10 @@ const SearchInput: React.FC<SearchInputProps> = ({
                         )}
 
                         {activeSuggestions.map((s, i) => {
-                            const Icon = s.type === 'category' || s.type === 'result' ? Briefcase : s.type === 'history' ? History : Search;
+                            const visualType = normalizeSuggestionVisualType(s);
+                            const visual = suggestionVisualConfig[visualType];
+                            const imageSrc = resolveSuggestionImage(s);
+                            const VisualIcon = visual.icon;
                             return (
                                 <button
                                     key={`${s.text}-${i}`}
@@ -390,12 +487,27 @@ const SearchInput: React.FC<SearchInputProps> = ({
                                     }}
                                     className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
                                 >
-                                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500 group-hover:bg-slate-900 group-hover:text-white">
-                                        <Icon className="h-4 w-4" />
+                                    <span className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden border border-slate-200 shadow-sm ${visual.shape} ${imageSrc ? 'bg-slate-100' : visual.shell}`}>
+                                        {imageSrc ? (
+                                            <img
+                                                src={imageSrc}
+                                                alt={s.title || s.text}
+                                                className="h-full w-full object-cover"
+                                                loading="lazy"
+                                                decoding="async"
+                                            />
+                                        ) : (
+                                            <>
+                                                <VisualIcon className="h-5 w-5" />
+                                                <span className={`absolute bottom-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${visual.badge}`}>
+                                                    {GLOBAL_SEARCH_GROUP_BADGES[visualType as keyof typeof GLOBAL_SEARCH_GROUP_BADGES] || (s.category || s.type)}
+                                                </span>
+                                            </>
+                                        )}
                                     </span>
                                     <span className="min-w-0 flex-1">
                                         <span className="block truncate text-sm font-semibold text-gray-950">
-                                            {s.text}
+                                            {s.title || s.text}
                                         </span>
                                         {(s.description || s.category) && (
                                             <span className="block truncate text-xs text-gray-500">

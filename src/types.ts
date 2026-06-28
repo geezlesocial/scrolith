@@ -3570,6 +3570,12 @@ export interface SearchSuggestion {
   url?: string;
   description?: string;
   score?: number;
+  title?: string;
+  username?: string;
+  image?: string;
+  avatarUrl?: string;
+  thumbnailUrl?: string;
+  group?: string;
 }
 
 export interface SearchHistory {
@@ -3705,12 +3711,70 @@ export interface CommunityClub {
 export interface CommunityClub {
   memberCount?: number;
   coverImage?: string;
+  slug?: string;
+  summary?: string;
+  avatarImage?: string;
+  category?: string;
+  location?: string;
+  joinMode?: 'open' | 'request' | 'invite_only';
+  postPermission?: 'admins' | 'members' | 'everyone';
+  membersCanInvite?: boolean;
+  faqs?: GroupFaqItem[];
+  postingGuidelines?: string;
+  status?: string;
   ownerId?: string;
   ownerName?: string;
   ownerAvatar?: string;
   isJoined?: boolean;
+  membershipRole?: 'owner' | 'moderator' | 'member' | null;
+  pendingRequest?: GroupJoinRequestSummary | null;
+  members?: GroupMemberSummary[];
+  pendingRequestCount?: number;
   joinedAt?: string | null;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GroupFaqItem {
+  question: string;
+  answer: string;
+}
+
+export interface GroupMemberSummary {
+  userId: string;
+  user_id?: string;
+  role: 'owner' | 'moderator' | 'member';
+  status: string;
+  joinedAt?: string;
+  joined_at?: string;
+  user?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+}
+
+export interface GroupJoinRequestSummary {
+  id: string;
+  status: string;
+  requestedAt?: string;
+  requested_at?: string;
+  note?: string;
+  answers?: string[];
+  userId?: string;
+  user_id?: string;
+  user?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+  reviewedBy?: {
+    id: string;
+    name: string;
+    username?: string;
+  } | null;
 }
 
 export interface CommunityEvent {

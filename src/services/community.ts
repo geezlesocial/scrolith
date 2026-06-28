@@ -12,6 +12,9 @@ import {
   CommunitySettings,
   ModerationLog,
   CommunityComment,
+  GroupFaqItem,
+  GroupJoinRequestSummary,
+  GroupMemberSummary,
   UserRole,
   PlatformSettings,
   StorefrontMerchantSummary,
@@ -109,12 +112,23 @@ const normalizeMessage = (msg: any, channelId: string): CommunityMessage => ({
 const normalizeClub = (club: any): CommunityClub => ({
   id: String(club?.id || ''),
   name: String(club?.name || 'Community club'),
+  slug: String(club?.slug || ''),
+  summary: String(club?.summary || ''),
   description: String(club?.description || ''),
   visibility: String(club?.visibility || 'public').toLowerCase() === 'private' ? 'private' : 'public',
+  category: String(club?.category || ''),
+  location: String(club?.location || ''),
+  joinMode: String(club?.joinMode || club?.join_mode || 'open').toLowerCase() as CommunityClub['joinMode'],
+  postPermission: String(club?.postPermission || club?.post_permission || 'members').toLowerCase() as CommunityClub['postPermission'],
+  membersCanInvite: Boolean(club?.membersCanInvite ?? club?.members_can_invite ?? true),
+  faqs: Array.isArray(club?.faqs) ? (club.faqs as GroupFaqItem[]) : [],
+  postingGuidelines: String(club?.postingGuidelines || club?.posting_guidelines || ''),
+  status: String(club?.status || 'active').toLowerCase(),
   member_count: Number(club?.member_count ?? club?.memberCount ?? 0),
   memberCount: Number(club?.memberCount ?? club?.member_count ?? 0),
   cover_image: String(club?.cover_image ?? club?.coverImage ?? ''),
   coverImage: String(club?.coverImage ?? club?.cover_image ?? ''),
+  avatarImage: String(club?.avatarImage ?? club?.avatar_image ?? ''),
   owner_id: String(club?.owner_id ?? club?.ownerId ?? ''),
   ownerId: String(club?.ownerId ?? club?.owner_id ?? ''),
   owner_name: String(club?.owner_name ?? club?.ownerName ?? ''),
@@ -123,10 +137,15 @@ const normalizeClub = (club: any): CommunityClub => ({
   ownerAvatar: String(club?.ownerAvatar ?? club?.owner_avatar ?? ''),
   is_joined: Boolean(club?.is_joined ?? club?.isJoined),
   isJoined: Boolean(club?.isJoined ?? club?.is_joined),
+  membershipRole: (club?.membershipRole ?? club?.membership_role ?? null) as CommunityClub['membershipRole'],
+  pendingRequest: club?.pendingRequest ?? club?.pending_request ?? null,
+  members: Array.isArray(club?.members) ? (club.members as GroupMemberSummary[]) : [],
+  pendingRequestCount: Number(club?.pendingRequestCount ?? club?.pending_request_count ?? 0),
   joined_at: club?.joined_at ?? club?.joinedAt ?? null,
   joinedAt: club?.joinedAt ?? club?.joined_at ?? null,
   created_at: String(club?.created_at ?? club?.createdAt ?? ''),
-  createdAt: String(club?.createdAt ?? club?.created_at ?? '')
+  createdAt: String(club?.createdAt ?? club?.created_at ?? ''),
+  updatedAt: String(club?.updatedAt ?? club?.updated_at ?? '')
 });
 
 const normalizeCommunitySettings = (s: any): any => ({
@@ -726,14 +745,111 @@ class CommunityService {
     return data.map((club: any) => normalizeClub(club));
   }
 
+  static async getClubById(clubId: string): Promise<CommunityClub | null> {
+    const id = String(clubId || '').trim();
+    if (!id) return null;
+    const response = await this.get(`/community/clubs/${encodeURIComponent(id)}`);
+    const data = extractData<any>(response);
+    if (!data) return null;
+    return normalizeClub(data);
+  }
+
+  static async createClub(payload: {
+    name: string;
+    slug?: string;
+    summary?: string;
+    description: string;
+    visibility?: 'public' | 'private';
+    category?: string;
+    location?: string;
+    joinMode?: 'open' | 'request' | 'invite_only';
+    postPermission?: 'admins' | 'members' | 'everyone';
+    membersCanInvite?: boolean;
+    postingGuidelines?: string;
+    faqs?: GroupFaqItem[];
+    coverImage?: string;
+    avatarImage?: string;
+  }): Promise<CommunityClub> {
+    const response = await this.post('/community/clubs', payload);
+    return normalizeClub(extractData<any>(response) || response);
+  }
+
+  static async updateClub(
+    clubId: string,
+    payload: Partial<{
+      name: string;
+      slug: string;
+      summary: string;
+      description: string;
+      visibility: 'public' | 'private';
+      category: string;
+      location: string;
+      joinMode: 'open' | 'request' | 'invite_only';
+      postPermission: 'admins' | 'members' | 'everyone';
+      membersCanInvite: boolean;
+      postingGuidelines: string;
+      faqs: GroupFaqItem[];
+      coverImage: string;
+      avatarImage: string;
+    }>
+  ): Promise<CommunityClub> {
+    const response = await this.put(`/community/clubs/${encodeURIComponent(clubId)}`, payload);
+    return normalizeClub(extractData<any>(response) || response);
+  }
+
   static async joinClub(clubId: string): Promise<boolean> {
     const response = await this.post('/community/clubs/join', { clubId });
     return Boolean(response?.success);
   }
 
+  static async requestToJoinClub(
+    clubId: string,
+    payload?: { note?: string; answers?: string[] }
+  ): Promise<{ success: boolean; pending?: boolean; request?: GroupJoinRequestSummary | null }> {
+    const response = await this.post('/community/clubs/join', { clubId, ...payload });
+    return {
+      success: Boolean(response?.success),
+      pending: Boolean(response?.pending),
+      request: response?.request || null
+    };
+  }
+
   static async leaveClub(clubId: string): Promise<boolean> {
     const response = await this.post('/community/clubs/leave', { clubId });
     return Boolean(response?.success);
+  }
+
+  static async getClubJoinRequests(clubId: string): Promise<GroupJoinRequestSummary[]> {
+    const response = await this.get(`/community/clubs/${encodeURIComponent(clubId)}/requests`);
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? (data as GroupJoinRequestSummary[]) : [];
+  }
+
+  static async respondToClubJoinRequest(
+    clubId: string,
+    requestId: string,
+    payload: { decision: 'approve' | 'reject'; note?: string }
+  ): Promise<{ success: boolean; status?: string }> {
+    const response = await this.post(
+      `/community/clubs/${encodeURIComponent(clubId)}/requests/${encodeURIComponent(requestId)}/respond`,
+      payload
+    );
+    return {
+      success: Boolean(response?.success),
+      status: response?.status
+    };
+  }
+
+  static async updateClubMember(
+    clubId: string,
+    memberUserId: string,
+    payload: { action?: 'remove'; role?: 'member' | 'moderator' }
+  ): Promise<any> {
+    const response = await api.put(
+      `/community/clubs/${encodeURIComponent(clubId)}/members/${encodeURIComponent(memberUserId)}`,
+      payload
+    );
+    return extractData<any>(response);
   }
 
   static async getEvents(): Promise<CommunityEvent[]> {
@@ -851,6 +967,7 @@ class CommunityService {
     limit?: number;
     offset?: number;
     status?: string;
+    clubId?: string;
     businessPageId?: string;
     businessPageSlug?: string;
   }): Promise<any[]> {
@@ -858,6 +975,7 @@ class CommunityService {
     if (params?.limit !== undefined) search.set('limit', String(params.limit));
     if (params?.offset !== undefined) search.set('offset', String(params.offset));
     if (params?.status) search.set('status', params.status);
+    if (params?.clubId) search.set('clubId', String(params.clubId));
     if (params?.businessPageId) search.set('businessPageId', String(params.businessPageId));
     if (params?.businessPageSlug) search.set('businessPageSlug', String(params.businessPageSlug));
     const endpoint = `/community/posts${search.toString() ? `?${search.toString()}` : ''}`;
@@ -942,6 +1060,7 @@ class CommunityService {
     mentions?: string[];
     visibility?: string;
     businessPageId?: string;
+    clubId?: string;
     topic?: string;
     location?: string;
     commentPolicy?: string;
@@ -966,6 +1085,7 @@ class CommunityService {
       visibility: data.visibility || 'public',
       graphicWarning: data.graphicWarning === true,
       businessPageId: data.businessPageId,
+      clubId: data.clubId,
       commentPolicy: data.commentPolicy,
       isAIEnhanced: data.isAIEnhanced === true,
       aiInsightEnabled: typeof data.aiInsightEnabled === 'boolean' ? data.aiInsightEnabled : undefined,

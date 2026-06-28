@@ -31,6 +31,7 @@ import { AdCampaign, PaymentGateway, UploadedFile } from '../../types';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
+import GroupsWorkspace from '../../community/components/GroupsWorkspace';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { getUserFacingPaymentMethodName } from '../../utils/paymentGatewayDisplay';
 import GraphicWarningGate from '../../components/media/GraphicWarningGate';
@@ -48,6 +49,7 @@ const tabs = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'posts', label: 'Posts', icon: Share2 },
   { id: 'followers', label: 'Followers', icon: Users },
+  { id: 'groups', label: 'Groups', icon: Shield },
   { id: 'gcoin', label: 'Gcoin', icon: CreditCard },
   { id: 'earnings', label: 'Earnings', icon: BarChart3 },
   { id: 'business', label: 'Business Pages', icon: Building2 },
@@ -3743,6 +3745,8 @@ const CommunityDashboard: React.FC = () => {
         return renderFeed();
       case 'followers':
         return renderNetwork();
+      case 'groups':
+        return <GroupsWorkspace embedded />;
       case 'gcoin':
         return renderGcoin();
       case 'earnings':
