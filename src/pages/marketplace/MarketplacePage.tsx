@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Archive,
   ArrowLeft,
   CheckCircle2,
+  ChevronLeft,
   ChevronDown,
   ChevronRight,
   Clock3,
@@ -17,6 +18,7 @@ import {
   MapPin,
   MessageCircle,
   MoreHorizontal,
+  Navigation,
   Package2,
   Plus,
   RotateCcw,
@@ -36,6 +38,7 @@ import SearchInput from '../../components/SearchInput';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import { useFavorites } from '../../context/FavoritesContext';
+import FollowButton from '../../community/components/FollowButton';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import { FileService } from '../../services/files';
 import { FavoritesService } from '../../services/favorites';
@@ -197,6 +200,46 @@ const getCoverImage = (listing: MarketplaceListing | null | undefined) => {
 const formatMeetupPreference = (value: string) =>
   MEETUP_PREFERENCE_OPTIONS.find((option) => option.value === value)?.label || value.replace(/_/g, ' ');
 
+const toProfilePath = (seller?: MarketplaceListing['seller'] | null) => {
+  const username = String(seller?.username || '').trim().replace(/^@+/, '');
+  if (username) return `/u/${encodeURIComponent(username)}`;
+  const id = String(seller?.id || '').trim();
+  if (id) return `/profile/${encodeURIComponent(id)}`;
+  return '/profile/edit';
+};
+
+const toLocationValue = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const calculateDistanceKm = (
+  fromLatitude: number,
+  fromLongitude: number,
+  toLatitude: number,
+  toLongitude: number
+) => {
+  const earthRadiusKm = 6371;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const dLat = toRadians(toLatitude - fromLatitude);
+  const dLng = toRadians(toLongitude - fromLongitude);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(fromLatitude)) *
+      Math.cos(toRadians(toLatitude)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+};
+
+const formatDistanceLabel = (distanceKm?: number | null) => {
+  if (distanceKm === null || distanceKm === undefined || !Number.isFinite(distanceKm)) return 'Distance unavailable';
+  if (distanceKm < 1) return `${Math.max(50, Math.round(distanceKm * 1000))} m away`;
+  if (distanceKm < 10) return `${distanceKm.toFixed(1)} km away`;
+  return `${Math.round(distanceKm)} km away`;
+};
+
 const defaultFormValues = (currency = DEFAULT_CURRENCY): MarketplaceListingFormValues => ({
   title: '',
   description: '',
@@ -344,6 +387,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [contactMessage, setContactMessage] = useState('');
   const [activePanel, setActivePanel] = useState<'browse' | 'mine' | 'saved' | 'sell'>('browse');
   const [shareState, setShareState] = useState<'closed' | 'open' | 'copied'>('closed');
+  const [distanceError, setDistanceError] = useState<string | null>(null);
 
   const mainRef = useRef<HTMLDivElement | null>(null);
 
@@ -428,7 +472,11 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       return savedMarketplaceListings;
     }
     if (isMyListingsRoute || isDashboardVariant) {
-      return Array.isArray(dashboard?.listings) ? dashboard.listings : base;
+      const source = Array.isArray(dashboard?.listings) ? dashboard.listings : base;
+      if (isMyListingsRoute) {
+        return source.filter((listing: MarketplaceListing) => String(listing?.status || '').toLowerCase() !== 'removed');
+      }
+      return source;
     }
     return base;
   }, [dashboard?.listings, isDashboardVariant, isDetailRoute, isEditRoute, isMyListingsRoute, isSavedRoute, isSellRoute, listings, savedMarketplaceListings]);
@@ -534,6 +582,29 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
       mounted = false;
     };
   }, [isBrowseRoute, isCategoryRoute, query.sort, viewerCoordinates]);
+
+  useEffect(() => {
+    if (!isDetailRoute) return;
+    if (viewerCoordinates) return;
+    if (!selectedListing) return;
+    if (toLocationValue(selectedListing.latitude) === null || toLocationValue(selectedListing.longitude) === null) return;
+    let mounted = true;
+    void getCurrentDeviceCoordinates()
+      .then((coords) => {
+        if (!mounted || !coords) return;
+        if (Number.isFinite(coords.latitude) && Number.isFinite(coords.longitude)) {
+          setViewerCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
+          setDistanceError(null);
+        }
+      })
+      .catch((error: any) => {
+        if (!mounted) return;
+        setDistanceError(error?.message || 'Location unavailable');
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [isDetailRoute, selectedListing, viewerCoordinates]);
 
   useEffect(() => {
     if (!(isBrowseRoute || isCategoryRoute)) return;
@@ -723,6 +794,22 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return media;
   }, [selectedListing]);
 
+  useEffect(() => {
+    if (selectedMediaIndex < normalizedSelectedMedia.length) return;
+    setSelectedMediaIndex(0);
+  }, [normalizedSelectedMedia.length, selectedMediaIndex]);
+
+  const listingDistanceKm = useMemo(() => {
+    if (typeof selectedListing?.distanceKm === 'number' && Number.isFinite(selectedListing.distanceKm)) {
+      return selectedListing.distanceKm;
+    }
+    if (!viewerCoordinates) return null;
+    const latitude = toLocationValue(selectedListing?.latitude);
+    const longitude = toLocationValue(selectedListing?.longitude);
+    if (latitude === null || longitude === null) return null;
+    return calculateDistanceKm(viewerCoordinates.latitude, viewerCoordinates.longitude, latitude, longitude);
+  }, [selectedListing?.distanceKm, selectedListing?.latitude, selectedListing?.longitude, viewerCoordinates]);
+
   const routeHeading = useMemo(() => {
     if (isSellRoute) return 'Sell on Scrolith';
     if (isEditRoute) return 'Edit listing';
@@ -744,7 +831,12 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return 'Browse, create, save, and manage listings with Scrolith marketplace controls.';
   }, [isCategoryRoute, isDetailRoute, isEditRoute, isMyListingsRoute, isSavedRoute, isSellRoute]);
 
-  const listingCount = Array.isArray(listings) ? listings.length : 0;
+  const listingCount = useMemo(() => {
+    if (isDetailRoute || isSellRoute || isEditRoute) {
+      return Array.isArray(listings) ? listings.length : 0;
+    }
+    return Array.isArray(visibleListings) ? visibleListings.length : 0;
+  }, [isDetailRoute, isEditRoute, isSellRoute, listings, visibleListings]);
 
   const updateFormField = <K extends keyof MarketplaceListingFormValues>(key: K, value: MarketplaceListingFormValues[K]) => {
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -905,9 +997,38 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     setActionLoading(true);
     try {
       await archiveMarketplaceListing(listing.id);
+      setListings((previous) => previous.filter((item) => String(item.id) !== String(listing.id)));
+      setSavedMarketplaceListings((previous) => previous.filter((item) => String(item.id) !== String(listing.id)));
+      setDashboard((previous: any) => {
+        if (!previous || !Array.isArray(previous.listings)) return previous;
+        const nextListings = previous.listings.filter((item: MarketplaceListing) => String(item.id) !== String(listing.id));
+        return {
+          ...previous,
+          listings: nextListings,
+          summary: previous.summary
+            ? {
+                ...previous.summary,
+                totalListings: Math.max(0, Number(previous.summary.totalListings ?? nextListings.length) - 1),
+                activeListings:
+                  String(listing.status || '').toLowerCase() === 'active'
+                    ? Math.max(0, Number(previous.summary.activeListings ?? 0) - 1)
+                    : Number(previous.summary.activeListings ?? 0),
+                draftListings:
+                  String(listing.status || '').toLowerCase() === 'draft'
+                    ? Math.max(0, Number(previous.summary.draftListings ?? 0) - 1)
+                    : Number(previous.summary.draftListings ?? 0)
+              }
+            : previous.summary
+        };
+      });
+      if (selectedListing && String(selectedListing.id) === String(listing.id)) {
+        setSelectedListing({ ...selectedListing, status: 'removed', removedAt: new Date().toISOString() });
+      }
       setNotice('Listing delisted');
       await Promise.all([refreshDashboard(), refreshFavorites({ force: true })]);
-      navigate('/marketplace/my-listings');
+      if (!isMyListingsRoute) {
+        navigate('/marketplace/my-listings');
+      }
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Unable to delist listing');
     } finally {
@@ -1317,9 +1438,19 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const renderDetail = () => {
     if (!selectedListing) return null;
     const media = normalizedSelectedMedia.filter(Boolean);
-    const cover = getCoverImage(selectedListing) || getMediaUrl(media[selectedMediaIndex]) || '';
+    const activeMedia = media[selectedMediaIndex] || null;
+    const cover = getMediaUrl(activeMedia) || getCoverImage(selectedListing) || '';
+    const isVideoActive = Boolean(activeMedia && typeof activeMedia !== 'string' && activeMedia.type === 'video');
     const seller = selectedListing.seller;
     const canManage = listingIsEditable(selectedListing, user?.id, isAdmin);
+    const canSlideMedia = media.length > 1;
+    const sellerProfilePath = toProfilePath(seller);
+    const listingLatitude = toLocationValue(selectedListing.latitude);
+    const listingLongitude = toLocationValue(selectedListing.longitude);
+    const canOpenMap = listingLatitude !== null && listingLongitude !== null;
+    const mapHref = canOpenMap
+      ? `https://www.openstreetmap.org/?mlat=${listingLatitude}&mlon=${listingLongitude}#map=14/${listingLatitude}/${listingLongitude}`
+      : null;
 
     return (
       <div className="grid gap-6 xl:grid-cols-[1.3fr_420px]">
@@ -1349,17 +1480,49 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             </div>
             <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
               <div className="space-y-3">
-                <div className="overflow-hidden rounded-[24px] bg-slate-100">
+                <div className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
                   {cover ? (
-                    <img src={cover} alt={selectedListing.title} className="h-[420px] w-full object-cover" />
+                    isVideoActive ? (
+                      <video
+                        src={cover}
+                        controls
+                        playsInline
+                        className="h-[420px] w-full bg-slate-950 object-contain"
+                      />
+                    ) : (
+                      <img src={cover} alt={selectedListing.title} className="h-[420px] w-full object-cover" />
+                    )
                   ) : (
                     <div className="flex h-[420px] items-center justify-center text-slate-400">
                       <ImageIcon className="h-12 w-12" />
                     </div>
                   )}
+                  {canSlideMedia && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Show previous listing image"
+                        onClick={() => setSelectedMediaIndex((previous) => (previous - 1 + media.length) % media.length)}
+                        className="absolute left-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white"
+                      >
+                        <ChevronLeft className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Show next listing image"
+                        onClick={() => setSelectedMediaIndex((previous) => (previous + 1) % media.length)}
+                        className="absolute right-4 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white"
+                      >
+                        <ChevronRight className="h-5 w-5" />
+                      </button>
+                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-950/72 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                        {selectedMediaIndex + 1} / {media.length}
+                      </div>
+                    </>
+                  )}
                 </div>
                 {media.length > 1 && (
-                  <div className="grid grid-cols-4 gap-3">
+                  <div className="flex gap-3 overflow-x-auto pb-1">
                     {media.map((item, index) => {
                       const url = getMediaUrl(item);
                       if (!url) return null;
@@ -1369,9 +1532,12 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                           key={`${item.id}-${index}`}
                           onClick={() => setSelectedMediaIndex(index)}
                           className={[
-                            'overflow-hidden rounded-2xl border transition',
-                            selectedMediaIndex === index ? 'border-slate-900 ring-2 ring-slate-200' : 'border-slate-200'
+                            'relative w-[88px] shrink-0 overflow-hidden rounded-2xl border bg-white transition',
+                            selectedMediaIndex === index
+                              ? 'border-slate-900 ring-2 ring-slate-200'
+                              : 'border-slate-200 hover:border-slate-300'
                           ].join(' ')}
+                          aria-label={`Show listing media ${index + 1}`}
                         >
                           {item.type === 'video' ? (
                             <div className="flex aspect-[4/3] items-center justify-center bg-slate-900 text-white">
@@ -1380,11 +1546,113 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                           ) : (
                             <img src={url} alt={`${selectedListing.title} media ${index + 1}`} className="aspect-[4/3] w-full object-cover" />
                           )}
+                          {selectedMediaIndex === index && <span className="pointer-events-none absolute inset-x-2 bottom-2 h-1 rounded-full bg-white/95" />}
                         </button>
                       );
                     })}
                   </div>
                 )}
+
+                <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+                  <div className="relative h-20 overflow-hidden border-b border-slate-200 bg-[linear-gradient(135deg,#ccecff_0%,#8fd3ff_38%,#dff7ff_100%)]">
+                    <div className="absolute inset-0 opacity-50 [background-image:radial-gradient(circle_at_20%_35%,rgba(15,23,42,0.16)_0,rgba(15,23,42,0.16)_8px,transparent_8px),linear-gradient(115deg,transparent_0,transparent_46%,rgba(255,255,255,0.95)_46%,rgba(255,255,255,0.95)_50%,transparent_50%,transparent_100%)]" />
+                    <div className="relative flex h-full items-start justify-between px-4 py-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-700">Listing location</p>
+                        <p className="mt-1 text-sm font-semibold text-slate-900">
+                          {selectedListing.location || seller?.location || 'Location details available on request'}
+                        </p>
+                      </div>
+                      <div className="rounded-full border border-white/80 bg-white/90 p-2 text-slate-700 shadow-sm">
+                        <MapPin className="h-4 w-4" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm text-slate-700">
+                        <span className="font-semibold text-slate-950">{selectedListing.location || 'Marketplace location'}</span>
+                        <span className="text-slate-500"> · Location is approximate</span>
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {formatDistanceLabel(listingDistanceKm)}
+                        {distanceError ? ` · ${distanceError}` : viewerCoordinates ? ' · Calculated from your current device location' : ''}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {canOpenMap && mapHref ? (
+                        <a
+                          href={mapHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                        >
+                          <Navigation className="h-4 w-4" />
+                          Open map
+                        </a>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => navigate(sellerProfilePath)}
+                        className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                      >
+                        Seller details
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Link to={sellerProfilePath} className="shrink-0">
+                        <img
+                          src={seller?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(seller?.name || seller?.username || 'Seller')}`}
+                          alt={seller?.name || seller?.username || 'Seller'}
+                          className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200"
+                        />
+                      </Link>
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Seller information</p>
+                        <Link to={sellerProfilePath} className="mt-1 inline-flex items-center gap-2 text-lg font-semibold text-slate-950 hover:text-slate-700">
+                          <span className="truncate">{seller?.name || seller?.username || 'Marketplace seller'}</span>
+                          <VerifiedBadge size="sm" ariaHidden={!seller?.isVerified && !seller?.verifiedBadge} />
+                        </Link>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {seller?.username ? `@${seller.username}` : 'Seller profile'}
+                          {seller?.country ? ` · ${seller.country}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <FollowButton
+                        targetUserId={seller?.id}
+                        currentUserId={user?.id}
+                        tone="default"
+                        className="h-10 min-w-[7rem] border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+                        onRequireLogin={() => navigate('/auth/login')}
+                      />
+                      <Link
+                        to={sellerProfilePath}
+                        className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        View profile
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const contactPanel = mainRef.current?.querySelector<HTMLElement>('[data-marketplace-contact-panel]');
+                          const contactInput = contactPanel?.querySelector<HTMLTextAreaElement>('textarea');
+                          contactPanel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                          window.setTimeout(() => contactInput?.focus(), 180);
+                        }}
+                        className="inline-flex h-10 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+                      >
+                        Message seller
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="min-w-0 space-y-4">
@@ -1449,7 +1717,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   </div>
                 </div>
 
-                <div data-marketplace-report-panel className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+                <div data-marketplace-contact-panel className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="text-lg font-semibold text-slate-950">Contact seller</h3>
                   <p className="mt-2 text-sm text-slate-600">Send a message or start a marketplace conversation.</p>
                   <textarea
