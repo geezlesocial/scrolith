@@ -112,6 +112,8 @@ model User {
   forumLikes         ForumLike[]
   communityClubs     CommunityClub[]     @relation("ClubOwner")
   clubMemberships    ClubMembership[]
+  clubJoinRequests   ClubJoinRequest[]   @relation("ClubJoinRequestUser")
+  clubModerationActions ClubJoinRequest[] @relation("ClubJoinRequestModerator")
   communityEvents    CommunityEvent[]    @relation("EventHost")
   eventRegistrations EventRegistration[]
   communityChannels  CommunityChannel[]  @relation("ChannelOwner")
@@ -3482,27 +3484,47 @@ model ForumLike {
 model CommunityClub {
   id          String            @id @default(cuid())
   name        String
+  slug        String            @unique
+  summary     String?
   description String            @db.Text
   coverImage  String?
+  avatarImage String?
   visibility  ChannelVisibility @default(PUBLIC)
+  category    String?
+  location    String?
+  joinMode    String            @default("open")
+  postPermission String         @default("members")
+  membersCanInvite Boolean      @default(true)
+  faqs        Json?
+  postingGuidelines String?     @db.Text
+  status      String            @default("active")
   ownerId     String
   memberCount Int               @default(0)
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
   // Relationships
-  owner       User             @relation("ClubOwner", fields: [ownerId], references: [id])
-  memberships ClubMembership[]
+  owner        User              @relation("ClubOwner", fields: [ownerId], references: [id])
+  memberships  ClubMembership[]
+  joinRequests ClubJoinRequest[]
+  posts        CommunityPost[]
 
   @@index([ownerId])
   @@index([visibility])
+  @@index([status])
+  @@index([joinMode])
+  @@index([createdAt])
 }
 
 model ClubMembership {
   id       String   @id @default(cuid())
   clubId   String
   userId   String
+  role     String   @default("member")
+  status   String   @default("active")
+  invitedById String?
   joinedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relationships
   club CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -3510,6 +3532,27 @@ model ClubMembership {
 
   @@unique([clubId, userId])
   @@index([userId])
+  @@index([clubId, role, status])
+}
+
+model ClubJoinRequest {
+  id          String   @id @default(cuid())
+  clubId       String
+  userId       String
+  answers      Json?
+  status       String   @default("pending")
+  requestedAt  DateTime @default(now())
+  reviewedAt   DateTime?
+  reviewedById String?
+  note         String?  @db.Text
+
+  club       CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user       User          @relation("ClubJoinRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User?         @relation("ClubJoinRequestModerator", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([clubId, userId, status])
+  @@index([clubId, status, requestedAt])
+  @@index([userId, status, requestedAt])
 }
 
 model CommunityEvent {
@@ -3850,6 +3893,7 @@ model CommunityPost {
   repostsEnabled                 Boolean  @default(true)
   originalPostId                 String?
   businessPageId                 String?
+  clubId                         String?
   viewsCount                     Int      @default(0)
   likesCount                     Int      @default(0)
   sharesCount                    Int      @default(0)
@@ -3874,6 +3918,7 @@ model CommunityPost {
 
   author       User                   @relation(fields: [authorId], references: [id], onDelete: Cascade)
   businessPage CommunityBusinessPage? @relation(fields: [businessPageId], references: [id], onDelete: SetNull)
+  club         CommunityClub?         @relation(fields: [clubId], references: [id], onDelete: SetNull)
   originalPost CommunityPost?         @relation("CommunityPostReposts", fields: [originalPostId], references: [id], onDelete: SetNull)
   reposts      CommunityPost[]        @relation("CommunityPostReposts")
 
@@ -3893,12 +3938,14 @@ model CommunityPost {
   @@index([sourceLanguage])
   @@index([contentHash])
   @@index([businessPageId])
+  @@index([clubId])
   @@index([visibility])
   @@index([topic])
   @@index([location])
   @@index([status, isPinned, createdAt])
   @@index([status, visibility, isPinned, createdAt])
   @@index([businessPageId, status, isPinned, createdAt])
+  @@index([clubId, status, isPinned, createdAt])
   @@index([authorId, status, createdAt])
   @@index([visibility, status, createdAt])
   @@index([videoIntegrityStatus])

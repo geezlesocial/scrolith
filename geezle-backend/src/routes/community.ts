@@ -45,10 +45,6 @@ import {
   leaveChannel,
   getChannelMessages,
   postChannelMessage,
-  getClubs,
-  joinClub,
-  leaveClub,
-  deleteClub,
   getEvents,
   createEvent,
   updateEvent,
@@ -61,6 +57,18 @@ import {
   toggleRepost,
   moderateContent
 } from '../controllers/community.extras.controller';
+import {
+  listGroups,
+  getGroup,
+  createGroup,
+  updateGroup,
+  joinGroup,
+  leaveGroup,
+  deleteGroup,
+  getGroupJoinRequests,
+  respondToGroupJoinRequest,
+  updateGroupMember
+} from '../controllers/community.groups.controller';
 import {
   createAdDraft,
   getPublicAds,
@@ -184,7 +192,8 @@ router.get('/tags', getCommunityTags);
 router.get('/analytics', authMiddleware, adminMiddleware, getCommunityAnalytics);
 router.get('/channels', authMiddleware, adminMiddleware, getChannels);
 router.get('/channels/:channelId/messages', authMiddleware, adminMiddleware, getChannelMessages);
-router.get('/clubs', authMiddleware, getClubs);
+router.get('/clubs', authMiddleware, listGroups);
+router.get('/clubs/:clubId', authMiddleware, getGroup);
 router.get('/events', authMiddleware, getEvents);
 router.get('/stats', authMiddleware, getCommunityStats);
 router.get('/contributors', authMiddleware, getTopContributors);
@@ -219,9 +228,14 @@ router.put('/broadcast-channels/:id', authMiddleware, updateBroadcastChannel);
 router.post('/broadcast-channels/:id/follow', authMiddleware, followBroadcastChannel);
 router.post('/broadcast-channels/:id/unfollow', authMiddleware, unfollowBroadcastChannel);
 router.post('/broadcast-channels/:id/posts', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createBroadcastChannelPost);
-router.post('/clubs/join', authMiddleware, joinClub);
-router.post('/clubs/leave', authMiddleware, leaveClub);
-router.post('/clubs/:clubId/delete', authMiddleware, adminMiddleware, deleteClub);
+router.post('/clubs', authMiddleware, createGroup);
+router.put('/clubs/:clubId', authMiddleware, updateGroup);
+router.post('/clubs/join', authMiddleware, joinGroup);
+router.post('/clubs/leave', authMiddleware, leaveGroup);
+router.get('/clubs/:clubId/requests', authMiddleware, getGroupJoinRequests);
+router.post('/clubs/:clubId/requests/:requestId/respond', authMiddleware, respondToGroupJoinRequest);
+router.put('/clubs/:clubId/members/:memberUserId', authMiddleware, updateGroupMember);
+router.post('/clubs/:clubId/delete', authMiddleware, deleteGroup);
 router.post('/events/register', authMiddleware, registerEvent);
 router.post('/events/unregister', authMiddleware, unregisterEvent);
 router.post('/events', authMiddleware, adminMiddleware, createEvent);

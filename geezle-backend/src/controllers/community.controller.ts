@@ -649,6 +649,13 @@ const communityBusinessPageSelect = {
   logoFileId: true
 };
 
+const communityClubSelect = {
+  id: true,
+  name: true,
+  slug: true,
+  visibility: true
+};
+
 const communityPostFeedSelect: any = {
   id: true,
   authorId: true,
@@ -670,6 +677,7 @@ const communityPostFeedSelect: any = {
   repostsEnabled: true,
   originalPostId: true,
   businessPageId: true,
+  clubId: true,
   viewsCount: true,
   likesCount: true,
   sharesCount: true,
@@ -694,6 +702,9 @@ const communityPostFeedSelect: any = {
   businessPage: {
     select: communityBusinessPageSelect
   },
+  club: {
+    select: communityClubSelect
+  },
   originalPost: {
     select: {
       id: true,
@@ -712,6 +723,16 @@ const communityPostFeedSelect: any = {
       }
     }
   }
+};
+
+const normalizeCommunityClubVisibility = (value: unknown) =>
+  String(value || '').trim().toLowerCase() === 'private' ? 'private' : 'public';
+
+const normalizeCommunityClubPostPermission = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'admins') return 'admins';
+  if (normalized === 'everyone') return 'everyone';
+  return 'members';
 };
 
 // Get all threads
@@ -1920,6 +1941,7 @@ export const getPosts = async (req: Request, res: Response) => {
       limit = 50,
       offset = 0,
       status = 'active',
+      clubId: clubIdRaw,
       businessPageId: businessPageIdRaw,
       businessPageSlug: businessPageSlugRaw
     } = req.query as any;
@@ -1933,11 +1955,38 @@ export const getPosts = async (req: Request, res: Response) => {
       status: status as string
     };
 
+    const clubId = String(clubIdRaw || '').trim();
+    if (clubId) {
+      const club = await prisma.communityClub.findFirst({
+        where: { OR: [{ id: clubId }, { slug: clubId }], status: 'active' as any },
+        select: { id: true, ownerId: true, visibility: true }
+      });
+      if (!club) {
+        return res.json({ success: true, data: [] });
+      }
+
+      const membership = userId
+        ? await prisma.clubMembership.findUnique({
+            where: { clubId_userId: { clubId: club.id, userId } },
+            select: { role: true, status: true }
+          })
+        : null;
+      const canViewPrivateClub =
+        normalizeCommunityClubVisibility(club.visibility) !== 'private' ||
+        String(membership?.status || '').toLowerCase() === 'active' ||
+        club.ownerId === userId ||
+        String(viewer?.role || '').toLowerCase() === 'admin';
+      if (!canViewPrivateClub) {
+        return res.status(403).json({ success: false, error: 'This private group is only visible to members.' });
+      }
+      where.clubId = club.id;
+    }
+
     const businessPageId = String(businessPageIdRaw || '').trim();
     const businessPageSlug = String(businessPageSlugRaw || '').trim().toLowerCase();
-    if (businessPageId) {
+    if (!clubId && businessPageId) {
       where.businessPageId = businessPageId;
-    } else if (businessPageSlug) {
+    } else if (!clubId && businessPageSlug) {
       const page = await prisma.communityBusinessPage.findFirst({
         where: { slug: businessPageSlug },
         select: { id: true, status: true }
@@ -2053,6 +2102,12 @@ export const getPosts = async (req: Request, res: Response) => {
           isVerified: author.isVerified,
           isPro: author.isPro
         },
+        club: post.club ? {
+          id: post.club.id,
+          name: post.club.name,
+          slug: post.club.slug,
+          visibility: normalizeCommunityClubVisibility(post.club.visibility)
+        } : null,
         viewer: {
           isFollowingAuthor
         },
@@ -2075,6 +2130,12 @@ export const getPosts = async (req: Request, res: Response) => {
           handle: post.businessPage.handle,
           slug: post.businessPage.slug,
           logoFileId: post.businessPage.logoFileId || null
+        } : null,
+        club: post.club ? {
+          id: post.club.id,
+          name: post.club.name,
+          slug: post.club.slug,
+          visibility: normalizeCommunityClubVisibility(post.club.visibility)
         } : null,
         viewsCount: post.viewsCount,
         likesCount: post.likesCount,
@@ -2984,6 +3045,7 @@ export const createPost = async (req: Request, res: Response) => {
       visibility,
       graphicWarning,
       businessPageId,
+      clubId: clubIdRaw,
       originalPostId,
       offerTags,
       topic,
@@ -3023,6 +3085,7 @@ export const createPost = async (req: Request, res: Response) => {
     const normalizedMentionUserIds = await filterMentionTargetsForActor(userId, rawMentionUserIds);
 
     let resolvedBusinessPageId: string | null = businessPageId || null;
+    let resolvedClubId: string | null = String(clubIdRaw || '').trim() || null;
     if (resolvedBusinessPageId) {
       const page = await prisma.communityBusinessPage.findUnique({ where: { id: resolvedBusinessPageId } });
       if (!page) return res.status(404).json({ error: 'Business page not found' });
@@ -3032,6 +3095,42 @@ export const createPost = async (req: Request, res: Response) => {
       const isOwner = page.ownerId === userId;
       if (!isOwner && req.user?.role !== 'ADMIN') {
         return res.status(403).json({ error: 'Not authorized to post for this page' });
+      }
+    }
+
+    let resolvedClubVisibility: 'public' | 'private' | null = null;
+    if (resolvedClubId) {
+      const club = await prisma.communityClub.findFirst({
+        where: { OR: [{ id: resolvedClubId }, { slug: resolvedClubId }], status: 'active' as any },
+        select: {
+          id: true,
+          ownerId: true,
+          visibility: true,
+          joinMode: true,
+          postPermission: true
+        }
+      });
+      if (!club) return res.status(404).json({ error: 'Group not found' });
+      resolvedClubId = club.id;
+      resolvedClubVisibility = normalizeCommunityClubVisibility(club.visibility);
+      const membership = await prisma.clubMembership.findUnique({
+        where: { clubId_userId: { clubId: club.id, userId } },
+        select: { role: true, status: true }
+      });
+      const isManager =
+        String(req.user?.role || '').toLowerCase() === 'admin' ||
+        club.ownerId === userId ||
+        ['owner', 'moderator'].includes(String(membership?.role || '').toLowerCase());
+      const isActiveMember = String(membership?.status || '').toLowerCase() === 'active';
+      if (resolvedClubVisibility === 'private' && !isActiveMember && !isManager) {
+        return res.status(403).json({ error: 'You must join this private group before posting.' });
+      }
+      const postPermission = normalizeCommunityClubPostPermission(club.postPermission);
+      if (postPermission === 'admins' && !isManager) {
+        return res.status(403).json({ error: 'Only group admins or moderators can post in this group.' });
+      }
+      if (postPermission === 'members' && !isActiveMember && !isManager) {
+        return res.status(403).json({ error: 'Only approved group members can post in this group.' });
       }
     }
 
@@ -3073,7 +3172,7 @@ export const createPost = async (req: Request, res: Response) => {
         mentions: normalizedMentionUserIds,
         topic: topic || null,
         location: location || null,
-        visibility: visibility || 'public',
+        visibility: visibility || (resolvedClubVisibility === 'private' ? 'private' : 'public'),
         graphicWarning: Boolean(graphicWarning),
         commentPolicy: normalizedPolicy || 'everyone',
         isAIEnhanced: Boolean(isAIEnhanced),
@@ -3082,6 +3181,7 @@ export const createPost = async (req: Request, res: Response) => {
         aiInsightText: null,
         ...buildVideoIntegrityUpdate(videoIntegrity),
         businessPageId: resolvedBusinessPageId,
+        clubId: resolvedClubId,
         originalPostId: originalPostId || null,
         status: status
       },
@@ -3111,6 +3211,14 @@ export const createPost = async (req: Request, res: Response) => {
             handle: true,
             slug: true,
             logoFileId: true
+          }
+        },
+        club: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            visibility: true
           }
         },
         originalPost: {
@@ -3174,6 +3282,14 @@ export const createPost = async (req: Request, res: Response) => {
         isVerified: author.isVerified,
         isPro: author.isPro
       },
+      club: post.club
+        ? {
+            id: post.club.id,
+            name: post.club.name,
+            slug: post.club.slug,
+            visibility: normalizeCommunityClubVisibility(post.club.visibility)
+          }
+        : null,
       viewer: {
         isFollowingAuthor: false
       },
