@@ -14,6 +14,119 @@ const normalizeEntityType = (value?: string) => {
 
 const ensureUserId = (req: Request) => req.user?.id as string | undefined;
 
+const marketplaceListingInclude = {
+  seller: {
+    select: {
+      id: true,
+      name: true,
+      username: true,
+      avatar: true,
+      country: true,
+      role: true,
+      isVerified: true,
+      createdAt: true
+    }
+  },
+  category: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      icon: true,
+      description: true
+    }
+  },
+  media: {
+    orderBy: [{ sortOrder: 'asc' as const }, { createdAt: 'asc' as const }]
+  }
+};
+
+const normalizeMarketplaceListing = (listing: any) => {
+  const media = Array.isArray(listing?.media) ? listing.media : [];
+  const images = media
+    .filter((entry: any) => String(entry?.type || '').toLowerCase() === 'image')
+    .map((entry: any) => ({
+      id: entry.id,
+      listingId: entry.listingId,
+      type: 'image',
+      url: entry.url,
+      thumbnailUrl: entry.thumbnailUrl || null,
+      storagePath: entry.storagePath || null,
+      sortOrder: entry.sortOrder ?? 0,
+      mimeType: entry.mimeType || null,
+      sizeBytes: Number(entry.sizeBytes || 0),
+      width: entry.width || null,
+      height: entry.height || null,
+      createdAt: entry.createdAt
+    }));
+  const video = media.find((entry: any) => String(entry?.type || '').toLowerCase() === 'video');
+
+  return {
+    id: listing.id,
+    sellerId: listing.sellerId,
+    title: listing.title,
+    slug: listing.slug,
+    description: listing.description || '',
+    categoryId: listing.categoryId || null,
+    category: listing.category || null,
+    condition: listing.condition || 'other',
+    brand: listing.brand || null,
+    tags: Array.isArray(listing.tags) ? listing.tags.map(String) : [],
+    price: Number(listing.price || 0),
+    currency: listing.currency || 'USD',
+    negotiable: Boolean(listing.negotiable),
+    quantity: Number(listing.quantity || 1),
+    location: listing.location || null,
+    latitude: listing.latitude ?? null,
+    longitude: listing.longitude ?? null,
+    meetupPreferences: Array.isArray(listing.meetupPreferences) ? listing.meetupPreferences.map(String) : [],
+    hideFromFriendsAndFollowers: Boolean(listing.hideFromFriendsAndFollowers),
+    deliveryOptions: Array.isArray(listing.deliveryOptions) ? listing.deliveryOptions.map(String) : [],
+    paymentMethods: Array.isArray(listing.paymentMethods) ? listing.paymentMethods.map(String) : [],
+    images,
+    video: video
+      ? {
+          id: video.id,
+          listingId: video.listingId,
+          type: 'video',
+          url: video.url,
+          thumbnailUrl: video.thumbnailUrl || null,
+          storagePath: video.storagePath || null,
+          sortOrder: video.sortOrder ?? 0,
+          mimeType: video.mimeType || null,
+          sizeBytes: Number(video.sizeBytes || 0),
+          width: video.width || null,
+          height: video.height || null,
+          durationSeconds: video.durationSeconds || null,
+          createdAt: video.createdAt
+        }
+      : null,
+    status: listing.status,
+    reviewStatus: listing.reviewStatus,
+    featured: Boolean(listing.featured),
+    viewCount: Number(listing.viewCount || 0),
+    saveCount: Number(listing.saveCount || 0),
+    reportCount: Number(listing.reportCount || 0),
+    soldAt: listing.soldAt,
+    reservedAt: listing.reservedAt,
+    approvedAt: listing.approvedAt,
+    rejectedAt: listing.rejectedAt,
+    removedAt: listing.removedAt,
+    createdAt: listing.createdAt,
+    updatedAt: listing.updatedAt,
+    contactPreference: listing.contactPreference || null,
+    coverImage: images[0]?.url || video?.thumbnailUrl || video?.url || null,
+    summary: listing.description || '',
+    seller: listing.seller
+      ? {
+          ...listing.seller,
+          verifiedBadge: Boolean(listing.seller?.isVerified),
+          joinDate: listing.seller?.createdAt || null
+        }
+      : null
+  };
+};
+
 export const listFavorites = async (req: Request, res: Response) => {
   try {
     const userId = ensureUserId(req);
@@ -73,6 +186,12 @@ export const addFavorite = async (req: Request, res: Response) => {
     const created = await prisma.favorite.create({
       data: { userId, entityType, entityId }
     });
+    if (entityType === 'MARKETPLACE') {
+      await prisma.marketplaceListing.updateMany({
+        where: { id: entityId },
+        data: { saveCount: { increment: 1 } }
+      });
+    }
     realtime.emitToUser(userId, 'favorites:updated', {
       action: 'added',
       entityType: created.entityType.toLowerCase(),
@@ -105,9 +224,15 @@ export const removeFavorite = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'entity_type and entity_id are required' });
     }
 
-    await prisma.favorite.deleteMany({
+    const deleted = await prisma.favorite.deleteMany({
       where: { userId, entityType, entityId }
     });
+    if (entityType === 'MARKETPLACE' && deleted.count > 0) {
+      await prisma.marketplaceListing.updateMany({
+        where: { id: entityId, saveCount: { gt: 0 } },
+        data: { saveCount: { decrement: 1 } }
+      });
+    }
     realtime.emitToUser(userId, 'favorites:updated', {
       action: 'removed',
       entityType: entityType.toLowerCase(),
@@ -134,8 +259,9 @@ export const getExpandedFavorites = async (req: Request, res: Response) => {
     const gigIds = favorites.filter((f) => f.entityType === 'GIG').map((f) => f.entityId);
     const jobIds = favorites.filter((f) => f.entityType === 'JOB').map((f) => f.entityId);
     const freelancerIds = favorites.filter((f) => f.entityType === 'FREELANCER').map((f) => f.entityId);
+    const marketplaceIds = favorites.filter((f) => f.entityType === 'MARKETPLACE').map((f) => f.entityId);
 
-    const [gigs, jobs, freelancers] = await Promise.all([
+    const [gigs, jobs, freelancers, marketplace] = await Promise.all([
       gigIds.length
         ? prisma.gig.findMany({
             where: { id: { in: gigIds } },
@@ -153,8 +279,21 @@ export const getExpandedFavorites = async (req: Request, res: Response) => {
             where: { id: { in: freelancerIds } },
             select: { id: true, name: true, avatar: true, role: true }
           })
+        : [],
+      marketplaceIds.length
+        ? prisma.marketplaceListing.findMany({
+            where: { id: { in: marketplaceIds } },
+            include: marketplaceListingInclude
+          })
         : []
     ]);
+
+    const marketplaceById = new Map(
+      marketplace.map((listing: any) => [String(listing.id), normalizeMarketplaceListing(listing)])
+    );
+    const orderedMarketplace = marketplaceIds
+      .map((id) => marketplaceById.get(String(id)))
+      .filter(Boolean);
 
     return res.json({
       success: true,
@@ -213,7 +352,8 @@ export const getExpandedFavorites = async (req: Request, res: Response) => {
             isProEmployer: Boolean(pro.employerIsPro),
             is_pro_employer: Boolean(pro.employerIsPro)
           };
-        })
+        }),
+        marketplace: orderedMarketplace
       }
     });
   } catch (error: any) {
