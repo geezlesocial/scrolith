@@ -49,7 +49,7 @@ const tabs = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'posts', label: 'Posts', icon: Share2 },
   { id: 'followers', label: 'Followers', icon: Users },
-  { id: 'groups', label: 'Groups', icon: Shield },
+  { id: 'groups', label: 'Groups', icon: ShieldCheck },
   { id: 'gcoin', label: 'Gcoin', icon: CreditCard },
   { id: 'earnings', label: 'Earnings', icon: BarChart3 },
   { id: 'business', label: 'Business Pages', icon: Building2 },
