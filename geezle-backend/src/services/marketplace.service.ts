@@ -351,6 +351,73 @@ const assertListingOwnerOrAdmin = async (listingId: string, userId: string, role
   return listing;
 };
 
+const normalizeCommunityClubVisibility = (value: unknown): 'public' | 'private' =>
+  String(value || '').trim().toLowerCase() === 'private' ? 'private' : 'public';
+
+const normalizeCommunityClubPostPermission = (value: unknown): 'admins' | 'members' | 'everyone' => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'admins') return 'admins';
+  if (normalized === 'everyone') return 'everyone';
+  return 'members';
+};
+
+const assertCanShareListingToCommunityClub = async (clubId: string, user: User) => {
+  const club = await prisma.communityClub.findUnique({
+    where: { id: clubId },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      status: true,
+      ownerId: true,
+      visibility: true,
+      postPermission: true,
+      memberships: {
+        where: { userId: String(user?.id || '').trim() },
+        take: 1,
+        select: { userId: true, role: true, status: true }
+      }
+    }
+  });
+
+  if (!club || String(club.status || '').toLowerCase() !== 'active') {
+    const error = new Error('Group not found');
+    (error as any).status = 404;
+    throw error;
+  }
+
+  const normalizedRole = normalizeRole(user?.role);
+  const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(normalizedRole);
+  const membership = Array.isArray(club.memberships) ? club.memberships[0] || null : null;
+  const isOwner = String(club.ownerId || '') === String(user?.id || '');
+  const isModerator = ['owner', 'moderator'].includes(String(membership?.role || '').toLowerCase());
+  const isManager = isAdmin || isOwner || isModerator;
+  const isActiveMember = isManager || String(membership?.status || '').toLowerCase() === 'active';
+
+  if (normalizeCommunityClubVisibility(club.visibility) === 'private' && !isActiveMember) {
+    const error = new Error('Join this group before sharing marketplace listings here');
+    (error as any).status = 403;
+    throw error;
+  }
+
+  const postPermission = normalizeCommunityClubPostPermission(club.postPermission);
+  if (postPermission === 'admins' && !isManager) {
+    const error = new Error('Only group admins or moderators can post in this group');
+    (error as any).status = 403;
+    throw error;
+  }
+  if (postPermission === 'members' && !isActiveMember) {
+    const error = new Error('Only active group members can post in this group');
+    (error as any).status = 403;
+    throw error;
+  }
+
+  return {
+    club,
+    visibility: normalizeCommunityClubVisibility(club.visibility)
+  };
+};
+
 const resolveListingVisibilityForViewer = (listing: any, userId?: string | null, role?: string | null) => {
   const isOwner = userId && String(listing.sellerId || '') === String(userId);
   const isAdmin = ['ADMIN', 'SUPERADMIN'].includes(normalizeRole(role));
@@ -1062,6 +1129,132 @@ export const markMarketplaceListingSold = async (listingId: string, user: User) 
     soldAt: updated.soldAt
   });
   return normalizeListing(updated, user.id);
+};
+
+export const shareMarketplaceListingToGroup = async (listingId: string, user: User, input: any) => {
+  const listing = await assertListingOwnerOrAdmin(listingId, user.id, user.role);
+  const clubId = String(input?.clubId || '').trim();
+  const message = String(input?.message || '').trim().slice(0, 1200);
+  if (!clubId) {
+    const error = new Error('clubId is required');
+    (error as any).status = 400;
+    throw error;
+  }
+
+  const [{ club, visibility }, detailedListing] = await Promise.all([
+    assertCanShareListingToCommunityClub(clubId, user),
+    prisma.marketplaceListing.findUnique({
+      where: { id: listing.id },
+      include: normalizeListingInclude
+    })
+  ]);
+
+  if (!detailedListing) {
+    const error = new Error('Listing not found');
+    (error as any).status = 404;
+    throw error;
+  }
+
+  const publicAppUrl = String(
+    process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://scrolith.com'
+  )
+    .trim()
+    .replace(/\/+$/, '');
+  const listingPath = `/marketplace/listing/${encodeURIComponent(String(detailedListing.slug || detailedListing.id || '').trim())}`;
+  const listingUrl = `${publicAppUrl}${listingPath}`;
+  const attachmentFileIds = Array.isArray(detailedListing.media)
+    ? detailedListing.media
+        .map((entry: any) => String(entry?.fileId || '').trim())
+        .filter(Boolean)
+        .slice(0, 10)
+    : [];
+  const attachmentCaptions = attachmentFileIds.length
+    ? Object.fromEntries(
+        attachmentFileIds.map((fileId, index) => [
+          fileId,
+          index === 0 ? String(detailedListing.title || 'Marketplace listing').trim() : `Marketplace image ${index + 1}`
+        ])
+      )
+    : null;
+
+  const contentParts = [
+    message,
+    String(detailedListing.description || '').trim(),
+    `Marketplace listing: ${listingUrl}`
+  ].filter(Boolean);
+
+  const createdPost = await prisma.communityPost.create({
+    data: {
+      authorId: String(user.id || '').trim(),
+      clubId: club.id,
+      title: String(detailedListing.title || '').trim() || null,
+      content: contentParts.join('\n\n'),
+      attachments: attachmentFileIds,
+      attachmentCaptions: attachmentCaptions || undefined,
+      visibility,
+      commentPolicy: 'everyone',
+      repostsEnabled: true,
+      status: 'active',
+      topic: 'marketplace',
+      location: String(detailedListing.location || '').trim() || null,
+      tags: Array.from(
+        new Set(
+          ['marketplace', ...((Array.isArray(detailedListing.tags) ? detailedListing.tags : []) as string[])]
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean)
+            .slice(0, 12)
+        )
+      )
+    }
+  });
+
+  await prisma.marketplaceAuditLog.create({
+    data: {
+      listingId: detailedListing.id,
+      actorId: String(user.id || '').trim(),
+      action: 'listing.share_to_group',
+      payload: {
+        clubId: club.id,
+        clubSlug: club.slug || null,
+        postId: createdPost.id,
+        listingUrl
+      } as JsonValue
+    }
+  }).catch(() => null);
+
+  publishIntegrationEvent('marketplace.listing.shared_to_group', {
+    listingId: detailedListing.id,
+    sellerId: detailedListing.sellerId,
+    clubId: club.id,
+    clubSlug: club.slug || null,
+    communityPostId: createdPost.id
+  }).catch(() => null);
+
+  if (String(club.ownerId || '') && String(club.ownerId || '') !== String(user.id || '')) {
+    notifyUser(String(club.ownerId || ''), {
+      type: 'community.group.marketplace_share',
+      title: 'New marketplace post in your group',
+      body: `${String(user?.name || user?.username || 'A member')} shared "${String(detailedListing.title || 'a listing')}" in ${String(club.name || 'your group')}.`,
+      link: `/community?tab=groups&group=${encodeURIComponent(String(club.slug || club.id || '').trim())}`
+    });
+  }
+
+  return {
+    success: true,
+    club: {
+      id: club.id,
+      slug: club.slug || '',
+      name: club.name || 'Scrolith Group'
+    },
+    post: {
+      id: createdPost.id,
+      clubId: createdPost.clubId,
+      title: createdPost.title,
+      content: createdPost.content
+    },
+    listing: normalizeListing(detailedListing, String(user.id || '').trim()),
+    listingUrl
+  };
 };
 
 export const reserveMarketplaceListing = async (listingId: string, user: User) => {

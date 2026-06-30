@@ -14,6 +14,7 @@ import {
   removeMarketplaceMedia,
   reportMarketplaceListing,
   reserveMarketplaceListing,
+  shareMarketplaceListingToGroup,
   markMarketplaceListingSold,
   submitMarketplaceListing,
   unfavoriteMarketplaceListing,
@@ -214,6 +215,15 @@ router.post('/listings/:id/contact', authMiddleware, async (req, res) => {
     return res.json({ success: true, data });
   } catch (error: any) {
     return handleError(res, error, 'Failed to contact marketplace seller');
+  }
+});
+
+router.post('/listings/:id/share-to-group', authMiddleware, async (req, res) => {
+  try {
+    const data = await shareMarketplaceListingToGroup(String(req.params.id || '').trim(), req.user as any, req.body || {});
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to share marketplace listing to group');
   }
 });
 
