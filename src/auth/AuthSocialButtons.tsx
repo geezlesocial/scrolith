@@ -245,6 +245,7 @@ const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, confi
   const providers = providerOrder.filter((provider) =>
     shouldShowProvider(resolved, provider, mode, role)
   );
+  const [brokenLogos, setBrokenLogos] = React.useState<Partial<Record<AuthProviderKey, boolean>>>({});
 
   if (!providers.length) return null;
 
@@ -261,7 +262,7 @@ const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, confi
         {providers.map((provider) => {
           const p = resolved.providers[provider];
           const label = p.button_label || `Continue with ${providerLabels[provider]}`;
-          const logoUrl = p.label_logo_url
+          const logoUrl = !brokenLogos[provider] && p.label_logo_url
             ? resolveResponsiveAssetUrl(p.label_logo_url, { width: 40, height: 40, fit: 'contain', quality: 70 })
             : '';
           return (
@@ -284,6 +285,13 @@ const AuthSocialButtons: React.FC<AuthSocialButtonsProps> = ({ mode, role, confi
                     loading="lazy"
                     decoding="async"
                     className="w-5 h-5 object-contain"
+                    onError={() =>
+                      setBrokenLogos((current) => (
+                        current[provider]
+                          ? current
+                          : { ...current, [provider]: true }
+                      ))
+                    }
                   />
                 ) : (
                   providerLabels[provider].slice(0, 2).toUpperCase()
