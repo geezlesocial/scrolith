@@ -3548,6 +3548,7 @@ model ClubJoinRequest {
   reviewedAt   DateTime?
   reviewedById String?
   note         String?  @db.Text
+  reviewNote   String?  @db.Text
 
   club       CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user       User          @relation("ClubJoinRequestUser", fields: [userId], references: [id], onDelete: Cascade)
@@ -3905,6 +3906,7 @@ model CommunityPost {
   contentHash                    String?
   translationVersion             String?
   attachments                    String[] @default([])
+  attachmentCaptions             Json?
   offerTags                      Json?
   tags                           String[] @default([])
   mentions                       String[] @default([])

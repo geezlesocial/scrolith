@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
+import { notifyUser } from '../utils/notify';
 
 interface AuthRequest extends Request {
   user?: {
@@ -56,6 +57,7 @@ type GroupClubRecord = {
     requestedAt: Date;
     reviewedAt: Date | null;
     note: string | null;
+    reviewNote: string | null;
     user?: {
       id: string;
       name: string | null;
@@ -287,7 +289,7 @@ const groupIncludeForViewer = (viewerId?: string) => ({
   joinRequests: viewerId
     ? {
         where: { userId: viewerId, status: 'pending' },
-        select: { id: true, userId: true, status: true, requestedAt: true, reviewedAt: true, note: true }
+        select: { id: true, userId: true, status: true, requestedAt: true, reviewedAt: true, note: true, reviewNote: true }
       }
     : false,
   invites: viewerId
@@ -324,10 +326,100 @@ const requireActiveMembership = async (clubId: string, userId: string) =>
     select: { userId: true, role: true, status: true, joinedAt: true }
   });
 
+const buildGroupPath = (club: { id: string; slug?: string | null }) =>
+  `/community?tab=groups&group=${encodeURIComponent(String(club.slug || club.id || '').trim())}`;
+
+const serializeGroupInvite = (
+  row: any,
+  options?: {
+    includeClub?: boolean;
+  }
+) => ({
+  id: row.id,
+  inviteeId: row.inviteeId,
+  invitee_id: row.inviteeId,
+  invitedById: row.invitedById,
+  invited_by_id: row.invitedById,
+  role: String(row.role || 'member').toLowerCase(),
+  status: String(row.status || 'pending').toLowerCase(),
+  note: row.note || '',
+  reviewNote: row.reviewNote || '',
+  invitedAt: row.invitedAt.toISOString(),
+  invited_at: row.invitedAt.toISOString(),
+  respondedAt: row.respondedAt ? row.respondedAt.toISOString() : null,
+  responded_at: row.respondedAt ? row.respondedAt.toISOString() : null,
+  invitee: row.invitee
+    ? {
+        id: row.invitee.id,
+        name: row.invitee.name || row.invitee.username || 'Community member',
+        username: row.invitee.username || '',
+        avatar: row.invitee.avatar || ''
+      }
+    : null,
+  invitedBy: row.invitedBy
+    ? {
+        id: row.invitedBy.id,
+        name: row.invitedBy.name || row.invitedBy.username || 'Community member',
+        username: row.invitedBy.username || '',
+        avatar: row.invitedBy.avatar || ''
+      }
+    : null,
+  ...(options?.includeClub
+    ? {
+        club: row.club
+          ? {
+              id: row.club.id,
+              slug: row.club.slug || '',
+              name: row.club.name || 'Scrolith group',
+              summary: row.club.summary || '',
+              visibility: normalizeVisibility(row.club.visibility),
+              coverImage: row.club.coverImage || '',
+              avatarImage: row.club.avatarImage || ''
+            }
+          : null
+      }
+    : {})
+});
+
+const createStoredUserNotification = async (
+  userId: string,
+  input: {
+    actorId?: string | null;
+    type: string;
+    title: string;
+    body: string;
+    meta?: Record<string, any>;
+  }
+) => {
+  try {
+    const created = await prisma.notification.create({
+      data: {
+        userId,
+        actorId: input.actorId || null,
+        type: input.type,
+        title: input.title,
+        body: input.body,
+        meta: input.meta || undefined
+      }
+    });
+
+    notifyUser(userId, {
+      id: created.id,
+      type: created.type,
+      title: created.title || 'Notification',
+      body: created.body || '',
+      meta: (created.meta as Record<string, any> | null) || undefined,
+      createdAt: created.createdAt.toISOString()
+    });
+  } catch (error) {
+    console.error('createStoredUserNotification error:', error);
+  }
+};
+
 const canInviteMembersToGroup = async (clubId: string, actorId: string, req: AuthRequest) => {
   const club = await prisma.communityClub.findUnique({
     where: { id: clubId },
-    select: { id: true, ownerId: true, membersCanInvite: true }
+    select: { id: true, slug: true, name: true, ownerId: true, membersCanInvite: true }
   });
   if (!club) return { allowed: false, club: null, membership: null as Awaited<ReturnType<typeof requireActiveMembership>> };
   const membership = await requireActiveMembership(clubId, actorId);
@@ -652,6 +744,22 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
       try {
         realtime.emitToUser(club.ownerId, 'community:group_join_request', { clubId, requestId: requestRow.id, userId });
       } catch {}
+      await createStoredUserNotification(club.ownerId, {
+        actorId: userId,
+        type: 'community_group_join_request',
+        title: 'New group join request',
+        body: `${req.user?.email ? req.user.email : 'A member'} requested to join ${club.name}.`,
+        meta: {
+          clubId,
+          groupId: clubId,
+          groupSlug: (club as any).slug || null,
+          requestId: requestRow.id,
+          entityType: 'community_group_join_request',
+          entityId: requestRow.id,
+          parentId: clubId,
+          actionUrl: buildGroupPath({ id: clubId, slug: (club as any).slug || null })
+        }
+      });
       emitGroupEvent(req, 'community:group_request_updated', { clubId, requestId: requestRow.id, status: 'pending', userId });
       return res.json({
         success: true,
@@ -710,7 +818,7 @@ export const leaveGroup = async (req: AuthRequest, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
     if (!clubId) return res.status(400).json({ success: false, error: 'clubId is required' });
 
-    const club = await prisma.communityClub.findUnique({ where: { id: clubId }, select: { id: true, ownerId: true, memberCount: true } });
+    const club = await prisma.communityClub.findUnique({ where: { id: clubId }, select: { id: true, slug: true, name: true, ownerId: true, memberCount: true } });
     if (!club) return res.status(404).json({ success: false, error: 'Group not found' });
     if (club.ownerId === userId && !isAdmin(req)) {
       return res.status(400).json({ success: false, error: 'Group owners cannot leave without transferring ownership first' });
@@ -790,6 +898,7 @@ export const getGroupJoinRequests = async (req: AuthRequest, res: Response) => {
         user_id: row.userId,
         status: String(row.status || '').toLowerCase(),
         note: row.note || '',
+        reviewNote: row.reviewNote || '',
         answers: Array.isArray(row.answers) ? row.answers : [],
         requestedAt: row.requestedAt.toISOString(),
         requested_at: row.requestedAt.toISOString(),
@@ -849,7 +958,7 @@ export const respondToGroupJoinRequest = async (req: AuthRequest, res: Response)
           status: approved ? 'approved' : 'rejected',
           reviewedAt: new Date(),
           reviewedById: reviewerId,
-          note: String(req.body?.note || '').trim().slice(0, 1000) || null
+          reviewNote: String(req.body?.note || '').trim().slice(0, 1000) || null
         }
       });
 
@@ -876,6 +985,24 @@ export const respondToGroupJoinRequest = async (req: AuthRequest, res: Response)
         status: approved ? 'approved' : 'rejected'
       });
     } catch {}
+    await createStoredUserNotification(requestRow.userId, {
+      actorId: reviewerId,
+      type: approved ? 'community_group_request_approved' : 'community_group_request_rejected',
+      title: approved ? 'Group request approved' : 'Group request declined',
+      body: approved
+        ? `Your request to join ${club.name || 'this group'} was approved.`
+        : `Your request to join ${club.name || 'this group'} was declined.`,
+      meta: {
+        clubId,
+        groupId: clubId,
+        groupSlug: club.slug || null,
+        requestId,
+        entityType: 'community_group_join_request',
+        entityId: requestId,
+        parentId: clubId,
+        actionUrl: buildGroupPath(club)
+      }
+    });
     emitGroupEvent(req, 'community:group_request_updated', {
       clubId,
       requestId,
@@ -887,6 +1014,125 @@ export const respondToGroupJoinRequest = async (req: AuthRequest, res: Response)
   } catch (error: any) {
     console.error('respondToGroupJoinRequest error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to review join request' });
+  }
+};
+
+export const bulkRespondToGroupJoinRequests = async (req: AuthRequest, res: Response) => {
+  try {
+    const reviewerId = String(req.user?.id || '').trim();
+    const clubId = String(req.params?.clubId || '').trim();
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+    const requestIds = Array.from(
+      new Set(
+        (Array.isArray(req.body?.requestIds) ? req.body.requestIds : [])
+          .map((value: unknown) => String(value || '').trim())
+          .filter(Boolean)
+      )
+    );
+    const note = String(req.body?.note || '').trim().slice(0, 1000) || null;
+
+    if (!reviewerId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!clubId) return res.status(400).json({ success: false, error: 'clubId is required' });
+    if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ success: false, error: 'decision must be approve or reject' });
+    if (!requestIds.length) return res.status(400).json({ success: false, error: 'At least one requestId is required' });
+
+    const club = await prisma.communityClub.findUnique({
+      where: { id: clubId },
+      select: { id: true, slug: true, ownerId: true, memberCount: true }
+    });
+    if (!club) return res.status(404).json({ success: false, error: 'Group not found' });
+    const membership = await requireActiveMembership(clubId, reviewerId);
+    if (!viewerCanManageGroup(club, membership, req)) {
+      return res.status(403).json({ success: false, error: 'You do not have permission to manage requests for this group' });
+    }
+
+    const rows = await prisma.clubJoinRequest.findMany({
+      where: { id: { in: requestIds }, clubId, status: 'pending' },
+      select: { id: true, userId: true }
+    });
+    if (!rows.length) return res.status(404).json({ success: false, error: 'No pending join requests matched the supplied ids' });
+
+    const approved = decision === 'approve';
+    let memberIncrement = 0;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.clubJoinRequest.updateMany({
+        where: { id: { in: rows.map((row) => row.id) } },
+        data: {
+          status: approved ? 'approved' : 'rejected',
+          reviewedAt: new Date(),
+          reviewedById: reviewerId,
+          note
+        }
+      });
+
+      if (approved) {
+        for (const row of rows) {
+          const existingMembership = await tx.clubMembership.findUnique({
+            where: { clubId_userId: { clubId, userId: row.userId } }
+          });
+          await tx.clubMembership.upsert({
+            where: { clubId_userId: { clubId, userId: row.userId } },
+            update: { status: 'active', role: existingMembership?.role || 'member' },
+            create: { clubId, userId: row.userId, status: 'active', role: 'member' }
+          });
+          if (!existingMembership) memberIncrement += 1;
+        }
+        if (memberIncrement > 0) {
+          await tx.communityClub.update({
+            where: { id: clubId },
+            data: { memberCount: { increment: memberIncrement } }
+          });
+        }
+      }
+    });
+
+    await Promise.all(
+      rows.map(async (row) => {
+        try {
+          realtime.emitToUser(row.userId, 'community:group_request_updated', {
+            clubId,
+            requestId: row.id,
+            status: approved ? 'approved' : 'rejected'
+          });
+        } catch {}
+        await createStoredUserNotification(row.userId, {
+          actorId: reviewerId,
+          type: approved ? 'community_group_request_approved' : 'community_group_request_rejected',
+          title: approved ? 'Group request approved' : 'Group request declined',
+          body: approved
+            ? `Your request to join ${club.name || 'this group'} was approved.`
+            : `Your request to join ${club.name || 'this group'} was declined.`,
+          meta: {
+            clubId,
+            groupId: clubId,
+            groupSlug: club.slug || null,
+            requestId: row.id,
+            entityType: 'community_group_join_request',
+            entityId: row.id,
+            parentId: clubId,
+            actionUrl: buildGroupPath(club)
+          }
+        });
+      })
+    );
+
+    emitGroupEvent(req, 'community:group_request_updated', {
+      clubId,
+      requestIds: rows.map((row) => row.id),
+      status: approved ? 'approved' : 'rejected',
+      reviewerId,
+      bulk: true
+    });
+
+    return res.json({
+      success: true,
+      status: approved ? 'approved' : 'rejected',
+      processed: rows.length
+    });
+  } catch (error: any) {
+    console.error('bulkRespondToGroupJoinRequests error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to bulk review join requests' });
   }
 };
 
@@ -914,40 +1160,49 @@ export const getGroupInvites = async (req: AuthRequest, res: Response) => {
 
     return res.json({
       success: true,
-      data: rows.map((row) => ({
-        id: row.id,
-        inviteeId: row.inviteeId,
-        invitee_id: row.inviteeId,
-        invitedById: row.invitedById,
-        invited_by_id: row.invitedById,
-        role: String(row.role || 'member').toLowerCase(),
-        status: String(row.status || 'pending').toLowerCase(),
-        note: row.note || '',
-        invitedAt: row.invitedAt.toISOString(),
-        invited_at: row.invitedAt.toISOString(),
-        respondedAt: row.respondedAt ? row.respondedAt.toISOString() : null,
-        responded_at: row.respondedAt ? row.respondedAt.toISOString() : null,
-        invitee: row.invitee
-          ? {
-              id: row.invitee.id,
-              name: row.invitee.name || row.invitee.username || 'Community member',
-              username: row.invitee.username || '',
-              avatar: row.invitee.avatar || ''
-            }
-          : null,
-        invitedBy: row.invitedBy
-          ? {
-              id: row.invitedBy.id,
-              name: row.invitedBy.name || row.invitedBy.username || 'Community member',
-              username: row.invitedBy.username || '',
-              avatar: row.invitedBy.avatar || ''
-            }
-          : null
-      }))
+      data: rows.map((row) => serializeGroupInvite(row))
     });
   } catch (error: any) {
     console.error('getGroupInvites error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to load group invites' });
+  }
+};
+
+export const getMyGroupInvites = async (req: AuthRequest, res: Response) => {
+  try {
+    const viewerId = String(req.user?.id || '').trim();
+    if (!viewerId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const rows = await prisma.clubInvite.findMany({
+      where: {
+        OR: [{ inviteeId: viewerId }, { invitedById: viewerId }]
+      },
+      orderBy: [{ status: 'asc' }, { invitedAt: 'desc' }],
+      include: {
+        club: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            summary: true,
+            visibility: true,
+            coverImage: true,
+            avatarImage: true
+          }
+        },
+        invitee: { select: { id: true, name: true, username: true, avatar: true } },
+        invitedBy: { select: { id: true, name: true, username: true, avatar: true } }
+      },
+      take: 80
+    });
+
+    return res.json({
+      success: true,
+      data: rows.map((row) => serializeGroupInvite(row, { includeClub: true }))
+    });
+  } catch (error: any) {
+    console.error('getMyGroupInvites error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load invite inbox' });
   }
 };
 
@@ -1007,6 +1262,23 @@ export const createGroupInvite = async (req: AuthRequest, res: Response) => {
           status: 'pending'
         });
       } catch {}
+      await createStoredUserNotification(inviteeId, {
+        actorId,
+        type: 'community_group_invite_received',
+        title: 'You were invited to a group',
+        body: `You received an invite to join ${permission.club?.name || 'a Scrolith group'}.`,
+        meta: {
+          clubId,
+          groupId: clubId,
+          groupSlug: (permission.club as any)?.slug || null,
+          inviteId: invite.id,
+          role,
+          entityType: 'community_group_invite',
+          entityId: invite.id,
+          parentId: clubId,
+          actionUrl: buildGroupPath(permission.club as { id: string; slug?: string | null })
+        }
+      });
     }
 
     emitGroupEvent(req, 'community:group_invite_updated', {
@@ -1018,34 +1290,7 @@ export const createGroupInvite = async (req: AuthRequest, res: Response) => {
 
     return res.status(201).json({
       success: true,
-      data: invites.map((invite) => ({
-        id: invite.id,
-        inviteeId: invite.inviteeId,
-        invitee_id: invite.inviteeId,
-        invitedById: invite.invitedById,
-        invited_by_id: invite.invitedById,
-        role: String(invite.role || 'member').toLowerCase(),
-        status: String(invite.status || 'pending').toLowerCase(),
-        note: invite.note || '',
-        invitedAt: invite.invitedAt.toISOString(),
-        invited_at: invite.invitedAt.toISOString(),
-        invitee: invite.invitee
-          ? {
-              id: invite.invitee.id,
-              name: invite.invitee.name || invite.invitee.username || 'Community member',
-              username: invite.invitee.username || '',
-              avatar: invite.invitee.avatar || ''
-            }
-          : null,
-        invitedBy: invite.invitedBy
-          ? {
-              id: invite.invitedBy.id,
-              name: invite.invitedBy.name || invite.invitedBy.username || 'Community member',
-              username: invite.invitedBy.username || '',
-              avatar: invite.invitedBy.avatar || ''
-            }
-          : null
-      }))
+      data: invites.map((invite) => serializeGroupInvite(invite))
     });
   } catch (error: any) {
     console.error('createGroupInvite error:', error);
@@ -1124,6 +1369,43 @@ export const respondToGroupInvite = async (req: AuthRequest, res: Response) => {
       actorId,
       status: accepted ? 'accepted' : decision === 'decline' ? 'declined' : 'cancelled'
     });
+
+    if (decision === 'cancel') {
+      await createStoredUserNotification(invite.inviteeId, {
+        actorId,
+        type: 'community_group_invite_cancelled',
+        title: 'Group invite cancelled',
+        body: 'A pending group invite was cancelled.',
+        meta: {
+          clubId,
+          groupId: clubId,
+          inviteId,
+          entityType: 'community_group_invite',
+          entityId: inviteId,
+          parentId: clubId,
+          actionUrl: buildGroupPath(permission.club as { id: string; slug?: string | null })
+        }
+      });
+    } else {
+      await createStoredUserNotification(invite.invitedById, {
+        actorId,
+        type: accepted ? 'community_group_invite_accepted' : 'community_group_invite_declined',
+        title: accepted ? 'Group invite accepted' : 'Group invite declined',
+        body: accepted
+          ? 'A user accepted your group invitation.'
+          : 'A user declined your group invitation.',
+        meta: {
+          clubId,
+          groupId: clubId,
+          inviteId,
+          inviteeId: invite.inviteeId,
+          entityType: 'community_group_invite',
+          entityId: inviteId,
+          parentId: clubId,
+          actionUrl: buildGroupPath(permission.club as { id: string; slug?: string | null })
+        }
+      });
+    }
 
     return res.json({
       success: true,

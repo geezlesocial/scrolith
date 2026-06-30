@@ -67,7 +67,9 @@ import {
   deleteGroup,
   getGroupJoinRequests,
   respondToGroupJoinRequest,
+  bulkRespondToGroupJoinRequests,
   getGroupInvites,
+  getMyGroupInvites,
   createGroupInvite,
   respondToGroupInvite,
   updateGroupMember
@@ -236,7 +238,9 @@ router.put('/clubs/:clubId', authMiddleware, updateGroup);
 router.post('/clubs/join', authMiddleware, joinGroup);
 router.post('/clubs/leave', authMiddleware, leaveGroup);
 router.get('/clubs/:clubId/requests', authMiddleware, getGroupJoinRequests);
+router.post('/clubs/:clubId/requests/bulk-respond', authMiddleware, bulkRespondToGroupJoinRequests);
 router.post('/clubs/:clubId/requests/:requestId/respond', authMiddleware, respondToGroupJoinRequest);
+router.get('/clubs/invites/my', authMiddleware, getMyGroupInvites);
 router.get('/clubs/:clubId/invites', authMiddleware, getGroupInvites);
 router.post('/clubs/:clubId/invites', authMiddleware, createGroupInvite);
 router.post('/clubs/:clubId/invites/:inviteId/respond', authMiddleware, respondToGroupInvite);

@@ -133,6 +133,16 @@ const resolveAttachments = async (fileIds: string[]) => {
   return mapAttachmentIds(ids, await buildAttachmentLookup(ids));
 };
 
+const normalizeAttachmentCaptions = (rawValue: unknown, attachmentIds: string[]) => {
+  if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) return null;
+  const allowedIds = new Set((attachmentIds || []).map((id) => String(id || '').trim()).filter(Boolean));
+  const entries = Object.entries(rawValue as Record<string, unknown>)
+    .map(([fileId, value]) => [String(fileId || '').trim(), String(value || '').trim().slice(0, 220)] as const)
+    .filter(([fileId, caption]) => allowedIds.has(fileId) && Boolean(caption));
+  if (!entries.length) return null;
+  return Object.fromEntries(entries);
+};
+
 const serializePostOriginalPreview = (post: any) => {
   if (!post) return null;
   return {
@@ -666,6 +676,7 @@ const communityPostFeedSelect: any = {
   contentHash: true,
   translationVersion: true,
   attachments: true,
+  attachmentCaptions: true,
   offerTags: true,
   tags: true,
   mentions: true,
@@ -2116,6 +2127,10 @@ export const getPosts = async (req: Request, res: Response) => {
         ...buildPostTranslationMetadata(post),
         attachmentFileIds: post.attachments || [],
         attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
+        attachmentCaptions:
+          post.attachmentCaptions && typeof post.attachmentCaptions === 'object' && !Array.isArray(post.attachmentCaptions)
+            ? post.attachmentCaptions
+            : {},
         tags: post.tags || [],
         mentions: post.mentions || [],
         topic: post.topic || null,
@@ -2385,6 +2400,10 @@ export const getFeed = async (req: Request, res: Response) => {
         ...buildPostTranslationMetadata(post),
         attachmentFileIds: post.attachments || [],
         attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
+        attachmentCaptions:
+          post.attachmentCaptions && typeof post.attachmentCaptions === 'object' && !Array.isArray(post.attachmentCaptions)
+            ? post.attachmentCaptions
+            : {},
         tags: post.tags || [],
         mentions: post.mentions || [],
         topic: post.topic || null,
@@ -2688,6 +2707,10 @@ export const getPostById = async (req: Request, res: Response) => {
       ...buildPostTranslationMetadata(post),
       attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
+      attachmentCaptions:
+        post.attachmentCaptions && typeof post.attachmentCaptions === 'object' && !Array.isArray(post.attachmentCaptions)
+          ? post.attachmentCaptions
+          : {},
       tags: post.tags || [],
       mentions: post.mentions || [],
       topic: post.topic || null,
@@ -2965,6 +2988,10 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           ...buildPostTranslationMetadata(post),
           attachmentFileIds: post.attachments || [],
           attachments: await resolveAttachments(post.attachments || []),
+          attachmentCaptions:
+            post.attachmentCaptions && typeof post.attachmentCaptions === 'object' && !Array.isArray(post.attachmentCaptions)
+              ? post.attachmentCaptions
+              : {},
           tags: post.tags || [],
           mentions: post.mentions || [],
           topic: post.topic || null,
@@ -3077,7 +3104,8 @@ export const createPost = async (req: Request, res: Response) => {
       location,
       commentPolicy,
       isAIEnhanced,
-      aiInsightEnabled
+      aiInsightEnabled,
+      attachmentCaptions
     } = req.body;
 
     const normalizedTitle = String(title || '').trim();
@@ -3173,6 +3201,7 @@ export const createPost = async (req: Request, res: Response) => {
       [attachmentFileIds, attachments],
       { userId, role: req.user?.role }
     );
+    const normalizedAttachmentCaptions = normalizeAttachmentCaptions(attachmentCaptions, normalizedAttachmentIds);
     const videoIntegrity = await assessVideoIntegrityByAttachments(normalizedAttachmentIds, userId);
 
     const postAiSettings = await resolvePostAiSettings();
@@ -3192,6 +3221,7 @@ export const createPost = async (req: Request, res: Response) => {
         title: normalizedTitle || null,
         content: normalizedContent,
         attachments: normalizedAttachmentIds,
+        attachmentCaptions: normalizedAttachmentCaptions,
         offerTags: normalizedOfferTags.length ? normalizedOfferTags : null,
         tags: normalizedTags,
         mentions: normalizedMentionUserIds,
@@ -3323,6 +3353,10 @@ export const createPost = async (req: Request, res: Response) => {
       ...buildPostTranslationMetadata(post),
       attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
+      attachmentCaptions:
+        post.attachmentCaptions && typeof post.attachmentCaptions === 'object' && !Array.isArray(post.attachmentCaptions)
+          ? post.attachmentCaptions
+          : {},
       tags: post.tags || [],
       mentions: post.mentions || [],
       topic: post.topic || null,
@@ -3574,7 +3608,8 @@ export const updatePost = async (req: Request, res: Response) => {
       isHighlighted,
       isAIEnhanced,
       aiInsightEnabled,
-      regenerateAiInsight
+      regenerateAiInsight,
+      attachmentCaptions
     } = req.body;
 
     const post = await prisma.communityPost.findUnique({
@@ -3599,7 +3634,13 @@ export const updatePost = async (req: Request, res: Response) => {
         [attachmentFileIds, attachments],
         { userId, role: req.user?.role }
       );
+      updateData.attachmentCaptions = normalizeAttachmentCaptions(
+        attachmentCaptions ?? post.attachmentCaptions,
+        updateData.attachments
+      );
       Object.assign(updateData, buildVideoIntegrityUpdate(await assessVideoIntegrityByAttachments(updateData.attachments, userId)));
+    } else if (attachmentCaptions !== undefined) {
+      updateData.attachmentCaptions = normalizeAttachmentCaptions(attachmentCaptions, post.attachments || []);
     }
     const nextContent =
       updateData.content !== undefined ? String(updateData.content || '') : String(post.content || '');
@@ -3838,6 +3879,10 @@ export const updatePost = async (req: Request, res: Response) => {
       ...buildPostTranslationMetadata(updated),
       attachmentFileIds: updated.attachments || [],
       attachments: await resolveAttachments(updated.attachments || []),
+      attachmentCaptions:
+        updated.attachmentCaptions && typeof updated.attachmentCaptions === 'object' && !Array.isArray(updated.attachmentCaptions)
+          ? updated.attachmentCaptions
+          : {},
       tags: updated.tags || [],
       mentions: updated.mentions || [],
       topic: updated.topic || null,
