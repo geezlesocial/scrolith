@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile.storyfix.runtime
+      - -t
+      - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:prod
+      - .
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:prod

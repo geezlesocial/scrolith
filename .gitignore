@@ -224,6 +224,8 @@ tmp/
 /translation-runtime/*.err
 /geezle-backend/Dockerfile.storyfix.runtime
 /geezle-backend/cloudbuild*.yaml
+!/geezle-backend/Dockerfile.storyfix.runtime
+!/geezle-backend/cloudbuild.scrolith-prod.yaml
 /geezle-backend/scrolith-backend-resume-storage-fix-*.zip
 /geezle-backend/tmp-prod-user-check.js
 /mobile/android/app/src/main/assets/

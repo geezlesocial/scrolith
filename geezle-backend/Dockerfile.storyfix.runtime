@@ -1,0 +1,18 @@
+FROM node:20-alpine AS runtime
+
+WORKDIR /app/geezle-backend
+
+COPY package*.json ./
+RUN npm ci --include=dev \
+  && npm cache clean --force
+
+COPY . .
+
+RUN npm run prisma:generate
+RUN mkdir -p uploads && cp -f assets/brand/runtime-uploads/* uploads/
+
+ENV NODE_ENV=production
+
+EXPOSE 8080
+
+CMD ["sh", "-c", "npm run migrate:apply && node -r ts-node/register/transpile-only src/server.ts"]
