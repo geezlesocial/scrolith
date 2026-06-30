@@ -7,6 +7,19 @@ import { buildCommunityAdActivationReadiness } from '../services/communityAdActi
 const CONFIG_FALLBACK_PATH = path.join(__dirname, '..', '..', 'data', 'community_config.json');
 const EVENT_LOG_DIR = path.join(__dirname, '..', '..', 'data', 'logs');
 const EVENT_LOG_PATH = path.join(EVENT_LOG_DIR, 'admin_config_events.log');
+const GROUPS_CONFIG_SCOPE = 'community_groups_config';
+
+const defaultGroupsConfig = {
+  heroEyebrow: 'Scrolith Groups',
+  heroTitle: 'Build private and public professional communities.',
+  heroSubtitle:
+    'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+  createButtonLabel: 'Create group',
+  directoryTitle: 'Your group spaces',
+  directoryEmptyState: 'No groups yet. Create the first one from here.',
+  allowUserGroupCreation: true,
+  showDiscoveryStats: true
+};
 
 const appendEventLog = (entry: any) => {
   try {
@@ -75,6 +88,56 @@ const getOrCreatePlatformSettings = async () => {
   return settings;
 };
 
+const normalizeGroupsConfig = (value: any) => {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  return {
+    heroEyebrow: String(source.heroEyebrow || defaultGroupsConfig.heroEyebrow).trim() || defaultGroupsConfig.heroEyebrow,
+    heroTitle: String(source.heroTitle || defaultGroupsConfig.heroTitle).trim() || defaultGroupsConfig.heroTitle,
+    heroSubtitle: String(source.heroSubtitle || defaultGroupsConfig.heroSubtitle).trim() || defaultGroupsConfig.heroSubtitle,
+    createButtonLabel:
+      String(source.createButtonLabel || defaultGroupsConfig.createButtonLabel).trim() || defaultGroupsConfig.createButtonLabel,
+    directoryTitle: String(source.directoryTitle || defaultGroupsConfig.directoryTitle).trim() || defaultGroupsConfig.directoryTitle,
+    directoryEmptyState:
+      String(source.directoryEmptyState || defaultGroupsConfig.directoryEmptyState).trim() || defaultGroupsConfig.directoryEmptyState,
+    allowUserGroupCreation:
+      typeof source.allowUserGroupCreation === 'boolean'
+        ? source.allowUserGroupCreation
+        : defaultGroupsConfig.allowUserGroupCreation,
+    showDiscoveryStats:
+      typeof source.showDiscoveryStats === 'boolean' ? source.showDiscoveryStats : defaultGroupsConfig.showDiscoveryStats
+  };
+};
+
+const readGroupsConfig = async () => {
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: GROUPS_CONFIG_SCOPE } });
+    return normalizeGroupsConfig(record?.data || {});
+  } catch (error) {
+    console.warn('Failed to read community groups config', error);
+    return { ...defaultGroupsConfig };
+  }
+};
+
+const saveGroupsConfig = async (value: any) => {
+  const normalized = normalizeGroupsConfig(value);
+  await prisma.appSetting.upsert({
+    where: { scope: GROUPS_CONFIG_SCOPE },
+    create: { scope: GROUPS_CONFIG_SCOPE, data: normalized },
+    update: { data: normalized }
+  });
+  return normalized;
+};
+
+export const getGroupsConfig = async (_req: Request, res: Response) => {
+  try {
+    const data = await readGroupsConfig();
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error('Get groups config error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load groups config' });
+  }
+};
+
 export const getAdminConfig = async (_req: Request, res: Response) => {
   try {
     // If Prisma model `communityConfig` is not available, fall back to a local JSON file (dev-only)
@@ -94,12 +157,13 @@ export const getAdminConfig = async (_req: Request, res: Response) => {
           business_page_follow_enabled: true,
           max_images_per_post: 5,
           max_video_size_mb: 50,
-          story_expiry_hours: 24
+          story_expiry_hours: 24,
+          groups: defaultGroupsConfig
         };
         await writeFallback(initial);
         return res.json({ success: true, data: initial });
       }
-      return res.json({ success: true, data: fallback });
+      return res.json({ success: true, data: { ...fallback, groups: normalizeGroupsConfig(fallback?.groups) } });
     }
 
     let cfg = await prisma.communityConfig.findFirst({ orderBy: { updatedAt: 'desc' } });
@@ -108,11 +172,13 @@ export const getAdminConfig = async (_req: Request, res: Response) => {
     }
 
     const platformSettings = await getOrCreatePlatformSettings();
+    const groups = await readGroupsConfig();
     return res.json({
       success: true,
       data: {
         ...toSnakeCase(cfg),
-        ...toSnakeCommunityPolicy(platformSettings)
+        ...toSnakeCommunityPolicy(platformSettings),
+        groups
       }
     });
   } catch (error: any) {
@@ -155,6 +221,7 @@ export const updateAdminConfig = async (req: Request, res: Response) => {
       if (typeof payload.max_images_per_post !== 'undefined') updatesFallback.max_images_per_post = Number(payload.max_images_per_post);
       if (typeof payload.max_video_size_mb !== 'undefined') updatesFallback.max_video_size_mb = Number(payload.max_video_size_mb);
       if (typeof payload.story_expiry_hours !== 'undefined') updatesFallback.story_expiry_hours = Number(payload.story_expiry_hours);
+      if (typeof payload.groups !== 'undefined') updatesFallback.groups = normalizeGroupsConfig(payload.groups);
       const merged = { ...existing, ...updatesFallback };
       await writeFallback(merged);
       // Emit socket event
@@ -278,9 +345,15 @@ export const updateAdminConfig = async (req: Request, res: Response) => {
       });
     }
 
+    const groupsConfig =
+      typeof payload.groups !== 'undefined'
+        ? await saveGroupsConfig(payload.groups)
+        : await readGroupsConfig();
+
     const responseData = {
       ...toSnakeCase(updated),
-      ...toSnakeCommunityPolicy(platformSettings)
+      ...toSnakeCommunityPolicy(platformSettings),
+      groups: groupsConfig
     };
 
     // Emit socket event for admin config update

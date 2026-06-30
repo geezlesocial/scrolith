@@ -176,7 +176,8 @@ import {
 } from '../controllers/community.reports.controller';
 import {
   getAdminConfig,
-  updateAdminConfig
+  updateAdminConfig,
+  getGroupsConfig
 } from '../controllers/community.admin.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { adminMiddleware } from '../middleware/admin.middleware';
@@ -198,6 +199,7 @@ router.get('/analytics', authMiddleware, adminMiddleware, getCommunityAnalytics)
 router.get('/channels', authMiddleware, adminMiddleware, getChannels);
 router.get('/channels/:channelId/messages', authMiddleware, adminMiddleware, getChannelMessages);
 router.get('/clubs', authMiddleware, listGroups);
+router.get('/clubs/config', authMiddleware, getGroupsConfig);
 router.get('/clubs/:clubId', authMiddleware, getGroup);
 router.get('/events', authMiddleware, getEvents);
 router.get('/stats', authMiddleware, getCommunityStats);
