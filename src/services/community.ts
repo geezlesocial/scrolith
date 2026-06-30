@@ -843,8 +843,29 @@ class CommunityService {
     };
   }
 
+  static async bulkRespondToClubJoinRequests(
+    clubId: string,
+    payload: { requestIds: string[]; decision: 'approve' | 'reject'; note?: string }
+  ): Promise<{ success: boolean; status?: string; processed?: number }> {
+    const response = await this.post(
+      `/community/clubs/${encodeURIComponent(clubId)}/requests/bulk-respond`,
+      payload
+    );
+    return {
+      success: Boolean(response?.success),
+      status: response?.status,
+      processed: Number(response?.processed || 0)
+    };
+  }
+
   static async getClubInvites(clubId: string): Promise<GroupInviteSummary[]> {
     const response = await this.get(`/community/clubs/${encodeURIComponent(clubId)}/invites`);
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? (data as GroupInviteSummary[]) : [];
+  }
+
+  static async getMyClubInvites(): Promise<GroupInviteSummary[]> {
+    const response = await this.get('/community/clubs/invites/my');
     const data = extractData<any>(response);
     return Array.isArray(data) ? (data as GroupInviteSummary[]) : [];
   }
@@ -1088,6 +1109,7 @@ class CommunityService {
     content: string;
     attachments?: string[];
     attachmentFileIds?: string[];
+    attachmentCaptions?: Record<string, string>;
     status?: string;
     tags?: string[];
     mentions?: string[];
@@ -1110,6 +1132,7 @@ class CommunityService {
       content: data.content,
       attachmentFileIds,
       attachments: attachmentFileIds,
+      attachmentCaptions: data.attachmentCaptions || {},
       status: data.status || 'active',
       tags: data.tags || [],
       mentions: data.mentions || [],
@@ -1215,6 +1238,7 @@ class CommunityService {
     content?: string;
     attachments?: string[];
     attachmentFileIds?: string[];
+    attachmentCaptions?: Record<string, string>;
     tags?: string[];
     mentions?: string[];
     visibility?: string;
@@ -1237,7 +1261,8 @@ class CommunityService {
     const response = await api.put(`/community/posts/${postId}`, {
       ...payload,
       attachmentFileIds,
-      attachments: attachmentFileIds
+      attachments: attachmentFileIds,
+      attachmentCaptions: payload.attachmentCaptions || {}
     });
     return extractData<any>(response);
   }

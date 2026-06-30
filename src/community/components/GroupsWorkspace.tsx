@@ -3,8 +3,13 @@ import { Link } from 'react-router-dom';
 import {
   ArrowRight,
   Check,
+  CheckCheck,
+  ChevronLeft,
+  ChevronRight,
   Globe,
+  GripVertical,
   ImageIcon,
+  Inbox,
   Lock,
   MessageSquare,
   Plus,
@@ -12,7 +17,8 @@ import {
   UserPlus,
   Upload,
   Users,
-  Video
+  Video,
+  X
 } from 'lucide-react';
 import { CommunityService } from '../../services/community';
 import type { CommunityClub, GroupFaqItem, GroupInviteSummary, GroupJoinRequestSummary, GroupMemberSummary, UploadedFile } from '../../types';
@@ -40,6 +46,11 @@ type GroupFormState = {
   coverImage: string;
   avatarImage: string;
 };
+
+type GroupMediaLightboxState = {
+  postId: string;
+  index: number;
+} | null;
 
 const emptyGroupForm = (): GroupFormState => ({
   name: '',
@@ -106,7 +117,13 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [inviteNote, setInviteNote] = useState('');
   const [inviteRole, setInviteRole] = useState<'member' | 'moderator'>('member');
   const [creatingInvite, setCreatingInvite] = useState(false);
+  const [inviteInbox, setInviteInbox] = useState<GroupInviteSummary[]>([]);
   const [postPreviewIndex, setPostPreviewIndex] = useState<Record<string, number>>({});
+  const [postUploadCaptions, setPostUploadCaptions] = useState<Record<string, string>>({});
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
+  const [bulkReviewNote, setBulkReviewNote] = useState('');
+  const [bulkReviewing, setBulkReviewing] = useState(false);
+  const [groupMediaLightbox, setGroupMediaLightbox] = useState<GroupMediaLightboxState>(null);
 
   const activeRole = String(user?.role || '').toLowerCase();
 
@@ -165,17 +182,36 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     }
   }, [activeRole, showNotification]);
 
+  const reloadInviteInbox = useCallback(async () => {
+    try {
+      const data = await CommunityService.getMyClubInvites();
+      setInviteInbox(Array.isArray(data) ? data : []);
+    } catch (error: any) {
+      showNotification('error', 'Groups', error?.message || 'Unable to load your invite inbox.');
+    }
+  }, [showNotification]);
+
   useEffect(() => {
     void reloadGroups();
   }, [reloadGroups]);
+
+  useEffect(() => {
+    void reloadInviteInbox();
+  }, [reloadInviteInbox]);
 
   useEffect(() => {
     void reloadSelectedGroup(selectedGroupId);
   }, [reloadSelectedGroup, selectedGroupId]);
 
   useEffect(() => {
+    setSelectedRequestIds([]);
+    setBulkReviewNote('');
+  }, [selectedGroupId]);
+
+  useEffect(() => {
     const refresh = () => {
       void reloadGroups();
+      void reloadInviteInbox();
       if (selectedGroupId) void reloadSelectedGroup(selectedGroupId);
     };
     window.addEventListener('community:group_created', refresh as EventListener);
@@ -183,6 +219,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     window.addEventListener('community:group_deleted', refresh as EventListener);
     window.addEventListener('community:group_member_updated', refresh as EventListener);
     window.addEventListener('community:group_request_updated', refresh as EventListener);
+    window.addEventListener('community:group_invite_updated', refresh as EventListener);
     window.addEventListener('community:post_created', refresh as EventListener);
     return () => {
       window.removeEventListener('community:group_created', refresh as EventListener);
@@ -190,9 +227,31 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       window.removeEventListener('community:group_deleted', refresh as EventListener);
       window.removeEventListener('community:group_member_updated', refresh as EventListener);
       window.removeEventListener('community:group_request_updated', refresh as EventListener);
+      window.removeEventListener('community:group_invite_updated', refresh as EventListener);
       window.removeEventListener('community:post_created', refresh as EventListener);
     };
-  }, [reloadGroups, reloadSelectedGroup, selectedGroupId]);
+  }, [reloadGroups, reloadInviteInbox, reloadSelectedGroup, selectedGroupId]);
+
+  const canManageSelectedGroup = useMemo(() => {
+    const role = String(selectedGroup?.membershipRole || '').toLowerCase();
+    return activeRole === 'admin' || role === 'owner' || role === 'moderator';
+  }, [activeRole, selectedGroup?.membershipRole]);
+
+  const canInviteSelectedGroup = useMemo(() => {
+    if (!selectedGroup) return false;
+    if (canManageSelectedGroup) return true;
+    return Boolean(selectedGroup.isJoined && selectedGroup.membersCanInvite);
+  }, [canManageSelectedGroup, selectedGroup]);
+
+  const canPostInSelectedGroup = useMemo(() => {
+    if (!selectedGroup) return false;
+    if (canManageSelectedGroup) return true;
+    const permission = String(selectedGroup.postPermission || 'members').toLowerCase();
+    const joined = Boolean(selectedGroup.isJoined);
+    if (permission === 'everyone') return true;
+    if (permission === 'members') return joined;
+    return false;
+  }, [canManageSelectedGroup, selectedGroup]);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,27 +290,6 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     };
   }, [canInviteSelectedGroup, inviteQuery, selectedGroup, selectedInvitees, user?.id]);
 
-  const canManageSelectedGroup = useMemo(() => {
-    const role = String(selectedGroup?.membershipRole || '').toLowerCase();
-    return activeRole === 'admin' || role === 'owner' || role === 'moderator';
-  }, [activeRole, selectedGroup?.membershipRole]);
-
-  const canInviteSelectedGroup = useMemo(() => {
-    if (!selectedGroup) return false;
-    if (canManageSelectedGroup) return true;
-    return Boolean(selectedGroup.isJoined && selectedGroup.membersCanInvite);
-  }, [canManageSelectedGroup, selectedGroup]);
-
-  const canPostInSelectedGroup = useMemo(() => {
-    if (!selectedGroup) return false;
-    if (canManageSelectedGroup) return true;
-    const permission = String(selectedGroup.postPermission || 'members').toLowerCase();
-    const joined = Boolean(selectedGroup.isJoined);
-    if (permission === 'everyone') return true;
-    if (permission === 'members') return joined;
-    return false;
-  }, [canManageSelectedGroup, selectedGroup]);
-
   const selectedPostMediaSummary = useMemo(() => {
     const imageCount = postUploads.filter((file) => String(file.type || '').toLowerCase() !== 'video').length;
     const videoCount = postUploads.filter((file) => String(file.type || '').toLowerCase() === 'video').length;
@@ -272,6 +310,46 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const pendingInvites = useMemo(
     () => groupInvites.filter((invite) => String(invite.status || '').toLowerCase() === 'pending'),
     [groupInvites]
+  );
+
+  const receivedInviteInbox = useMemo(
+    () =>
+      inviteInbox.filter((invite) => String(invite.inviteeId || invite.invitee_id || '') === String(user?.id || '')),
+    [inviteInbox, user?.id]
+  );
+
+  const sentInviteInbox = useMemo(
+    () =>
+      inviteInbox.filter((invite) => String(invite.invitedById || invite.invited_by_id || '') === String(user?.id || '')),
+    [inviteInbox, user?.id]
+  );
+
+  const selectedGroupRequests = useMemo(
+    () => joinRequests.filter((entry) => String(entry.status || '').toLowerCase() === 'pending'),
+    [joinRequests]
+  );
+
+  const historicalGroupRequests = useMemo(
+    () => joinRequests.filter((entry) => String(entry.status || '').toLowerCase() !== 'pending'),
+    [joinRequests]
+  );
+
+  const visibleModerationRequests = useMemo(
+    () =>
+      moderationFilter === 'pending'
+        ? selectedGroupRequests
+        : moderationFilter === 'history'
+          ? historicalGroupRequests
+          : joinRequests,
+    [historicalGroupRequests, joinRequests, moderationFilter, selectedGroupRequests]
+  );
+
+  const selectedPendingRequestIds = useMemo(
+    () =>
+      selectedRequestIds.filter((id) =>
+        selectedGroupRequests.some((request) => request.id === id)
+      ),
+    [selectedRequestIds, selectedGroupRequests]
   );
 
   const applyGroupToForm = (group?: CommunityClub | null) => {
@@ -394,6 +472,30 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     }
   };
 
+  const handleBulkRespondRequests = async (decision: 'approve' | 'reject') => {
+    if (!selectedGroup || !selectedPendingRequestIds.length) return;
+    setBulkReviewing(true);
+    try {
+      await CommunityService.bulkRespondToClubJoinRequests(selectedGroup.id, {
+        requestIds: selectedPendingRequestIds,
+        decision,
+        note: bulkReviewNote.trim()
+      });
+      showNotification(
+        'success',
+        'Join requests',
+        `${selectedPendingRequestIds.length} request${selectedPendingRequestIds.length === 1 ? '' : 's'} ${decision}d.`
+      );
+      setSelectedRequestIds([]);
+      setBulkReviewNote('');
+      await reloadSelectedGroup(selectedGroup.id);
+    } catch (error: any) {
+      showNotification('error', 'Join requests', error?.message || 'Unable to update the selected requests.');
+    } finally {
+      setBulkReviewing(false);
+    }
+  };
+
   const handleUpdateMember = async (member: GroupMemberSummary, payload: { action?: 'remove'; role?: 'member' | 'moderator' }) => {
     if (!selectedGroup) return;
     try {
@@ -433,13 +535,21 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     }
   };
 
-  const handleRespondInvite = async (invite: GroupInviteSummary, decision: 'accept' | 'decline' | 'cancel') => {
-    if (!selectedGroup) return;
+  const handleRespondInvite = async (
+    invite: GroupInviteSummary,
+    decision: 'accept' | 'decline' | 'cancel',
+    clubIdOverride?: string
+  ) => {
+    const clubId = String(clubIdOverride || selectedGroup?.id || invite.club?.id || '').trim();
+    if (!clubId) return;
     try {
-      await CommunityService.respondToClubInvite(selectedGroup.id, invite.id, { decision });
+      await CommunityService.respondToClubInvite(clubId, invite.id, { decision });
       showNotification('success', 'Invites', `Invite ${decision === 'accept' ? 'accepted' : decision === 'decline' ? 'declined' : 'cancelled'}.`);
       await reloadGroups();
-      await reloadSelectedGroup(selectedGroup.id);
+      await reloadInviteInbox();
+      if (selectedGroup?.id === clubId) {
+        await reloadSelectedGroup(clubId);
+      }
     } catch (error: any) {
       showNotification('error', 'Invites', error?.message || 'Unable to update this invite.');
     }
@@ -457,11 +567,17 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
         title: postTitle.trim(),
         content: postBody.trim(),
         attachmentFileIds: postUploads.map((file) => String(file.id || '')).filter(Boolean),
+        attachmentCaptions: Object.fromEntries(
+          Object.entries(postUploadCaptions).filter(([fileId, caption]) =>
+            postUploads.some((file) => String(file.id || '') === fileId) && String(caption || '').trim()
+          )
+        ),
         clubId: selectedGroup.id
       });
       setPostTitle('');
       setPostBody('');
       setPostUploads([]);
+      setPostUploadCaptions({});
       showNotification('success', 'Group posts', 'Post shared with the group.');
       await reloadSelectedGroup(selectedGroup.id);
     } catch (error: any) {
@@ -475,7 +591,10 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     const nextFiles = Array.isArray(files) ? files.filter(Boolean) : [];
     if (!nextFiles.length) return;
     if (filePickerTarget === 'post') {
-      setPostUploads((current) => [...current, ...nextFiles]);
+      setPostUploads((current) => {
+        const existingIds = new Set(current.map((file) => String(file.id || '')));
+        return [...current, ...nextFiles.filter((file) => !existingIds.has(String(file.id || '')))];
+      });
       return;
     }
     const selectedFile = nextFiles[0];
@@ -487,14 +606,31 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     setGroupForm((current) => ({ ...current, avatarImage: selectedFile.url }));
   };
 
-  const selectedGroupRequests = joinRequests.filter((entry) => String(entry.status || '').toLowerCase() === 'pending');
-  const historicalGroupRequests = joinRequests.filter((entry) => String(entry.status || '').toLowerCase() !== 'pending');
-  const visibleModerationRequests =
-    moderationFilter === 'pending'
-      ? selectedGroupRequests
-      : moderationFilter === 'history'
-        ? historicalGroupRequests
-        : joinRequests;
+  const movePostUpload = (fileId: string, direction: -1 | 1) => {
+    setPostUploads((current) => {
+      const index = current.findIndex((entry) => String(entry.id || '') === String(fileId || ''));
+      if (index < 0) return current;
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      const [moved] = next.splice(index, 1);
+      next.splice(nextIndex, 0, moved);
+      return next;
+    });
+  };
+
+  const reorderPostUpload = (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    setPostUploads((current) => {
+      const sourceIndex = current.findIndex((entry) => String(entry.id || '') === sourceId);
+      const targetIndex = current.findIndex((entry) => String(entry.id || '') === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+  };
 
   return (
     <div className={embedded ? 'space-y-6' : 'space-y-6 rounded-[32px] bg-white/90 p-4 shadow-sm sm:p-6'}>
@@ -785,7 +921,17 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           {postUploads.length ? (
                             <div className="grid gap-3 sm:grid-cols-3">
                               {postUploads.map((file) => (
-                                <div key={file.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                                <div
+                                  key={file.id}
+                                  draggable
+                                  onDragStart={(event) => event.dataTransfer.setData('text/plain', String(file.id || ''))}
+                                  onDragOver={(event) => event.preventDefault()}
+                                  onDrop={(event) => {
+                                    event.preventDefault();
+                                    reorderPostUpload(event.dataTransfer.getData('text/plain'), String(file.id || ''));
+                                  }}
+                                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                                >
                                   <div className="aspect-[4/3] bg-slate-100">
                                     {String(file.type || '').toLowerCase() === 'video' ? (
                                       <video src={file.url} className="h-full w-full object-cover" controls />
@@ -793,19 +939,60 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                       <img src={file.url} alt={file.name || 'Upload'} className="h-full w-full object-cover" />
                                     )}
                                   </div>
-                                  <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-slate-500">
+                                  <div className="flex items-start justify-between gap-2 px-3 py-2 text-xs text-slate-500">
                                     <div className="min-w-0">
-                                      <span className="block truncate">{file.name || 'Uploaded media'}</span>
+                                      <span className="flex items-center gap-1 truncate">
+                                        <GripVertical className="h-3.5 w-3.5 text-slate-400" />
+                                        <span className="truncate">{file.name || 'Uploaded media'}</span>
+                                      </span>
                                       <span className="block text-[10px] uppercase tracking-[0.2em] text-slate-400">
                                         {String(file.type || '').toLowerCase() === 'video' ? 'Video' : 'Image'}
                                       </span>
                                     </div>
-                                    <button
-                                      onClick={() => setPostUploads((current) => current.filter((entry) => entry.id !== file.id))}
-                                      className="font-semibold text-rose-600"
-                                    >
-                                      Remove
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => movePostUpload(String(file.id || ''), -1)}
+                                        className="rounded-full border border-slate-200 p-1 text-slate-500 hover:bg-slate-50"
+                                        aria-label="Move upload left"
+                                      >
+                                        <ChevronLeft className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => movePostUpload(String(file.id || ''), 1)}
+                                        className="rounded-full border border-slate-200 p-1 text-slate-500 hover:bg-slate-50"
+                                        aria-label="Move upload right"
+                                      >
+                                        <ChevronRight className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          setPostUploads((current) => current.filter((entry) => entry.id !== file.id));
+                                          setPostUploadCaptions((current) => {
+                                            const next = { ...current };
+                                            delete next[String(file.id || '')];
+                                            return next;
+                                          });
+                                        }}
+                                        className="font-semibold text-rose-600"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div className="border-t border-slate-100 px-3 py-2">
+                                    <input
+                                      value={postUploadCaptions[String(file.id || '')] || ''}
+                                      onChange={(event) =>
+                                        setPostUploadCaptions((current) => ({
+                                          ...current,
+                                          [String(file.id || '')]: event.target.value
+                                        }))
+                                      }
+                                      placeholder="Caption for this attachment"
+                                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none focus:border-blue-500"
+                                    />
                                   </div>
                                 </div>
                               ))}
@@ -840,6 +1027,11 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
                           const activeIndex = Math.max(0, Math.min(postPreviewIndex[post.id] ?? 0, Math.max(attachments.length - 1, 0)));
                           const activeAttachment = attachments[activeIndex] || null;
+                          const attachmentCaptions =
+                            post?.attachmentCaptions && typeof post.attachmentCaptions === 'object'
+                              ? post.attachmentCaptions
+                              : {};
+                          const activeCaption = activeAttachment?.id ? String(attachmentCaptions[activeAttachment.id] || '').trim() : '';
                           return (
                             <article key={post.id} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
                               <div className="flex items-start justify-between gap-3">
@@ -860,13 +1052,49 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                               {post.content ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{post.content}</p> : null}
                               {activeAttachment ? (
                                 <div className="mt-4 overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50">
-                                  <div className="aspect-[16/9] bg-slate-100">
+                                  <div className="relative aspect-[16/9] bg-slate-100">
                                     {mediaKind(String(activeAttachment?.url || '')) === 'video' ? (
                                       <video src={activeAttachment?.url} controls className="h-full w-full object-cover" />
                                     ) : (
-                                      <img src={activeAttachment?.url} alt={activeAttachment?.name || 'Attachment'} className="h-full w-full object-cover" />
+                                      <img
+                                        src={activeAttachment?.url}
+                                        alt={activeAttachment?.name || 'Attachment'}
+                                        className="h-full w-full cursor-zoom-in object-cover"
+                                        onClick={() => setGroupMediaLightbox({ postId: post.id, index: activeIndex })}
+                                      />
                                     )}
+                                    {attachments.length > 1 ? (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPostPreviewIndex((current) => ({
+                                              ...current,
+                                              [post.id]: activeIndex === 0 ? attachments.length - 1 : activeIndex - 1
+                                            }))
+                                          }
+                                          className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-950/65 p-2 text-white backdrop-blur hover:bg-slate-950/80"
+                                          aria-label="Previous attachment"
+                                        >
+                                          <ChevronLeft className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setPostPreviewIndex((current) => ({
+                                              ...current,
+                                              [post.id]: activeIndex === attachments.length - 1 ? 0 : activeIndex + 1
+                                            }))
+                                          }
+                                          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-slate-950/65 p-2 text-white backdrop-blur hover:bg-slate-950/80"
+                                          aria-label="Next attachment"
+                                        >
+                                          <ChevronRight className="h-4 w-4" />
+                                        </button>
+                                      </>
+                                    ) : null}
                                   </div>
+                                  {activeCaption ? <p className="border-t border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">{activeCaption}</p> : null}
                                   {attachments.length > 1 ? (
                                     <div className="grid grid-cols-4 gap-2 border-t border-slate-200 bg-white p-3 sm:grid-cols-6">
                                       {attachments.map((attachment: any, index: number) => (
@@ -899,6 +1127,143 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                   </div>
 
                   <div className="space-y-4">
+                    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h4 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                            <Inbox className="h-5 w-5 text-slate-500" />
+                            Invite inbox
+                          </h4>
+                          <p className="mt-1 text-sm text-slate-500">Track received and sent invitations, including accepted, declined, and cancelled outcomes.</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs font-semibold text-slate-600">
+                          <span className="rounded-full bg-white px-3 py-1">Received {receivedInviteInbox.length}</span>
+                          <span className="rounded-full bg-white px-3 py-1">Sent {sentInviteInbox.length}</span>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-900">Received</p>
+                            <span className="text-xs text-slate-500">Inbox for this account</span>
+                          </div>
+                          {receivedInviteInbox.length ? (
+                            receivedInviteInbox.slice(0, 6).map((invite) => {
+                              const status = String(invite.status || '').toLowerCase();
+                              return (
+                                <div key={`received-${invite.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <Link
+                                        to={invite.club?.slug ? `/community?tab=groups&group=${encodeURIComponent(String(invite.club.slug))}` : `/community?tab=groups&group=${encodeURIComponent(String(invite.club?.id || ''))}`}
+                                        className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600"
+                                      >
+                                        {invite.club?.name || 'Scrolith group'}
+                                      </Link>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        Invited by {invite.invitedBy?.name || invite.invitedBy?.username || 'Community member'} as {invite.role || 'member'}
+                                      </p>
+                                    </div>
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                        status === 'accepted'
+                                          ? 'bg-emerald-50 text-emerald-700'
+                                          : status === 'declined' || status === 'cancelled'
+                                            ? 'bg-rose-50 text-rose-700'
+                                            : 'bg-amber-50 text-amber-700'
+                                      }`}
+                                    >
+                                      {status}
+                                    </span>
+                                  </div>
+                                  {invite.note ? <p className="mt-3 text-sm text-slate-600">{invite.note}</p> : null}
+                                  {status === 'pending' ? (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRespondInvite(invite, 'accept', invite.club?.id)}
+                                        className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                                      >
+                                        Accept
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRespondInvite(invite, 'decline', invite.club?.id)}
+                                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                      >
+                                        Decline
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                              No group invites in your inbox yet.
+                            </p>
+                          )}
+                        </div>
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-slate-900">Sent</p>
+                            <span className="text-xs text-slate-500">Track moderator outcomes live</span>
+                          </div>
+                          {sentInviteInbox.length ? (
+                            sentInviteInbox.slice(0, 6).map((invite) => {
+                              const status = String(invite.status || '').toLowerCase();
+                              return (
+                                <div key={`sent-${invite.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <Link
+                                        to={invite.club?.slug ? `/community?tab=groups&group=${encodeURIComponent(String(invite.club.slug))}` : `/community?tab=groups&group=${encodeURIComponent(String(invite.club?.id || ''))}`}
+                                        className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600"
+                                      >
+                                        {invite.club?.name || 'Scrolith group'}
+                                      </Link>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        Invitee {invite.invitee?.name || invite.invitee?.username || 'Community member'} • {invite.role || 'member'}
+                                      </p>
+                                    </div>
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                        status === 'accepted'
+                                          ? 'bg-emerald-50 text-emerald-700'
+                                          : status === 'declined' || status === 'cancelled'
+                                            ? 'bg-rose-50 text-rose-700'
+                                            : 'bg-amber-50 text-amber-700'
+                                      }`}
+                                    >
+                                      {status}
+                                    </span>
+                                  </div>
+                                  {invite.reviewNote ? (
+                                    <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">{invite.reviewNote}</p>
+                                  ) : null}
+                                  {status === 'pending' ? (
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleRespondInvite(invite, 'cancel', invite.club?.id)}
+                                        className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                                      >
+                                        Cancel invite
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })
+                          ) : (
+                            <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                              No sent invites yet.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
                       <h4 className="text-lg font-semibold text-slate-900">About this group</h4>
                       <div className="mt-4 space-y-3 text-sm text-slate-600">
@@ -1142,12 +1507,81 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                         </div>
                         <div className="mt-3 space-y-3">
                           {visibleModerationRequests.length ? (
-                            visibleModerationRequests.map((request) => (
+                            <>
+                              <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">Pending {selectedGroupRequests.length}</span>
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">History {historicalGroupRequests.length}</span>
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">Selected {selectedPendingRequestIds.length}</span>
+                                  </div>
+                                  {moderationFilter === 'pending' && selectedGroupRequests.length ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setSelectedRequestIds((current) =>
+                                          current.length === selectedGroupRequests.length
+                                            ? []
+                                            : selectedGroupRequests.map((request) => request.id)
+                                        )
+                                      }
+                                      className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                    >
+                                      {selectedPendingRequestIds.length === selectedGroupRequests.length ? 'Clear selection' : 'Select all pending'}
+                                    </button>
+                                  ) : null}
+                                </div>
+                                {selectedPendingRequestIds.length ? (
+                                  <div className="mt-3 space-y-3 rounded-2xl border border-blue-100 bg-blue-50 p-3">
+                                    <textarea
+                                      value={bulkReviewNote}
+                                      onChange={(event) => setBulkReviewNote(event.target.value)}
+                                      placeholder="Optional moderator note for all selected requests"
+                                      className="h-20 w-full rounded-2xl border border-blue-100 bg-white px-4 py-3 text-sm outline-none focus:border-blue-400"
+                                    />
+                                    <div className="flex flex-wrap gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleBulkRespondRequests('approve')}
+                                        disabled={bulkReviewing}
+                                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                      >
+                                        {bulkReviewing ? 'Processing...' : `Approve ${selectedPendingRequestIds.length}`}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleBulkRespondRequests('reject')}
+                                        disabled={bulkReviewing}
+                                        className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                                      >
+                                        Decline {selectedPendingRequestIds.length}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                              {visibleModerationRequests.map((request) => (
                               <div key={request.id} className="rounded-2xl border border-slate-200 bg-white p-3">
                                 <div className="flex items-center justify-between gap-3">
-                                  <div>
-                                    <p className="font-semibold text-slate-900">{request.user?.name || 'Community member'}</p>
-                                    <p className="text-xs text-slate-500">{new Date(request.requestedAt || request.requested_at || Date.now()).toLocaleString()}</p>
+                                  <div className="flex items-center gap-3">
+                                    {request.status === 'pending' ? (
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedRequestIds.includes(request.id)}
+                                        onChange={(event) =>
+                                          setSelectedRequestIds((current) =>
+                                            event.target.checked
+                                              ? Array.from(new Set([...current, request.id]))
+                                              : current.filter((id) => id !== request.id)
+                                          )
+                                        }
+                                        className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                                      />
+                                    ) : null}
+                                    <div>
+                                      <p className="font-semibold text-slate-900">{request.user?.name || 'Community member'}</p>
+                                      <p className="text-xs text-slate-500">{new Date(request.requestedAt || request.requested_at || Date.now()).toLocaleString()}</p>
+                                    </div>
                                   </div>
                                   <span
                                     className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
@@ -1165,6 +1599,12 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                   <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
                                     <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Requester note</span>
                                     <p className="mt-1 whitespace-pre-wrap">{request.note}</p>
+                                  </div>
+                                ) : null}
+                                {(request as any).reviewNote ? (
+                                  <div className="mt-3 rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                                    <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-600">Moderator note</span>
+                                    <p className="mt-1 whitespace-pre-wrap">{(request as any).reviewNote}</p>
                                   </div>
                                 ) : null}
                                 {Array.isArray(request.answers) && request.answers.length ? (
@@ -1195,6 +1635,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                         onClick={() => void handleRespondRequest(request, 'approve')}
                                         className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                                       >
+                                        <CheckCheck className="mr-1 inline h-3.5 w-3.5" />
                                         Approve
                                       </button>
                                       <button
@@ -1207,7 +1648,8 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                   </div>
                                 ) : null}
                               </div>
-                            ))
+                            ))}
+                            </>
                           ) : (
                             <p className="text-sm text-slate-500">
                               {moderationFilter === 'pending'
@@ -1494,6 +1936,89 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
           </div>
         </section>
       ) : null}
+
+      {groupMediaLightbox && (() => {
+        const lightboxPost = groupPosts.find((entry) => entry.id === groupMediaLightbox.postId);
+        const lightboxAttachments = Array.isArray(lightboxPost?.attachments) ? lightboxPost.attachments : [];
+        const safeIndex = Math.max(0, Math.min(groupMediaLightbox.index, Math.max(lightboxAttachments.length - 1, 0)));
+        const lightboxAttachment = lightboxAttachments[safeIndex] || null;
+        const lightboxCaptions =
+          lightboxPost?.attachmentCaptions && typeof lightboxPost.attachmentCaptions === 'object'
+            ? lightboxPost.attachmentCaptions
+            : {};
+        const lightboxCaption = lightboxAttachment?.id ? String(lightboxCaptions[lightboxAttachment.id] || '').trim() : '';
+        if (!lightboxAttachment) return null;
+        return (
+          <div className="fixed inset-0 z-[90] bg-slate-950/90 p-4 backdrop-blur-sm">
+            <div className="mx-auto flex h-full max-w-6xl flex-col">
+              <div className="flex items-center justify-between gap-3 pb-3 text-white">
+                <div>
+                  <p className="text-sm font-semibold">{lightboxPost?.title || 'Group media'}</p>
+                  <p className="text-xs text-slate-300">{safeIndex + 1} of {lightboxAttachments.length}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setGroupMediaLightbox(null)}
+                  className="rounded-full border border-white/20 p-2 text-white hover:bg-white/10"
+                  aria-label="Close gallery"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-slate-900">
+                {mediaKind(String(lightboxAttachment?.url || '')) === 'video' ? (
+                  <video src={lightboxAttachment?.url} controls className="max-h-full max-w-full object-contain" />
+                ) : (
+                  <img src={lightboxAttachment?.url} alt={lightboxAttachment?.name || 'Attachment'} className="max-h-full max-w-full object-contain" />
+                )}
+                {lightboxAttachments.length > 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setGroupMediaLightbox((current) => current ? { ...current, index: safeIndex === 0 ? lightboxAttachments.length - 1 : safeIndex - 1 } : current)}
+                      className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
+                      aria-label="Previous media"
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGroupMediaLightbox((current) => current ? { ...current, index: safeIndex === lightboxAttachments.length - 1 ? 0 : safeIndex + 1 } : current)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full bg-white/10 p-3 text-white hover:bg-white/20"
+                      aria-label="Next media"
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </>
+                ) : null}
+              </div>
+              <div className="mt-3 rounded-[24px] border border-white/10 bg-white/5 p-3 text-white">
+                {lightboxCaption ? <p className="text-sm text-slate-100">{lightboxCaption}</p> : <p className="text-sm text-slate-300">No caption for this attachment.</p>}
+                {lightboxAttachments.length > 1 ? (
+                  <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
+                    {lightboxAttachments.map((attachment: any, index: number) => (
+                      <button
+                        key={`${lightboxPost?.id}-${index}-lightbox`}
+                        type="button"
+                        onClick={() => setGroupMediaLightbox({ postId: groupMediaLightbox.postId, index })}
+                        className={`overflow-hidden rounded-2xl border ${safeIndex === index ? 'border-blue-300 ring-2 ring-blue-200' : 'border-white/10'}`}
+                      >
+                        <div className="aspect-square bg-slate-900">
+                          {mediaKind(String(attachment?.url || '')) === 'video' ? (
+                            <video src={attachment?.url} className="h-full w-full object-cover" muted />
+                          ) : (
+                            <img src={attachment?.url} alt={attachment?.name || 'Attachment'} className="h-full w-full object-cover" />
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <FilePickerModal
         open={showFilePicker}

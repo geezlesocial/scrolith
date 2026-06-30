@@ -3763,6 +3763,7 @@ export interface GroupJoinRequestSummary {
   requestedAt?: string;
   requested_at?: string;
   note?: string;
+  reviewNote?: string;
   answers?: string[];
   userId?: string;
   user_id?: string;
@@ -3784,6 +3785,7 @@ export interface GroupInviteSummary {
   status: string;
   role?: 'owner' | 'moderator' | 'member' | string;
   note?: string;
+  reviewNote?: string;
   invitedAt?: string;
   invited_at?: string;
   respondedAt?: string | null;
@@ -3803,6 +3805,15 @@ export interface GroupInviteSummary {
     name: string;
     username?: string;
     avatar?: string;
+  } | null;
+  club?: {
+    id: string;
+    slug?: string;
+    name: string;
+    summary?: string;
+    visibility?: 'public' | 'private' | string;
+    coverImage?: string;
+    avatarImage?: string;
   } | null;
 }
 
