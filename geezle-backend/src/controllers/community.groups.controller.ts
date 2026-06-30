@@ -68,6 +68,28 @@ type GroupClubRecord = {
       username: string | null;
     } | null;
   }>;
+  invites?: Array<{
+    id: string;
+    inviteeId: string;
+    invitedById: string;
+    role: string;
+    status: string;
+    note: string | null;
+    invitedAt: Date;
+    respondedAt: Date | null;
+    invitee?: {
+      id: string;
+      name: string | null;
+      username: string | null;
+      avatar: string | null;
+    };
+    invitedBy?: {
+      id: string;
+      name: string | null;
+      username: string | null;
+      avatar: string | null;
+    };
+  }>;
 };
 
 const getAppIo = (req: Request) => {
@@ -146,11 +168,15 @@ const isAdmin = (req: AuthRequest) => String(req.user?.role || '').toLowerCase()
 const buildGroupPayload = (club: GroupClubRecord, viewerId?: string) => {
   const memberships = Array.isArray(club.memberships) ? club.memberships : [];
   const joinRequests = Array.isArray(club.joinRequests) ? club.joinRequests : [];
+  const invites = Array.isArray(club.invites) ? club.invites : [];
   const viewerMembership = viewerId
     ? memberships.find((entry) => String(entry.userId) === String(viewerId))
     : null;
   const viewerPendingRequest = viewerId
     ? joinRequests.find((entry) => String(entry.userId) === String(viewerId) && String(entry.status || '').toLowerCase() === 'pending')
+    : null;
+  const viewerPendingInvite = viewerId
+    ? invites.find((entry) => String(entry.inviteeId) === String(viewerId) && String(entry.status || '').toLowerCase() === 'pending')
     : null;
 
   return {
@@ -198,6 +224,24 @@ const buildGroupPayload = (club: GroupClubRecord, viewerId?: string) => {
           requested_at: new Date(viewerPendingRequest.requestedAt).toISOString()
         }
       : null,
+    pendingInvite: viewerPendingInvite
+      ? {
+          id: viewerPendingInvite.id,
+          status: String(viewerPendingInvite.status || '').toLowerCase(),
+          role: String(viewerPendingInvite.role || 'member').toLowerCase(),
+          note: viewerPendingInvite.note || '',
+          invitedAt: new Date(viewerPendingInvite.invitedAt).toISOString(),
+          invited_at: new Date(viewerPendingInvite.invitedAt).toISOString(),
+          invitedBy: viewerPendingInvite.invitedBy
+            ? {
+                id: viewerPendingInvite.invitedBy.id,
+                name: viewerPendingInvite.invitedBy.name || viewerPendingInvite.invitedBy.username || 'Community member',
+                username: viewerPendingInvite.invitedBy.username || '',
+                avatar: viewerPendingInvite.invitedBy.avatar || ''
+              }
+            : null
+        }
+      : null,
     members: memberships.slice(0, 12).map((entry) => ({
       userId: entry.userId,
       user_id: entry.userId,
@@ -216,6 +260,8 @@ const buildGroupPayload = (club: GroupClubRecord, viewerId?: string) => {
     })),
     pendingRequestCount: joinRequests.filter((entry) => String(entry.status || '').toLowerCase() === 'pending').length,
     pending_request_count: joinRequests.filter((entry) => String(entry.status || '').toLowerCase() === 'pending').length,
+    pendingInviteCount: invites.filter((entry) => String(entry.status || '').toLowerCase() === 'pending').length,
+    pending_invite_count: invites.filter((entry) => String(entry.status || '').toLowerCase() === 'pending').length,
     createdAt: new Date(club.createdAt).toISOString(),
     created_at: new Date(club.createdAt).toISOString(),
     updatedAt: new Date(club.updatedAt).toISOString(),
@@ -243,6 +289,22 @@ const groupIncludeForViewer = (viewerId?: string) => ({
         where: { userId: viewerId, status: 'pending' },
         select: { id: true, userId: true, status: true, requestedAt: true, reviewedAt: true, note: true }
       }
+    : false,
+  invites: viewerId
+    ? {
+        where: { inviteeId: viewerId, status: 'pending' },
+        select: {
+          id: true,
+          inviteeId: true,
+          invitedById: true,
+          role: true,
+          status: true,
+          note: true,
+          invitedAt: true,
+          respondedAt: true,
+          invitedBy: { select: { id: true, name: true, username: true, avatar: true } }
+        }
+      }
     : false
 });
 
@@ -262,6 +324,18 @@ const requireActiveMembership = async (clubId: string, userId: string) =>
     select: { userId: true, role: true, status: true, joinedAt: true }
   });
 
+const canInviteMembersToGroup = async (clubId: string, actorId: string, req: AuthRequest) => {
+  const club = await prisma.communityClub.findUnique({
+    where: { id: clubId },
+    select: { id: true, ownerId: true, membersCanInvite: true }
+  });
+  if (!club) return { allowed: false, club: null, membership: null as Awaited<ReturnType<typeof requireActiveMembership>> };
+  const membership = await requireActiveMembership(clubId, actorId);
+  const activeMembership = membership && String(membership.status || '').toLowerCase() === 'active';
+  const allowed = viewerCanManageGroup(club, membership, req) || (activeMembership && Boolean(club.membersCanInvite));
+  return { allowed, club, membership };
+};
+
 const viewerCanManageGroup = (club: { ownerId: string }, membership: { role?: string | null } | null, req: AuthRequest) =>
   isAdmin(req) || club.ownerId === req.user?.id || ['owner', 'moderator'].includes(String(membership?.role || '').toLowerCase());
 
@@ -279,7 +353,16 @@ export const listGroups = async (req: AuthRequest, res: Response) => {
 
     const where: any = { status: 'active' };
     if (!joinedOnly) {
-      where.OR = [{ visibility: 'PUBLIC' }, ...(viewerId ? [{ memberships: { some: { userId: viewerId, status: 'active' } } }, { ownerId: viewerId }] : [])];
+      where.OR = [
+        { visibility: 'PUBLIC' },
+        ...(viewerId
+          ? [
+              { memberships: { some: { userId: viewerId, status: 'active' } } },
+              { ownerId: viewerId },
+              { invites: { some: { inviteeId: viewerId, status: 'pending' } } }
+            ]
+          : [])
+      ];
     } else if (viewerId) {
       where.memberships = { some: { userId: viewerId, status: 'active' } };
     }
@@ -352,13 +435,41 @@ export const getGroup = async (req: AuthRequest, res: Response) => {
                 reviewedBy: { select: { id: true, name: true, username: true } }
               }
             }
+          : false,
+        invites: viewerId
+          ? {
+              where: { OR: [{ inviteeId: viewerId }, { status: 'pending' }] },
+              orderBy: { invitedAt: 'desc' },
+              take: 25,
+              select: {
+                id: true,
+                inviteeId: true,
+                invitedById: true,
+                role: true,
+                status: true,
+                note: true,
+                invitedAt: true,
+                respondedAt: true,
+                invitee: { select: { id: true, name: true, username: true, avatar: true } },
+                invitedBy: { select: { id: true, name: true, username: true, avatar: true } }
+              }
+            }
           : false
       }
     });
 
     if (!row) return res.status(404).json({ success: false, error: 'Group not found' });
     const viewerMembership = viewerId ? row.memberships.find((entry) => String(entry.userId) === viewerId) : null;
-    if (normalizeVisibility(row.visibility) === 'private' && !viewerCanManageGroup(row, viewerMembership, req) && String(viewerMembership?.status || '').toLowerCase() !== 'active') {
+    const viewerInvite =
+      viewerId && Array.isArray((row as any).invites)
+        ? (row as any).invites.find((entry: any) => String(entry.inviteeId || '') === viewerId && String(entry.status || '').toLowerCase() === 'pending')
+        : null;
+    if (
+      normalizeVisibility(row.visibility) === 'private' &&
+      !viewerCanManageGroup(row, viewerMembership, req) &&
+      String(viewerMembership?.status || '').toLowerCase() !== 'active' &&
+      !viewerInvite
+    ) {
       return res.status(403).json({ success: false, error: 'This private group is only visible to members.' });
     }
 
@@ -513,11 +624,15 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
     }
 
     const joinMode = normalizeJoinMode(club.joinMode);
-    if (joinMode === 'invite_only' && !isAdmin(req) && club.ownerId !== userId) {
+    const existingInvite = await prisma.clubInvite.findFirst({
+      where: { clubId, inviteeId: userId, status: 'pending' },
+      select: { id: true, role: true, invitedById: true }
+    });
+    if (joinMode === 'invite_only' && !isAdmin(req) && club.ownerId !== userId && !existingInvite) {
       return res.status(403).json({ success: false, error: 'This group is invite-only' });
     }
 
-    if (normalizeVisibility(club.visibility) === 'private' || joinMode === 'request') {
+    if ((normalizeVisibility(club.visibility) === 'private' || joinMode === 'request') && !existingInvite) {
       const requestRow = await prisma.clubJoinRequest.upsert({
         where: { clubId_userId_status: { clubId, userId, status: 'pending' } },
         update: {
@@ -553,8 +668,14 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
     await prisma.$transaction(async (tx) => {
       await tx.clubMembership.upsert({
         where: { clubId_userId: { clubId, userId } },
-        update: { status: 'active', role: 'member' },
-        create: { clubId, userId, status: 'active', role: 'member' }
+        update: { status: 'active', role: existingInvite?.role || 'member', invitedById: existingInvite?.invitedById || null },
+        create: {
+          clubId,
+          userId,
+          status: 'active',
+          role: existingInvite?.role || 'member',
+          invitedById: existingInvite?.invitedById || null
+        }
       });
       await tx.communityClub.update({
         where: { id: clubId },
@@ -564,6 +685,12 @@ export const joinGroup = async (req: AuthRequest, res: Response) => {
         where: { clubId, userId, status: 'pending' },
         data: { status: 'approved', reviewedAt: new Date(), reviewedById: userId, note: 'Self-joined open group' }
       });
+      if (existingInvite?.id) {
+        await tx.clubInvite.update({
+          where: { id: existingInvite.id },
+          data: { status: 'accepted', respondedAt: new Date() }
+        });
+      }
     });
 
     const refreshed = await prisma.communityClub.findUnique({ where: { id: clubId }, include: groupIncludeForViewer(userId) });
@@ -760,6 +887,251 @@ export const respondToGroupJoinRequest = async (req: AuthRequest, res: Response)
   } catch (error: any) {
     console.error('respondToGroupJoinRequest error:', error);
     return res.status(500).json({ success: false, error: error?.message || 'Failed to review join request' });
+  }
+};
+
+export const getGroupInvites = async (req: AuthRequest, res: Response) => {
+  try {
+    const viewerId = String(req.user?.id || '').trim();
+    const clubId = String(req.params?.clubId || '').trim();
+    if (!viewerId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!clubId) return res.status(400).json({ success: false, error: 'clubId is required' });
+
+    const club = await prisma.communityClub.findUnique({ where: { id: clubId }, select: { id: true, ownerId: true } });
+    if (!club) return res.status(404).json({ success: false, error: 'Group not found' });
+
+    const membership = await requireActiveMembership(clubId, viewerId);
+    const canManage = viewerCanManageGroup(club, membership, req);
+
+    const rows = await prisma.clubInvite.findMany({
+      where: canManage ? { clubId } : { clubId, inviteeId: viewerId },
+      orderBy: [{ status: 'asc' }, { invitedAt: 'desc' }],
+      include: {
+        invitee: { select: { id: true, name: true, username: true, avatar: true } },
+        invitedBy: { select: { id: true, name: true, username: true, avatar: true } }
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: rows.map((row) => ({
+        id: row.id,
+        inviteeId: row.inviteeId,
+        invitee_id: row.inviteeId,
+        invitedById: row.invitedById,
+        invited_by_id: row.invitedById,
+        role: String(row.role || 'member').toLowerCase(),
+        status: String(row.status || 'pending').toLowerCase(),
+        note: row.note || '',
+        invitedAt: row.invitedAt.toISOString(),
+        invited_at: row.invitedAt.toISOString(),
+        respondedAt: row.respondedAt ? row.respondedAt.toISOString() : null,
+        responded_at: row.respondedAt ? row.respondedAt.toISOString() : null,
+        invitee: row.invitee
+          ? {
+              id: row.invitee.id,
+              name: row.invitee.name || row.invitee.username || 'Community member',
+              username: row.invitee.username || '',
+              avatar: row.invitee.avatar || ''
+            }
+          : null,
+        invitedBy: row.invitedBy
+          ? {
+              id: row.invitedBy.id,
+              name: row.invitedBy.name || row.invitedBy.username || 'Community member',
+              username: row.invitedBy.username || '',
+              avatar: row.invitedBy.avatar || ''
+            }
+          : null
+      }))
+    });
+  } catch (error: any) {
+    console.error('getGroupInvites error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load group invites' });
+  }
+};
+
+export const createGroupInvite = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorId = String(req.user?.id || '').trim();
+    const clubId = String(req.params?.clubId || '').trim();
+    const inviteeIds: string[] = Array.from(
+      new Set(
+        (Array.isArray(req.body?.inviteeIds) ? req.body.inviteeIds : [req.body?.inviteeId])
+          .map((value: unknown): string => String(value || '').trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    ).filter((id): id is string => id !== actorId);
+
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!clubId) return res.status(400).json({ success: false, error: 'clubId is required' });
+    if (!inviteeIds.length) return res.status(400).json({ success: false, error: 'At least one invitee is required' });
+
+    const permission = await canInviteMembersToGroup(clubId, actorId, req);
+    if (!permission.club) return res.status(404).json({ success: false, error: 'Group not found' });
+    if (!permission.allowed) {
+      return res.status(403).json({ success: false, error: 'You do not have permission to invite members to this group' });
+    }
+
+    const role = ['moderator', 'member'].includes(String(req.body?.role || '').trim().toLowerCase())
+      ? String(req.body?.role || '').trim().toLowerCase()
+      : 'member';
+    const note = String(req.body?.note || '').trim().slice(0, 1000) || null;
+
+    const existingMemberships = await prisma.clubMembership.findMany({
+      where: { clubId, userId: { in: inviteeIds }, status: 'active' },
+      select: { userId: true }
+    });
+    const activeMemberIds = new Set(existingMemberships.map((entry) => String(entry.userId)));
+    const creatableInviteeIds = inviteeIds.filter((id) => !activeMemberIds.has(id));
+    if (!creatableInviteeIds.length) {
+      return res.status(400).json({ success: false, error: 'Selected users are already active members of this group' });
+    }
+
+    const invites = [];
+    for (const inviteeId of creatableInviteeIds) {
+      const invite = await prisma.clubInvite.upsert({
+        where: { clubId_inviteeId_status: { clubId, inviteeId, status: 'pending' } },
+        update: { invitedById: actorId, role, note, invitedAt: new Date(), respondedAt: null },
+        create: { clubId, inviteeId, invitedById: actorId, role, note, status: 'pending' },
+        include: {
+          invitee: { select: { id: true, name: true, username: true, avatar: true } },
+          invitedBy: { select: { id: true, name: true, username: true, avatar: true } }
+        }
+      });
+      invites.push(invite);
+      try {
+        realtime.emitToUser(inviteeId, 'community:group_invite_updated', {
+          clubId,
+          inviteId: invite.id,
+          status: 'pending'
+        });
+      } catch {}
+    }
+
+    emitGroupEvent(req, 'community:group_invite_updated', {
+      clubId,
+      actorId,
+      inviteeIds: creatableInviteeIds,
+      status: 'pending'
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: invites.map((invite) => ({
+        id: invite.id,
+        inviteeId: invite.inviteeId,
+        invitee_id: invite.inviteeId,
+        invitedById: invite.invitedById,
+        invited_by_id: invite.invitedById,
+        role: String(invite.role || 'member').toLowerCase(),
+        status: String(invite.status || 'pending').toLowerCase(),
+        note: invite.note || '',
+        invitedAt: invite.invitedAt.toISOString(),
+        invited_at: invite.invitedAt.toISOString(),
+        invitee: invite.invitee
+          ? {
+              id: invite.invitee.id,
+              name: invite.invitee.name || invite.invitee.username || 'Community member',
+              username: invite.invitee.username || '',
+              avatar: invite.invitee.avatar || ''
+            }
+          : null,
+        invitedBy: invite.invitedBy
+          ? {
+              id: invite.invitedBy.id,
+              name: invite.invitedBy.name || invite.invitedBy.username || 'Community member',
+              username: invite.invitedBy.username || '',
+              avatar: invite.invitedBy.avatar || ''
+            }
+          : null
+      }))
+    });
+  } catch (error: any) {
+    console.error('createGroupInvite error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to create group invite' });
+  }
+};
+
+export const respondToGroupInvite = async (req: AuthRequest, res: Response) => {
+  try {
+    const actorId = String(req.user?.id || '').trim();
+    const clubId = String(req.params?.clubId || '').trim();
+    const inviteId = String(req.params?.inviteId || '').trim();
+    const decision = String(req.body?.decision || '').trim().toLowerCase();
+
+    if (!actorId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!clubId || !inviteId) return res.status(400).json({ success: false, error: 'clubId and inviteId are required' });
+    if (!['accept', 'decline', 'cancel'].includes(decision)) {
+      return res.status(400).json({ success: false, error: 'decision must be accept, decline, or cancel' });
+    }
+
+    const invite = await prisma.clubInvite.findFirst({
+      where: { id: inviteId, clubId },
+      select: { id: true, clubId: true, inviteeId: true, invitedById: true, role: true, status: true }
+    });
+    if (!invite) return res.status(404).json({ success: false, error: 'Invite not found' });
+    if (String(invite.status || '').toLowerCase() !== 'pending') {
+      return res.status(400).json({ success: false, error: 'This invite is no longer pending' });
+    }
+
+    const permission = await canInviteMembersToGroup(clubId, actorId, req);
+    const canManage = Boolean(permission.allowed);
+    const isInvitee = invite.inviteeId === actorId;
+
+    if (decision === 'cancel' && !canManage) {
+      return res.status(403).json({ success: false, error: 'Only group managers can cancel invites' });
+    }
+    if ((decision === 'accept' || decision === 'decline') && !isInvitee) {
+      return res.status(403).json({ success: false, error: 'This invite does not belong to the current user' });
+    }
+
+    const accepted = decision === 'accept';
+    await prisma.$transaction(async (tx) => {
+      await tx.clubInvite.update({
+        where: { id: inviteId },
+        data: {
+          status: accepted ? 'accepted' : decision === 'decline' ? 'declined' : 'cancelled',
+          respondedAt: new Date()
+        }
+      });
+
+      if (accepted) {
+        const existingMembership = await tx.clubMembership.findUnique({
+          where: { clubId_userId: { clubId, userId: invite.inviteeId } }
+        });
+        await tx.clubMembership.upsert({
+          where: { clubId_userId: { clubId, userId: invite.inviteeId } },
+          update: { status: 'active', role: invite.role || existingMembership?.role || 'member', invitedById: invite.invitedById },
+          create: {
+            clubId,
+            userId: invite.inviteeId,
+            status: 'active',
+            role: invite.role || 'member',
+            invitedById: invite.invitedById
+          }
+        });
+        await tx.communityClub.update({
+          where: { id: clubId },
+          data: { memberCount: { increment: existingMembership ? 0 : 1 } }
+        });
+      }
+    });
+
+    emitGroupEvent(req, 'community:group_invite_updated', {
+      clubId,
+      inviteId,
+      actorId,
+      status: accepted ? 'accepted' : decision === 'decline' ? 'declined' : 'cancelled'
+    });
+
+    return res.json({
+      success: true,
+      status: accepted ? 'accepted' : decision === 'decline' ? 'declined' : 'cancelled'
+    });
+  } catch (error: any) {
+    console.error('respondToGroupInvite error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to update group invite' });
   }
 };
 

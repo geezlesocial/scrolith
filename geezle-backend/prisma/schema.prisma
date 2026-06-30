@@ -114,6 +114,8 @@ model User {
   clubMemberships    ClubMembership[]
   clubJoinRequests   ClubJoinRequest[]   @relation("ClubJoinRequestUser")
   clubModerationActions ClubJoinRequest[] @relation("ClubJoinRequestModerator")
+  clubInvitesReceived ClubInvite[]       @relation("ClubInviteRecipient")
+  clubInvitesSent     ClubInvite[]       @relation("ClubInviteSender")
   communityEvents    CommunityEvent[]    @relation("EventHost")
   eventRegistrations EventRegistration[]
   communityChannels  CommunityChannel[]  @relation("ChannelOwner")
@@ -3507,6 +3509,7 @@ model CommunityClub {
   owner        User              @relation("ClubOwner", fields: [ownerId], references: [id])
   memberships  ClubMembership[]
   joinRequests ClubJoinRequest[]
+  invites      ClubInvite[]
   posts        CommunityPost[]
 
   @@index([ownerId])
@@ -3553,6 +3556,26 @@ model ClubJoinRequest {
   @@unique([clubId, userId, status])
   @@index([clubId, status, requestedAt])
   @@index([userId, status, requestedAt])
+}
+
+model ClubInvite {
+  id          String   @id @default(cuid())
+  clubId       String
+  inviteeId    String
+  invitedById  String
+  role         String   @default("member")
+  status       String   @default("pending")
+  note         String?  @db.Text
+  invitedAt    DateTime @default(now())
+  respondedAt  DateTime?
+
+  club      CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  invitee   User          @relation("ClubInviteRecipient", fields: [inviteeId], references: [id], onDelete: Cascade)
+  invitedBy User          @relation("ClubInviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([clubId, status, invitedAt])
+  @@index([inviteeId, status, invitedAt])
+  @@unique([clubId, inviteeId, status])
 }
 
 model CommunityEvent {

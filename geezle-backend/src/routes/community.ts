@@ -67,6 +67,9 @@ import {
   deleteGroup,
   getGroupJoinRequests,
   respondToGroupJoinRequest,
+  getGroupInvites,
+  createGroupInvite,
+  respondToGroupInvite,
   updateGroupMember
 } from '../controllers/community.groups.controller';
 import {
@@ -234,6 +237,9 @@ router.post('/clubs/join', authMiddleware, joinGroup);
 router.post('/clubs/leave', authMiddleware, leaveGroup);
 router.get('/clubs/:clubId/requests', authMiddleware, getGroupJoinRequests);
 router.post('/clubs/:clubId/requests/:requestId/respond', authMiddleware, respondToGroupJoinRequest);
+router.get('/clubs/:clubId/invites', authMiddleware, getGroupInvites);
+router.post('/clubs/:clubId/invites', authMiddleware, createGroupInvite);
+router.post('/clubs/:clubId/invites/:inviteId/respond', authMiddleware, respondToGroupInvite);
 router.put('/clubs/:clubId/members/:memberUserId', authMiddleware, updateGroupMember);
 router.post('/clubs/:clubId/delete', authMiddleware, deleteGroup);
 router.post('/events/register', authMiddleware, registerEvent);

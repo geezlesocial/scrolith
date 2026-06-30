@@ -2131,12 +2131,6 @@ export const getPosts = async (req: Request, res: Response) => {
           slug: post.businessPage.slug,
           logoFileId: post.businessPage.logoFileId || null
         } : null,
-        club: post.club ? {
-          id: post.club.id,
-          name: post.club.name,
-          slug: post.club.slug,
-          visibility: normalizeCommunityClubVisibility(post.club.visibility)
-        } : null,
         viewsCount: post.viewsCount,
         likesCount: post.likesCount,
         sharesCount: post.sharesCount,
@@ -2554,6 +2548,15 @@ export const getPostById = async (req: Request, res: Response) => {
             logoFileId: true
           }
         },
+        club: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            visibility: true,
+            ownerId: true
+          }
+        },
         originalPost: {
           select: {
             id: true,
@@ -2582,6 +2585,22 @@ export const getPostById = async (req: Request, res: Response) => {
 
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
+    }
+    if (post.club) {
+      const membership = userId
+        ? await prisma.clubMembership.findUnique({
+            where: { clubId_userId: { clubId: post.club.id, userId } },
+            select: { status: true, role: true }
+          })
+        : null;
+      const canViewPrivateClubPost =
+        normalizeCommunityClubVisibility(post.club.visibility) !== 'private' ||
+        String(membership?.status || '').toLowerCase() === 'active' ||
+        post.club.ownerId === userId ||
+        String(viewer?.role || '').toLowerCase() === 'admin';
+      if (!canViewPrivateClubPost) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
     }
     if (userId && await hasUserBlockRelation(userId, post.authorId)) {
       return res.status(404).json({ error: 'Post not found' });
@@ -2683,6 +2702,12 @@ export const getPostById = async (req: Request, res: Response) => {
         handle: post.businessPage.handle,
         slug: post.businessPage.slug,
         logoFileId: post.businessPage.logoFileId || null
+      } : null,
+      club: post.club ? {
+        id: post.club.id,
+        name: post.club.name,
+        slug: post.club.slug,
+        visibility: normalizeCommunityClubVisibility(post.club.visibility)
       } : null,
       viewsCount: post.viewsCount,
       likesCount: post.likesCount,
