@@ -3985,6 +3985,7 @@ export interface CommunitySettings {
   sentimentAnalysis?: boolean;
   enableClubs?: boolean;
   enableEvents?: boolean;
+  groups?: CommunityGroupsConfig;
 
   // Payment settings
   payment_currency: string;
@@ -4015,6 +4016,17 @@ export interface CommunitySettings {
 
   created_at: string;
   updated_at: string;
+}
+
+export interface CommunityGroupsConfig {
+  heroEyebrow: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  createButtonLabel: string;
+  directoryTitle: string;
+  directoryEmptyState: string;
+  allowUserGroupCreation: boolean;
+  showDiscoveryStats: boolean;
 }
 
 export interface LegacyCommunitySettings {

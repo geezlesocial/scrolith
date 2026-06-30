@@ -15,6 +15,7 @@ import CommunityAnalytics from './CommunityAnalytics';
 import { useCurrency } from '../../context/CurrencyContext';
 import FilePickerModal from '../shared/FilePickerModal';
 import { DEFAULT_AD_TARGET_COUNTRIES } from '../../constants/defaultAudienceOptions';
+import GroupsWorkspace from '../../community/components/GroupsWorkspace';
 
 type AdminTab =
     | 'overview'
@@ -25,6 +26,7 @@ type AdminTab =
     | 'gcoin'
     | 'ads'
     | 'business'
+    | 'groups'
     | 'social'
     | 'settings';
 
@@ -37,7 +39,18 @@ const defaultSettings: CommunitySettings = {
     autoModerateContent: false,
     sentimentAnalysis: true,
     enableClubs: true,
-    enableEvents: true
+    enableEvents: true,
+    groups: {
+        heroEyebrow: 'Scrolith Groups',
+        heroTitle: 'Build private and public professional communities.',
+        heroSubtitle:
+            'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+        createButtonLabel: 'Create group',
+        directoryTitle: 'Your group spaces',
+        directoryEmptyState: 'No groups yet. Create the first one from here.',
+        allowUserGroupCreation: true,
+        showDiscoveryStats: true
+    }
 } as CommunitySettings;
 
 const GuideTip: React.FC<{ text: string }> = ({ text }) => (
@@ -178,7 +191,7 @@ const DEFAULT_SCROLL_ADS_CONFIG = {
     }
 };
 
-const CommunityManagement = () => {
+const CommunityManagement = ({ initialTab }: { initialTab?: AdminTab } = {}) => {
     const [activeTab, setActiveTab] = useState<AdminTab>('overview');
     const [settings, setSettings] = useState<CommunitySettings | null>(null);
     const [logs, setLogs] = useState<ModerationLog[]>([]);
@@ -186,19 +199,21 @@ const CommunityManagement = () => {
     const { user } = useUser();
 
     useEffect(() => {
-        // Initialize active tab from URL query param (supports ?tab=settings)
+        // Initialize active sub-tab from URL query params.
         try {
             const params = new URLSearchParams(window.location.search);
-            const t = params.get('tab');
-            if (t && ['overview','homepage','threads','channels','moderation','gcoin','ads','business','social','settings'].includes(t)) {
+            const t = params.get('communityTab') || params.get('subtab') || params.get('tab');
+            if (t && ['overview','homepage','threads','channels','moderation','gcoin','ads','business','groups','social','settings'].includes(t)) {
                 setActiveTab(t as AdminTab);
+            } else if (initialTab) {
+                setActiveTab(initialTab);
             }
         } catch (e) {
             // ignore when running in non-browser or tests
         }
 
         loadData();
-    }, []);
+    }, [initialTab]);
 
     const s = (settings ?? {}) as Partial<Record<string, unknown>>;
 
@@ -290,6 +305,7 @@ const CommunityManagement = () => {
                 <TabButton id="business" label="Business Pages" icon={Building2} active={activeTab === 'business'} onClick={setActiveTab} />
                 <TabButton id="threads" label="Threads" icon={FileText} active={activeTab === 'threads'} onClick={setActiveTab} />
                 <TabButton id="channels" label="Channels" icon={Hash} active={activeTab === 'channels'} onClick={setActiveTab} />
+                <TabButton id="groups" label="Group System" icon={Users} active={activeTab === 'groups'} onClick={setActiveTab} />
                 <TabButton id="moderation" label="Moderation" icon={Gavel} active={activeTab === 'moderation'} onClick={setActiveTab} />
                 <TabButton id="social" label="Social Graph" icon={Share2} active={activeTab === 'social'} onClick={setActiveTab} />
                 <TabButton id="settings" label="Settings" icon={Settings} active={activeTab === 'settings'} onClick={setActiveTab} />
@@ -308,10 +324,182 @@ const CommunityManagement = () => {
                 {activeTab === 'business' && <BusinessPagesManager />}
                 {activeTab === 'threads' && <ThreadManager />}
                 {activeTab === 'channels' && <ChannelManager />}
+                {activeTab === 'groups' && settings && <GroupsAdminPanel settings={settings} setSettings={setSettings} />}
                 {activeTab === 'moderation' && <ModerationQueue logs={logs} refresh={() => CommunityService.getModerationLogs().then(setLogs)} />}
                 {activeTab === 'social' && <SocialGraphView />}
                 {activeTab === 'settings' && settings && <SettingsPanel settings={settings} toggleSetting={toggleSetting} />}
             </div>
+        </div>
+    );
+};
+
+const GroupsAdminPanel = ({
+    settings,
+    setSettings
+}: {
+    settings: CommunitySettings;
+    setSettings: React.Dispatch<React.SetStateAction<CommunitySettings | null>>;
+}) => {
+    const { showNotification } = useNotification();
+    const [localConfig, setLocalConfig] = useState<any>(() => ({
+        heroEyebrow: settings?.groups?.heroEyebrow || 'Scrolith Groups',
+        heroTitle: settings?.groups?.heroTitle || 'Build private and public professional communities.',
+        heroSubtitle:
+            settings?.groups?.heroSubtitle ||
+            'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+        createButtonLabel: settings?.groups?.createButtonLabel || 'Create group',
+        directoryTitle: settings?.groups?.directoryTitle || 'Your group spaces',
+        directoryEmptyState: settings?.groups?.directoryEmptyState || 'No groups yet. Create the first one from here.',
+        allowUserGroupCreation: settings?.groups?.allowUserGroupCreation !== false,
+        showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false
+    }));
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        setLocalConfig({
+            heroEyebrow: settings?.groups?.heroEyebrow || 'Scrolith Groups',
+            heroTitle: settings?.groups?.heroTitle || 'Build private and public professional communities.',
+            heroSubtitle:
+                settings?.groups?.heroSubtitle ||
+                'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+            createButtonLabel: settings?.groups?.createButtonLabel || 'Create group',
+            directoryTitle: settings?.groups?.directoryTitle || 'Your group spaces',
+            directoryEmptyState: settings?.groups?.directoryEmptyState || 'No groups yet. Create the first one from here.',
+            allowUserGroupCreation: settings?.groups?.allowUserGroupCreation !== false,
+            showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false
+        });
+    }, [settings]);
+
+    const save = async () => {
+        const groups = {
+            heroEyebrow: String(localConfig.heroEyebrow || '').trim() || 'Scrolith Groups',
+            heroTitle: String(localConfig.heroTitle || '').trim() || 'Build private and public professional communities.',
+            heroSubtitle:
+                String(localConfig.heroSubtitle || '').trim() ||
+                'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+            createButtonLabel: String(localConfig.createButtonLabel || '').trim() || 'Create group',
+            directoryTitle: String(localConfig.directoryTitle || '').trim() || 'Your group spaces',
+            directoryEmptyState:
+                String(localConfig.directoryEmptyState || '').trim() || 'No groups yet. Create the first one from here.',
+            allowUserGroupCreation: Boolean(localConfig.allowUserGroupCreation),
+            showDiscoveryStats: Boolean(localConfig.showDiscoveryStats)
+        };
+
+        setSaving(true);
+        try {
+            const nextPayload = { ...(settings as any), groups };
+            const result = await CommunityService.updateAdminConfig(nextPayload);
+            setSettings(result);
+            try {
+                window.dispatchEvent(new CustomEvent('community:admin_config_updated', { detail: result }));
+            } catch (_error) {}
+            showNotification('success', 'Groups', 'Group system settings updated.');
+        } catch (error: any) {
+            showNotification('error', 'Groups', error?.message || 'Unable to save group system settings.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-3xl">
+                        <h3 className="text-lg font-bold text-slate-900">Group System Control Center</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Manage the clubs landing experience and the live group directory from the admin dashboard.
+                        </p>
+                    </div>
+                    <button
+                        onClick={save}
+                        disabled={saving}
+                        className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <Save className="mr-2 h-4 w-4" />
+                        {saving ? 'Saving...' : 'Save Group Settings'}
+                    </button>
+                </div>
+
+                <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Hero Eyebrow</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.heroEyebrow}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, heroEyebrow: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Create Button Label</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.createButtonLabel}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, createButtonLabel: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2 lg:col-span-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Hero Title</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.heroTitle}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, heroTitle: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2 lg:col-span-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Hero Subtitle</span>
+                        <textarea
+                            rows={3}
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.heroSubtitle}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, heroSubtitle: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Directory Title</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.directoryTitle}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, directoryTitle: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Empty Directory Copy</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.directoryEmptyState}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, directoryEmptyState: event.target.value }))}
+                        />
+                    </label>
+                </div>
+
+                <div className="mt-6 grid gap-3 md:grid-cols-2">
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Allow user-created groups</div>
+                            <div className="text-xs text-slate-500">Admins still retain full access even when creator access is disabled.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.allowUserGroupCreation)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, allowUserGroupCreation: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Show discovery counters</div>
+                            <div className="text-xs text-slate-500">Controls the visible/joined KPI cards in the clubs hero.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.showDiscoveryStats)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showDiscoveryStats: event.target.checked }))}
+                        />
+                    </label>
+                </div>
+            </section>
+
+            <GroupsWorkspace embedded />
         </div>
     );
 };

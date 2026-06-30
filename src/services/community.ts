@@ -10,6 +10,7 @@ import {
   LeaderboardEntry,
   CommunityAnalytics,
   CommunitySettings,
+  CommunityGroupsConfig,
   ModerationLog,
   CommunityComment,
   GroupFaqItem,
@@ -180,6 +181,7 @@ const denormalizeCommunitySettings = (settings: any): any => ({
 // Admin config normalization helpers (backend uses snake_case keys)
 const normalizeAdminConfig = (raw: any): any => {
   if (!raw) return {};
+  const groupsSource = raw.groups && typeof raw.groups === 'object' && !Array.isArray(raw.groups) ? raw.groups : {};
   return {
     // pass-through any other keys
     ...raw,
@@ -198,7 +200,19 @@ const normalizeAdminConfig = (raw: any): any => {
       raw.business_page_follow_enabled ?? raw.businessPageFollowEnabled ?? true,
     maxImagesPerPost: raw.max_images_per_post ?? raw.maxImagesPerPost ?? 4,
     maxVideoSizeMb: raw.max_video_size_mb ?? raw.maxVideoSizeMb ?? 50,
-    storyExpiryHours: raw.story_expiry_hours ?? raw.storyExpiryHours ?? 24
+    storyExpiryHours: raw.story_expiry_hours ?? raw.storyExpiryHours ?? 24,
+    groups: {
+      heroEyebrow: groupsSource.heroEyebrow ?? 'Scrolith Groups',
+      heroTitle: groupsSource.heroTitle ?? 'Build private and public professional communities.',
+      heroSubtitle:
+        groupsSource.heroSubtitle ??
+        'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+      createButtonLabel: groupsSource.createButtonLabel ?? 'Create group',
+      directoryTitle: groupsSource.directoryTitle ?? 'Your group spaces',
+      directoryEmptyState: groupsSource.directoryEmptyState ?? 'No groups yet. Create the first one from here.',
+      allowUserGroupCreation: groupsSource.allowUserGroupCreation ?? true,
+      showDiscoveryStats: groupsSource.showDiscoveryStats ?? true
+    }
   };
 };
 
@@ -218,7 +232,8 @@ const denormalizeAdminConfig = (cfg: any): any => ({
     cfg.businessPageFollowEnabled ?? cfg.business_page_follow_enabled,
   max_images_per_post: typeof cfg.maxImagesPerPost !== 'undefined' ? Number(cfg.maxImagesPerPost) : cfg.max_images_per_post,
   max_video_size_mb: typeof cfg.maxVideoSizeMb !== 'undefined' ? Number(cfg.maxVideoSizeMb) : cfg.max_video_size_mb,
-  story_expiry_hours: typeof cfg.storyExpiryHours !== 'undefined' ? Number(cfg.storyExpiryHours) : cfg.story_expiry_hours
+  story_expiry_hours: typeof cfg.storyExpiryHours !== 'undefined' ? Number(cfg.storyExpiryHours) : cfg.story_expiry_hours,
+  groups: cfg.groups
 });
 
 export type BusinessPagePackageBilling = 'fixed' | 'hourly' | 'subscription';
@@ -755,6 +770,12 @@ class CommunityService {
     const data = extractData<any>(response);
     if (!data) return null;
     return normalizeClub(data);
+  }
+
+  static async getClubDisplayConfig(): Promise<CommunityGroupsConfig> {
+    const response = await this.get('/community/clubs/config');
+    const data = extractData<any>(response) || {};
+    return normalizeAdminConfig({ groups: data }).groups as CommunityGroupsConfig;
   }
 
   static async createClub(payload: {

@@ -21,7 +21,15 @@ import {
   X
 } from 'lucide-react';
 import { CommunityService } from '../../services/community';
-import type { CommunityClub, GroupFaqItem, GroupInviteSummary, GroupJoinRequestSummary, GroupMemberSummary, UploadedFile } from '../../types';
+import type {
+  CommunityClub,
+  CommunityGroupsConfig,
+  GroupFaqItem,
+  GroupInviteSummary,
+  GroupJoinRequestSummary,
+  GroupMemberSummary,
+  UploadedFile
+} from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
@@ -51,6 +59,18 @@ type GroupMediaLightboxState = {
   postId: string;
   index: number;
 } | null;
+
+const defaultGroupsDisplayConfig: CommunityGroupsConfig = {
+  heroEyebrow: 'Scrolith Groups',
+  heroTitle: 'Build private and public professional communities.',
+  heroSubtitle:
+    'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+  createButtonLabel: 'Create group',
+  directoryTitle: 'Your group spaces',
+  directoryEmptyState: 'No groups yet. Create the first one from here.',
+  allowUserGroupCreation: true,
+  showDiscoveryStats: true
+};
 
 const emptyGroupForm = (): GroupFormState => ({
   name: '',
@@ -124,6 +144,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [bulkReviewNote, setBulkReviewNote] = useState('');
   const [bulkReviewing, setBulkReviewing] = useState(false);
   const [groupMediaLightbox, setGroupMediaLightbox] = useState<GroupMediaLightboxState>(null);
+  const [displayConfig, setDisplayConfig] = useState<CommunityGroupsConfig>(defaultGroupsDisplayConfig);
 
   const activeRole = String(user?.role || '').toLowerCase();
 
@@ -196,6 +217,31 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   }, [reloadGroups]);
 
   useEffect(() => {
+    let cancelled = false;
+    CommunityService.getClubDisplayConfig()
+      .then((config) => {
+        if (!cancelled && config) setDisplayConfig({ ...defaultGroupsDisplayConfig, ...config });
+      })
+      .catch(() => {
+        if (!cancelled) setDisplayConfig(defaultGroupsDisplayConfig);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleConfigUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail;
+      if (detail?.groups) {
+        setDisplayConfig({ ...defaultGroupsDisplayConfig, ...detail.groups });
+      }
+    };
+    window.addEventListener('community:admin_config_updated', handleConfigUpdate as EventListener);
+    return () => window.removeEventListener('community:admin_config_updated', handleConfigUpdate as EventListener);
+  }, []);
+
+  useEffect(() => {
     void reloadInviteInbox();
   }, [reloadInviteInbox]);
 
@@ -252,6 +298,11 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     if (permission === 'members') return joined;
     return false;
   }, [canManageSelectedGroup, selectedGroup]);
+
+  const canCreateGroups = useMemo(() => {
+    if (activeRole === 'admin') return true;
+    return displayConfig.allowUserGroupCreation !== false;
+  }, [activeRole, displayConfig.allowUserGroupCreation]);
 
   useEffect(() => {
     let cancelled = false;
@@ -637,31 +688,37 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       <section className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_45%,#2563eb_100%)] p-6 text-white shadow-xl">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-100">Scrolith Groups</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">Build private and public professional communities.</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-100">{displayConfig.heroEyebrow}</p>
+            <h2 className="mt-3 text-3xl font-bold tracking-tight">{displayConfig.heroTitle}</h2>
             <p className="mt-3 text-sm leading-6 text-slate-200">
-              Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.
+              {displayConfig.heroSubtitle}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.25em] text-blue-100">Visible groups</div>
-              <div className="mt-1 text-2xl font-semibold text-white">{groups.length}</div>
-            </div>
-            <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-              <div className="text-[11px] uppercase tracking-[0.25em] text-blue-100">Joined</div>
-              <div className="mt-1 text-2xl font-semibold text-white">{groups.filter((group) => group.isJoined).length}</div>
-            </div>
-            <button
-              onClick={() => {
-                applyGroupToForm(null);
-                setShowComposer(true);
-              }}
-              className="inline-flex items-center rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-lg transition hover:bg-slate-100"
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Create group
-            </button>
+            {displayConfig.showDiscoveryStats !== false ? (
+              <>
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.25em] text-blue-100">Visible groups</div>
+                  <div className="mt-1 text-2xl font-semibold text-white">{groups.length}</div>
+                </div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.25em] text-blue-100">Joined</div>
+                  <div className="mt-1 text-2xl font-semibold text-white">{groups.filter((group) => group.isJoined).length}</div>
+                </div>
+              </>
+            ) : null}
+            {canCreateGroups ? (
+              <button
+                onClick={() => {
+                  applyGroupToForm(null);
+                  setShowComposer(true);
+                }}
+                className="inline-flex items-center rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-lg transition hover:bg-slate-100"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {displayConfig.createButtonLabel}
+              </button>
+            ) : null}
           </div>
         </div>
       </section>
@@ -670,7 +727,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
         <div className="space-y-4">
           <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Your group spaces</h3>
+              <h3 className="text-lg font-semibold text-slate-900">{displayConfig.directoryTitle}</h3>
               <button
                 onClick={() => void reloadGroups()}
                 className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
@@ -685,7 +742,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                 ))
               ) : groups.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
-                  No groups yet. Create the first one from here.
+                  {displayConfig.directoryEmptyState}
                 </div>
               ) : (
                 groups.map((group) => {
