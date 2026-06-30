@@ -90,6 +90,11 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [postUploads, setPostUploads] = useState<UploadedFile[]>([]);
   const [showFilePicker, setShowFilePicker] = useState(false);
   const [filePickerTarget, setFilePickerTarget] = useState<'post' | 'cover' | 'avatar'>('post');
+  const [joinRequestDraft, setJoinRequestDraft] = useState({ note: '', answersText: '' });
+  const [showJoinRequestComposer, setShowJoinRequestComposer] = useState(false);
+  const [submittingJoinRequest, setSubmittingJoinRequest] = useState(false);
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, string>>({});
+  const [moderationFilter, setModerationFilter] = useState<'pending' | 'history' | 'all'>('pending');
 
   const activeRole = String(user?.role || '').toLowerCase();
 
@@ -241,12 +246,12 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     }
   };
 
-  const handleJoinOrRequest = async (group: CommunityClub) => {
+  const handleJoinOrRequest = async (group: CommunityClub, payload?: { note?: string; answers?: string[] }) => {
     try {
       const joinMode = String(group.joinMode || 'open').toLowerCase();
       const isPrivate = group.visibility === 'private';
       if (joinMode === 'request' || isPrivate) {
-        const response = await CommunityService.requestToJoinClub(group.id);
+        const response = await CommunityService.requestToJoinClub(group.id, payload);
         if (response.pending) {
           showNotification('success', 'Join request sent', `Your request to join ${group.name} is awaiting review.`);
         }
@@ -258,6 +263,26 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       await reloadSelectedGroup(group.id);
     } catch (error: any) {
       showNotification('error', 'Groups', error?.message || 'Unable to join this group.');
+    }
+  };
+
+  const handleSubmitJoinRequest = async () => {
+    if (!selectedGroup) return;
+    setSubmittingJoinRequest(true);
+    try {
+      const answers = joinRequestDraft.answersText
+        .split('\n')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .slice(0, 5);
+      await handleJoinOrRequest(selectedGroup, {
+        note: joinRequestDraft.note.trim(),
+        answers
+      });
+      setJoinRequestDraft({ note: '', answersText: '' });
+      setShowJoinRequestComposer(false);
+    } finally {
+      setSubmittingJoinRequest(false);
     }
   };
 
@@ -275,8 +300,12 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const handleRespondRequest = async (request: GroupJoinRequestSummary, decision: 'approve' | 'reject') => {
     if (!selectedGroup) return;
     try {
-      await CommunityService.respondToClubJoinRequest(selectedGroup.id, request.id, { decision });
+      await CommunityService.respondToClubJoinRequest(selectedGroup.id, request.id, {
+        decision,
+        note: String(reviewDrafts[request.id] || '').trim()
+      });
       showNotification('success', 'Request updated', `Join request ${decision}d.`);
+      setReviewDrafts((current) => ({ ...current, [request.id]: '' }));
       await reloadSelectedGroup(selectedGroup.id);
     } catch (error: any) {
       showNotification('error', 'Groups', error?.message || 'Unable to update this request.');
@@ -337,6 +366,13 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   };
 
   const selectedGroupRequests = joinRequests.filter((entry) => String(entry.status || '').toLowerCase() === 'pending');
+  const historicalGroupRequests = joinRequests.filter((entry) => String(entry.status || '').toLowerCase() !== 'pending');
+  const visibleModerationRequests =
+    moderationFilter === 'pending'
+      ? selectedGroupRequests
+      : moderationFilter === 'history'
+        ? historicalGroupRequests
+        : joinRequests;
 
   return (
     <div className={embedded ? 'space-y-6' : 'space-y-6 rounded-[32px] bg-white/90 p-4 shadow-sm sm:p-6'}>
@@ -473,12 +509,25 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             Join request pending
                           </div>
                         ) : (
-                          <button
-                            onClick={() => void handleJoinOrRequest(selectedGroup)}
-                            className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-                          >
-                            {selectedGroup.visibility === 'private' || selectedGroup.joinMode === 'request' ? 'Request to join' : 'Join group'}
-                          </button>
+                          <>
+                            <button
+                              onClick={() => {
+                                if (selectedGroup.visibility === 'private' || selectedGroup.joinMode === 'request') {
+                                  setShowJoinRequestComposer((current) => !current);
+                                  return;
+                                }
+                                void handleJoinOrRequest(selectedGroup);
+                              }}
+                              className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                            >
+                              {selectedGroup.visibility === 'private' || selectedGroup.joinMode === 'request' ? 'Request to join' : 'Join group'}
+                            </button>
+                            {selectedGroup.joinMode === 'invite_only' ? (
+                              <div className="rounded-2xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 backdrop-blur">
+                                Invite only
+                              </div>
+                            ) : null}
+                          </>
                         )}
                         {canManageSelectedGroup ? (
                           <button
@@ -498,6 +547,48 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
 
                 <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.25fr),360px]">
                   <div className="space-y-4">
+                    {showJoinRequestComposer && !selectedGroup.isJoined && !selectedGroup.pendingRequest ? (
+                      <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-lg font-semibold text-slate-900">Request access</h4>
+                            <p className="mt-1 text-sm text-slate-600">
+                              Introduce yourself and add optional answers so moderators can review your request faster.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => setShowJoinRequestComposer(false)}
+                            className="rounded-full border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-white/70"
+                          >
+                            Close
+                          </button>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          <textarea
+                            value={joinRequestDraft.note}
+                            onChange={(event) => setJoinRequestDraft((current) => ({ ...current, note: event.target.value }))}
+                            placeholder="Tell the group owner why you want to join."
+                            className="h-24 w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400"
+                          />
+                          <textarea
+                            value={joinRequestDraft.answersText}
+                            onChange={(event) => setJoinRequestDraft((current) => ({ ...current, answersText: event.target.value }))}
+                            placeholder="Optional answers, one per line. Example: role, experience, what you plan to contribute."
+                            className="h-24 w-full rounded-2xl border border-amber-200 bg-white px-4 py-3 text-sm outline-none focus:border-amber-400"
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => void handleSubmitJoinRequest()}
+                              disabled={submittingJoinRequest}
+                              className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                            >
+                              {submittingJoinRequest ? 'Submitting...' : 'Send join request'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="grid gap-3 md:grid-cols-3">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Members</p>
@@ -727,34 +818,101 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           <h4 className="text-lg font-semibold text-slate-900">Join requests</h4>
                           <span className="text-sm text-slate-500">{selectedGroupRequests.length} pending</span>
                         </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {[
+                            { id: 'pending', label: `Pending (${selectedGroupRequests.length})` },
+                            { id: 'history', label: `History (${historicalGroupRequests.length})` },
+                            { id: 'all', label: `All (${joinRequests.length})` }
+                          ].map((option) => (
+                            <button
+                              key={option.id}
+                              onClick={() => setModerationFilter(option.id as 'pending' | 'history' | 'all')}
+                              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                                moderationFilter === option.id
+                                  ? 'bg-slate-900 text-white'
+                                  : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
                         <div className="mt-3 space-y-3">
-                          {selectedGroupRequests.length ? (
-                            selectedGroupRequests.map((request) => (
+                          {visibleModerationRequests.length ? (
+                            visibleModerationRequests.map((request) => (
                               <div key={request.id} className="rounded-2xl border border-slate-200 bg-white p-3">
                                 <div className="flex items-center justify-between gap-3">
                                   <div>
                                     <p className="font-semibold text-slate-900">{request.user?.name || 'Community member'}</p>
                                     <p className="text-xs text-slate-500">{new Date(request.requestedAt || request.requested_at || Date.now()).toLocaleString()}</p>
                                   </div>
-                                  <div className="flex gap-2">
-                                    <button
-                                      onClick={() => void handleRespondRequest(request, 'approve')}
-                                      className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                                    >
-                                      Approve
-                                    </button>
-                                    <button
-                                      onClick={() => void handleRespondRequest(request, 'reject')}
-                                      className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
-                                    >
-                                      Reject
-                                    </button>
-                                  </div>
+                                  <span
+                                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                      request.status === 'approved'
+                                        ? 'bg-emerald-50 text-emerald-700'
+                                        : request.status === 'rejected'
+                                          ? 'bg-rose-50 text-rose-700'
+                                          : 'bg-amber-50 text-amber-700'
+                                    }`}
+                                  >
+                                    {request.status}
+                                  </span>
                                 </div>
+                                {request.note ? (
+                                  <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                    <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Requester note</span>
+                                    <p className="mt-1 whitespace-pre-wrap">{request.note}</p>
+                                  </div>
+                                ) : null}
+                                {Array.isArray(request.answers) && request.answers.length ? (
+                                  <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                    <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Submitted answers</span>
+                                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                                      {request.answers.map((answer, index) => (
+                                        <li key={`${request.id}-answer-${index}`}>{answer}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ) : null}
+                                {request.reviewedBy ? (
+                                  <p className="mt-3 text-xs text-slate-500">
+                                    Reviewed by {request.reviewedBy.name || 'Moderator'}
+                                  </p>
+                                ) : null}
+                                {request.status === 'pending' ? (
+                                  <div className="mt-3 space-y-3">
+                                    <textarea
+                                      value={reviewDrafts[request.id] || ''}
+                                      onChange={(event) => setReviewDrafts((current) => ({ ...current, [request.id]: event.target.value }))}
+                                      placeholder="Optional moderator note for approval or rejection"
+                                      className="h-20 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
+                                    />
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => void handleRespondRequest(request, 'approve')}
+                                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        onClick={() => void handleRespondRequest(request, 'reject')}
+                                        className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : null}
                               </div>
                             ))
                           ) : (
-                            <p className="text-sm text-slate-500">No pending requests right now.</p>
+                            <p className="text-sm text-slate-500">
+                              {moderationFilter === 'pending'
+                                ? 'No pending requests right now.'
+                                : moderationFilter === 'history'
+                                  ? 'No reviewed requests yet.'
+                                  : 'No join requests yet.'}
+                            </p>
                           )}
                         </div>
                       </div>
