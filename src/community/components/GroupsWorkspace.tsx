@@ -8,12 +8,14 @@ import {
   Lock,
   MessageSquare,
   Plus,
+  Search,
+  UserPlus,
   Upload,
   Users,
   Video
 } from 'lucide-react';
 import { CommunityService } from '../../services/community';
-import type { CommunityClub, GroupFaqItem, GroupJoinRequestSummary, GroupMemberSummary, UploadedFile } from '../../types';
+import type { CommunityClub, GroupFaqItem, GroupInviteSummary, GroupJoinRequestSummary, GroupMemberSummary, UploadedFile } from '../../types';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
@@ -78,6 +80,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [selectedGroup, setSelectedGroup] = useState<CommunityClub | null>(null);
   const [groupPosts, setGroupPosts] = useState<any[]>([]);
   const [joinRequests, setJoinRequests] = useState<GroupJoinRequestSummary[]>([]);
+  const [groupInvites, setGroupInvites] = useState<GroupInviteSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [savingGroup, setSavingGroup] = useState(false);
@@ -95,6 +98,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [submittingJoinRequest, setSubmittingJoinRequest] = useState(false);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, string>>({});
   const [moderationFilter, setModerationFilter] = useState<'pending' | 'history' | 'all'>('pending');
+  const [memberSearch, setMemberSearch] = useState('');
+  const [inviteQuery, setInviteQuery] = useState('');
+  const [inviteSuggestions, setInviteSuggestions] = useState<any[]>([]);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [selectedInvitees, setSelectedInvitees] = useState<Array<{ id: string; name: string; username?: string; avatar?: string }>>([]);
+  const [inviteNote, setInviteNote] = useState('');
+  const [inviteRole, setInviteRole] = useState<'member' | 'moderator'>('member');
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [postPreviewIndex, setPostPreviewIndex] = useState<Record<string, number>>({});
 
   const activeRole = String(user?.role || '').toLowerCase();
 
@@ -117,6 +129,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       setSelectedGroup(null);
       setGroupPosts([]);
       setJoinRequests([]);
+      setGroupInvites([]);
       return;
     }
 
@@ -130,10 +143,20 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       setGroupPosts(Array.isArray(posts) ? posts : []);
       const canManage = ['owner', 'moderator'].includes(String(group?.membershipRole || '').toLowerCase()) || activeRole === 'admin';
       if (group && canManage) {
-        const requests = await CommunityService.getClubJoinRequests(group.id);
+        const [requests, invites] = await Promise.all([
+          CommunityService.getClubJoinRequests(group.id),
+          CommunityService.getClubInvites(group.id)
+        ]);
         setJoinRequests(requests);
+        setGroupInvites(invites);
       } else {
         setJoinRequests([]);
+        if (group) {
+          const invites = await CommunityService.getClubInvites(group.id);
+          setGroupInvites(invites);
+        } else {
+          setGroupInvites([]);
+        }
       }
     } catch (error: any) {
       showNotification('error', 'Group', error?.message || 'Unable to load this group.');
@@ -171,10 +194,53 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     };
   }, [reloadGroups, reloadSelectedGroup, selectedGroupId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const query = inviteQuery.trim();
+    if (!query || !selectedGroup || !canInviteSelectedGroup) {
+      setInviteSuggestions([]);
+      setInviteLoading(false);
+      return;
+    }
+
+    setInviteLoading(true);
+    const timer = window.setTimeout(() => {
+      CommunityService.searchUserMentions(query)
+        .then((results) => {
+          if (cancelled) return;
+          const blockedIds = new Set([
+            String(user?.id || ''),
+            ...(selectedGroup.members || []).map((member) => String(member.userId || '')),
+            ...selectedInvitees.map((entry) => String(entry.id || ''))
+          ]);
+          setInviteSuggestions(
+            (Array.isArray(results) ? results : []).filter((entry) => !blockedIds.has(String(entry?.id || ''))).slice(0, 8)
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setInviteSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setInviteLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [canInviteSelectedGroup, inviteQuery, selectedGroup, selectedInvitees, user?.id]);
+
   const canManageSelectedGroup = useMemo(() => {
     const role = String(selectedGroup?.membershipRole || '').toLowerCase();
     return activeRole === 'admin' || role === 'owner' || role === 'moderator';
   }, [activeRole, selectedGroup?.membershipRole]);
+
+  const canInviteSelectedGroup = useMemo(() => {
+    if (!selectedGroup) return false;
+    if (canManageSelectedGroup) return true;
+    return Boolean(selectedGroup.isJoined && selectedGroup.membersCanInvite);
+  }, [canManageSelectedGroup, selectedGroup]);
 
   const canPostInSelectedGroup = useMemo(() => {
     if (!selectedGroup) return false;
@@ -191,6 +257,22 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     const videoCount = postUploads.filter((file) => String(file.type || '').toLowerCase() === 'video').length;
     return { imageCount, videoCount, total: postUploads.length };
   }, [postUploads]);
+
+  const visibleMembers = useMemo(() => {
+    const query = memberSearch.trim().toLowerCase();
+    if (!query) return selectedGroup?.members || [];
+    return (selectedGroup?.members || []).filter((member) => {
+      const name = String(member.user?.name || '').toLowerCase();
+      const username = String(member.user?.username || '').toLowerCase();
+      const role = String(member.role || '').toLowerCase();
+      return name.includes(query) || username.includes(query) || role.includes(query);
+    });
+  }, [memberSearch, selectedGroup?.members]);
+
+  const pendingInvites = useMemo(
+    () => groupInvites.filter((invite) => String(invite.status || '').toLowerCase() === 'pending'),
+    [groupInvites]
+  );
 
   const applyGroupToForm = (group?: CommunityClub | null) => {
     if (!group) {
@@ -320,6 +402,46 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       await reloadSelectedGroup(selectedGroup.id);
     } catch (error: any) {
       showNotification('error', 'Members', error?.message || 'Unable to update this member.');
+    }
+  };
+
+  const handleCreateInvites = async () => {
+    if (!selectedGroup) return;
+    const inviteeIds = Array.from(new Set(selectedInvitees.map((entry) => String(entry.id || '')).filter(Boolean)));
+    if (!inviteeIds.length) {
+      showNotification('error', 'Invites', 'Choose at least one member to invite.');
+      return;
+    }
+    setCreatingInvite(true);
+    try {
+      await CommunityService.createClubInvites(selectedGroup.id, {
+        inviteeIds,
+        role: inviteRole,
+        note: inviteNote.trim()
+      });
+      showNotification('success', 'Invites', 'Group invite sent.');
+      setSelectedInvitees([]);
+      setInviteQuery('');
+      setInviteSuggestions([]);
+      setInviteNote('');
+      setInviteRole('member');
+      await reloadSelectedGroup(selectedGroup.id);
+    } catch (error: any) {
+      showNotification('error', 'Invites', error?.message || 'Unable to send group invite.');
+    } finally {
+      setCreatingInvite(false);
+    }
+  };
+
+  const handleRespondInvite = async (invite: GroupInviteSummary, decision: 'accept' | 'decline' | 'cancel') => {
+    if (!selectedGroup) return;
+    try {
+      await CommunityService.respondToClubInvite(selectedGroup.id, invite.id, { decision });
+      showNotification('success', 'Invites', `Invite ${decision === 'accept' ? 'accepted' : decision === 'decline' ? 'declined' : 'cancelled'}.`);
+      await reloadGroups();
+      await reloadSelectedGroup(selectedGroup.id);
+    } catch (error: any) {
+      showNotification('error', 'Invites', error?.message || 'Unable to update this invite.');
     }
   };
 
@@ -504,6 +626,21 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           >
                             Leave group
                           </button>
+                        ) : selectedGroup.pendingInvite ? (
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              onClick={() => void handleRespondInvite(selectedGroup.pendingInvite as GroupInviteSummary, 'accept')}
+                              className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                            >
+                              Accept invite
+                            </button>
+                            <button
+                              onClick={() => void handleRespondInvite(selectedGroup.pendingInvite as GroupInviteSummary, 'decline')}
+                              className="rounded-2xl border border-white/20 bg-white/15 px-4 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-white/20"
+                            >
+                              Decline
+                            </button>
+                          </div>
                         ) : selectedGroup.pendingRequest ? (
                           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">
                             Join request pending
@@ -547,7 +684,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
 
                 <div className="grid gap-4 p-5 lg:grid-cols-[minmax(0,1.25fr),360px]">
                   <div className="space-y-4">
-                    {showJoinRequestComposer && !selectedGroup.isJoined && !selectedGroup.pendingRequest ? (
+                    {showJoinRequestComposer && !selectedGroup.isJoined && !selectedGroup.pendingRequest && !selectedGroup.pendingInvite ? (
                       <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>
@@ -589,7 +726,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                       </div>
                     ) : null}
 
-                    <div className="grid gap-3 md:grid-cols-3">
+                    <div className="grid gap-3 md:grid-cols-4">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Members</p>
                         <p className="mt-1 text-2xl font-semibold text-slate-900">{selectedGroup.memberCount || 0}</p>
@@ -601,6 +738,12 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Posting</p>
                         <p className="mt-1 text-base font-semibold capitalize text-slate-900">{selectedGroup.postPermission || 'members'}</p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Pending</p>
+                        <p className="mt-1 text-2xl font-semibold text-slate-900">
+                          {(selectedGroup.pendingRequestCount || 0) + (selectedGroup.pendingInviteCount || 0)}
+                        </p>
                       </div>
                     </div>
 
@@ -695,6 +838,8 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                       ) : (
                         groupPosts.map((post) => {
                           const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+                          const activeIndex = Math.max(0, Math.min(postPreviewIndex[post.id] ?? 0, Math.max(attachments.length - 1, 0)));
+                          const activeAttachment = attachments[activeIndex] || null;
                           return (
                             <article key={post.id} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
                               <div className="flex items-start justify-between gap-3">
@@ -713,19 +858,37 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                 </Link>
                               </div>
                               {post.content ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{post.content}</p> : null}
-                              {attachments.length ? (
-                                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                                  {attachments.map((attachment: any, index: number) => (
-                                    <div key={`${post.id}-${index}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                                      <div className="aspect-[4/3]">
-                                        {mediaKind(String(attachment?.url || '')) === 'video' ? (
-                                          <video src={attachment?.url} controls className="h-full w-full object-cover" />
-                                        ) : (
-                                          <img src={attachment?.url} alt={attachment?.name || 'Attachment'} className="h-full w-full object-cover" />
-                                        )}
-                                      </div>
+                              {activeAttachment ? (
+                                <div className="mt-4 overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50">
+                                  <div className="aspect-[16/9] bg-slate-100">
+                                    {mediaKind(String(activeAttachment?.url || '')) === 'video' ? (
+                                      <video src={activeAttachment?.url} controls className="h-full w-full object-cover" />
+                                    ) : (
+                                      <img src={activeAttachment?.url} alt={activeAttachment?.name || 'Attachment'} className="h-full w-full object-cover" />
+                                    )}
+                                  </div>
+                                  {attachments.length > 1 ? (
+                                    <div className="grid grid-cols-4 gap-2 border-t border-slate-200 bg-white p-3 sm:grid-cols-6">
+                                      {attachments.map((attachment: any, index: number) => (
+                                        <button
+                                          key={`${post.id}-${index}`}
+                                          type="button"
+                                          onClick={() => setPostPreviewIndex((current) => ({ ...current, [post.id]: index }))}
+                                          className={`overflow-hidden rounded-2xl border ${
+                                            activeIndex === index ? 'border-blue-400 ring-2 ring-blue-200' : 'border-slate-200'
+                                          }`}
+                                        >
+                                          <div className="aspect-square bg-slate-100">
+                                            {mediaKind(String(attachment?.url || '')) === 'video' ? (
+                                              <video src={attachment?.url} className="h-full w-full object-cover" muted />
+                                            ) : (
+                                              <img src={attachment?.url} alt={attachment?.name || 'Attachment'} className="h-full w-full object-cover" />
+                                            )}
+                                          </div>
+                                        </button>
+                                      ))}
                                     </div>
-                                  ))}
+                                  ) : null}
                                 </div>
                               ) : null}
                             </article>
@@ -773,10 +936,19 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                     <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
                       <div className="flex items-center justify-between">
                         <h4 className="text-lg font-semibold text-slate-900">Members</h4>
-                        <span className="text-sm text-slate-500">{selectedGroup.members?.length || 0} shown</span>
+                        <span className="text-sm text-slate-500">{visibleMembers.length} shown</span>
+                      </div>
+                      <div className="mt-3 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                        <Search className="h-4 w-4 text-slate-400" />
+                        <input
+                          value={memberSearch}
+                          onChange={(event) => setMemberSearch(event.target.value)}
+                          placeholder="Search members by name, username, or role"
+                          className="w-full bg-transparent text-sm outline-none"
+                        />
                       </div>
                       <div className="mt-3 space-y-3">
-                        {(selectedGroup.members || []).map((member) => (
+                        {visibleMembers.map((member) => (
                           <div key={member.userId} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3">
                             <div className="flex items-center gap-3">
                               <div className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
@@ -787,8 +959,16 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                 )}
                               </div>
                               <div>
-                                <p className="font-semibold text-slate-900">{member.user?.name || 'Community member'}</p>
-                                <p className="text-xs uppercase tracking-wide text-slate-500">{member.role}</p>
+                                <Link
+                                  to={member.user?.username ? `/u/${String(member.user.username).replace(/^@+/, '')}` : `/profile/${member.userId}`}
+                                  className="font-semibold text-slate-900 hover:text-blue-600"
+                                >
+                                  {member.user?.name || 'Community member'}
+                                </Link>
+                                <p className="text-xs uppercase tracking-wide text-slate-500">
+                                  {member.role}
+                                  {member.user?.username ? ` • @${String(member.user.username).replace(/^@+/, '')}` : ''}
+                                </p>
                               </div>
                             </div>
                             {canManageSelectedGroup && member.role !== 'owner' ? (
@@ -809,8 +989,131 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             ) : null}
                           </div>
                         ))}
+                        {!visibleMembers.length ? <p className="text-sm text-slate-500">No members match this search.</p> : null}
                       </div>
                     </div>
+
+                    {canInviteSelectedGroup ? (
+                      <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h4 className="text-lg font-semibold text-slate-900">Invite members</h4>
+                            <p className="mt-1 text-sm text-slate-500">Search users, choose a role, and send a governed invitation into the group.</p>
+                          </div>
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                            {pendingInvites.length} pending
+                          </span>
+                        </div>
+                        <div className="mt-4 space-y-3">
+                          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                            <div className="flex items-center gap-2">
+                              <UserPlus className="h-4 w-4 text-slate-400" />
+                              <input
+                                value={inviteQuery}
+                                onChange={(event) => setInviteQuery(event.target.value)}
+                                placeholder="Search by name or username"
+                                className="w-full bg-transparent text-sm outline-none"
+                              />
+                            </div>
+                            {inviteLoading ? <p className="mt-2 text-xs text-slate-400">Searching members...</p> : null}
+                            {inviteSuggestions.length ? (
+                              <div className="mt-3 space-y-2">
+                                {inviteSuggestions.map((entry) => (
+                                  <button
+                                    key={entry.id}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedInvitees((current) => [
+                                        ...current,
+                                        {
+                                          id: String(entry.id || ''),
+                                          name: String(entry.name || entry.username || 'Community member'),
+                                          username: String(entry.username || '').replace(/^@+/, ''),
+                                          avatar: entry.avatar || undefined
+                                        }
+                                      ]);
+                                      setInviteQuery('');
+                                      setInviteSuggestions([]);
+                                    }}
+                                    className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
+                                  >
+                                    <span className="text-sm font-medium text-slate-900">{entry.name || entry.username || 'Community member'}</span>
+                                    <span className="text-xs text-slate-500">@{String(entry.username || 'member').replace(/^@+/, '')}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {selectedInvitees.length ? (
+                            <div className="flex flex-wrap gap-2">
+                              {selectedInvitees.map((entry) => (
+                                <button
+                                  key={entry.id}
+                                  type="button"
+                                  onClick={() => setSelectedInvitees((current) => current.filter((member) => member.id !== entry.id))}
+                                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                                >
+                                  {entry.name} ×
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+
+                          <div className="grid gap-3 sm:grid-cols-[160px,minmax(0,1fr)]">
+                            <select
+                              value={inviteRole}
+                              onChange={(event) => setInviteRole(event.target.value as 'member' | 'moderator')}
+                              className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500"
+                            >
+                              <option value="member">Invite as member</option>
+                              <option value="moderator">Invite as moderator</option>
+                            </select>
+                            <textarea
+                              value={inviteNote}
+                              onChange={(event) => setInviteNote(event.target.value)}
+                              placeholder="Optional invite message"
+                              className="h-24 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500"
+                            />
+                          </div>
+
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => void handleCreateInvites()}
+                              disabled={creatingInvite}
+                              className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                            >
+                              {creatingInvite ? 'Sending...' : 'Send invite'}
+                            </button>
+                          </div>
+
+                          {groupInvites.length ? (
+                            <div className="space-y-2 border-t border-slate-200 pt-3">
+                              {groupInvites.slice(0, 6).map((invite) => (
+                                <div key={invite.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                                  <div className="min-w-0">
+                                    <p className="truncate text-sm font-semibold text-slate-900">
+                                      {invite.invitee?.name || invite.invitedBy?.name || 'Community member'}
+                                    </p>
+                                    <p className="text-xs text-slate-500">
+                                      {invite.status} • {invite.role || 'member'}
+                                    </p>
+                                  </div>
+                                  {String(invite.status || '').toLowerCase() === 'pending' && canManageSelectedGroup ? (
+                                    <button
+                                      onClick={() => void handleRespondInvite(invite, 'cancel')}
+                                      className="rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                                    >
+                                      Cancel
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
 
                     {canManageSelectedGroup ? (
                       <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">

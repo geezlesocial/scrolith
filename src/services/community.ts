@@ -14,6 +14,7 @@ import {
   CommunityComment,
   GroupFaqItem,
   GroupJoinRequestSummary,
+  GroupInviteSummary,
   GroupMemberSummary,
   UserRole,
   PlatformSettings,
@@ -139,8 +140,10 @@ const normalizeClub = (club: any): CommunityClub => ({
   isJoined: Boolean(club?.isJoined ?? club?.is_joined),
   membershipRole: (club?.membershipRole ?? club?.membership_role ?? null) as CommunityClub['membershipRole'],
   pendingRequest: club?.pendingRequest ?? club?.pending_request ?? null,
+  pendingInvite: club?.pendingInvite ?? club?.pending_invite ?? null,
   members: Array.isArray(club?.members) ? (club.members as GroupMemberSummary[]) : [],
   pendingRequestCount: Number(club?.pendingRequestCount ?? club?.pending_request_count ?? 0),
+  pendingInviteCount: Number(club?.pendingInviteCount ?? club?.pending_invite_count ?? 0),
   joined_at: club?.joined_at ?? club?.joinedAt ?? null,
   joinedAt: club?.joinedAt ?? club?.joined_at ?? null,
   created_at: String(club?.created_at ?? club?.createdAt ?? ''),
@@ -832,6 +835,36 @@ class CommunityService {
   ): Promise<{ success: boolean; status?: string }> {
     const response = await this.post(
       `/community/clubs/${encodeURIComponent(clubId)}/requests/${encodeURIComponent(requestId)}/respond`,
+      payload
+    );
+    return {
+      success: Boolean(response?.success),
+      status: response?.status
+    };
+  }
+
+  static async getClubInvites(clubId: string): Promise<GroupInviteSummary[]> {
+    const response = await this.get(`/community/clubs/${encodeURIComponent(clubId)}/invites`);
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? (data as GroupInviteSummary[]) : [];
+  }
+
+  static async createClubInvites(
+    clubId: string,
+    payload: { inviteeIds?: string[]; inviteeId?: string; role?: 'member' | 'moderator'; note?: string }
+  ): Promise<GroupInviteSummary[]> {
+    const response = await this.post(`/community/clubs/${encodeURIComponent(clubId)}/invites`, payload);
+    const data = extractData<any>(response);
+    return Array.isArray(data) ? (data as GroupInviteSummary[]) : [];
+  }
+
+  static async respondToClubInvite(
+    clubId: string,
+    inviteId: string,
+    payload: { decision: 'accept' | 'decline' | 'cancel' }
+  ): Promise<{ success: boolean; status?: string }> {
+    const response = await this.post(
+      `/community/clubs/${encodeURIComponent(clubId)}/invites/${encodeURIComponent(inviteId)}/respond`,
       payload
     );
     return {

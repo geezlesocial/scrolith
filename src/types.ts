@@ -3728,8 +3728,10 @@ export interface CommunityClub {
   isJoined?: boolean;
   membershipRole?: 'owner' | 'moderator' | 'member' | null;
   pendingRequest?: GroupJoinRequestSummary | null;
+  pendingInvite?: GroupInviteSummary | null;
   members?: GroupMemberSummary[];
   pendingRequestCount?: number;
+  pendingInviteCount?: number;
   joinedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -3774,6 +3776,33 @@ export interface GroupJoinRequestSummary {
     id: string;
     name: string;
     username?: string;
+  } | null;
+}
+
+export interface GroupInviteSummary {
+  id: string;
+  status: string;
+  role?: 'owner' | 'moderator' | 'member' | string;
+  note?: string;
+  invitedAt?: string;
+  invited_at?: string;
+  respondedAt?: string | null;
+  responded_at?: string | null;
+  inviteeId?: string;
+  invitee_id?: string;
+  invitedById?: string;
+  invited_by_id?: string;
+  invitee?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+  invitedBy?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
   } | null;
 }
 
