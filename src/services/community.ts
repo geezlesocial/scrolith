@@ -757,8 +757,19 @@ class CommunityService {
     return Boolean(response?.success);
   }
 
-  static async getClubs(): Promise<CommunityClub[]> {
-    const data = await this.get('/community/clubs');
+  static async getClubs(params?: {
+    joinedOnly?: boolean;
+    mineOnly?: boolean;
+    q?: string;
+    limit?: number;
+  }): Promise<CommunityClub[]> {
+    const search = new URLSearchParams();
+    if (params?.joinedOnly) search.set('joinedOnly', 'true');
+    if (params?.mineOnly) search.set('mineOnly', 'true');
+    if (params?.q) search.set('q', String(params.q).trim());
+    if (Number.isFinite(Number(params?.limit))) search.set('limit', String(params?.limit));
+    const endpoint = search.size ? `/community/clubs?${search.toString()}` : '/community/clubs';
+    const data = await this.get(endpoint);
     if (!Array.isArray(data)) return [];
     return data.map((club: any) => normalizeClub(club));
   }

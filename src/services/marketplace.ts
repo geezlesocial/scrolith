@@ -265,6 +265,14 @@ export const contactMarketplaceSeller = async (id: string, payload: Record<strin
   return extractData<any>(response);
 };
 
+export const shareMarketplaceListingToGroup = async (
+  id: string,
+  payload: { clubId: string; message?: string }
+) => {
+  const response = await api.post(`/marketplace/listings/${encodeURIComponent(id)}/share-to-group`, payload);
+  return extractData<any>(response);
+};
+
 export const uploadMarketplaceListingMedia = async (id: string, fileIds: string[] | { fileIds?: string[] } | string) => {
   const normalizedFileIds = Array.isArray(fileIds)
     ? fileIds

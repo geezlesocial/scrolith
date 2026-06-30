@@ -33,6 +33,7 @@ import type {
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
+import MobileDialog, { MobileDialogFooter } from '../../components/mobile/MobileDialog';
 
 type GroupsWorkspaceProps = {
   embedded?: boolean;
@@ -1735,8 +1736,41 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
         </div>
       </section>
 
-      {showComposer ? (
-        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <MobileDialog
+        open={showComposer}
+        onClose={() => {
+          setShowComposer(false);
+          applyGroupToForm(null);
+        }}
+        title={editingGroupId ? 'Edit group' : 'Create a new group'}
+        description="Define who can join, who can post, what members should share, and the group's public or private posture."
+        size="xl"
+        panelClassName="max-w-6xl"
+        bodyClassName="pb-5"
+        footer={
+          <MobileDialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setShowComposer(false);
+                applyGroupToForm(null);
+              }}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSaveGroup()}
+              disabled={savingGroup}
+              className="inline-flex items-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
+            >
+              <Check className="mr-2 h-4 w-4" />
+              {savingGroup ? 'Saving...' : editingGroupId ? 'Save group changes' : 'Create group'}
+            </button>
+          </MobileDialogFooter>
+        }
+      >
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="text-xl font-semibold text-slate-900">{editingGroupId ? 'Edit group' : 'Create a new group'}</h3>
@@ -1981,18 +2015,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
               </div>
             </aside>
           </div>
-          <div className="mt-5 flex justify-end">
-            <button
-              onClick={() => void handleSaveGroup()}
-              disabled={savingGroup}
-              className="inline-flex items-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-60"
-            >
-              <Check className="mr-2 h-4 w-4" />
-              {savingGroup ? 'Saving...' : editingGroupId ? 'Save group changes' : 'Create group'}
-            </button>
-          </div>
-        </section>
-      ) : null}
+      </MobileDialog>
 
       {groupMediaLightbox && (() => {
         const lightboxPost = groupPosts.find((entry) => entry.id === groupMediaLightbox.postId);

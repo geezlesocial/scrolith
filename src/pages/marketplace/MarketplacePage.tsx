@@ -35,10 +35,12 @@ import {
 } from 'lucide-react';
 import LocationPicker from '../../components/common/LocationPicker';
 import SearchInput from '../../components/SearchInput';
+import MobileDialog, { MobileDialogFooter } from '../../components/mobile/MobileDialog';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import { useFavorites } from '../../context/FavoritesContext';
 import FollowButton from '../../community/components/FollowButton';
+import { CommunityService } from '../../services/community';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import { FileService } from '../../services/files';
 import { FavoritesService } from '../../services/favorites';
@@ -55,6 +57,7 @@ import {
   markMarketplaceListingSold,
   reportMarketplaceListing,
   reserveMarketplaceListing,
+  shareMarketplaceListingToGroup,
   submitMarketplaceListing,
   updateMarketplaceListing,
   uploadMarketplaceListingMedia
@@ -71,7 +74,7 @@ import type {
   MarketplaceQuery,
   MarketplaceSettings
 } from '../../types/marketplace';
-import type { Currency, StructuredLocationFields } from '../../types';
+import type { CommunityClub, Currency, StructuredLocationFields } from '../../types';
 import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
 
 type MarketplaceVariant = 'public' | 'dashboard';
@@ -206,6 +209,15 @@ const toProfilePath = (seller?: MarketplaceListing['seller'] | null) => {
   const id = String(seller?.id || '').trim();
   if (id) return `/profile/${encodeURIComponent(id)}`;
   return '/profile/edit';
+};
+
+const canShareListingIntoGroup = (group: CommunityClub | null | undefined) => {
+  if (!group?.isJoined) return false;
+  const membershipRole = String(group.membershipRole || '').toLowerCase();
+  const postPermission = String(group.postPermission || 'members').toLowerCase();
+  if (postPermission === 'everyone') return true;
+  if (postPermission === 'members') return true;
+  return ['owner', 'moderator'].includes(membershipRole);
 };
 
 const toLocationValue = (value: unknown) => {
@@ -388,6 +400,13 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const [activePanel, setActivePanel] = useState<'browse' | 'mine' | 'saved' | 'sell'>('browse');
   const [shareState, setShareState] = useState<'closed' | 'open' | 'copied'>('closed');
   const [distanceError, setDistanceError] = useState<string | null>(null);
+  const [showSpacesDialog, setShowSpacesDialog] = useState(false);
+  const [spacesLoading, setSpacesLoading] = useState(false);
+  const [joinedGroups, setJoinedGroups] = useState<CommunityClub[]>([]);
+  const [recommendedGroups, setRecommendedGroups] = useState<CommunityClub[]>([]);
+  const [spacesMessage, setSpacesMessage] = useState('');
+  const [sharingGroupId, setSharingGroupId] = useState<string | null>(null);
+  const [joiningGroupId, setJoiningGroupId] = useState<string | null>(null);
 
   const mainRef = useRef<HTMLDivElement | null>(null);
 
@@ -730,6 +749,41 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   }, [isMyListingsRoute, user?.id]);
 
   useEffect(() => {
+    if (!showSpacesDialog) return;
+    if (!user?.id || !selectedListing?.id) return;
+    let mounted = true;
+    const run = async () => {
+      setSpacesLoading(true);
+      try {
+        const [joined, discoverable] = await Promise.all([
+          CommunityService.getClubs({ joinedOnly: true, limit: 24 }),
+          CommunityService.getClubs({ limit: 36 })
+        ]);
+        if (!mounted) return;
+        const joinedIds = new Set(joined.map((group) => String(group.id || '')));
+        const nextRecommended = discoverable.filter((group) => {
+          const id = String(group.id || '');
+          if (!id || joinedIds.has(id)) return false;
+          if (group.pendingRequest || group.pendingInvite) return true;
+          const joinMode = String(group.joinMode || 'open').toLowerCase();
+          return joinMode === 'open' || joinMode === 'request' || joinMode === 'invite_only';
+        });
+        setJoinedGroups(joined);
+        setRecommendedGroups(nextRecommended);
+      } catch (err: any) {
+        if (!mounted) return;
+        setError(err?.response?.data?.error || err?.message || 'Failed to load groups for marketplace sharing');
+      } finally {
+        if (mounted) setSpacesLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      mounted = false;
+    };
+  }, [selectedListing?.id, showSpacesDialog, user?.id]);
+
+  useEffect(() => {
     if (selectedImages.length === 0) {
       setImagePreviews([]);
       return;
@@ -909,6 +963,83 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     } catch {
       window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`, '_blank', 'noopener,noreferrer');
       setShareState('closed');
+    }
+  };
+
+  const reloadSpacesDialog = async () => {
+    const [joined, discoverable] = await Promise.all([
+      CommunityService.getClubs({ joinedOnly: true, limit: 24 }),
+      CommunityService.getClubs({ limit: 36 })
+    ]);
+    const joinedIds = new Set(joined.map((group) => String(group.id || '')));
+    setJoinedGroups(joined);
+    setRecommendedGroups(
+      discoverable.filter((group) => {
+        const id = String(group.id || '');
+        if (!id || joinedIds.has(id)) return false;
+        if (group.pendingRequest || group.pendingInvite) return true;
+        const joinMode = String(group.joinMode || 'open').toLowerCase();
+        return joinMode === 'open' || joinMode === 'request' || joinMode === 'invite_only';
+      })
+    );
+  };
+
+  const handleOpenSpacesDialog = async () => {
+    if (!selectedListing?.id || !user?.id) {
+      navigate('/auth/login');
+      return;
+    }
+    setSpacesMessage((current) => current || `Sharing ${selectedListing.title} from Scrolith Marketplace.`);
+    setShowSpacesDialog(true);
+  };
+
+  const handleJoinRecommendedGroup = async (group: CommunityClub) => {
+    if (!user?.id) {
+      navigate('/auth/login');
+      return;
+    }
+    const groupId = String(group.id || '').trim();
+    if (!groupId) return;
+    setJoiningGroupId(groupId);
+    setError(null);
+    try {
+      const joinMode = String(group.joinMode || 'open').toLowerCase();
+      if (joinMode === 'open') {
+        await CommunityService.joinClub(groupId);
+        setNotice(`Joined ${group.name}. You can now share listings there.`);
+      } else if (joinMode === 'request') {
+        await CommunityService.requestToJoinClub(groupId, {
+          note: 'Requesting access to share marketplace listings in this group.'
+        });
+        setNotice(`Join request sent to ${group.name}.`);
+      } else {
+        setNotice(`${group.name} is invite-only. An existing manager needs to invite you.`);
+      }
+      await reloadSpacesDialog();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Unable to update group membership');
+    } finally {
+      setJoiningGroupId(null);
+    }
+  };
+
+  const handleShareListingToGroupSpace = async (group: CommunityClub) => {
+    if (!selectedListing?.id) return;
+    const groupId = String(group.id || '').trim();
+    if (!groupId) return;
+    setSharingGroupId(groupId);
+    setError(null);
+    try {
+      await shareMarketplaceListingToGroup(selectedListing.id, {
+        clubId: groupId,
+        message: spacesMessage.trim() || undefined
+      });
+      setNotice(`Shared into ${group.name}.`);
+      await reloadSpacesDialog();
+    } catch (err: any) {
+      setError(err?.response?.data?.error || err?.message || 'Unable to share listing into this group');
+    } finally {
+      setSharingGroupId(null);
     }
   };
 
@@ -1856,6 +1987,19 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   </span>
                   <ChevronRight className="h-4 w-4" />
                 </button>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenSpacesDialog()}
+                    className="flex w-full items-center justify-between rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-700"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      List in more spaces
+                    </span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1997,6 +2141,181 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
           </p>
         </div>
       )}
+
+      <MobileDialog
+        open={showSpacesDialog}
+        onClose={() => setShowSpacesDialog(false)}
+        title="List in more spaces"
+        description="Share your marketplace listing into the professional groups you already belong to, or request access to recommended groups that match your listing."
+        size="lg"
+        panelClassName="max-w-4xl"
+        footer={
+          <MobileDialogFooter>
+            <button
+              type="button"
+              onClick={() => setShowSpacesDialog(false)}
+              className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Close
+            </button>
+          </MobileDialogFooter>
+        }
+      >
+        <div className="space-y-6">
+          <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Marketplace share note</p>
+            <p className="mt-2 text-sm text-slate-600">
+              Use one message for every selected group. Scrolith will publish the listing with its current images and link back to the marketplace detail page.
+            </p>
+            <textarea
+              value={spacesMessage}
+              onChange={(event) => setSpacesMessage(event.target.value)}
+              placeholder={selectedListing ? `Why should ${selectedListing.title} be seen in your groups?` : 'Add context for the groups you share into.'}
+              className="mt-3 min-h-[120px] w-full rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-950">Joined groups</h3>
+                  <p className="mt-1 text-sm text-slate-500">Groups where you can publish this listing immediately or as soon as the group allows member posting.</p>
+                </div>
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{joinedGroups.length}</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {spacesLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className="animate-pulse rounded-3xl border border-slate-200 p-4">
+                        <div className="h-4 w-1/2 rounded-full bg-slate-100" />
+                        <div className="mt-3 h-3 w-full rounded-full bg-slate-100" />
+                      </div>
+                    ))}
+                  </div>
+                ) : joinedGroups.length ? (
+                  joinedGroups.map((group) => {
+                    const canShare = canShareListingIntoGroup(group);
+                    return (
+                      <div key={group.id} className="rounded-3xl border border-slate-200 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="truncate text-sm font-semibold text-slate-950">{group.name}</h4>
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                                {group.visibility}
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-sm text-slate-500">{group.summary || group.description || 'Scrolith professional group.'}</p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                              {group.category && <span>{group.category}</span>}
+                              {group.location && <span>{group.location}</span>}
+                              <span>{group.memberCount || group.member_count || 0} members</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleShareListingToGroupSpace(group)}
+                            disabled={!canShare || sharingGroupId === group.id}
+                            className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                              canShare
+                                ? 'bg-slate-900 text-white hover:bg-slate-800'
+                                : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400'
+                            }`}
+                          >
+                            {sharingGroupId === group.id ? 'Sharing...' : canShare ? 'Share now' : 'Posting restricted'}
+                          </button>
+                        </div>
+                        {!canShare && (
+                          <p className="mt-3 text-xs text-amber-700">
+                            This group currently allows only moderators or owners to publish posts.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+                    You have not joined any groups yet. Use the recommended list to join or request access.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-950">Recommended groups</h3>
+                  <p className="mt-1 text-sm text-slate-500">Relevant spaces you can join or request access to before publishing this listing there.</p>
+                </div>
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">{recommendedGroups.length}</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {spacesLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className="animate-pulse rounded-3xl border border-slate-200 p-4">
+                        <div className="h-4 w-1/2 rounded-full bg-slate-100" />
+                        <div className="mt-3 h-3 w-full rounded-full bg-slate-100" />
+                      </div>
+                    ))}
+                  </div>
+                ) : recommendedGroups.length ? (
+                  recommendedGroups.slice(0, 12).map((group) => {
+                    const joinMode = String(group.joinMode || 'open').toLowerCase();
+                    const pendingLabel = group.pendingInvite
+                      ? 'Invite waiting'
+                      : group.pendingRequest
+                        ? 'Request pending'
+                        : joinMode === 'invite_only'
+                          ? 'Invite only'
+                          : joinMode === 'request'
+                            ? 'Request access'
+                            : 'Join group';
+                    return (
+                      <div key={group.id} className="rounded-3xl border border-slate-200 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <h4 className="truncate text-sm font-semibold text-slate-950">{group.name}</h4>
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                                {joinMode.replace('_', ' ')}
+                              </span>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-sm text-slate-500">{group.summary || group.description || 'Scrolith professional group.'}</p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
+                              {group.category && <span>{group.category}</span>}
+                              {group.location && <span>{group.location}</span>}
+                              <span>{group.memberCount || group.member_count || 0} members</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleJoinRecommendedGroup(group)}
+                            disabled={Boolean(group.pendingInvite || group.pendingRequest) || joiningGroupId === group.id || joinMode === 'invite_only'}
+                            className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                              group.pendingInvite || group.pendingRequest || joinMode === 'invite_only'
+                                ? 'border border-slate-200 bg-slate-100 text-slate-500'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            {joiningGroupId === group.id ? 'Updating...' : pendingLabel}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+                    No additional groups are being recommended for this account right now.
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        </div>
+      </MobileDialog>
     </div>
   );
 };
