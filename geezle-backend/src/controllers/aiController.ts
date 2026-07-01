@@ -26,9 +26,16 @@ const brandModelLabel = (provider: AiProvider | string, model: unknown) => {
 };
 
 const getSystemAiConfig = async () => {
-  const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
-  const system = (record?.data as any) || {};
-  return system.aiConfig || system?.system?.aiConfig || null;
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+    const system = (record?.data as any) || {};
+    return system.aiConfig || system?.system?.aiConfig || null;
+  } catch (error) {
+    console.warn('[scrolitha] system AI config lookup failed; using runtime defaults', {
+      error: String((error as any)?.message || error || '').slice(0, 220)
+    });
+    return null;
+  }
 };
 
 const askScrolithaText = async (

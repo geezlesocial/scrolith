@@ -466,9 +466,14 @@ const withTimeout = async <T>(fn: (signal: AbortSignal) => Promise<T>, timeoutMs
 };
 
 const getSystemAiConfig = async () => {
-  const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
-  const system = (record?.data as any) || {};
-  return system.aiConfig || system?.system?.aiConfig || null;
+  try {
+    const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
+    const system = (record?.data as any) || {};
+    return system.aiConfig || system?.system?.aiConfig || null;
+  } catch (error) {
+    logProviderFailure('system AI config lookup failed; falling back to runtime env', error);
+    return null;
+  }
 };
 
 const getMergedCoreAiConfig = async () => {
