@@ -6,6 +6,10 @@ import {
   CheckCheck,
   ChevronLeft,
   ChevronRight,
+  Clapperboard,
+  Download,
+  Expand,
+  FileImage,
   Globe,
   GripVertical,
   ImageIcon,
@@ -918,6 +922,18 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     });
   };
 
+  const promotePostUpload = (fileId: string) => {
+    if (!fileId) return;
+    setPostUploads((current) => {
+      const index = current.findIndex((entry) => String(entry.id || '') === String(fileId || ''));
+      if (index <= 0) return current;
+      const next = [...current];
+      const [selected] = next.splice(index, 1);
+      next.unshift(selected);
+      return next;
+    });
+  };
+
   return (
     <div className={embedded ? 'space-y-6' : 'space-y-6 rounded-[32px] bg-white/90 p-4 shadow-sm sm:p-6'}>
       <section className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_45%,#2563eb_100%)] p-6 text-white shadow-xl">
@@ -1214,6 +1230,54 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             </div>
                           ) : null}
                           {postUploads.length ? (
+                            <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(280px,0.8fr)]">
+                              <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white">
+                                <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                                  <div>
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Featured media</p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-900">{postUploads[0]?.name || 'Upload preview'}</p>
+                                  </div>
+                                  <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">
+                                    Slot 1
+                                  </span>
+                                </div>
+                                <div className="aspect-[16/9] bg-slate-100">
+                                  {String(postUploads[0]?.type || '').toLowerCase() === 'video' ? (
+                                    <video src={postUploads[0]?.url} controls className="h-full w-full object-cover" />
+                                  ) : (
+                                    <img src={postUploads[0]?.url} alt={postUploads[0]?.name || 'Featured upload'} className="h-full w-full object-cover" />
+                                  )}
+                                </div>
+                                <div className="border-t border-slate-100 px-4 py-3">
+                                  <p className="text-sm text-slate-600">
+                                    {String(postUploadCaptions[String(postUploads[0]?.id || '')] || '').trim() || 'Add a caption to explain what members should notice first.'}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
+                                <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-4">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Cover behavior</p>
+                                  <p className="mt-2 text-sm text-slate-700">
+                                    The first attachment becomes the lead image in the group feed. Use <span className="font-semibold text-slate-900">Set cover</span> to promote any file.
+                                  </p>
+                                </div>
+                                <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-4">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Caption coverage</p>
+                                  <p className="mt-2 text-2xl font-semibold text-slate-900">
+                                    {postUploads.filter((file) => String(postUploadCaptions[String(file.id || '')] || '').trim()).length}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">attachments with captions</p>
+                                </div>
+                                <div className="rounded-[24px] border border-slate-200 bg-white px-4 py-4">
+                                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Publishing polish</p>
+                                  <p className="mt-2 text-sm text-slate-700">
+                                    Reorder the rail, keep captions concise, and use one clear hero shot so the post opens cleanly in feeds and lightbox.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                          {postUploads.length ? (
                             <div className="grid gap-3 sm:grid-cols-3">
                               {postUploads.map((file, fileIndex) => (
                                 <div
@@ -1247,8 +1311,24 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                         {String(file.type || '').toLowerCase() === 'video' ? 'Video' : 'Image'}
                                       </span>
                                       <span className="mt-1 block text-[10px] text-slate-400">Drag to reorder the gallery rail.</span>
+                                      {String(postUploadCaptions[String(file.id || '')] || '').trim() ? (
+                                        <span className="mt-1 inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                          Caption ready
+                                        </span>
+                                      ) : null}
                                     </div>
                                     <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => promotePostUpload(String(file.id || ''))}
+                                        className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
+                                          fileIndex === 0
+                                            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                            : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                      >
+                                        {fileIndex === 0 ? 'Cover media' : 'Set cover'}
+                                      </button>
                                       <button
                                         type="button"
                                         onClick={() => movePostUpload(String(file.id || ''), -1)}
@@ -1362,6 +1442,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                         onClick={() => setGroupMediaLightbox({ postId: post.id, index: activeIndex })}
                                       />
                                     )}
+                                    <button
+                                      type="button"
+                                      onClick={() => setGroupMediaLightbox({ postId: post.id, index: activeIndex })}
+                                      className="absolute right-3 top-3 inline-flex items-center rounded-full bg-slate-950/70 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur hover:bg-slate-950/85"
+                                      aria-label="Open media viewer"
+                                    >
+                                      <Expand className="mr-1.5 h-3.5 w-3.5" />
+                                      View
+                                    </button>
                                     {attachments.length > 1 ? (
                                       <>
                                         <button
@@ -1402,6 +1491,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Attachment details</p>
                                       {attachments.length > 1 ? <p className="text-xs text-slate-400">Click a thumbnail or use the arrows to browse.</p> : null}
+                                    </div>
+                                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1">
+                                        {mediaKind(String(activeAttachment?.url || '')) === 'video' ? <Clapperboard className="h-3.5 w-3.5" /> : <FileImage className="h-3.5 w-3.5" />}
+                                        {mediaKind(String(activeAttachment?.url || '')) === 'video' ? 'Video' : 'Image'}
+                                      </span>
+                                      {activeAttachment?.name ? (
+                                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{String(activeAttachment.name)}</span>
+                                      ) : null}
                                     </div>
                                     {activeCaption ? (
                                       <p className="mt-2 text-sm text-slate-600">{activeCaption}</p>
@@ -2507,7 +2605,31 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                 ) : null}
               </div>
               <div className="mt-3 rounded-[24px] border border-white/10 bg-white/5 p-3 text-white">
-                {lightboxCaption ? <p className="text-sm text-slate-100">{lightboxCaption}</p> : <p className="text-sm text-slate-300">No caption for this attachment.</p>}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    {lightboxCaption ? <p className="text-sm text-slate-100">{lightboxCaption}</p> : <p className="text-sm text-slate-300">No caption for this attachment.</p>}
+                    {lightboxAttachment?.name ? <p className="mt-1 text-xs text-slate-400">{String(lightboxAttachment.name)}</p> : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <a
+                      href={String(lightboxAttachment?.url || '#')}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+                    >
+                      <Expand className="mr-1.5 h-3.5 w-3.5" />
+                      Open original
+                    </a>
+                    <a
+                      href={String(lightboxAttachment?.url || '#')}
+                      download
+                      className="inline-flex items-center rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/10"
+                    >
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      Download
+                    </a>
+                  </div>
+                </div>
                 {lightboxAttachments.length > 1 ? (
                   <div className="mt-3 grid grid-cols-4 gap-2 sm:grid-cols-7">
                     {lightboxAttachments.map((attachment: any, index: number) => (
