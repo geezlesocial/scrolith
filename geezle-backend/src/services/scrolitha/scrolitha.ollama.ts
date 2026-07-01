@@ -363,9 +363,25 @@ const readLlmMetadata = (metadata: any): Record<string, any> => {
 const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>): ScrolithaLlmRuntime => {
   const provider = String(override.provider || '').trim().toLowerCase();
   const enabled = typeof override.enabled === 'boolean' ? override.enabled : base.enabled;
+  const overrideHost = normalizeHost(pickString(override.coreEndpoint, override.ollamaHost, override.host));
+  const requestedSidecarMode =
+    typeof override.sidecarMode === 'boolean'
+      ? override.sidecarMode
+      : typeof override.coreSidecarMode === 'boolean'
+        ? override.coreSidecarMode
+        : undefined;
+  const preserveRemoteBaseRuntime =
+    isProductionRuntime() &&
+    Boolean(base.host) &&
+    !isLocalEndpoint(base.host) &&
+    Boolean(overrideHost) &&
+    isLocalEndpoint(overrideHost) &&
+    requestedSidecarMode !== true;
 
-  const host = pickString(override.coreEndpoint, override.ollamaHost, override.host, base.host);
-  const model = pickString(override.coreModel, override.ollamaModel, override.model, base.model);
+  const host = preserveRemoteBaseRuntime ? base.host : pickString(overrideHost, base.host);
+  const model = preserveRemoteBaseRuntime
+    ? String(base.model || '').trim()
+    : pickString(override.coreModel, override.ollamaModel, override.model, base.model);
   const sidecarMode =
     typeof override.sidecarMode === 'boolean'
       ? override.sidecarMode
