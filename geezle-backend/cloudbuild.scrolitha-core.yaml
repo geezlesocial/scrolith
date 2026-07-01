@@ -1,0 +1,11 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/scrolitha-core/Dockerfile
+      - -t
+      - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolitha-core:prod
+      - .
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolitha-core:prod
