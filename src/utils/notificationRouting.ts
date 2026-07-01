@@ -50,6 +50,9 @@ const rewriteLegacyInternalUrl = (urlValue: string) => {
       nextPath = '/profile/edit';
     } else if (/^\/feed\/?$/i.test(nextPath)) {
       nextPath = '/community';
+    } else if (/^\/community\/?$/i.test(nextPath) && coerceString(search.get('tab')).toLowerCase() === 'groups') {
+      nextPath = '/community/clubs';
+      search.delete('tab');
     } else if (/^\/jobs\/?$/i.test(nextPath) && !search.get('tab')) {
       nextPath = '/browse-jobs';
     } else if (/^\/dashboard\/?$/i.test(nextPath) && coerceString(search.get('tab')).toLowerCase() === 'notifications') {
@@ -182,6 +185,7 @@ export const getNotificationActionUrl = (notification: any): string | undefined 
   const entityType = coerceString(notification?.entityType ?? notification?.entity_type ?? metadata?.entityType ?? metadata?.entity_type).toLowerCase();
   const entityId = coerceString(notification?.entityId ?? notification?.entity_id ?? metadata?.entityId ?? metadata?.entity_id);
   const parentId = coerceString(notification?.parentId ?? notification?.parent_id ?? metadata?.parentId ?? metadata?.parent_id);
+  const notificationType = coerceString(notification?.type ?? notification?.notificationType).toLowerCase();
 
   if (entityType === 'post' && entityId) {
     return `/post/${encodeURIComponent(entityId)}`;
@@ -203,8 +207,34 @@ export const getNotificationActionUrl = (notification: any): string | undefined 
     return `/post/${encodeURIComponent(parentId)}${qs ? `?${qs}` : ''}`;
   }
 
+  const groupInviteTypes = new Set([
+    'community_group_invite_received',
+    'community_group_invite_accepted',
+    'community_group_invite_declined',
+    'community_group_invite_cancelled'
+  ]);
+  if (groupInviteTypes.has(notificationType)) {
+    const groupRef = coerceString(metadata?.groupSlug ?? metadata?.group_slug ?? metadata?.groupId ?? metadata?.group_id ?? parentId);
+    const search = new URLSearchParams();
+    if (groupRef) search.set('group', groupRef);
+    search.set('panel', 'invites');
+    if (notificationType === 'community_group_invite_received') {
+      search.set('inviteScope', 'received');
+      search.set('inviteStatus', 'pending');
+    } else if (notificationType === 'community_group_invite_cancelled') {
+      search.set('inviteScope', 'received');
+      search.set('inviteStatus', 'cancelled');
+    } else if (notificationType === 'community_group_invite_accepted') {
+      search.set('inviteScope', 'sent');
+      search.set('inviteStatus', 'accepted');
+    } else if (notificationType === 'community_group_invite_declined') {
+      search.set('inviteScope', 'sent');
+      search.set('inviteStatus', 'declined');
+    }
+    return `/community/clubs?${search.toString()}`;
+  }
+
   const campaignId = coerceString(metadata?.campaignId ?? metadata?.campaign_id);
-  const notificationType = coerceString(notification?.type ?? notification?.notificationType).toLowerCase();
   if (notificationType === 'app_campaign' && campaignId) {
     if (typeof window !== 'undefined') {
       const currentPath = coerceString(window.location.pathname || '').toLowerCase();

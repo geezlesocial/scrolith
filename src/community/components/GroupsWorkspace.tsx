@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import {
   ArrowRight,
   Check,
@@ -128,6 +128,8 @@ const defaultBulkReviewNoteTemplates = [
 const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) => {
   const { showNotification } = useNotification();
   const { user } = useUser();
+  const location = useLocation();
+  const inviteInboxRef = useRef<HTMLDivElement | null>(null);
   const [groups, setGroups] = useState<CommunityClub[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<CommunityClub | null>(null);
@@ -161,6 +163,8 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [inviteRole, setInviteRole] = useState<'member' | 'moderator'>('member');
   const [creatingInvite, setCreatingInvite] = useState(false);
   const [inviteInbox, setInviteInbox] = useState<GroupInviteSummary[]>([]);
+  const [inviteScopeFilter, setInviteScopeFilter] = useState<'all' | 'received' | 'sent'>('all');
+  const [inviteStatusFilter, setInviteStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'declined' | 'cancelled'>('all');
   const [postPreviewIndex, setPostPreviewIndex] = useState<Record<string, number>>({});
   const [postUploadCaptions, setPostUploadCaptions] = useState<Record<string, string>>({});
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
@@ -272,6 +276,42 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   useEffect(() => {
     void reloadSelectedGroup(selectedGroupId);
   }, [reloadSelectedGroup, selectedGroupId]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const requestedGroup = String(search.get('group') || '')
+      .trim()
+      .toLowerCase();
+    if (!requestedGroup || !groups.length) return;
+    const matched = groups.find((group) => {
+      const candidateId = String(group.id || '').trim().toLowerCase();
+      const candidateSlug = String(group.slug || '').trim().toLowerCase();
+      return requestedGroup === candidateId || requestedGroup === candidateSlug;
+    });
+    if (matched && matched.id !== selectedGroupId) {
+      setSelectedGroupId(matched.id);
+    }
+  }, [groups, location.search, selectedGroupId]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    const scope = String(search.get('inviteScope') || '').trim().toLowerCase();
+    const status = String(search.get('inviteStatus') || '').trim().toLowerCase();
+    setInviteScopeFilter(scope === 'received' || scope === 'sent' ? scope : 'all');
+    setInviteStatusFilter(
+      status === 'pending' || status === 'accepted' || status === 'declined' || status === 'cancelled' ? status : 'all'
+    );
+  }, [location.search]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    if (String(search.get('panel') || '').trim().toLowerCase() !== 'invites') return;
+    if (!selectedGroup?.id) return;
+    const timer = window.setTimeout(() => {
+      inviteInboxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [location.search, selectedGroup?.id]);
 
   useEffect(() => {
     setSelectedRequestIds([]);
@@ -417,6 +457,24 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     () =>
       inviteInbox.filter((invite) => String(invite.invitedById || invite.invited_by_id || '') === String(user?.id || '')),
     [inviteInbox, user?.id]
+  );
+
+  const matchesInviteStatusFilter = useCallback(
+    (invite: GroupInviteSummary) => {
+      if (inviteStatusFilter === 'all') return true;
+      return String(invite.status || '').toLowerCase() === inviteStatusFilter;
+    },
+    [inviteStatusFilter]
+  );
+
+  const visibleReceivedInviteInbox = useMemo(
+    () => receivedInviteInbox.filter(matchesInviteStatusFilter),
+    [matchesInviteStatusFilter, receivedInviteInbox]
+  );
+
+  const visibleSentInviteInbox = useMemo(
+    () => sentInviteInbox.filter(matchesInviteStatusFilter),
+    [matchesInviteStatusFilter, sentInviteInbox]
   );
 
   const receivedInviteCounts = useMemo(
@@ -1280,7 +1338,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                   </div>
 
                   <div className="space-y-4">
-                    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                    <div ref={inviteInboxRef} className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <h4 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
@@ -1313,23 +1371,65 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           </p>
                         </div>
                       </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {[
+                          { key: 'all', label: 'All invites' },
+                          { key: 'received', label: 'Received' },
+                          { key: 'sent', label: 'Sent' }
+                        ].map((entry) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            onClick={() => setInviteScopeFilter(entry.key as 'all' | 'received' | 'sent')}
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                              inviteScopeFilter === entry.key
+                                ? 'bg-slate-900 text-white'
+                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            {entry.label}
+                          </button>
+                        ))}
+                        {[
+                          { key: 'all', label: 'Any status' },
+                          { key: 'pending', label: 'Pending' },
+                          { key: 'accepted', label: 'Accepted' },
+                          { key: 'declined', label: 'Declined' },
+                          { key: 'cancelled', label: 'Cancelled' }
+                        ].map((entry) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            onClick={() =>
+                              setInviteStatusFilter(entry.key as 'all' | 'pending' | 'accepted' | 'declined' | 'cancelled')
+                            }
+                            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                              inviteStatusFilter === entry.key
+                                ? 'bg-blue-600 text-white'
+                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                            }`}
+                          >
+                            {entry.label}
+                          </button>
+                        ))}
+                      </div>
                       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                        <div className="space-y-3">
+                        {inviteScopeFilter !== 'sent' ? <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-semibold text-slate-900">Received</p>
                             <span className="text-xs text-slate-500">
                               Pending {receivedInviteCounts.pending} • Accepted {receivedInviteCounts.accepted} • Closed {receivedInviteCounts.declined}
                             </span>
                           </div>
-                          {receivedInviteInbox.length ? (
-                            receivedInviteInbox.slice(0, 6).map((invite) => {
+                          {visibleReceivedInviteInbox.length ? (
+                            visibleReceivedInviteInbox.slice(0, 6).map((invite) => {
                               const status = String(invite.status || '').toLowerCase();
                               return (
                                 <div key={`received-${invite.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <Link
-                                        to={invite.club?.slug ? `/community?tab=groups&group=${encodeURIComponent(String(invite.club.slug))}` : `/community?tab=groups&group=${encodeURIComponent(String(invite.club?.id || ''))}`}
+                                        to={invite.club?.slug ? `/community/clubs?group=${encodeURIComponent(String(invite.club.slug))}&panel=invites&inviteScope=received` : `/community/clubs?group=${encodeURIComponent(String(invite.club?.id || ''))}&panel=invites&inviteScope=received`}
                                         className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600"
                                       >
                                         {invite.club?.name || 'Scrolith group'}
@@ -1374,26 +1474,26 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             })
                           ) : (
                             <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-                              No group invites in your inbox yet.
+                              No received invites match this filter.
                             </p>
                           )}
-                        </div>
-                        <div className="space-y-3">
+                        </div> : null}
+                        {inviteScopeFilter !== 'received' ? <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-semibold text-slate-900">Sent</p>
                             <span className="text-xs text-slate-500">
                               Pending {sentInviteCounts.pending} • Accepted {sentInviteCounts.accepted} • Closed {sentInviteCounts.declined}
                             </span>
                           </div>
-                          {sentInviteInbox.length ? (
-                            sentInviteInbox.slice(0, 6).map((invite) => {
+                          {visibleSentInviteInbox.length ? (
+                            visibleSentInviteInbox.slice(0, 6).map((invite) => {
                               const status = String(invite.status || '').toLowerCase();
                               return (
                                 <div key={`sent-${invite.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                       <Link
-                                        to={invite.club?.slug ? `/community?tab=groups&group=${encodeURIComponent(String(invite.club.slug))}` : `/community?tab=groups&group=${encodeURIComponent(String(invite.club?.id || ''))}`}
+                                        to={invite.club?.slug ? `/community/clubs?group=${encodeURIComponent(String(invite.club.slug))}&panel=invites&inviteScope=sent` : `/community/clubs?group=${encodeURIComponent(String(invite.club?.id || ''))}&panel=invites&inviteScope=sent`}
                                         className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600"
                                       >
                                         {invite.club?.name || 'Scrolith group'}
@@ -1433,10 +1533,10 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             })
                           ) : (
                             <p className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
-                              No sent invites yet.
+                              No sent invites match this filter.
                             </p>
                           )}
-                        </div>
+                        </div> : null}
                       </div>
                     </div>
 
