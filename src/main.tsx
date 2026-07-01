@@ -3,8 +3,11 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-const WEB_CACHE_RESET_KEY = 'scrolith:web-cache-reset-v6'
 const WEB_CACHE_RESET_RELOAD_KEY = 'scrolith:web-cache-reset-reloaded-v6'
+const FORCE_BROWSER_CACHE_RESET =
+  import.meta.env.VITE_FORCE_BROWSER_CACHE_RESET === 'true' ||
+  (typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('resetAppShell') === '1');
 
 const runWhenIdle = (callback: () => void, timeout = 1200) => {
   const idleCallback = (window as any).requestIdleCallback;
@@ -112,23 +115,11 @@ const resetBrowserRuntimeOnce = async () => {
   window.location.reload();
 };
 
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+if (import.meta.env.PROD && FORCE_BROWSER_CACHE_RESET && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     if (isNative()) return;
-    try {
-      if (window.localStorage.getItem(WEB_CACHE_RESET_KEY) === '1') return;
-    } catch {
-      // Ignore storage failures and continue with cleanup.
-    }
-
     runWhenIdle(() => {
-      void resetBrowserRuntimeOnce().finally(() => {
-        try {
-          window.localStorage.setItem(WEB_CACHE_RESET_KEY, '1');
-        } catch {
-          // Ignore storage failures.
-        }
-      });
+      void resetBrowserRuntimeOnce();
     });
   });
 }

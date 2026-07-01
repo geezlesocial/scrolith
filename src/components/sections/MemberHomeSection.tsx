@@ -48,7 +48,6 @@ import StaticPreviewText from '../common/StaticPreviewText';
 import OfferTagSelector from '../commerce/OfferTagSelector';
 import ContentOfferTags from '../commerce/ContentOfferTags';
 import VerifiedBadge from '../common/VerifiedBadge';
-import LocationPicker from '../common/LocationPicker';
 import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
@@ -98,6 +97,7 @@ import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterest
 import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
 import EnterpriseStoryViewer from '../../features/stories/components/StoryViewer';
 
+const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
 const PostShareModal = React.lazy(() => import('../../community/components/PostShareModal'));
 const ScrollCreateModal = React.lazy(() => import('../../features/scroll/ScrollCreateModal'));
@@ -5821,12 +5821,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           />
                           {postLocationPickerOpen ? (
                             <div className="mt-4">
-                              <LocationPicker
-                                value={postLocationDetails}
-                                onChange={handlePostLocationDetailsChange}
-                                label="Integrated map location"
-                                placeholder="Search city, area, or place"
-                              />
+                              <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Loading map picker...</div>}>
+                                <LocationPicker
+                                  value={postLocationDetails}
+                                  onChange={handlePostLocationDetailsChange}
+                                  label="Integrated map location"
+                                  placeholder="Search city, area, or place"
+                                />
+                              </Suspense>
                             </div>
                           ) : null}
                         </div>

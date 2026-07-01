@@ -129,7 +129,9 @@ export default defineConfig({
     postcss: './postcss.config.cjs',
   },
   build: {
-    modulePreload: false,
+    modulePreload: {
+      polyfill: true
+    },
     cssCodeSplit: true,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 1200,

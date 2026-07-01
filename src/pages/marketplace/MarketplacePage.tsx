@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   Archive,
@@ -33,7 +33,6 @@ import {
   Video,
   X
 } from 'lucide-react';
-import LocationPicker from '../../components/common/LocationPicker';
 import SearchInput from '../../components/SearchInput';
 import MobileDialog, { MobileDialogFooter } from '../../components/mobile/MobileDialog';
 import { useCurrency } from '../../context/CurrencyContext';
@@ -76,6 +75,8 @@ import type {
 } from '../../types/marketplace';
 import type { CommunityClub, Currency, StructuredLocationFields } from '../../types';
 import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
+
+const LocationPicker = React.lazy(() => import('../../components/common/LocationPicker'));
 
 type MarketplaceVariant = 'public' | 'dashboard';
 type MarketplaceRouteMode = 'browse' | 'category' | 'detail' | 'sell' | 'edit' | 'mine' | 'saved';
@@ -2597,19 +2598,21 @@ const MarketplaceForm: React.FC<{
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <Field label="Location">
-              <LocationPicker
-                value={{
-                  location: form.location,
-                  formattedAddress: form.location,
-                  latitude: form.latitude,
-                  longitude: form.longitude
-                }}
-                onChange={(next) => {
-                  onFieldChange('location', String(next.location || next.formattedAddress || next.formatted_address || '').trim());
-                  onFieldChange('latitude', next.latitude ?? null);
-                  onFieldChange('longitude', next.longitude ?? null);
-                }}
-              />
+              <Suspense fallback={<div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Loading map picker...</div>}>
+                <LocationPicker
+                  value={{
+                    location: form.location,
+                    formattedAddress: form.location,
+                    latitude: form.latitude,
+                    longitude: form.longitude
+                  }}
+                  onChange={(next) => {
+                    onFieldChange('location', String(next.location || next.formattedAddress || next.formatted_address || '').trim());
+                    onFieldChange('latitude', next.latitude ?? null);
+                    onFieldChange('longitude', next.longitude ?? null);
+                  }}
+                />
+              </Suspense>
             </Field>
             <Field label="Contact preference">
               <select value={form.contactPreference} onChange={(event) => onFieldChange('contactPreference', event.target.value)} className="input">

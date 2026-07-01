@@ -430,23 +430,42 @@ const LiveStudio = React.lazy(() => import('./features/live/LiveStudio'));
 const LiveViewer = React.lazy(() => import('./features/live/LiveViewer'));
 const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
 
-const preloadAuthenticatedRouteModules = () =>
-  Promise.allSettled([
-    import('./mobile/home/MobileHome'),
-    import('./mobile/home/screens/MobileFeedScreen'),
-    import('./mobile/home/screens/MobileNetworkScreen'),
-    import('./mobile/home/screens/MobilePostScreen'),
-    import('./mobile/home/components/MobileAppRouteFrame'),
-    import('./mobile/home/screens/MobileNotificationsScreen'),
-    import('./mobile/home/screens/MobileJobsScreen'),
-    import('./mobile/home/screens/MobileBriefsScreen'),
+const preloadAuthenticatedRouteModules = ({ mobileShell }: { mobileShell: boolean }) => {
+  const commonModules = [
     import('./pages/PostDetailView'),
     import('./features/scroll/ScrollFeed'),
     import('./create-gig/CreateGig'),
     import('./create-job-post/CreateJob'),
     import('./pages/Support'),
-    import('./profile/EditProfile')
-  ]);
+    import('./profile/EditProfile'),
+    import('./pages/marketplace/MarketplacePage')
+  ];
+
+  const mobileModules = mobileShell
+    ? [
+        import('./mobile/home/MobileHome'),
+        import('./mobile/home/screens/MobileFeedScreen'),
+        import('./mobile/home/screens/MobileNetworkScreen'),
+        import('./mobile/home/screens/MobilePostScreen'),
+        import('./mobile/home/components/MobileAppRouteFrame'),
+        import('./mobile/home/screens/MobileNotificationsScreen'),
+        import('./mobile/home/screens/MobileJobsScreen'),
+        import('./mobile/home/screens/MobileBriefsScreen')
+      ]
+    : [];
+
+  return Promise.allSettled([...commonModules, ...mobileModules]);
+};
+
+const shouldAvoidAggressiveRouteWarmup = () => {
+  if (typeof window === 'undefined') return false;
+  const connection = (navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string };
+  }).connection;
+  if (!connection) return false;
+  if (connection.saveData) return true;
+  return ['slow-2g', '2g'].includes(String(connection.effectiveType || '').toLowerCase());
+};
 
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
@@ -805,6 +824,7 @@ const AppContent = () => {
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
+    if (shouldAvoidAggressiveRouteWarmup()) return;
 
     let cancelled = false;
     let idleId: number | null = null;
@@ -812,13 +832,15 @@ const AppContent = () => {
 
     const warmRoutes = () => {
       if (cancelled) return;
-      void preloadAuthenticatedRouteModules();
+      void preloadAuthenticatedRouteModules({
+        mobileShell: hasNativeRuntime() || isCompactTouchRuntime()
+      });
     };
 
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      idleId = (window as any).requestIdleCallback(warmRoutes, { timeout: 1200 });
+      idleId = (window as any).requestIdleCallback(warmRoutes, { timeout: 2400 });
     } else {
-      timeoutId = window.setTimeout(warmRoutes, 180);
+      timeoutId = window.setTimeout(warmRoutes, 1200);
     }
 
     return () => {
