@@ -179,6 +179,9 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [inviteInbox, setInviteInbox] = useState<GroupInviteSummary[]>([]);
   const [inviteScopeFilter, setInviteScopeFilter] = useState<'all' | 'received' | 'sent'>('all');
   const [inviteStatusFilter, setInviteStatusFilter] = useState<'all' | 'pending' | 'accepted' | 'declined' | 'cancelled'>('all');
+  const [inviteInboxSearch, setInviteInboxSearch] = useState('');
+  const [showAllReceivedInvites, setShowAllReceivedInvites] = useState(false);
+  const [showAllSentInvites, setShowAllSentInvites] = useState(false);
   const [postPreviewIndex, setPostPreviewIndex] = useState<Record<string, number>>({});
   const [postUploadCaptions, setPostUploadCaptions] = useState<Record<string, string>>({});
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
@@ -529,14 +532,30 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     [inviteStatusFilter]
   );
 
+  const matchesInviteSearch = useCallback(
+    (invite: GroupInviteSummary) => {
+      const query = inviteInboxSearch.trim().toLowerCase();
+      if (!query) return true;
+      const clubName = String(invite.club?.name || invite.club?.slug || '').toLowerCase();
+      const inviterName = String(invite.invitedBy?.name || invite.invitedBy?.username || '').toLowerCase();
+      const inviteeName = String(invite.invitee?.name || invite.invitee?.username || '').toLowerCase();
+      const note = String(invite.note || '').toLowerCase();
+      const reviewNote = String(invite.reviewNote || '').toLowerCase();
+      const role = String(invite.role || '').toLowerCase();
+      const status = String(invite.status || '').toLowerCase();
+      return [clubName, inviterName, inviteeName, note, reviewNote, role, status].some((value) => value.includes(query));
+    },
+    [inviteInboxSearch]
+  );
+
   const visibleReceivedInviteInbox = useMemo(
-    () => receivedInviteInbox.filter(matchesInviteStatusFilter),
-    [matchesInviteStatusFilter, receivedInviteInbox]
+    () => receivedInviteInbox.filter(matchesInviteStatusFilter).filter(matchesInviteSearch),
+    [matchesInviteSearch, matchesInviteStatusFilter, receivedInviteInbox]
   );
 
   const visibleSentInviteInbox = useMemo(
-    () => sentInviteInbox.filter(matchesInviteStatusFilter),
-    [matchesInviteStatusFilter, sentInviteInbox]
+    () => sentInviteInbox.filter(matchesInviteStatusFilter).filter(matchesInviteSearch),
+    [matchesInviteSearch, matchesInviteStatusFilter, sentInviteInbox]
   );
 
   const receivedInviteCounts = useMemo(
@@ -1456,6 +1475,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           </p>
                         </div>
                       </div>
+                      <div className="mt-4 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2">
+                        <Search className="h-4 w-4 text-slate-400" />
+                        <input
+                          value={inviteInboxSearch}
+                          onChange={(event) => setInviteInboxSearch(event.target.value)}
+                          placeholder="Search invites by group, member, note, role, or status"
+                          className="w-full bg-transparent text-sm outline-none"
+                        />
+                      </div>
                       <div className="mt-4 flex flex-wrap gap-2">
                         {[
                           { key: 'all', label: 'All invites' },
@@ -1507,7 +1535,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             </span>
                           </div>
                           {visibleReceivedInviteInbox.length ? (
-                            visibleReceivedInviteInbox.slice(0, 6).map((invite) => {
+                            visibleReceivedInviteInbox.slice(0, showAllReceivedInvites ? visibleReceivedInviteInbox.length : 6).map((invite) => {
                               const status = String(invite.status || '').toLowerCase();
                               return (
                                 <div key={`received-${invite.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -1521,6 +1549,9 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                       </Link>
                                       <p className="mt-1 text-xs text-slate-500">
                                         Invited by {invite.invitedBy?.name || invite.invitedBy?.username || 'Community member'} as {invite.role || 'member'}
+                                      </p>
+                                      <p className="mt-1 text-[11px] text-slate-400">
+                                        {new Date((invite as any).createdAt || (invite as any).updatedAt || Date.now()).toLocaleString()}
                                       </p>
                                     </div>
                                     <span
@@ -1536,6 +1567,11 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                     </span>
                                   </div>
                                   {invite.note ? <p className="mt-3 text-sm text-slate-600">{invite.note}</p> : null}
+                                  {(invite as any).reviewNote ? (
+                                    <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                                      {(invite as any).reviewNote}
+                                    </p>
+                                  ) : null}
                                   {status === 'pending' ? (
                                     <div className="mt-3 flex flex-wrap gap-2">
                                       <button
@@ -1562,6 +1598,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                               No received invites match this filter.
                             </p>
                           )}
+                          {visibleReceivedInviteInbox.length > 6 ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowAllReceivedInvites((current) => !current)}
+                              className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                            >
+                              {showAllReceivedInvites ? 'Show fewer received invites' : `Show all ${visibleReceivedInviteInbox.length} received invites`}
+                            </button>
+                          ) : null}
                         </div> : null}
                         {inviteScopeFilter !== 'received' ? <div className="space-y-3">
                           <div className="flex items-center justify-between">
@@ -1571,7 +1616,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             </span>
                           </div>
                           {visibleSentInviteInbox.length ? (
-                            visibleSentInviteInbox.slice(0, 6).map((invite) => {
+                            visibleSentInviteInbox.slice(0, showAllSentInvites ? visibleSentInviteInbox.length : 6).map((invite) => {
                               const status = String(invite.status || '').toLowerCase();
                               return (
                                 <div key={`sent-${invite.id}`} className="rounded-2xl border border-slate-200 bg-white p-3">
@@ -1621,6 +1666,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                               No sent invites match this filter.
                             </p>
                           )}
+                          {visibleSentInviteInbox.length > 6 ? (
+                            <button
+                              type="button"
+                              onClick={() => setShowAllSentInvites((current) => !current)}
+                              className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                            >
+                              {showAllSentInvites ? 'Show fewer sent invites' : `Show all ${visibleSentInviteInbox.length} sent invites`}
+                            </button>
+                          ) : null}
                         </div> : null}
                       </div>
                     </div>
