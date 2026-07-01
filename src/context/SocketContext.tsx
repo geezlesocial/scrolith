@@ -118,6 +118,12 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'community:gcoin_conversion_processed', fn: forward('community:gcoin_conversion_processed') }
       ,{ ev: 'community:post_metrics_updated', fn: forward('community:post_metrics_updated') }
       ,{ ev: 'community:homepage_updated', fn: forward('community:homepage_updated') }
+      ,{ ev: 'community:group_created', fn: forward('community:group_created') }
+      ,{ ev: 'community:group_updated', fn: forward('community:group_updated') }
+      ,{ ev: 'community:group_deleted', fn: forward('community:group_deleted') }
+      ,{ ev: 'community:group_member_updated', fn: forward('community:group_member_updated') }
+      ,{ ev: 'community:group_request_updated', fn: forward('community:group_request_updated') }
+      ,{ ev: 'community:group_invite_updated', fn: forward('community:group_invite_updated') }
       ,{ ev: 'community:fiat_balance_updated', fn: forward('community:fiat_balance_updated') }
       ,{ ev: 'community:admin_config_updated', fn: forward('community:admin_config_updated') }
       ,{ ev: 'community:reactions_updated', fn: forward('community:reactions_updated') }

@@ -61,6 +61,12 @@ type GroupMediaLightboxState = {
   index: number;
 } | null;
 
+type GroupLiveOpsState = {
+  event: string;
+  label: string;
+  at: number;
+} | null;
+
 const defaultGroupsDisplayConfig: CommunityGroupsConfig = {
   heroEyebrow: 'Scrolith Groups',
   heroTitle: 'Build private and public professional communities.',
@@ -104,6 +110,21 @@ const mediaKind = (url: string) => {
   return 'image';
 };
 
+const defaultBulkReviewNoteTemplates = [
+  {
+    label: 'Approve note',
+    value: 'Approved. Your profile and request are a strong fit for this group.'
+  },
+  {
+    label: 'Decline note',
+    value: 'Declined for now. Please review the group guidelines and request again with more detail.'
+  },
+  {
+    label: 'Posting reminder',
+    value: 'Please keep posts relevant to the group scope and professional standards.'
+  }
+];
+
 const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) => {
   const { showNotification } = useNotification();
   const { user } = useUser();
@@ -130,6 +151,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [submittingJoinRequest, setSubmittingJoinRequest] = useState(false);
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, string>>({});
   const [moderationFilter, setModerationFilter] = useState<'pending' | 'history' | 'all'>('pending');
+  const [moderationSearch, setModerationSearch] = useState('');
   const [memberSearch, setMemberSearch] = useState('');
   const [inviteQuery, setInviteQuery] = useState('');
   const [inviteSuggestions, setInviteSuggestions] = useState<any[]>([]);
@@ -146,6 +168,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [bulkReviewing, setBulkReviewing] = useState(false);
   const [groupMediaLightbox, setGroupMediaLightbox] = useState<GroupMediaLightboxState>(null);
   const [displayConfig, setDisplayConfig] = useState<CommunityGroupsConfig>(defaultGroupsDisplayConfig);
+  const [liveOpsState, setLiveOpsState] = useState<GroupLiveOpsState>(null);
 
   const activeRole = String(user?.role || '').toLowerCase();
 
@@ -253,6 +276,11 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   useEffect(() => {
     setSelectedRequestIds([]);
     setBulkReviewNote('');
+    setModerationSearch('');
+  }, [selectedGroupId]);
+
+  useEffect(() => {
+    setLiveOpsState(null);
   }, [selectedGroupId]);
 
   useEffect(() => {
@@ -261,21 +289,36 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       void reloadInviteInbox();
       if (selectedGroupId) void reloadSelectedGroup(selectedGroupId);
     };
-    window.addEventListener('community:group_created', refresh as EventListener);
-    window.addEventListener('community:group_updated', refresh as EventListener);
-    window.addEventListener('community:group_deleted', refresh as EventListener);
-    window.addEventListener('community:group_member_updated', refresh as EventListener);
-    window.addEventListener('community:group_request_updated', refresh as EventListener);
-    window.addEventListener('community:group_invite_updated', refresh as EventListener);
-    window.addEventListener('community:post_created', refresh as EventListener);
+    const registerLiveOps = (eventName: string, label: string) => (event: Event) => {
+      const detail = (event as CustomEvent<any>)?.detail;
+      const eventClubId = String(detail?.clubId || detail?.group?.id || '').trim();
+      if (!eventClubId || !selectedGroupId || eventClubId === selectedGroupId) {
+        setLiveOpsState({ event: eventName, label, at: Date.now() });
+      }
+      refresh();
+    };
+    const onGroupCreated = registerLiveOps('community:group_created', 'A new group was created');
+    const onGroupUpdated = registerLiveOps('community:group_updated', 'Group settings changed');
+    const onGroupDeleted = registerLiveOps('community:group_deleted', 'A group was removed');
+    const onGroupMemberUpdated = registerLiveOps('community:group_member_updated', 'Membership changed');
+    const onGroupRequestUpdated = registerLiveOps('community:group_request_updated', 'Join request queue updated');
+    const onGroupInviteUpdated = registerLiveOps('community:group_invite_updated', 'Invite inbox updated');
+    const onPostCreated = registerLiveOps('community:post_created', 'A new group post was published');
+    window.addEventListener('community:group_created', onGroupCreated as EventListener);
+    window.addEventListener('community:group_updated', onGroupUpdated as EventListener);
+    window.addEventListener('community:group_deleted', onGroupDeleted as EventListener);
+    window.addEventListener('community:group_member_updated', onGroupMemberUpdated as EventListener);
+    window.addEventListener('community:group_request_updated', onGroupRequestUpdated as EventListener);
+    window.addEventListener('community:group_invite_updated', onGroupInviteUpdated as EventListener);
+    window.addEventListener('community:post_created', onPostCreated as EventListener);
     return () => {
-      window.removeEventListener('community:group_created', refresh as EventListener);
-      window.removeEventListener('community:group_updated', refresh as EventListener);
-      window.removeEventListener('community:group_deleted', refresh as EventListener);
-      window.removeEventListener('community:group_member_updated', refresh as EventListener);
-      window.removeEventListener('community:group_request_updated', refresh as EventListener);
-      window.removeEventListener('community:group_invite_updated', refresh as EventListener);
-      window.removeEventListener('community:post_created', refresh as EventListener);
+      window.removeEventListener('community:group_created', onGroupCreated as EventListener);
+      window.removeEventListener('community:group_updated', onGroupUpdated as EventListener);
+      window.removeEventListener('community:group_deleted', onGroupDeleted as EventListener);
+      window.removeEventListener('community:group_member_updated', onGroupMemberUpdated as EventListener);
+      window.removeEventListener('community:group_request_updated', onGroupRequestUpdated as EventListener);
+      window.removeEventListener('community:group_invite_updated', onGroupInviteUpdated as EventListener);
+      window.removeEventListener('community:post_created', onPostCreated as EventListener);
     };
   }, [reloadGroups, reloadInviteInbox, reloadSelectedGroup, selectedGroupId]);
 
@@ -376,6 +419,24 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     [inviteInbox, user?.id]
   );
 
+  const receivedInviteCounts = useMemo(
+    () => ({
+      pending: receivedInviteInbox.filter((invite) => String(invite.status || '').toLowerCase() === 'pending').length,
+      accepted: receivedInviteInbox.filter((invite) => String(invite.status || '').toLowerCase() === 'accepted').length,
+      declined: receivedInviteInbox.filter((invite) => ['declined', 'cancelled'].includes(String(invite.status || '').toLowerCase())).length
+    }),
+    [receivedInviteInbox]
+  );
+
+  const sentInviteCounts = useMemo(
+    () => ({
+      pending: sentInviteInbox.filter((invite) => String(invite.status || '').toLowerCase() === 'pending').length,
+      accepted: sentInviteInbox.filter((invite) => String(invite.status || '').toLowerCase() === 'accepted').length,
+      declined: sentInviteInbox.filter((invite) => ['declined', 'cancelled'].includes(String(invite.status || '').toLowerCase())).length
+    }),
+    [sentInviteInbox]
+  );
+
   const selectedGroupRequests = useMemo(
     () => joinRequests.filter((entry) => String(entry.status || '').toLowerCase() === 'pending'),
     [joinRequests]
@@ -396,13 +457,47 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     [historicalGroupRequests, joinRequests, moderationFilter, selectedGroupRequests]
   );
 
+  const filteredModerationRequests = useMemo(() => {
+    const query = moderationSearch.trim().toLowerCase();
+    if (!query) return visibleModerationRequests;
+    return visibleModerationRequests.filter((request) => {
+      const name = String(request.user?.name || '').toLowerCase();
+      const username = String(request.user?.username || '').toLowerCase();
+      const note = String(request.note || '').toLowerCase();
+      const reviewNote = String((request as any).reviewNote || '').toLowerCase();
+      const answers = Array.isArray(request.answers)
+        ? request.answers.map((entry) => String(entry || '').toLowerCase()).join(' ')
+        : '';
+      return (
+        name.includes(query) ||
+        username.includes(query) ||
+        note.includes(query) ||
+        reviewNote.includes(query) ||
+        answers.includes(query)
+      );
+    });
+  }, [moderationSearch, visibleModerationRequests]);
+
+  const visiblePendingModerationRequests = useMemo(
+    () => filteredModerationRequests.filter((request) => String(request.status || '').toLowerCase() === 'pending'),
+    [filteredModerationRequests]
+  );
+
   const selectedPendingRequestIds = useMemo(
     () =>
       selectedRequestIds.filter((id) =>
-        selectedGroupRequests.some((request) => request.id === id)
+        visiblePendingModerationRequests.some((request) => request.id === id)
       ),
-    [selectedRequestIds, selectedGroupRequests]
+    [selectedRequestIds, visiblePendingModerationRequests]
   );
+
+  const reviewedTodayCount = useMemo(() => {
+    const today = new Date().toDateString();
+    return historicalGroupRequests.filter((request) => {
+      const reviewedAt = request.reviewedAt || request.reviewed_at;
+      return reviewedAt ? new Date(reviewedAt).toDateString() === today : false;
+    }).length;
+  }, [historicalGroupRequests]);
 
   const applyGroupToForm = (group?: CommunityClub | null) => {
     if (!group) {
@@ -1199,11 +1294,32 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           <span className="rounded-full bg-white px-3 py-1">Sent {sentInviteInbox.length}</span>
                         </div>
                       </div>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Received pending</p>
+                          <p className="mt-2 text-2xl font-semibold text-slate-900">{receivedInviteCounts.pending}</p>
+                          <p className="mt-1 text-xs text-slate-500">Approvals waiting on this account.</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Sent pending</p>
+                          <p className="mt-2 text-2xl font-semibold text-slate-900">{sentInviteCounts.pending}</p>
+                          <p className="mt-1 text-xs text-slate-500">Invites still awaiting a response.</p>
+                        </div>
+                        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Live state</p>
+                          <p className="mt-2 text-sm font-semibold text-slate-900">{liveOpsState?.label || 'No recent live changes'}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {liveOpsState?.at ? `Updated ${new Date(liveOpsState.at).toLocaleTimeString()}` : 'Waiting for cross-session activity.'}
+                          </p>
+                        </div>
+                      </div>
                       <div className="mt-4 grid gap-4 xl:grid-cols-2">
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-semibold text-slate-900">Received</p>
-                            <span className="text-xs text-slate-500">Inbox for this account</span>
+                            <span className="text-xs text-slate-500">
+                              Pending {receivedInviteCounts.pending} • Accepted {receivedInviteCounts.accepted} • Closed {receivedInviteCounts.declined}
+                            </span>
                           </div>
                           {receivedInviteInbox.length ? (
                             receivedInviteInbox.slice(0, 6).map((invite) => {
@@ -1265,7 +1381,9 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-semibold text-slate-900">Sent</p>
-                            <span className="text-xs text-slate-500">Track moderator outcomes live</span>
+                            <span className="text-xs text-slate-500">
+                              Pending {sentInviteCounts.pending} • Accepted {sentInviteCounts.accepted} • Closed {sentInviteCounts.declined}
+                            </span>
                           </div>
                           {sentInviteInbox.length ? (
                             sentInviteInbox.slice(0, 6).map((invite) => {
@@ -1544,6 +1662,30 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           <h4 className="text-lg font-semibold text-slate-900">Join requests</h4>
                           <span className="text-sm text-slate-500">{selectedGroupRequests.length} pending</span>
                         </div>
+                        <div className="mt-4 grid gap-3 md:grid-cols-4">
+                          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Pending</p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-900">{selectedGroupRequests.length}</p>
+                            <p className="mt-1 text-xs text-slate-500">Requests waiting for review.</p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Reviewed today</p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-900">{reviewedTodayCount}</p>
+                            <p className="mt-1 text-xs text-slate-500">Moderation actions recorded today.</p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Selected</p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-900">{selectedPendingRequestIds.length}</p>
+                            <p className="mt-1 text-xs text-slate-500">Bulk review queue size.</p>
+                          </div>
+                          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Realtime</p>
+                            <p className="mt-2 text-sm font-semibold text-slate-900">{liveOpsState?.label || 'No recent queue changes'}</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {liveOpsState?.at ? `Updated ${new Date(liveOpsState.at).toLocaleTimeString()}` : 'Socket updates will appear here.'}
+                            </p>
+                          </div>
+                        </div>
                         <div className="mt-3 flex flex-wrap gap-2">
                           {[
                             { id: 'pending', label: `Pending (${selectedGroupRequests.length})` },
@@ -1564,7 +1706,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           ))}
                         </div>
                         <div className="mt-3 space-y-3">
-                          {visibleModerationRequests.length ? (
+                          {joinRequests.length ? (
                             <>
                               <div className="rounded-2xl border border-slate-200 bg-white p-3">
                                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1573,20 +1715,53 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1">History {historicalGroupRequests.length}</span>
                                     <span className="rounded-full bg-slate-100 px-2.5 py-1">Selected {selectedPendingRequestIds.length}</span>
                                   </div>
-                                  {moderationFilter === 'pending' && selectedGroupRequests.length ? (
+                                  {moderationFilter === 'pending' && visiblePendingModerationRequests.length ? (
                                     <button
                                       type="button"
                                       onClick={() =>
                                         setSelectedRequestIds((current) =>
-                                          current.length === selectedGroupRequests.length
+                                          selectedPendingRequestIds.length === visiblePendingModerationRequests.length
                                             ? []
-                                            : selectedGroupRequests.map((request) => request.id)
+                                            : visiblePendingModerationRequests.map((request) => request.id)
                                         )
                                       }
                                       className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
                                     >
-                                      {selectedPendingRequestIds.length === selectedGroupRequests.length ? 'Clear selection' : 'Select all pending'}
+                                      {selectedPendingRequestIds.length === visiblePendingModerationRequests.length ? 'Clear selection' : 'Select visible pending'}
                                     </button>
+                                  ) : null}
+                                </div>
+                                <div className="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr),auto]">
+                                  <label className="relative block">
+                                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                      value={moderationSearch}
+                                      onChange={(event) => setModerationSearch(event.target.value)}
+                                      placeholder="Search requester, answers, or notes"
+                                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-4 py-3 text-sm outline-none focus:border-blue-500"
+                                    />
+                                  </label>
+                                  <div className="flex flex-wrap gap-2">
+                                    {defaultBulkReviewNoteTemplates.map((template) => (
+                                      <button
+                                        key={template.label}
+                                        type="button"
+                                        onClick={() => setBulkReviewNote(template.value)}
+                                        className="rounded-full border border-slate-200 px-3 py-2 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                                      >
+                                        {template.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                  <span className="rounded-full bg-blue-50 px-2.5 py-1 font-semibold text-blue-700">
+                                    Visible {filteredModerationRequests.length}
+                                  </span>
+                                  {moderationSearch.trim() ? (
+                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                                      Filter: {moderationSearch.trim()}
+                                    </span>
                                   ) : null}
                                 </div>
                                 {selectedPendingRequestIds.length ? (
@@ -1615,10 +1790,25 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                                         Decline {selectedPendingRequestIds.length}
                                       </button>
                                     </div>
+                                    <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
+                                      {visiblePendingModerationRequests
+                                        .filter((request) => selectedPendingRequestIds.includes(request.id))
+                                        .slice(0, 6)
+                                        .map((request) => (
+                                          <span key={request.id} className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-600">
+                                            {request.user?.name || 'Member'}
+                                          </span>
+                                        ))}
+                                      {selectedPendingRequestIds.length > 6 ? (
+                                        <span className="rounded-full bg-white px-2.5 py-1 font-semibold text-slate-600">
+                                          +{selectedPendingRequestIds.length - 6} more
+                                        </span>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 ) : null}
                               </div>
-                              {visibleModerationRequests.map((request) => (
+                              {filteredModerationRequests.map((request) => (
                               <div key={request.id} className="rounded-2xl border border-slate-200 bg-white p-3">
                                 <div className="flex items-center justify-between gap-3">
                                   <div className="flex items-center gap-3">
@@ -1710,7 +1900,9 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                             </>
                           ) : (
                             <p className="text-sm text-slate-500">
-                              {moderationFilter === 'pending'
+                              {moderationSearch.trim()
+                                ? 'No join requests match this search.'
+                                : moderationFilter === 'pending'
                                 ? 'No pending requests right now.'
                                 : moderationFilter === 'history'
                                   ? 'No reviewed requests yet.'
