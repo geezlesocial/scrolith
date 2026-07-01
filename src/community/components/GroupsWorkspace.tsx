@@ -143,6 +143,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const { user } = useUser();
   const location = useLocation();
   const inviteInboxRef = useRef<HTMLDivElement | null>(null);
+  const moderationPanelRef = useRef<HTMLDivElement | null>(null);
   const [groups, setGroups] = useState<CommunityClub[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<CommunityClub | null>(null);
@@ -308,12 +309,19 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
 
   useEffect(() => {
     const search = new URLSearchParams(location.search);
+    const panel = String(search.get('panel') || '').trim().toLowerCase();
     const scope = String(search.get('inviteScope') || '').trim().toLowerCase();
     const status = String(search.get('inviteStatus') || '').trim().toLowerCase();
+    const nextModerationFilter = String(search.get('moderationFilter') || '').trim().toLowerCase();
     setInviteScopeFilter(scope === 'received' || scope === 'sent' ? scope : 'all');
     setInviteStatusFilter(
       status === 'pending' || status === 'accepted' || status === 'declined' || status === 'cancelled' ? status : 'all'
     );
+    if (panel === 'moderation') {
+      setModerationFilter(
+        nextModerationFilter === 'history' || nextModerationFilter === 'all' ? nextModerationFilter : 'pending'
+      );
+    }
   }, [location.search]);
 
   useEffect(() => {
@@ -322,6 +330,16 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     if (!selectedGroup?.id) return;
     const timer = window.setTimeout(() => {
       inviteInboxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [location.search, selectedGroup?.id]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search);
+    if (String(search.get('panel') || '').trim().toLowerCase() !== 'moderation') return;
+    if (!selectedGroup?.id) return;
+    const timer = window.setTimeout(() => {
+      moderationPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 150);
     return () => window.clearTimeout(timer);
   }, [location.search, selectedGroup?.id]);
@@ -1827,7 +1845,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                     ) : null}
 
                     {canManageSelectedGroup ? (
-                      <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                      <div ref={moderationPanelRef} className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
                         <div className="flex items-center justify-between">
                           <h4 className="text-lg font-semibold text-slate-900">Join requests</h4>
                           <span className="text-sm text-slate-500">{selectedGroupRequests.length} pending</span>

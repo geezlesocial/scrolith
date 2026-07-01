@@ -348,6 +348,9 @@ const GroupsAdminPanel = ({
     setSettings: React.Dispatch<React.SetStateAction<CommunitySettings | null>>;
 }) => {
     const { showNotification } = useNotification();
+    const [groupInventory, setGroupInventory] = useState<any[]>([]);
+    const [inventoryLoading, setInventoryLoading] = useState(true);
+    const [inventorySearch, setInventorySearch] = useState('');
     const [localConfig, setLocalConfig] = useState<any>(() => ({
         heroEyebrow: settings?.groups?.heroEyebrow || 'Scrolith Groups',
         heroTitle: settings?.groups?.heroTitle || 'Build private and public professional communities.',
@@ -390,6 +393,59 @@ const GroupsAdminPanel = ({
             highlightPostComposer: settings?.groups?.highlightPostComposer !== false
         });
     }, [settings]);
+
+    const loadGroupInventory = useCallback(async () => {
+        setInventoryLoading(true);
+        try {
+            const clubs = await CommunityService.getClubs({ limit: 200 });
+            setGroupInventory(clubs);
+        } catch (error: any) {
+            setGroupInventory([]);
+            showNotification('warning', 'Groups', error?.message || 'Unable to load live group inventory.');
+        } finally {
+            setInventoryLoading(false);
+        }
+    }, [showNotification]);
+
+    useEffect(() => {
+        void loadGroupInventory();
+    }, [loadGroupInventory]);
+
+    const normalizedInventorySearch = inventorySearch.trim().toLowerCase();
+    const filteredInventory = groupInventory.filter((group) => {
+        if (!normalizedInventorySearch) return true;
+        const haystack = [
+            group?.name,
+            group?.slug,
+            group?.summary,
+            group?.ownerName,
+            group?.category,
+            group?.location
+        ]
+            .map((value) => String(value || '').toLowerCase())
+            .join(' ');
+        return haystack.includes(normalizedInventorySearch);
+    });
+
+    const inventoryStats = filteredInventory.reduce(
+        (acc, group) => {
+            acc.total += 1;
+            if (String(group?.visibility || '').toLowerCase() === 'private') acc.privateCount += 1;
+            if (String(group?.joinMode || '').toLowerCase() === 'request') acc.requestCount += 1;
+            if (String(group?.joinMode || '').toLowerCase() === 'invite_only') acc.inviteOnlyCount += 1;
+            acc.pendingRequests += Number(group?.pendingRequestCount || 0);
+            acc.pendingInvites += Number(group?.pendingInviteCount || 0);
+            return acc;
+        },
+        {
+            total: 0,
+            privateCount: 0,
+            requestCount: 0,
+            inviteOnlyCount: 0,
+            pendingRequests: 0,
+            pendingInvites: 0
+        }
+    );
 
     const save = async () => {
         const groups = {
@@ -610,6 +666,124 @@ const GroupsAdminPanel = ({
                             <option value="everyone">Everyone who can view</option>
                         </select>
                     </label>
+                </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-900">Live group operations</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Review total groups, approval pressure, and route directly into moderation or invite workflows without leaving the admin dashboard.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => void loadGroupInventory()}
+                        className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                        <Activity className="mr-2 h-4 w-4" />
+                        Refresh inventory
+                    </button>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {[
+                        { label: 'Visible groups', value: inventoryStats.total, tone: 'text-slate-900' },
+                        { label: 'Private groups', value: inventoryStats.privateCount, tone: 'text-indigo-700' },
+                        { label: 'Approval groups', value: inventoryStats.requestCount, tone: 'text-amber-700' },
+                        { label: 'Invite-only groups', value: inventoryStats.inviteOnlyCount, tone: 'text-violet-700' },
+                        { label: 'Pending join requests', value: inventoryStats.pendingRequests, tone: 'text-rose-700' },
+                        { label: 'Pending invites', value: inventoryStats.pendingInvites, tone: 'text-emerald-700' }
+                    ].map((stat) => (
+                        <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                            <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">{stat.label}</div>
+                            <div className={`mt-2 text-3xl font-black ${stat.tone}`}>{stat.value}</div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <label className="relative block w-full lg:max-w-md">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <input
+                                value={inventorySearch}
+                                onChange={(event) => setInventorySearch(event.target.value)}
+                                placeholder="Search groups, owner, category, or location"
+                                className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            />
+                        </label>
+                        <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                            <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-slate-700">
+                                Showing {filteredInventory.length} of {groupInventory.length}
+                            </span>
+                            {inventoryLoading ? (
+                                <span className="rounded-full bg-blue-50 px-3 py-1.5 font-semibold text-blue-700">Refreshing…</span>
+                            ) : null}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                        {filteredInventory.length ? (
+                            filteredInventory.map((group) => {
+                                const hrefBase = `/admin/dashboard?tab=community&communityTab=groups&group=${encodeURIComponent(String(group?.slug || group?.id || ''))}`;
+                                return (
+                                    <div key={group.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <h4 className="truncate text-base font-bold text-slate-900">{group.name || 'Untitled group'}</h4>
+                                                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${String(group.visibility || '').toLowerCase() === 'private' ? 'bg-violet-50 text-violet-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                                        {String(group.visibility || 'public')}
+                                                    </span>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                                        {String(group.joinMode || 'open').replace('_', ' ')}
+                                                    </span>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                                        {group.memberCount || 0} members
+                                                    </span>
+                                                </div>
+                                                <p className="mt-2 line-clamp-2 text-sm text-slate-500">
+                                                    {group.summary || group.description || 'No summary added yet.'}
+                                                </p>
+                                                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">Owner: {group.ownerName || 'Unknown'}</span>
+                                                    {group.category ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.category}</span> : null}
+                                                    {group.location ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.location}</span> : null}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[270px]">
+                                                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-700">Join requests</div>
+                                                    <div className="mt-1 text-2xl font-black text-amber-900">{Number(group.pendingRequestCount || 0)}</div>
+                                                </div>
+                                                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-3">
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">Invites</div>
+                                                    <div className="mt-1 text-2xl font-black text-emerald-900">{Number(group.pendingInviteCount || 0)}</div>
+                                                </div>
+                                                <a
+                                                    href={`${hrefBase}&panel=moderation`}
+                                                    className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                                                >
+                                                    Review requests
+                                                </a>
+                                                <a
+                                                    href={`${hrefBase}&panel=invites`}
+                                                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                                >
+                                                    Open invite inbox
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
+                                {inventoryLoading ? 'Loading live groups…' : 'No groups match the current filters.'}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </section>
 

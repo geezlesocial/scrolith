@@ -234,6 +234,16 @@ export const getNotificationActionUrl = (notification: any): string | undefined 
     return `/community/clubs?${search.toString()}`;
   }
 
+  const groupRequestTypes = new Set(['community_group_request_approved', 'community_group_request_rejected']);
+  if (groupRequestTypes.has(notificationType)) {
+    const groupRef = coerceString(metadata?.groupSlug ?? metadata?.group_slug ?? metadata?.groupId ?? metadata?.group_id ?? parentId);
+    const search = new URLSearchParams();
+    if (groupRef) search.set('group', groupRef);
+    search.set('panel', 'moderation');
+    search.set('moderationFilter', 'history');
+    return `/community/clubs?${search.toString()}`;
+  }
+
   const campaignId = coerceString(metadata?.campaignId ?? metadata?.campaign_id);
   if (notificationType === 'app_campaign' && campaignId) {
     if (typeof window !== 'undefined') {
