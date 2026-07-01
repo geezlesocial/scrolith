@@ -92,7 +92,7 @@ import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../c
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
-import type { StructuredLocationFields } from '../../types';
+import type { CommunityClub, StructuredLocationFields } from '../../types';
 import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
 import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
 import EnterpriseStoryViewer from '../../features/stories/components/StoryViewer';
@@ -1383,6 +1383,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [sidebarMiddleAd, setSidebarMiddleAd] = useState<SidebarAdCard | null>(null);
   const [marketplacePreviewListings, setMarketplacePreviewListings] = useState<MarketplaceListing[]>([]);
   const [marketplacePreviewLoading, setMarketplacePreviewLoading] = useState(false);
+  const [groupPreviewRecommendations, setGroupPreviewRecommendations] = useState<CommunityClub[]>([]);
+  const [groupPreviewLoading, setGroupPreviewLoading] = useState(false);
+  const [groupJoinBusy, setGroupJoinBusy] = useState<Record<string, boolean>>({});
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [gigs, setGigs] = useState<Gig[]>([]);
@@ -2692,10 +2695,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return [];
   }, []);
 
+  const extractGroupPreviewRecommendations = useCallback((value: any): CommunityClub[] => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.groups)) return value.groups;
+    if (Array.isArray(value?.clubs)) return value.clubs;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+  }, []);
+
   const loadSidebar = useCallback(async () => {
     if (!user) return;
     setViewersLoading(true);
     setMarketplacePreviewLoading(true);
+    setGroupPreviewLoading(true);
     try {
       const tasks: Promise<any>[] = [];
       tasks.push(
@@ -2777,6 +2789,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       );
       tasks.push(
         showDiscover
+          ? CommunityService.listClubs({
+              limit: 8
+            }).catch(() => [])
+          : Promise.resolve([])
+      );
+      tasks.push(
+        showDiscover
           ? listMarketplaceListings({
               page: 1,
               pageSize: 4,
@@ -2785,7 +2804,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           : Promise.resolve([])
       );
 
-      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes, marketplaceRes] = await Promise.allSettled(tasks);
+      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes, groupsRes, marketplaceRes] =
+        await Promise.allSettled(tasks);
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
         ? profilesRes.value.slice(0, maxProfiles).map((p: any) => ({
@@ -2926,6 +2946,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setSidebarTopAd(topAd);
       setSidebarFeaturedAd(featuredAd);
       setSidebarMiddleAd(middleAd);
+      setGroupPreviewRecommendations(
+        groupsRes.status === 'fulfilled'
+          ? extractGroupPreviewRecommendations(groupsRes.value)
+              .filter((group) => String(group?.id || '').trim())
+              .filter((group) => String(group?.status || 'active').toLowerCase() === 'active')
+              .filter((group) => !group.isJoined && !group.is_joined)
+              .sort(
+                (left, right) =>
+                  Number(Boolean(right.pendingInvite)) - Number(Boolean(left.pendingInvite)) ||
+                  Number(right.memberCount ?? right.member_count ?? 0) - Number(left.memberCount ?? left.member_count ?? 0)
+              )
+              .slice(0, 3)
+          : []
+      );
       setMarketplacePreviewListings(
         marketplaceRes.status === 'fulfilled'
           ? extractMarketplacePreviewListings(marketplaceRes.value).slice(0, 3)
@@ -2936,6 +2970,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     } finally {
       setViewersLoading(false);
       setMarketplacePreviewLoading(false);
+      setGroupPreviewLoading(false);
     }
   }, [
     user,
@@ -2959,6 +2994,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     showFeaturedSidebarAd,
     showMiddleSidebarAd,
     showDiscover,
+    extractGroupPreviewRecommendations,
     extractMarketplacePreviewListings,
     normalizeSidebarAd,
     normalizeRecommendedPage
@@ -2972,6 +3008,70 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       loadSidebar();
     }, 120);
   }, [loadSidebar]);
+
+  const buildGroupRecommendationPath = useCallback((group: CommunityClub) => {
+    const reference = String(group.slug || group.id || '').trim();
+    if (!reference) return '/community/clubs';
+    const search = new URLSearchParams();
+    search.set('group', reference);
+    return `/community/clubs?${search.toString()}`;
+  }, []);
+
+  const handleJoinGroupRecommendation = useCallback(
+    async (group: CommunityClub) => {
+      const groupId = String(group.id || '').trim();
+      if (!groupId) return;
+      if (!user) {
+        showNotification('warning', 'Groups', 'Please sign in to join groups.');
+        return;
+      }
+
+      const isPrivate = String(group.visibility || 'public').toLowerCase() === 'private';
+      const joinMode = String(group.joinMode || 'open').toLowerCase();
+      const requiresApproval = joinMode === 'request' || isPrivate;
+      const inviteOnly = joinMode === 'invite_only';
+
+      if (inviteOnly && !group.pendingInvite) {
+        showNotification('warning', 'Groups', `${group.name} accepts members by invite only.`);
+        return;
+      }
+
+      setGroupJoinBusy((current) => ({ ...current, [groupId]: true }));
+      try {
+        if (requiresApproval && !group.pendingInvite) {
+          const response = await CommunityService.requestToJoinClub(groupId);
+          if (response.pending) {
+            showNotification('success', 'Groups', `Your request to join ${group.name} is awaiting review.`);
+            setGroupPreviewRecommendations((current) =>
+              current.map((entry) =>
+                entry.id === groupId
+                  ? {
+                      ...entry,
+                      pendingRequest: response.request || {
+                        id: `pending-${groupId}`,
+                        status: 'pending'
+                      }
+                    }
+                  : entry
+              )
+            );
+          } else {
+            showNotification('success', 'Groups', `Join request sent to ${group.name}.`);
+          }
+        } else {
+          await CommunityService.joinClub(groupId);
+          showNotification('success', 'Groups', `You joined ${group.name}.`);
+          setGroupPreviewRecommendations((current) => current.filter((entry) => entry.id !== groupId));
+        }
+        scheduleSidebarRefresh();
+      } catch (error: any) {
+        showNotification('error', 'Groups', error?.message || 'Unable to join this group.');
+      } finally {
+        setGroupJoinBusy((current) => ({ ...current, [groupId]: false }));
+      }
+    },
+    [scheduleSidebarRefresh, showNotification, user]
+  );
 
   useEffect(() => {
     if (!user || !showDiscover) {
@@ -6774,6 +6874,112 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       ) : (
                         <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/80 px-3 py-3 text-xs text-slate-600">
                           Marketplace recommendations will appear here once active listings are available.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-50 px-3 py-3 text-left shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4 text-blue-600" />
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Groups</p>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">Recommended professional communities to join from this feed.</p>
+                      </div>
+                      <Link
+                        to="/community/clubs"
+                        className="inline-flex shrink-0 rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition hover:border-blue-300 hover:bg-blue-50"
+                      >
+                        Open
+                      </Link>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {groupPreviewLoading ? (
+                        <div className="space-y-2">
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                        </div>
+                      ) : groupPreviewRecommendations.length > 0 ? (
+                        groupPreviewRecommendations.map((group) => {
+                          const groupId = String(group.id || '').trim();
+                          const image = resolveAssetUrl(group.avatarImage || group.coverImage || group.cover_image || '');
+                          const memberCount = Number(group.memberCount ?? group.member_count ?? 0);
+                          const isInviteOnly = String(group.joinMode || 'open').toLowerCase() === 'invite_only';
+                          const requiresApproval =
+                            String(group.joinMode || 'open').toLowerCase() === 'request' ||
+                            String(group.visibility || 'public').toLowerCase() === 'private';
+                          const joinLabel = group.pendingInvite
+                            ? 'Open invite'
+                            : group.pendingRequest
+                              ? 'Pending'
+                              : isInviteOnly
+                                ? 'Invite only'
+                                : requiresApproval
+                                  ? 'Request'
+                                  : 'Join';
+                          const summary = String(group.summary || group.description || group.category || '').trim();
+                          return (
+                            <div
+                              key={group.id}
+                              className="rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 transition hover:border-blue-200 hover:shadow-sm"
+                            >
+                              <div className="flex items-start gap-3">
+                                <Link to={buildGroupRecommendationPath(group)} className="group flex min-w-0 flex-1 items-start gap-3">
+                                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                                    {image ? (
+                                      <img
+                                        src={image}
+                                        alt={group.name || 'Group'}
+                                        className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-100 to-indigo-100">
+                                        <Users className="h-5 w-5 text-blue-500" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-slate-900">{group.name || 'Professional group'}</p>
+                                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                                      {memberCount > 0 ? `${memberCount.toLocaleString()} members` : 'New community'}
+                                      {group.category ? ` · ${group.category}` : ''}
+                                    </p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                                        {group.visibility === 'private' ? 'Private' : 'Public'}
+                                      </span>
+                                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                        {String(group.joinMode || 'open').replace('_', ' ')}
+                                      </span>
+                                    </div>
+                                    {summary ? <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{summary}</p> : null}
+                                  </div>
+                                </Link>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (group.pendingInvite) {
+                                      navigate(buildGroupRecommendationPath(group));
+                                      return;
+                                    }
+                                    void handleJoinGroupRecommendation(group);
+                                  }}
+                                  disabled={Boolean(groupJoinBusy[groupId]) || Boolean(group.pendingRequest)}
+                                  className="inline-flex shrink-0 rounded-full border border-blue-200 bg-blue-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                                >
+                                  {groupJoinBusy[groupId] ? 'Working' : joinLabel}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-blue-200 bg-white/80 px-3 py-3 text-xs text-slate-600">
+                          Group recommendations will appear here once active communities are available.
                         </div>
                       )}
                     </div>
