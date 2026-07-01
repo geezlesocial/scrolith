@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleAuth, IdTokenClient } from 'google-auth-library';
+import http from 'node:http';
+import https from 'node:https';
 import prisma from '../../utils/prismaClient';
 import { ensureScrolithaConfig } from './scrolitha.policy';
 import type { ScrolithaScope } from './scrolitha.types';
@@ -62,6 +64,16 @@ const asBool = (value: unknown, fallback: boolean) => {
   if (['0', 'false', 'no', 'n', 'off'].includes(v)) return false;
   return fallback;
 };
+
+const shouldSkipSelfHostedAuth = () =>
+  asBool(
+    pickString(
+      process.env.SCROLITHA_CORE_SKIP_AUTH,
+      process.env.SCROLITHA_OLLAMA_SKIP_AUTH,
+      process.env.SCROLITHA_CORE_PUBLIC
+    ),
+    false
+  );
 
 const asNumber = (value: unknown, fallback: number) => {
   const n = Number(value);
@@ -212,6 +224,7 @@ const getServiceIdentityToken = async (audience: string) => {
 
 const buildSelfHostedRequestHeaders = async (endpoint: string, extra?: Record<string, string>) => {
   const headers: Record<string, string> = { ...(extra || {}) };
+  if (shouldSkipSelfHostedAuth()) return headers;
   const bearerToken = pickString(process.env.SCROLITHA_CORE_BEARER_TOKEN, process.env.SCROLITHA_OLLAMA_BEARER_TOKEN);
   if (bearerToken) {
     headers['X-Scrolitha-Core-Token'] = bearerToken;
@@ -244,6 +257,45 @@ const readResponseText = async (response: Response) => {
     return '';
   }
 };
+
+const requestViaNodeHttp = async (input: {
+  url: string;
+  method?: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs: number;
+}) =>
+  new Promise<{ status: number; bodyText: string }>((resolve, reject) => {
+    const parsed = new URL(input.url);
+    const transport = parsed.protocol === 'https:' ? https : http;
+    const req = transport.request(
+      {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port || undefined,
+        path: `${parsed.pathname}${parsed.search}`,
+        method: input.method || 'GET',
+        headers: input.headers || {}
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on('end', () => {
+          resolve({
+            status: Number(res.statusCode || 0),
+            bodyText: Buffer.concat(chunks).toString('utf8')
+          });
+        });
+      }
+    );
+
+    req.setTimeout(input.timeoutMs, () => {
+      req.destroy(new Error(`Request timed out after ${input.timeoutMs}ms`));
+    });
+    req.on('error', reject);
+    if (input.body) req.write(input.body);
+    req.end();
+  });
 
 const isAbortError = (error: any) =>
   Boolean(error) &&
@@ -375,15 +427,16 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
     Boolean(base.host) &&
     !isLocalEndpoint(base.host) &&
     Boolean(overrideHost) &&
-    isLocalEndpoint(overrideHost) &&
-    requestedSidecarMode !== true;
+    isLocalEndpoint(overrideHost);
 
   const host = preserveRemoteBaseRuntime ? base.host : pickString(overrideHost, base.host);
   const model = preserveRemoteBaseRuntime
     ? String(base.model || '').trim()
     : pickString(override.coreModel, override.ollamaModel, override.model, base.model);
   const sidecarMode =
-    typeof override.sidecarMode === 'boolean'
+    preserveRemoteBaseRuntime
+      ? false
+      : typeof override.sidecarMode === 'boolean'
       ? override.sidecarMode
       : typeof override.coreSidecarMode === 'boolean'
         ? override.coreSidecarMode
@@ -758,14 +811,28 @@ export const ollamaChat = async (input: {
 
   const requestChat = async () => {
     const headers = await buildSelfHostedRequestHeaders(host, { 'Content-Type': 'application/json' });
-    return withTimeout(async (signal) => {
-      return fetch(url, {
+    try {
+      return await withTimeout(async (signal) => {
+        return fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal
+        });
+      }, timeoutMs);
+    } catch (error) {
+      const fallback = await requestViaNodeHttp({
+        url,
         method: 'POST',
         headers,
         body: JSON.stringify(body),
-        signal
+        timeoutMs
       });
-    }, timeoutMs);
+      return new Response(fallback.bodyText, {
+        status: fallback.status || 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
   };
 
   let res = await requestChat();
@@ -890,7 +957,20 @@ export const ollamaListModels = async (host: string, timeoutMs = 8000): Promise<
   const url = `${normalized}/api/tags`;
   const headers = await buildSelfHostedRequestHeaders(normalized, { Accept: 'application/json' });
   const res = await withTimeout(async (signal) => {
-    return fetch(url, { method: 'GET', headers, signal });
+    try {
+      return await fetch(url, { method: 'GET', headers, signal });
+    } catch {
+      const fallback = await requestViaNodeHttp({
+        url,
+        method: 'GET',
+        headers,
+        timeoutMs
+      });
+      return new Response(fallback.bodyText, {
+        status: fallback.status || 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
   }, timeoutMs);
 
   if (!res.ok) return [];

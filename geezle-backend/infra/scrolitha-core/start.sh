@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-MODEL="${SCROLITHA_OLLAMA_MODEL:-qwen2.5:1.5b}"
+MODEL="${SCROLITHA_OLLAMA_MODEL:-qwen2.5:0.5b}"
 READY_RETRIES="${SCROLITHA_READY_RETRIES:-120}"
 READY_SLEEP_SECONDS="${SCROLITHA_READY_SLEEP_SECONDS:-1}"
 
@@ -27,8 +27,12 @@ until ollama list >/dev/null 2>&1; do
   sleep "${READY_SLEEP_SECONDS}"
 done
 
-echo "Pulling Scrolitha Core model: ${MODEL}"
-ollama pull "${MODEL}"
+if ! ollama show "${MODEL}" >/dev/null 2>&1; then
+  echo "Pulling Scrolitha Core model: ${MODEL}"
+  ollama pull "${MODEL}"
+else
+  echo "Scrolitha Core model already cached: ${MODEL}"
+fi
 
 echo "Scrolitha Core runtime is ready with model ${MODEL}"
 wait "${OLLAMA_PID}"
