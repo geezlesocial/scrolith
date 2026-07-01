@@ -122,6 +122,84 @@ const keywordToxicityScore = (text: string) => {
   return Math.max(0, Math.min(100, score));
 };
 
+const cleanScrolithaText = (value: unknown) =>
+  String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildBullets = (items: string[]) => items.filter(Boolean).map((item) => `- ${item}`).join('\n');
+
+const buildRouteAwareFallback = (input: {
+  prompt: string;
+  routeKey: string;
+  scope: ScrolithaScope;
+  actor: ScrolithaActor;
+}) => {
+  const prompt = cleanScrolithaText(input.prompt);
+  const routeKey = String(input.routeKey || '').trim().toLowerCase();
+
+  if (routeKey === 'support_chat') {
+    return [
+      'Scrolitha support summary',
+      buildBullets([
+        'Clarify the exact page, workflow, or action where the issue started.',
+        'Keep screenshots, the latest error message, and the time of the issue ready for support review.',
+        'If the request is account-specific, continue from a signed-in dashboard so support can inspect the protected workflow safely.'
+      ]),
+      `Request: ${prompt || 'General support guidance requested.'}`
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  if (routeKey === 'seo_tags') {
+    return [
+      'Scrolitha guide outline',
+      buildBullets([
+        'Define the business goal, audience, and success metric before execution starts.',
+        'Break the work into milestones, owners, deadlines, and review checkpoints.',
+        'Track performance weekly and adjust the message, offer, or delivery plan based on results.'
+      ]),
+      `Topic: ${prompt || 'Operational planning'}`
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  if (routeKey === 'post_enhance') {
+    const concise = prompt.replace(/\s+/g, ' ').trim();
+    return concise
+      ? `Professional draft:\n${concise}\n\nRecommended next step: tighten the lead, remove repetition, and keep the close action-oriented.`
+      : 'Professional draft unavailable. Add the original text again and retry.';
+  }
+
+  if (routeKey === 'post_insight') {
+    return [
+      'Scrolitha post insight',
+      buildBullets([
+        'Lead with one clear takeaway in the first sentence.',
+        'Make the business value or result measurable where possible.',
+        'Close with a direct question or next action to improve response quality.'
+      ]),
+      prompt ? `Source: ${prompt}` : ''
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+  }
+
+  return [
+    'Scrolitha working draft',
+    buildBullets([
+      'Define the objective, owner, and success metric first.',
+      'Turn the request into clear deliverables, constraints, and approval checkpoints.',
+      'Keep the final copy concise, outcome-focused, and professionally structured.'
+    ]),
+    prompt ? `Working context: ${prompt}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+};
+
 export const ScrolithaService = {
   async generate(input: GenerateInput): Promise<{
     text: string;
@@ -211,7 +289,7 @@ export const ScrolithaService = {
       usedFallback = true;
       warning = SCROLITHA_BACKUP_WARNING_MESSAGE;
       warningCode = SCROLITHA_BACKUP_WARNING_CODE;
-       runtimeStatus = 'fallback';
+      runtimeStatus = 'fallback';
       console.warn('[scrolitha] provider path failed, using backup processing', {
         scope: input.scope,
         error: String(error?.message || 'unknown error').slice(0, 220)
@@ -223,7 +301,12 @@ export const ScrolithaService = {
       warning = warning || SCROLITHA_BACKUP_WARNING_MESSAGE;
       warningCode = warningCode || SCROLITHA_BACKUP_WARNING_CODE;
       runtimeStatus = 'fallback';
-      text = `Draft suggestion:\n${prompt}\n\nRefine this copy for clarity, outcomes, and professional tone before publishing.`;
+      text = buildRouteAwareFallback({
+        prompt,
+        routeKey,
+        scope: input.scope,
+        actor: input.actor
+      });
     }
 
     const latencyMs = Date.now() - startedAt;
