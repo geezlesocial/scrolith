@@ -397,7 +397,7 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
       typeof override.enableStreaming === 'boolean' ? override.enableStreaming : base.enableStreaming,
     allowGeminiFallback:
       typeof override.allowGeminiFallback === 'boolean'
-        ? override.allowGeminiFallback
+        ? override.allowGeminiFallback || base.allowGeminiFallback
         : base.allowGeminiFallback
   };
 };
