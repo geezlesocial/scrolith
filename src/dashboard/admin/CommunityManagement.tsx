@@ -49,7 +49,14 @@ const defaultSettings: CommunitySettings = {
         directoryTitle: 'Your group spaces',
         directoryEmptyState: 'No groups yet. Create the first one from here.',
         allowUserGroupCreation: true,
-        showDiscoveryStats: true
+        showDiscoveryStats: true,
+        defaultVisibility: 'public',
+        defaultJoinMode: 'open',
+        defaultPostPermission: 'members',
+        allowMemberInvitesByDefault: true,
+        showInviteInbox: true,
+        showMemberDirectory: true,
+        highlightPostComposer: true
     }
 } as CommunitySettings;
 
@@ -351,7 +358,14 @@ const GroupsAdminPanel = ({
         directoryTitle: settings?.groups?.directoryTitle || 'Your group spaces',
         directoryEmptyState: settings?.groups?.directoryEmptyState || 'No groups yet. Create the first one from here.',
         allowUserGroupCreation: settings?.groups?.allowUserGroupCreation !== false,
-        showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false
+        showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false,
+        defaultVisibility: settings?.groups?.defaultVisibility || 'public',
+        defaultJoinMode: settings?.groups?.defaultJoinMode || 'open',
+        defaultPostPermission: settings?.groups?.defaultPostPermission || 'members',
+        allowMemberInvitesByDefault: settings?.groups?.allowMemberInvitesByDefault !== false,
+        showInviteInbox: settings?.groups?.showInviteInbox !== false,
+        showMemberDirectory: settings?.groups?.showMemberDirectory !== false,
+        highlightPostComposer: settings?.groups?.highlightPostComposer !== false
     }));
     const [saving, setSaving] = useState(false);
 
@@ -366,7 +380,14 @@ const GroupsAdminPanel = ({
             directoryTitle: settings?.groups?.directoryTitle || 'Your group spaces',
             directoryEmptyState: settings?.groups?.directoryEmptyState || 'No groups yet. Create the first one from here.',
             allowUserGroupCreation: settings?.groups?.allowUserGroupCreation !== false,
-            showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false
+            showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false,
+            defaultVisibility: settings?.groups?.defaultVisibility || 'public',
+            defaultJoinMode: settings?.groups?.defaultJoinMode || 'open',
+            defaultPostPermission: settings?.groups?.defaultPostPermission || 'members',
+            allowMemberInvitesByDefault: settings?.groups?.allowMemberInvitesByDefault !== false,
+            showInviteInbox: settings?.groups?.showInviteInbox !== false,
+            showMemberDirectory: settings?.groups?.showMemberDirectory !== false,
+            highlightPostComposer: settings?.groups?.highlightPostComposer !== false
         });
     }, [settings]);
 
@@ -382,7 +403,18 @@ const GroupsAdminPanel = ({
             directoryEmptyState:
                 String(localConfig.directoryEmptyState || '').trim() || 'No groups yet. Create the first one from here.',
             allowUserGroupCreation: Boolean(localConfig.allowUserGroupCreation),
-            showDiscoveryStats: Boolean(localConfig.showDiscoveryStats)
+            showDiscoveryStats: Boolean(localConfig.showDiscoveryStats),
+            defaultVisibility: String(localConfig.defaultVisibility || 'public').trim().toLowerCase() === 'private' ? 'private' : 'public',
+            defaultJoinMode: ['open', 'request', 'invite_only'].includes(String(localConfig.defaultJoinMode || 'open').trim())
+                ? String(localConfig.defaultJoinMode || 'open').trim()
+                : 'open',
+            defaultPostPermission: ['admins', 'members', 'everyone'].includes(String(localConfig.defaultPostPermission || 'members').trim())
+                ? String(localConfig.defaultPostPermission || 'members').trim()
+                : 'members',
+            allowMemberInvitesByDefault: Boolean(localConfig.allowMemberInvitesByDefault),
+            showInviteInbox: Boolean(localConfig.showInviteInbox),
+            showMemberDirectory: Boolean(localConfig.showMemberDirectory),
+            highlightPostComposer: Boolean(localConfig.highlightPostComposer)
         };
 
         setSaving(true);
@@ -495,6 +527,88 @@ const GroupsAdminPanel = ({
                             checked={Boolean(localConfig.showDiscoveryStats)}
                             onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showDiscoveryStats: event.target.checked }))}
                         />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Default member invites</div>
+                            <div className="text-xs text-slate-500">New groups start with member-to-member invites enabled unless the creator changes it.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.allowMemberInvitesByDefault)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, allowMemberInvitesByDefault: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Show invite inbox</div>
+                            <div className="text-xs text-slate-500">Expose live received and sent invitation inbox panels inside group workspaces.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.showInviteInbox)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showInviteInbox: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Show member directory</div>
+                            <div className="text-xs text-slate-500">Keep the member list visible inside the workspace for discovery and moderation.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.showMemberDirectory)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showMemberDirectory: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 md:col-span-2">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Highlight post composer</div>
+                            <div className="text-xs text-slate-500">Apply the enhanced enterprise composer treatment to media posting cards inside groups.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.highlightPostComposer)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, highlightPostComposer: event.target.checked }))}
+                        />
+                    </label>
+                </div>
+
+                <div className="mt-6 grid gap-4 lg:grid-cols-3">
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Default Visibility</span>
+                        <select
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.defaultVisibility}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, defaultVisibility: event.target.value }))}
+                        >
+                            <option value="public">Public by default</option>
+                            <option value="private">Private by default</option>
+                        </select>
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Default Join Mode</span>
+                        <select
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.defaultJoinMode}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, defaultJoinMode: event.target.value }))}
+                        >
+                            <option value="open">Open join</option>
+                            <option value="request">Request approval</option>
+                            <option value="invite_only">Invite only</option>
+                        </select>
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Default Post Permission</span>
+                        <select
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.defaultPostPermission}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, defaultPostPermission: event.target.value }))}
+                        >
+                            <option value="members">Members can post</option>
+                            <option value="admins">Only admins and moderators</option>
+                            <option value="everyone">Everyone who can view</option>
+                        </select>
                     </label>
                 </div>
             </section>

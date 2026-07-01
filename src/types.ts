@@ -4027,6 +4027,13 @@ export interface CommunityGroupsConfig {
   directoryEmptyState: string;
   allowUserGroupCreation: boolean;
   showDiscoveryStats: boolean;
+  defaultVisibility?: 'public' | 'private';
+  defaultJoinMode?: 'open' | 'request' | 'invite_only';
+  defaultPostPermission?: 'admins' | 'members' | 'everyone';
+  allowMemberInvitesByDefault?: boolean;
+  showInviteInbox?: boolean;
+  showMemberDirectory?: boolean;
+  highlightPostComposer?: boolean;
 }
 
 export interface LegacyCommunitySettings {
