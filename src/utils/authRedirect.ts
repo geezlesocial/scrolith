@@ -1,5 +1,3 @@
-import { Capacitor } from '@capacitor/core';
-
 import { User, UserRole } from '../types';
 import { shouldUseMobileShellViewport } from '../mobile/home/mobileShellLayout';
 
@@ -20,11 +18,6 @@ const hasDesktopHomeOverride = () => {
 
 const isNativeRuntime = () => {
   if (typeof window === 'undefined') return false;
-  try {
-    if (Capacitor.isNativePlatform()) return true;
-  } catch {
-    // Fall back to runtime globals below.
-  }
   const runtime = (window as any)?.Capacitor;
   if (!runtime || typeof runtime.isNativePlatform !== 'function') return false;
   try {

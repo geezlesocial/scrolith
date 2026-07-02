@@ -1,4 +1,4 @@
-import { io, Socket } from 'socket.io-client'
+import type { Socket } from 'socket.io-client'
 
 export type SocketConnectOptions = {
   url: string
@@ -22,7 +22,7 @@ class SocketService {
   private maxReconnectAttempts = 10
   private pingInterval: ReturnType<typeof setInterval> | null = null
 
-  connect(options: SocketConnectOptions) {
+  async connect(options: SocketConnectOptions) {
     const nextSignature = JSON.stringify({
       url: String(options.url || '').trim(),
       namespace: String(options.namespace || '').trim(),
@@ -56,6 +56,7 @@ class SocketService {
       : (namespace || undefined)
 
     this.socketSignature = nextSignature
+    const { io } = await import('socket.io-client')
     this.socket = io(socketUrl, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],

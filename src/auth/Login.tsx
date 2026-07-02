@@ -6,7 +6,6 @@ import { ArrowRight, Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { useT } from '../i18n/useT';
-import { Capacitor } from '@capacitor/core';
 import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
@@ -15,7 +14,6 @@ const shouldUseMobilePostLoginRoute = () => {
   if (typeof window === 'undefined') return false;
   if (IS_MOBILE_APP_BUILD) return true;
   try {
-    if (Capacitor.isNativePlatform()) return true;
     const runtime = (window as any)?.Capacitor;
     if (runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform()) return true;
     if (runtime && typeof runtime.getPlatform === 'function') {

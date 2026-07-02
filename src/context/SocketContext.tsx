@@ -1,6 +1,6 @@
 // C:\Projects\Scrolith\src\context\SocketContext.tsx
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
-import { Socket } from 'socket.io-client'
+import type { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
 import { useNetworkStatus } from './NetworkStatusContext'
 import { socketService } from '../utils/socket'

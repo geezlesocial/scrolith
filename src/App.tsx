@@ -38,7 +38,6 @@ import {
   resolveDashboardPath,
   resolveSignedInHomepagePath
 } from './utils/authRedirect';
-import { Capacitor } from '@capacitor/core';
 
 const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
 const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
@@ -58,11 +57,6 @@ const getCapacitorRuntime = () => {
 
 const hasNativeRuntime = () => {
   if (IS_MOBILE_APP_BUILD) return true;
-  try {
-    if (Capacitor.isNativePlatform()) return true;
-  } catch {
-    // Fall back to runtime globals below.
-  }
   const runtime = getCapacitorRuntime();
   if (!runtime || typeof runtime.isNativePlatform !== 'function') return false;
   try {
@@ -746,7 +740,7 @@ const AppContent = () => {
   const [isNative, setIsNative] = useState(() => hasNativeRuntime());
 
   useEffect(() => {
-    if (!hasNativeRuntime()) {
+    if (!IS_MOBILE_APP_BUILD && !getCapacitorRuntime()) {
       setIsNative(false);
       return;
     }
