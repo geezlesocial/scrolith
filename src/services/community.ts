@@ -774,6 +774,15 @@ class CommunityService {
     return data.map((club: any) => normalizeClub(club));
   }
 
+  static async listClubs(params?: {
+    joinedOnly?: boolean;
+    mineOnly?: boolean;
+    q?: string;
+    limit?: number;
+  }): Promise<CommunityClub[]> {
+    return this.getClubs(params);
+  }
+
   static async getClubById(clubId: string): Promise<CommunityClub | null> {
     const id = String(clubId || '').trim();
     if (!id) return null;

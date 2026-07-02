@@ -2789,7 +2789,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       );
       tasks.push(
         showDiscover
-          ? CommunityService.listClubs({
+          ? CommunityService.getClubs({
               limit: 8
             }).catch(() => [])
           : Promise.resolve([])
