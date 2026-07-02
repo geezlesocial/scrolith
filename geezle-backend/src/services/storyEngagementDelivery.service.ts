@@ -36,6 +36,7 @@ const getOrCreateDirectConversation = async (leftUserId: string, rightUserId: st
   if (!userAId || !userBId) {
     throw new Error('Conversation participants are required.');
   }
+  const canonicalKey = [userAId, userBId].sort().join(':');
   const existing = await prisma.conversation.findFirst({
     where: {
       type: 'DIRECT',
@@ -62,7 +63,55 @@ const getOrCreateDirectConversation = async (leftUserId: string, rightUserId: st
       }
     }
   });
-  if (existing?.id && Array.isArray(existing.participants) && existing.participants.length === 2) return existing;
+  if (existing?.id && Array.isArray(existing.participants)) {
+    const existingKey = Array.from(
+      new Set(
+        existing.participants
+          .map((participant: any) => String(participant?.userId || participant?.id || '').trim())
+          .filter(Boolean)
+      )
+    )
+      .sort()
+      .join(':');
+    if (existingKey === canonicalKey) return existing;
+  }
+
+  const matchingCandidates = await prisma.conversation.findMany({
+    where: {
+      type: 'DIRECT',
+      participants: {
+        some: {
+          userId: { in: [userAId, userBId] }
+        }
+      }
+    },
+    include: {
+      participants: {
+        select: {
+          userId: true
+        }
+      }
+    }
+  });
+
+  const canonicalMatch = matchingCandidates
+    .filter((conversation) => {
+      const ids = Array.isArray(conversation?.participants)
+        ? conversation.participants
+            .map((participant: any) => String(participant?.userId || participant?.id || '').trim())
+            .filter(Boolean)
+        : [];
+      const key = Array.from(new Set(ids)).sort().join(':');
+      return key === canonicalKey;
+    })
+    .sort((left, right) => {
+      const leftAt = new Date(left?.updatedAt || left?.lastMessageAt || 0).getTime();
+      const rightAt = new Date(right?.updatedAt || right?.lastMessageAt || 0).getTime();
+      if (leftAt !== rightAt) return rightAt - leftAt;
+      return String(right?.id || '').localeCompare(String(left?.id || ''));
+    })[0];
+  if (canonicalMatch?.id) return canonicalMatch;
+
   return prisma.conversation.create({
     data: {
       type: 'DIRECT',

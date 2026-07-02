@@ -466,7 +466,7 @@ const getDirectConversationKey = (conversation: any) => {
   if (!conversation || String(conversation.type || '').toUpperCase() !== 'DIRECT') return '';
   const participantIds = Array.isArray(conversation.participants)
     ? conversation.participants
-        .map((participant: any) => String(participant?.userId || '').trim())
+        .map((participant: any) => String(participant?.userId || participant?.id || '').trim())
         .filter(Boolean)
     : [];
   const uniqueIds = Array.from(new Set(participantIds));
@@ -553,15 +553,28 @@ const getMergedDirectConversationRecords = async (conversation: any, userId: str
     }
   } as any);
 
-  return candidates.filter((candidate: any) => {
+  const canonicalKey = uniqueIds.sort().join(':');
+  const matchingCandidates = candidates.filter((candidate: any) => {
     const candidateIds = Array.isArray(candidate?.participants)
       ? candidate.participants
-          .map((entry: any) => String(entry?.userId || '').trim())
+          .map((entry: any) => String(entry?.userId || entry?.id || '').trim())
           .filter(Boolean)
       : [];
     const candidateSet = Array.from(new Set(candidateIds)).sort();
-    return candidateSet.length === 2 && candidateSet.join(':') === uniqueIds.sort().join(':');
+    return candidateSet.length >= 2 && canonicalKey === candidateSet.slice(0, 2).join(':');
   });
+
+  if (matchingCandidates.length > 0) {
+    matchingCandidates.sort((left: any, right: any) => {
+      const leftAt = new Date(left?.updatedAt || left?.lastMessageAt || left?.last_message_at || 0).getTime();
+      const rightAt = new Date(right?.updatedAt || right?.lastMessageAt || right?.last_message_at || 0).getTime();
+      if (leftAt !== rightAt) return rightAt - leftAt;
+      return String(right?.id || '').localeCompare(String(left?.id || ''));
+    });
+    return matchingCandidates;
+  }
+
+  return [];
 };
 
 const emitToUser = (req: Request, userId: string, event: string, payload: any) => {
@@ -866,9 +879,21 @@ export const createConversation = async (req: Request, res: Response) => {
         },
         include: { participants: true }
       });
-      existing = candidates.find(
-        (c) => c.participants.length === uniqueIds.length && c.participants.every((p) => uniqueIds.includes(p.userId))
-      );
+      const canonicalKey = uniqueIds.slice().sort().join(':');
+      existing = candidates
+        .filter((c) => {
+          const candidateIds = Array.isArray(c.participants)
+            ? c.participants.map((p) => String(p.userId || p.id || '').trim()).filter(Boolean)
+            : [];
+          const candidateKey = Array.from(new Set(candidateIds)).sort().join(':');
+          return candidateKey === canonicalKey;
+        })
+        .sort((left, right) => {
+          const leftAt = new Date(left?.updatedAt || left?.lastMessageAt || 0).getTime();
+          const rightAt = new Date(right?.updatedAt || right?.lastMessageAt || 0).getTime();
+          if (leftAt !== rightAt) return rightAt - leftAt;
+          return String(right?.id || '').localeCompare(String(left?.id || ''));
+        })[0] || null;
     }
 
     if (existing) {
