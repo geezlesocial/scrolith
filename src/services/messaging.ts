@@ -172,11 +172,76 @@ const normalizeConversation = (raw: any): Conversation => {
   } as Conversation;
 };
 
+const getDirectConversationKey = (conversation: Conversation) => {
+  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
+  const ids = safeArray<any>(conversation.participants)
+    .map((participant) => safeString(participant?.id))
+    .filter(Boolean);
+  const uniqueIds = Array.from(new Set(ids));
+  if (uniqueIds.length !== 2) return '';
+  return uniqueIds.sort().join(':');
+};
+
+const mergeDirectConversations = (list: Conversation[]) => {
+  if (!Array.isArray(list) || list.length === 0) return [];
+
+  const directBuckets = new Map<string, Conversation[]>();
+  const passthrough: Conversation[] = [];
+
+  list.forEach((conversation) => {
+    const key = getDirectConversationKey(conversation);
+    if (!key) {
+      passthrough.push(conversation);
+      return;
+    }
+    if (!directBuckets.has(key)) directBuckets.set(key, []);
+    directBuckets.get(key)!.push(conversation);
+  });
+
+  const mergedDirects = Array.from(directBuckets.values()).map((bucket) => {
+    const ordered = [...bucket].sort((left, right) => {
+      const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
+      const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
+      if (leftAt !== rightAt) return rightAt - leftAt;
+      return String(right?.id || '').localeCompare(String(left?.id || ''));
+    });
+    const primary = ordered[0] || bucket[0];
+    const mergedMessages = ordered
+      .flatMap((entry) => safeArray<any>(entry?.messages))
+      .sort((left, right) => {
+        const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
+        const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
+        if (leftAt !== rightAt) return leftAt - rightAt;
+        return String(left?.id || '').localeCompare(String(right?.id || ''));
+      });
+    const lastVisibleMessage = mergedMessages[mergedMessages.length - 1];
+    const unreadCount = ordered.reduce((sum, entry) => sum + safeNumber(entry?.unreadCount ?? entry?.unread_count), 0);
+
+    return {
+      ...primary,
+      messages: mergedMessages,
+      last_message: safeString(lastVisibleMessage?.text ?? primary?.last_message),
+      last_message_at: safeString(lastVisibleMessage?.timestamp ?? primary?.last_message_at),
+      lastMessage: safeString(lastVisibleMessage?.text ?? primary?.lastMessage),
+      lastMessageAt: safeString(lastVisibleMessage?.timestamp ?? primary?.lastMessageAt),
+      unread_count: unreadCount,
+      unreadCount
+    } as Conversation;
+  });
+
+  return [...passthrough, ...mergedDirects].sort((left, right) => {
+    const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
+    const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
+    if (leftAt !== rightAt) return rightAt - leftAt;
+    return String(right?.id || '').localeCompare(String(left?.id || ''));
+  });
+};
+
 const normalizeList = (raw: any): Conversation[] => {
   const list = Array.isArray(raw)
     ? raw
     : safeArray<any>(raw?.conversations ?? raw?.items ?? raw?.data ?? []);
-  return list.map(normalizeConversation);
+  return mergeDirectConversations(list.map(normalizeConversation));
 };
 
 export type MessageSearchMatchType = 'user' | 'username' | 'message';
@@ -319,9 +384,50 @@ export const MessagingService = {
       ? data
       : safeArray<any>(data?.results ?? data?.items ?? []);
     const pagination = response?.data?.pagination ?? data?.pagination ?? {};
+    const normalizedResults = results.map(normalizeSearchResult);
+    const dedupedResults = (() => {
+      const directBuckets = new Map<string, MessageSearchResult[]>();
+      const passthrough: MessageSearchResult[] = [];
+
+      normalizedResults.forEach((result) => {
+        const key = getDirectConversationKey(result.conversation);
+        if (!key) {
+          passthrough.push(result);
+          return;
+        }
+        if (!directBuckets.has(key)) directBuckets.set(key, []);
+        directBuckets.get(key)!.push(result);
+      });
+
+      const mergedDirects = Array.from(directBuckets.values()).map((bucket) => {
+        const ordered = [...bucket].sort((left, right) => {
+          const leftAt = new Date(left?.updatedAt || left?.conversation?.lastMessageAt || 0).getTime();
+          const rightAt = new Date(right?.updatedAt || right?.conversation?.lastMessageAt || 0).getTime();
+          if (leftAt !== rightAt) return rightAt - leftAt;
+          return String(right?.conversationId || '').localeCompare(String(left?.conversationId || ''));
+        });
+        const primary = ordered[0];
+        return {
+          ...primary,
+          conversation: primary.conversation,
+          participants: primary.conversation.participants,
+          participant: primary.participant || primary.participants.find((entry) => entry.id !== '') || null,
+          lastMessage: primary.conversation.lastMessage,
+          unreadCount: ordered.reduce((sum, entry) => sum + Number(entry.unreadCount || 0), 0),
+          updatedAt: primary.conversation.lastMessageAt || primary.updatedAt
+        } as MessageSearchResult;
+      });
+
+      return [...passthrough, ...mergedDirects].sort((left, right) => {
+        const leftAt = new Date(left?.updatedAt || left?.conversation?.lastMessageAt || 0).getTime();
+        const rightAt = new Date(right?.updatedAt || right?.conversation?.lastMessageAt || 0).getTime();
+        if (leftAt !== rightAt) return rightAt - leftAt;
+        return String(right?.conversationId || '').localeCompare(String(left?.conversationId || ''));
+      });
+    })();
 
     return {
-      results: results.map(normalizeSearchResult),
+      results: dedupedResults,
       nextCursor: pagination?.nextCursor ?? pagination?.next_cursor ?? null,
       hasMore: Boolean(pagination?.hasMore ?? pagination?.has_more ?? false)
     };
