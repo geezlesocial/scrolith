@@ -5,6 +5,14 @@ const HOMEPAGE_SCOPE = 'community_homepage';
 
 const defaultDeviceVisibility = () => ({ mobile: true, tablet: true, desktop: true });
 
+const setPublicCache = (res: Response, seconds = 120) => {
+  const maxAge = Math.max(0, Math.trunc(seconds));
+  if (!res.headersSent) {
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${Math.max(60, maxAge * 2)}`);
+    res.setHeader('Vary', 'Accept-Encoding');
+  }
+};
+
 const defaultHomepage = {
   hero: {
     title: 'Scrolith Community',
@@ -99,6 +107,7 @@ const mergeHomepageConfig = (raw: any) => {
 
 export const getCommunityHomepage = async (_req: Request, res: Response) => {
   try {
+    setPublicCache(res, 120);
     const existing = await prisma.appSetting.findUnique({ where: { scope: HOMEPAGE_SCOPE } });
     if (!existing) return ok(res, defaultHomepage);
     return ok(res, mergeHomepageConfig(existing.data || defaultHomepage));

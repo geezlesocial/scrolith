@@ -4,6 +4,14 @@ import { DEFAULT_MEMBER_HOME_LOCATIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../co
 
 const router = express.Router();
 
+const setPublicCache = (res: any, seconds = 120) => {
+  const maxAge = Math.max(0, Math.trunc(seconds));
+  if (!res.headersSent) {
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${Math.max(60, maxAge * 2)}`);
+    res.setHeader('Vary', 'Accept-Encoding');
+  }
+};
+
 const isObjectLike = (value: any): value is Record<string, any> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
@@ -455,6 +463,7 @@ const listPopularPosts = async () => {
 
 router.get('/guest', async (_req, res) => {
   try {
+    setPublicCache(res, 120);
     const state = await getGuestHomepageState();
     const [jobs, gigs, posts] = await Promise.all([
       listTrendingJobs(),
@@ -504,6 +513,7 @@ router.get('/guest', async (_req, res) => {
 // GET /api/homepage/mobile-settings
 router.get('/mobile-settings', async (_req, res) => {
   try {
+    setPublicCache(res, 300);
     const record = await prisma.appSetting.findUnique({ where: { scope: 'platform' } });
     const platform = isObjectLike(record?.data) ? (record!.data as Record<string, any>) : {};
     const raw = platform.mobileHomeLayout || platform.mobile_home_layout || {};

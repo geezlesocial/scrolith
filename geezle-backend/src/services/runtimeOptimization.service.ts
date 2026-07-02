@@ -44,7 +44,7 @@ export const DEFAULT_RUNTIME_OPTIMIZATION_CONFIG: RuntimeOptimizationConfig = {
   compressionEnabled: true,
   compressionLevel: 6,
   compressionThresholdKb: 1,
-  apiResponseCachingEnabled: false,
+  apiResponseCachingEnabled: true,
   apiResponseCacheSeconds: 45,
   apiResponseCacheMaxEntries: 500,
   staticAssetCachingEnabled: true,

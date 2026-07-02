@@ -62,21 +62,37 @@ import { upload } from './files.routes';
 
 const router = express.Router();
 
+const setPublicCache = (res: Response, seconds = 120) => {
+  const maxAge = Math.max(0, Math.trunc(seconds));
+  if (!res.headersSent) {
+    res.setHeader('Cache-Control', `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${Math.max(60, maxAge * 2)}`);
+    res.setHeader('Vary', 'Accept-Encoding');
+  }
+};
+
+const publicReadRoute = (
+  seconds: number,
+  handler: (req: Request, res: Response, next: any) => Promise<any> | any
+) => (req: Request, res: Response, next: any) => {
+  setPublicCache(res, seconds);
+  return Promise.resolve(handler(req, res, next)).catch(next);
+};
+
 // Public homepage endpoint (no auth required) - MUST be before admin routes
-router.get('/homepage', (req: Request, res: Response, next: any) => {
+router.get('/homepage', publicReadRoute(60, (req: Request, res: Response, next: any) => {
   console.log('📥 Homepage request received:', req.method, req.path, req.query);
   getHomepage(req, res).catch(next);
-});
+}));
 
 // Public homepage data endpoints
-router.get('/homepage/sections', (req: Request, res: Response, next: any) => {
+router.get('/homepage/sections', publicReadRoute(120, (req: Request, res: Response, next: any) => {
   getHomepageSections(req, res).catch(next);
-});
+}));
 
 // Public header/activity/hero-search (read-only)
-router.get('/header', (req: Request, res: Response, next: any) => {
+router.get('/header', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getHeaderConfig(req, res).catch(next);
-});
+}));
 
 // Development helper: accept POST /header without auth so local E2E and dev editors can save
 if (process.env.NODE_ENV !== 'production') {
@@ -87,80 +103,80 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-router.get('/activity', (req: Request, res: Response, next: any) => {
+router.get('/activity', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getActivityConfig(req, res).catch(next);
-});
+}));
 
-router.get('/hero-search', (req: Request, res: Response, next: any) => {
+router.get('/hero-search', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getHeroSearchConfig(req, res).catch(next);
-});
+}));
 
 // Public footer config (read-only)
-router.get('/footer', (req: Request, res: Response, next: any) => {
+router.get('/footer', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getFooterConfig(req, res).catch(next);
-});
+}));
 
-router.get('/slides', (req: Request, res: Response, next: any) => {
+router.get('/slides', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getHomeSlides(req, res).catch(next);
-});
+}));
 
 // Public trending config (strip config)
-router.get('/trending-config', (req: Request, res: Response, next: any) => {
+router.get('/trending-config', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getTrendingConfig(req, res).catch(next);
-});
+}));
 
 // Public CMS pages and categories
-router.get('/pages', (req: Request, res: Response, next: any) => {
+router.get('/pages', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getPages(req, res).catch(next);
-});
-router.get('/pages/:slug', (req: Request, res: Response, next: any) => {
+}));
+router.get('/pages/:slug', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getPageBySlug(req, res).catch(next);
-});
-router.get('/categories', (req: Request, res: Response, next: any) => {
+}));
+router.get('/categories', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getPageCategories(req, res).catch(next);
-});
+}));
 // Public Blog endpoints
-router.get('/blog/posts', (req: Request, res: Response, next: any) => {
+router.get('/blog/posts', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getBlogPosts(req, res).catch(next);
-});
-router.get('/blog/posts/:slug', (req: Request, res: Response, next: any) => {
+}));
+router.get('/blog/posts/:slug', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getBlogPostBySlug(req, res).catch(next);
-});
-router.get('/blog/categories', (req: Request, res: Response, next: any) => {
+}));
+router.get('/blog/categories', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getBlogCategories(req, res).catch(next);
-});
-router.get('/blog/settings', (req: Request, res: Response, next: any) => {
+}));
+router.get('/blog/settings', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getBlogSettings(req, res).catch(next);
-});
-router.get('/auth-pages', (req: Request, res: Response, next: any) => {
+}));
+router.get('/auth-pages', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getAuthPagesConfig(req, res).catch(next);
-});
-router.get('/answers', (req: Request, res: Response, next: any) => {
+}));
+router.get('/answers', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getAnswersPage(req, res).catch(next);
-});
-router.get('/guides', (req: Request, res: Response, next: any) => {
+}));
+router.get('/guides', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getGuidesPage(req, res).catch(next);
-});
-router.get('/hire', (req: Request, res: Response, next: any) => {
+}));
+router.get('/hire', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getHirePage(req, res).catch(next);
-});
-router.get('/freelancer', (req: Request, res: Response, next: any) => {
+}));
+router.get('/freelancer', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getFreelancerPage(req, res).catch(next);
-});
+}));
 
 // Public platform settings (read-only)
-router.get('/platform-settings', (req: Request, res: Response, next: any) => {
+router.get('/platform-settings', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   getPlatformSettingsPublic(req, res).catch(next);
-});
+}));
 
 // Public Affiliate content endpoint (no auth required)
-router.get('/affiliate/content', (req: Request, res: Response, next: any) => {
+router.get('/affiliate/content', publicReadRoute(300, (req: Request, res: Response, next: any) => {
   // Serve affiliate landing page content
   (async () => {
     const { getAffiliateContent } = await import('../controllers/cmsController');
     return getAffiliateContent(req, res);
   })().catch(next);
-});
+}));
 
 // Apply middleware (will bypass in development) - for admin routes only
 const adminRouter = express.Router();
