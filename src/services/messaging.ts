@@ -154,13 +154,32 @@ const extractStoryIdFromMessage = (message: any): string => {
   );
 };
 
+const extractStoryThreadHint = (message: any): string => {
+  const text = safeString(message?.text ?? message?.message ?? message?.body).toLowerCase();
+  if (!text) return '';
+  const isStoryContext =
+    text.includes('story') &&
+    (
+      text.includes('reacted') ||
+      text.includes('reaction') ||
+      text.includes('replied') ||
+      text.includes('reply') ||
+      text.includes('comment') ||
+      text.includes('liked') ||
+      text.includes('love') ||
+      text.includes('to your story') ||
+      text.includes('your story')
+    );
+  return isStoryContext ? 'story-thread' : '';
+};
+
 const getConversationParticipantsKey = (conversation: Conversation) => {
   if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
   const ids = safeArray<any>(conversation.participants)
     .map((participant) => safeString(participant?.id ?? participant?.userId ?? participant?.user_id))
     .filter(Boolean);
   const uniqueIds = Array.from(new Set(ids));
-  if (uniqueIds.length !== 2) return '';
+  if (uniqueIds.length === 0) return '';
   return uniqueIds.sort().join(':');
 };
 
@@ -170,6 +189,8 @@ const getConversationStoryKey = (conversation: Conversation) => {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const storyId = extractStoryIdFromMessage(messages[index]);
     if (storyId) return storyId;
+    const storyThreadHint = extractStoryThreadHint(messages[index]);
+    if (storyThreadHint) return storyThreadHint;
   }
   return '';
 };
@@ -186,10 +207,17 @@ export const getMessageMergeKey = (message: any) => {
   const receiverId = safeString(message?.receiverId ?? message?.receiver_id);
   const participants = [senderId, receiverId].filter(Boolean).sort().join(':');
   const storyId = extractStoryIdFromMessage(message);
+  const storyThreadHint = storyId ? '' : extractStoryThreadHint(message);
   if (participants) {
-    return storyId ? `direct:${participants}|story:${storyId}` : `direct:${participants}`;
+    return storyId
+      ? `direct:${participants}|story:${storyId}`
+      : storyThreadHint
+        ? `direct:${participants}|story:${storyThreadHint}`
+        : `direct:${participants}`;
   }
-  return storyId ? `story:${storyId}` : safeString(message?.conversationId ?? message?.conversation_id);
+  if (storyId) return `story:${storyId}`;
+  if (storyThreadHint) return `story:${storyThreadHint}`;
+  return safeString(message?.conversationId ?? message?.conversation_id);
 };
 
 const normalizeConversation = (raw: any): Conversation => {
