@@ -119,7 +119,7 @@ const normalizeMessage = (raw: any): Message => {
 };
 
 const normalizeParticipant = (participant: any) => ({
-  id: safeString(participant?.id),
+  id: safeString(participant?.id ?? participant?.userId ?? participant?.user_id),
   name: safeString(participant?.name, 'Unknown'),
   avatar: safeString(participant?.avatar ?? participant?.avatar_url),
   username: safeString(participant?.username),
@@ -139,6 +139,58 @@ const normalizeParticipant = (participant: any) => ({
   last_seen_at: safeString(participant?.lastSeenAt ?? participant?.last_seen_at ?? ''),
   lastSeenAt: safeString(participant?.lastSeenAt ?? participant?.last_seen_at ?? '')
 });
+
+const extractStoryIdFromMessage = (message: any): string => {
+  const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+  const storyReference = metadata?.storyReference && typeof metadata.storyReference === 'object'
+    ? metadata.storyReference
+    : null;
+  return safeString(
+    storyReference?.storyId ??
+      metadata?.storyId ??
+      metadata?.story_id ??
+      message?.storyId ??
+      message?.story_id
+  );
+};
+
+const getConversationParticipantsKey = (conversation: Conversation) => {
+  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
+  const ids = safeArray<any>(conversation.participants)
+    .map((participant) => safeString(participant?.id ?? participant?.userId ?? participant?.user_id))
+    .filter(Boolean);
+  const uniqueIds = Array.from(new Set(ids));
+  if (uniqueIds.length !== 2) return '';
+  return uniqueIds.sort().join(':');
+};
+
+const getConversationStoryKey = (conversation: Conversation) => {
+  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
+  const messages = safeArray<any>(conversation.messages);
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const storyId = extractStoryIdFromMessage(messages[index]);
+    if (storyId) return storyId;
+  }
+  return '';
+};
+
+export const getConversationMergeKey = (conversation: Conversation) => {
+  const participantKey = getConversationParticipantsKey(conversation);
+  if (!participantKey) return '';
+  const storyId = getConversationStoryKey(conversation);
+  return storyId ? `direct:${participantKey}|story:${storyId}` : `direct:${participantKey}`;
+};
+
+export const getMessageMergeKey = (message: any) => {
+  const senderId = safeString(message?.senderId ?? message?.sender_id);
+  const receiverId = safeString(message?.receiverId ?? message?.receiver_id);
+  const participants = [senderId, receiverId].filter(Boolean).sort().join(':');
+  const storyId = extractStoryIdFromMessage(message);
+  if (participants) {
+    return storyId ? `direct:${participants}|story:${storyId}` : `direct:${participants}`;
+  }
+  return storyId ? `story:${storyId}` : safeString(message?.conversationId ?? message?.conversation_id);
+};
 
 const normalizeConversation = (raw: any): Conversation => {
   const participants = safeArray<any>(raw?.participants).map(normalizeParticipant);
@@ -172,16 +224,6 @@ const normalizeConversation = (raw: any): Conversation => {
   } as Conversation;
 };
 
-const getDirectConversationKey = (conversation: Conversation) => {
-  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
-  const ids = safeArray<any>(conversation.participants)
-    .map((participant) => safeString(participant?.id))
-    .filter(Boolean);
-  const uniqueIds = Array.from(new Set(ids));
-  if (uniqueIds.length !== 2) return '';
-  return uniqueIds.sort().join(':');
-};
-
 const mergeDirectConversations = (list: Conversation[]) => {
   if (!Array.isArray(list) || list.length === 0) return [];
 
@@ -189,7 +231,7 @@ const mergeDirectConversations = (list: Conversation[]) => {
   const passthrough: Conversation[] = [];
 
   list.forEach((conversation) => {
-    const key = getDirectConversationKey(conversation);
+    const key = getConversationMergeKey(conversation);
     if (!key) {
       passthrough.push(conversation);
       return;
@@ -206,9 +248,17 @@ const mergeDirectConversations = (list: Conversation[]) => {
       return String(right?.id || '').localeCompare(String(left?.id || ''));
     });
     const primary = ordered[0] || bucket[0];
-    const mergedMessages = ordered
-      .flatMap((entry) => safeArray<any>(entry?.messages))
-      .sort((left, right) => {
+    const mergedMessages = Array.from(
+      ordered
+        .flatMap((entry) => safeArray<any>(entry?.messages))
+        .reduce((acc, message) => {
+          const messageId = safeString(message?.id);
+          if (!messageId) return acc;
+          if (!acc.has(messageId)) acc.set(messageId, message);
+          return acc;
+        }, new Map<string, any>())
+        .values()
+    ).sort((left, right) => {
         const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
         const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
         if (leftAt !== rightAt) return leftAt - rightAt;
@@ -390,7 +440,7 @@ export const MessagingService = {
       const passthrough: MessageSearchResult[] = [];
 
       normalizedResults.forEach((result) => {
-        const key = getDirectConversationKey(result.conversation);
+        const key = getConversationMergeKey(result.conversation);
         if (!key) {
           passthrough.push(result);
           return;

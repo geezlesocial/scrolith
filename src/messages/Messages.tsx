@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { MessagingService, MessageSearchResult } from '../services/messaging';
+import { MessagingService, MessageSearchResult, getConversationMergeKey, getMessageMergeKey } from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
 import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search } from 'lucide-react';
@@ -160,18 +160,6 @@ const VoiceCallControls: React.FC<{
   );
 };
 
-const getDirectConversationKey = (conversation: Conversation) => {
-  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
-  const ids = Array.isArray(conversation.participants)
-    ? conversation.participants
-        .map((participant: any) => String(participant?.id || '').trim())
-        .filter(Boolean)
-    : [];
-  const uniqueIds = Array.from(new Set(ids));
-  if (uniqueIds.length !== 2) return '';
-  return uniqueIds.sort().join(':');
-};
-
 const mergeDirectConversations = (list: Conversation[]) => {
   if (!Array.isArray(list) || list.length === 0) return [];
 
@@ -179,7 +167,7 @@ const mergeDirectConversations = (list: Conversation[]) => {
   const passthrough: Conversation[] = [];
 
   list.forEach((conversation) => {
-    const key = getDirectConversationKey(conversation);
+    const key = getConversationMergeKey(conversation);
     if (!key) {
       passthrough.push(conversation);
       return;
@@ -196,9 +184,17 @@ const mergeDirectConversations = (list: Conversation[]) => {
       return String(right?.id || '').localeCompare(String(left?.id || ''));
     });
     const primary = ordered[0] || bucket[0];
-    const mergedMessages = ordered
-      .flatMap((entry) => Array.isArray(entry?.messages) ? entry.messages : [])
-      .sort((left, right) => {
+    const mergedMessages = Array.from(
+      ordered
+        .flatMap((entry) => Array.isArray(entry?.messages) ? entry.messages : [])
+        .reduce((acc, message) => {
+          const messageId = String(message?.id || '').trim();
+          if (!messageId) return acc;
+          if (!acc.has(messageId)) acc.set(messageId, message);
+          return acc;
+        }, new Map<string, any>())
+        .values()
+    ).sort((left, right) => {
         const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
         const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
         if (leftAt !== rightAt) return leftAt - rightAt;
@@ -748,7 +744,15 @@ const Messages = () => {
       };
   }, []);
 
-  const activeConvo = dedupedConversations.find(c => c.id === activeConvoId);
+  const activeConvo = useMemo(() => {
+      if (!activeConvoId) return undefined;
+      const exact = dedupedConversations.find((conversation) => conversation.id === activeConvoId);
+      if (exact) return exact;
+      const rawMatch = conversations.find((conversation) => conversation.id === activeConvoId);
+      const mergeKey = rawMatch ? getConversationMergeKey(rawMatch) : '';
+      if (!mergeKey) return undefined;
+      return dedupedConversations.find((conversation) => getConversationMergeKey(conversation) === mergeKey);
+  }, [activeConvoId, conversations, dedupedConversations]);
   useEffect(() => {
       const targetMessageId = searchParams.get('messageId') || pendingSearchMessageFocusRef.current;
       if (!activeConvoId || !targetMessageId || !activeConvo?.messages?.some((msg) => msg.id === targetMessageId)) return;
@@ -1160,9 +1164,14 @@ const Messages = () => {
       conversationId: string,
       updater: (messages: Message[]) => Message[]
   ) => {
-      setConversations((prev) =>
-          prev.map((conversation) => {
-              if (conversation.id !== conversationId) return conversation;
+      setConversations((prev) => {
+          const targetConversation = prev.find((conversation) => conversation.id === conversationId);
+          const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
+          return prev.map((conversation) => {
+              const matchesThread =
+                  conversation.id === conversationId ||
+                  Boolean(targetMergeKey && getConversationMergeKey(conversation) === targetMergeKey);
+              if (!matchesThread) return conversation;
               const nextMessages = updater(Array.isArray(conversation.messages) ? conversation.messages : []);
               const lastMessage = nextMessages[nextMessages.length - 1];
               const lastMessageText = resolveMessagePreviewText(lastMessage);
@@ -1175,8 +1184,8 @@ const Messages = () => {
                   lastMessageAt: lastMessageAt || '',
                   last_message_at: lastMessageAt || ''
               };
-          })
-      );
+          });
+      });
   };
 
   const inferUploadCategory = (file: File): UploadedFile['category'] => {
@@ -1527,6 +1536,7 @@ const Messages = () => {
           const message = normalizeIncomingMessage(payload);
           const convoId = message.conversation_id || message.conversationId;
           if (!convoId) return;
+          const messageMergeKey = getMessageMergeKey(message);
           traceClient('socket.messages_incoming', {
               socketEvent: payload?.sender_id === userIdRef.current ? 'messages:sent' : 'messages:new',
               conversationId: convoId,
@@ -1537,7 +1547,9 @@ const Messages = () => {
           setConversations(prev => {
               let found = false;
               const updated = prev.map(c => {
-                  if (c.id !== convoId) return c;
+                  const conversationMergeKey = getConversationMergeKey(c);
+                  const matchesThread = c.id === convoId || Boolean(messageMergeKey && conversationMergeKey === messageMergeKey);
+                  if (!matchesThread) return c;
                   found = true;
                   const exists = c.messages.some(m => m.id === message.id);
                   const nextMessages = exists ? c.messages : [...c.messages, message];
@@ -1561,7 +1573,14 @@ const Messages = () => {
               if (!found) {
                   void MessagingService.getConversationById(convoId).then((full) => {
                       if (!full) return;
-                      setConversations(current => [full, ...current.filter(c => c.id !== convoId)]);
+                      const fullMergeKey = getConversationMergeKey(full);
+                      setConversations(current => [
+                          full,
+                          ...current.filter((conversation) => {
+                              if (conversation.id === convoId) return false;
+                              return Boolean(!(fullMergeKey && getConversationMergeKey(conversation) === fullMergeKey));
+                          })
+                      ]);
                   });
                   return prev;
               }
@@ -1710,37 +1729,51 @@ const Messages = () => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
           traceClient('socket.conversation_updated', { conversationId: convoId, payload });
-          setConversations(prev => prev.map(conversation => {
-              if (conversation.id !== convoId) return conversation;
-               const merged = {
-                   ...conversation,
-                   ...(payload?.label !== undefined ? { label: payload.label } : {}),
-                   ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
-                   ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
-                   ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
-                   ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {}),
-                   ...(payload?.lastMessage !== undefined || payload?.last_message !== undefined
-                       ? {
-                             lastMessage: payload?.lastMessage ?? payload?.last_message ?? conversation.lastMessage,
-                             last_message: payload?.last_message ?? payload?.lastMessage ?? conversation.last_message
-                         }
-                       : {}),
-                   ...(payload?.lastMessageAt !== undefined || payload?.last_message_at !== undefined
-                       ? {
-                             lastMessageAt: payload?.lastMessageAt ?? payload?.last_message_at ?? conversation.lastMessageAt,
-                             last_message_at: payload?.last_message_at ?? payload?.lastMessageAt ?? conversation.last_message_at
-                         }
-                       : {})
-               };
-              return merged;
-          }));
+          setConversations(prev => {
+              const targetConversation = prev.find((conversation) => conversation.id === convoId);
+              const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
+              return prev.map(conversation => {
+                  const matchesThread =
+                      conversation.id === convoId ||
+                      Boolean(targetMergeKey && getConversationMergeKey(conversation) === targetMergeKey);
+                  if (!matchesThread) return conversation;
+                  return {
+                      ...conversation,
+                      ...(payload?.label !== undefined ? { label: payload.label } : {}),
+                      ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
+                      ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
+                      ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
+                      ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {}),
+                      ...(payload?.lastMessage !== undefined || payload?.last_message !== undefined
+                          ? {
+                                lastMessage: payload?.lastMessage ?? payload?.last_message ?? conversation.lastMessage,
+                                last_message: payload?.last_message ?? payload?.lastMessage ?? conversation.last_message
+                            }
+                          : {}),
+                      ...(payload?.lastMessageAt !== undefined || payload?.last_message_at !== undefined
+                          ? {
+                                lastMessageAt: payload?.lastMessageAt ?? payload?.last_message_at ?? conversation.lastMessageAt,
+                                last_message_at: payload?.last_message_at ?? payload?.lastMessageAt ?? conversation.last_message_at
+                            }
+                          : {})
+                  };
+              });
+          });
       };
 
       const handleConversationDeleted = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
           traceClient('socket.conversation_deleted', { conversationId: convoId });
-          setConversations(prev => prev.filter(conversation => conversation.id !== convoId));
+          setConversations(prev => {
+              const targetConversation = prev.find((conversation) => conversation.id === convoId);
+              const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
+              return prev.filter((conversation) => {
+                  if (conversation.id === convoId) return false;
+                  if (targetMergeKey && getConversationMergeKey(conversation) === targetMergeKey) return false;
+                  return true;
+              });
+          });
           if (activeConvoIdRef.current === convoId) {
               setActiveConvoId(null);
               navigate('/messages');
