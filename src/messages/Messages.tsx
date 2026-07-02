@@ -160,6 +160,73 @@ const VoiceCallControls: React.FC<{
   );
 };
 
+const getDirectConversationKey = (conversation: Conversation) => {
+  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
+  const ids = Array.isArray(conversation.participants)
+    ? conversation.participants
+        .map((participant: any) => String(participant?.id || '').trim())
+        .filter(Boolean)
+    : [];
+  const uniqueIds = Array.from(new Set(ids));
+  if (uniqueIds.length !== 2) return '';
+  return uniqueIds.sort().join(':');
+};
+
+const mergeDirectConversations = (list: Conversation[]) => {
+  if (!Array.isArray(list) || list.length === 0) return [];
+
+  const directBuckets = new Map<string, Conversation[]>();
+  const passthrough: Conversation[] = [];
+
+  list.forEach((conversation) => {
+    const key = getDirectConversationKey(conversation);
+    if (!key) {
+      passthrough.push(conversation);
+      return;
+    }
+    if (!directBuckets.has(key)) directBuckets.set(key, []);
+    directBuckets.get(key)!.push(conversation);
+  });
+
+  const mergedDirects = Array.from(directBuckets.values()).map((bucket) => {
+    const ordered = [...bucket].sort((left, right) => {
+      const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
+      const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
+      if (leftAt !== rightAt) return rightAt - leftAt;
+      return String(right?.id || '').localeCompare(String(left?.id || ''));
+    });
+    const primary = ordered[0] || bucket[0];
+    const mergedMessages = ordered
+      .flatMap((entry) => Array.isArray(entry?.messages) ? entry.messages : [])
+      .sort((left, right) => {
+        const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
+        const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
+        if (leftAt !== rightAt) return leftAt - rightAt;
+        return String(left?.id || '').localeCompare(String(right?.id || ''));
+      });
+    const lastVisibleMessage = mergedMessages[mergedMessages.length - 1];
+    const unreadCount = ordered.reduce((sum, entry) => sum + Number(entry?.unreadCount ?? entry?.unread_count ?? 0), 0);
+
+    return {
+      ...primary,
+      messages: mergedMessages,
+      lastMessage: String(lastVisibleMessage?.text ?? primary?.lastMessage ?? primary?.last_message ?? ''),
+      last_message: String(lastVisibleMessage?.text ?? primary?.last_message ?? primary?.lastMessage ?? ''),
+      lastMessageAt: String(lastVisibleMessage?.timestamp ?? primary?.lastMessageAt ?? primary?.last_message_at ?? ''),
+      last_message_at: String(lastVisibleMessage?.timestamp ?? primary?.last_message_at ?? primary?.lastMessageAt ?? ''),
+      unreadCount,
+      unread_count: unreadCount
+    } as Conversation;
+  });
+
+  return [...passthrough, ...mergedDirects].sort((left, right) => {
+    const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
+    const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
+    if (leftAt !== rightAt) return rightAt - leftAt;
+    return String(right?.id || '').localeCompare(String(left?.id || ''));
+  });
+};
+
 const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
@@ -475,7 +542,9 @@ const Messages = () => {
   // Load Conversations
   useEffect(() => {
       if (user) {
-          MessagingService.getAllConversations(user.id, user.role).then(setConversations);
+          MessagingService.getAllConversations(user.id, user.role).then((list) => {
+              setConversations(mergeDirectConversations(list));
+          });
       }
   }, [user]);
 
@@ -565,8 +634,8 @@ const Messages = () => {
 
   // Handle URL param for deep linking
   useEffect(() => {
-      if (conversationId && conversations.length > 0) {
-          const exists = conversations.find(c => c.id === conversationId);
+      if (conversationId && dedupedConversations.length > 0) {
+          const exists = dedupedConversations.find(c => c.id === conversationId);
           if (exists) {
               setActiveConvoId(conversationId);
               // Mark as read when opening
@@ -581,7 +650,7 @@ const Messages = () => {
               }
           }
       }
-  }, [conversationId, conversations.length, user]);
+  }, [conversationId, dedupedConversations.length, user]);
 
   useEffect(() => {
       if (!conversationId && isMobileViewport) {
@@ -599,8 +668,8 @@ const Messages = () => {
   }, [
       activeConvoId,
       typingUser,
-      conversations.find((conversation) => conversation.id === activeConvoId)?.messages?.length
-  ]); 
+      dedupedConversations.find((conversation) => conversation.id === activeConvoId)?.messages?.length
+  ]);
 
   useEffect(() => {
       setPendingAttachments([]);
@@ -648,7 +717,7 @@ const Messages = () => {
       };
   }, []);
 
-  const activeConvo = conversations.find(c => c.id === activeConvoId);
+  const activeConvo = dedupedConversations.find(c => c.id === activeConvoId);
   useEffect(() => {
       const targetMessageId = searchParams.get('messageId') || pendingSearchMessageFocusRef.current;
       if (!activeConvoId || !targetMessageId || !activeConvo?.messages?.some((msg) => msg.id === targetMessageId)) return;
@@ -675,24 +744,27 @@ const Messages = () => {
       });
       return map;
   }, [messageSearchResults]);
-  const searchConversations = useMemo(() => {
-      const seen = new Set<string>();
-      return messageSearchResults
-          .map((result) => {
-              const conversation = result.conversation;
-              if (!conversation?.id || seen.has(conversation.id)) return null;
-              seen.add(conversation.id);
-              return {
-                  ...conversation,
-                  participants: conversation.participants?.length ? conversation.participants : result.participants,
-                  lastMessage: result.lastMessage || conversation.lastMessage || conversation.last_message,
-                  last_message: result.lastMessage || conversation.last_message || conversation.lastMessage,
-                  unreadCount: result.unreadCount ?? conversation.unreadCount ?? conversation.unread_count,
-                  unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
-              } as Conversation;
-          })
-          .filter(Boolean) as Conversation[];
-  }, [messageSearchResults]);
+  const searchConversations = useMemo(
+      () =>
+          mergeDirectConversations(
+              messageSearchResults
+                  .map((result) => {
+                      const conversation = result.conversation;
+                      if (!conversation?.id) return null;
+                      return {
+                          ...conversation,
+                          participants: conversation.participants?.length ? conversation.participants : result.participants,
+                          lastMessage: result.lastMessage || conversation.lastMessage || conversation.last_message,
+                          last_message: result.lastMessage || conversation.last_message || conversation.lastMessage,
+                          unreadCount: result.unreadCount ?? conversation.unreadCount ?? conversation.unread_count,
+                          unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
+                      } as Conversation;
+                  })
+                  .filter(Boolean) as Conversation[]
+          ),
+      [messageSearchResults]
+  );
+  const dedupedConversations = useMemo(() => mergeDirectConversations(conversations), [conversations]);
   const isMobileConversationMode = Boolean(isMobileViewport && activeConvo);
   const isMobileKeyboardOpen = Boolean(isMobileViewport && mobileKeyboardInset > 96);
   const mobileConversationViewportStyle: React.CSSProperties | undefined = isMobileConversationMode
@@ -701,7 +773,7 @@ const Messages = () => {
             height: `${Math.max(mobileViewportHeight || 0, 280)}px`
         }
       : undefined;
-  const conversationListSource = isMessageSearchActive ? searchConversations : conversations;
+  const conversationListSource = isMessageSearchActive ? searchConversations : dedupedConversations;
   const visibleConversations = [...conversationListSource]
       .sort((a, b) => {
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
