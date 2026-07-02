@@ -4,6 +4,7 @@ import AuthSocialButtons from "../../auth/AuthSocialButtons";
 import { useUser } from "../../context/UserContext";
 import { type Gig } from "../../services/gigs";
 import { CMSService } from "../../services/cms";
+import OptimizedImage from "../media/OptimizedImage";
 import { getApiBaseUrl } from "../../utils/apiBase";
 import { resolveResponsiveAssetUrl } from "../../utils/assetUrl";
 import {
@@ -312,7 +313,7 @@ const MarketplacePreviewImage: React.FC<{
   title: string;
 }> = ({ image, title }) => {
   const [failed, setFailed] = React.useState(false);
-  const resolvedImage = !failed && image ? responsiveImageUrl(image, 360, 216, "cover") : "";
+  const resolvedImage = !failed && image ? image : "";
 
   if (!resolvedImage) {
     return (
@@ -323,13 +324,16 @@ const MarketplacePreviewImage: React.FC<{
   }
 
   return (
-    <img
+    <OptimizedImage
       src={resolvedImage}
       alt={title || "Marketplace service"}
       width={360}
       height={216}
+      fit="cover"
+      quality={72}
       loading="lazy"
       decoding="async"
+      sizes="(min-width: 1280px) 18vw, (min-width: 768px) 28vw, 92vw"
       onError={() => setFailed(true)}
       className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
     />
@@ -539,22 +543,25 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
           <div className="pointer-events-none absolute -bottom-16 right-0 h-48 w-48 rounded-full bg-cyan-200/35 blur-3xl motion-safe:animate-pulse" />
           <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-indigo-300 to-transparent opacity-70" />
           {backgroundImageUrl ? (
-            <img
-              src={backgroundImageUrl}
+            <OptimizedImage
+              src={String(content?.heroBackgroundUrl || '').trim()}
               alt=""
               aria-hidden="true"
               width={960}
               height={720}
+              fit="cover"
+              quality={72}
               loading="eager"
               decoding="async"
               fetchPriority="high"
+              sizes="(min-width: 1024px) 52vw, 100vw"
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
           <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-[24px] border border-white/70 bg-white/92 p-4 backdrop-blur-sm sm:p-5' : 'min-w-0'}>
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700 shadow-[0_10px_24px_-18px_rgba(79,70,229,0.7)]">
-                <img src={SCROLITH_LOGO} alt="Scrolith" className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
+                <img src={SCROLITH_LOGO} alt="Scrolith" width={16} height={16} className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
                 Scrolith Enterprise
               </span>
               <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 shadow-sm">
@@ -626,13 +633,16 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 <div key={banner.id || `side-banner-${index}`} className="min-w-0 rounded-2xl border border-slate-200 bg-white/90 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
                   {banner.image ? (
                     <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
-                      <img
-                        src={responsiveImageUrl(banner.image, 320, 160, 'cover')}
+                      <OptimizedImage
+                        src={banner.image}
                         alt={banner.title || `Scrolith highlight ${index + 1}`}
                         width={320}
                         height={160}
+                        fit="cover"
+                        quality={72}
                         loading="lazy"
                         decoding="async"
+                        sizes="(min-width: 1024px) 15vw, (min-width: 640px) 30vw, 88vw"
                         className="h-20 w-full object-cover"
                       />
                     </div>
@@ -644,13 +654,16 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
             </div>
             {sideImageUrl ? (
               <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 backdrop-blur-sm">
-                <img
-                  src={sideImageUrl}
+                <OptimizedImage
+                  src={String((content as any)?.sideImageUrl || '').trim()}
                   alt={sideImageAlt}
                   width={640}
                   height={360}
+                  fit="cover"
+                  quality={72}
                   loading={backgroundImageUrl ? 'lazy' : 'eager'}
                   decoding="async"
+                  sizes="(min-width: 1024px) 34vw, 100vw"
                   className="h-44 w-full rounded-xl object-cover sm:h-48 lg:h-52"
                 />
               </div>
@@ -666,13 +679,16 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                       className="flex min-w-0 h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
                     >
                       {logo.image ? (
-                        <img
-                          src={responsiveImageUrl(logo.image, 96, 48, 'contain')}
+                        <OptimizedImage
+                          src={logo.image}
                           alt={logo.label || `Brand ${index + 1}`}
                           width={96}
                           height={48}
+                          fit="contain"
+                          quality={72}
                           loading="lazy"
                           decoding="async"
+                          disableSrcSet
                           className="max-h-6 w-auto object-contain"
                         />
                       ) : (
@@ -763,13 +779,16 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
               <div className="mb-3 h-1.5 w-14 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" />
               {card.icon || card.image ? (
                 <div className="mb-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
-                  <img
-                    src={responsiveImageUrl(card.icon || card.image, 48, 48, 'contain')}
+                  <OptimizedImage
+                    src={card.icon || card.image}
                     alt={card.title || `Feature ${index + 1}`}
                     width={24}
                     height={24}
+                    fit="contain"
+                    quality={72}
                     loading="lazy"
                     decoding="async"
+                    disableSrcSet
                     className="h-6 w-6 object-contain"
                   />
                 </div>
@@ -1363,13 +1382,16 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     )}
                   </div>
                 ) : activeTab.image ? (
-                  <img
-                    src={responsiveImageUrl(activeTab.image, 720, 416, 'cover')}
+                  <OptimizedImage
+                    src={activeTab.image}
                     alt={activeTab.title || ''}
                     width={720}
                     height={416}
+                    fit="cover"
+                    quality={72}
                     loading="lazy"
                     decoding="async"
+                    sizes="(min-width: 1024px) 36vw, 100vw"
                     className="h-52 w-full object-cover sm:h-64"
                   />
                 ) : (
@@ -1486,13 +1508,16 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
             <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-3 flex items-center gap-3">
                 {post.author?.avatar ? (
-                  <img
-                    src={resolveResponsiveAssetUrl(post.author.avatar, { width: 96, height: 96, fit: 'cover' })}
+                  <OptimizedImage
+                    src={post.author.avatar}
                     alt={post.author?.name || 'User'}
                     width={40}
                     height={40}
+                    fit="cover"
+                    quality={72}
                     loading="lazy"
                     decoding="async"
+                    disableSrcSet
                     className="h-10 w-10 rounded-full object-cover"
                   />
                 ) : (
@@ -1545,7 +1570,7 @@ export const GuestFinalCtaSection: React.FC<{ content: GuestFinalCtaContent; sty
         >
           <div className="mb-4 flex items-center justify-center">
             <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-50">
-              <img src={SCROLITH_LOGO} alt="Scrolith" className="h-4 w-4 rounded-full object-contain" loading="lazy" decoding="async" />
+              <img src={SCROLITH_LOGO} alt="Scrolith" width={16} height={16} className="h-4 w-4 rounded-full object-contain" loading="lazy" decoding="async" />
               Scrolith global platform
             </span>
           </div>
@@ -1602,13 +1627,16 @@ export const PopularServicesSection: React.FC<{ content: PopularServicesContent;
               >
                 {item.image && (
                   <div className="h-40 w-full overflow-hidden bg-gray-100">
-                    <img
-                      src={responsiveImageUrl(item.image, 480, 320, 'cover')}
+                    <OptimizedImage
+                      src={item.image}
                       alt={item.title || ""}
                       width={480}
                       height={320}
+                      fit="cover"
+                      quality={72}
                       loading="lazy"
                       decoding="async"
+                      sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 92vw"
                       className="h-full w-full object-cover"
                     />
                   </div>
@@ -1676,13 +1704,16 @@ export const PromoBannersSection: React.FC<{ content: PromoBannersContent; style
                   </div>
                   {item.image && (
                     <div className="md:w-1/2 bg-white/20 flex items-center justify-center p-6">
-                      <img
-                        src={responsiveImageUrl(item.image, 560, 320, 'contain')}
+                      <OptimizedImage
+                        src={item.image}
                         alt={item.heading || ""}
                         width={560}
                         height={320}
+                        fit="contain"
+                        quality={72}
                         loading="lazy"
                         decoding="async"
+                        sizes="(min-width: 1024px) 24vw, 100vw"
                         className="w-full h-48 md:h-56 object-contain"
                       />
                     </div>
@@ -1721,13 +1752,16 @@ export const TrustValueSection: React.FC<{ content: TrustValueContent; style?: a
             >
               {item.icon && (
                 <div className="mb-4 h-10 w-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                  <img
-                    src={responsiveImageUrl(item.icon, 48, 48, 'contain')}
+                  <OptimizedImage
+                    src={item.icon}
                     alt={item.title || ""}
                     width={24}
                     height={24}
+                    fit="contain"
+                    quality={72}
                     loading="lazy"
                     decoding="async"
+                    disableSrcSet
                     className="h-6 w-6 object-contain"
                   />
                 </div>
@@ -1824,25 +1858,31 @@ export const MarketplaceTilesSection: React.FC<{ content: MarketplaceTilesConten
               >
                 <div className="space-y-3">
                   {(item.icon || item.image) && (
-                    <div className="h-12 w-12 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
+                <div className="h-12 w-12 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
                       {item.image ? (
-                        <img
-                          src={responsiveImageUrl(item.image, 96, 96, 'cover')}
+                        <OptimizedImage
+                          src={item.image}
                           alt={item.title || ""}
                           width={48}
                           height={48}
+                          fit="cover"
+                          quality={72}
                           loading="lazy"
                           decoding="async"
+                          disableSrcSet
                           className="h-full w-full object-cover"
                         />
                       ) : item.icon ? (
-                        <img
-                          src={responsiveImageUrl(item.icon, 48, 48, 'contain')}
+                        <OptimizedImage
+                          src={item.icon}
                           alt={item.title || ""}
                           width={24}
                           height={24}
+                          fit="contain"
+                          quality={72}
                           loading="lazy"
                           decoding="async"
+                          disableSrcSet
                           className="h-6 w-6 object-contain"
                         />
                       ) : null}
@@ -1891,13 +1931,16 @@ export const GuidesGridSection: React.FC<{ content: GuidesGridContent; style?: a
             >
               {item.image && (
                 <div className="h-40 w-full overflow-hidden bg-gray-100">
-                  <img
-                    src={responsiveImageUrl(item.image, 480, 320, 'cover')}
+                  <OptimizedImage
+                    src={item.image}
                     alt={item.title || ""}
                     width={480}
                     height={320}
+                    fit="cover"
+                    quality={72}
                     loading="lazy"
                     decoding="async"
+                    sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 92vw"
                     className="h-full w-full object-cover"
                   />
                 </div>
@@ -1944,13 +1987,16 @@ export const MadeOnScrolithSection: React.FC<{ content: MadeOnScrolithContent; s
             >
               {item.image && (
                 <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-lg transition">
-                  <img
-                    src={responsiveImageUrl(item.image, 480, 640, 'cover')}
+                  <OptimizedImage
+                    src={item.image}
                     alt={item.title || ""}
                     width={480}
                     height={640}
+                    fit="cover"
+                    quality={72}
                     loading="lazy"
                     decoding="async"
+                    sizes="(min-width: 1280px) 18vw, (min-width: 768px) 24vw, 46vw"
                     className="w-full object-cover"
                   />
                 </div>
