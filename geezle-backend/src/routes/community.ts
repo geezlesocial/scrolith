@@ -108,7 +108,8 @@ import {
   viewStory,
   updateStory,
   toggleStoryLike,
-  engageStory
+  engageStory,
+  sendStoryDirectMessage
 } from '../controllers/community.stories.controller';
 import {
   getStoryRepliesController,
@@ -288,6 +289,7 @@ router.delete('/stories/:id', authMiddleware, deleteStory);
 router.post('/stories/:id/view', authMiddleware, viewStory);
 router.post('/stories/:id/like', authMiddleware, toggleStoryLike);
 router.post('/stories/:id/engage', authMiddleware, engageStory);
+router.post('/stories/:id/direct-message', authMiddleware, sendStoryDirectMessage);
 router.post('/stories/:id/replies', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), createStoryReplyController);
 router.delete('/stories/replies/:replyId', authMiddleware, deleteStoryReplyController);
 router.post('/polls/:pollId/vote', authMiddleware, idempotency({ ttlMs: SOCIAL_WRITE_IDEMPOTENCY_TTL_MS }), voteCommunityPollController);
