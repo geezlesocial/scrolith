@@ -331,6 +331,37 @@ const Messages = () => {
   const messagesTraceEnabled =
       ['1', 'true', 'yes', 'on'].includes(String((import.meta as any)?.env?.VITE_MESSAGES_TRACE_DEBUG || '').toLowerCase());
 
+  const searchResultByConversationId = useMemo(() => {
+      const map = new Map<string, MessageSearchResult>();
+      messageSearchResults.forEach((result) => {
+          if (result.conversationId) map.set(result.conversationId, result);
+      });
+      return map;
+  }, [messageSearchResults]);
+
+  const searchConversations = useMemo(
+      () =>
+          mergeDirectConversations(
+              messageSearchResults
+                  .map((result) => {
+                      const conversation = result.conversation;
+                      if (!conversation?.id) return null;
+                      return {
+                          ...conversation,
+                          participants: conversation.participants?.length ? conversation.participants : result.participants,
+                          lastMessage: result.lastMessage || conversation.lastMessage || conversation.last_message,
+                          last_message: result.lastMessage || conversation.last_message || conversation.lastMessage,
+                          unreadCount: result.unreadCount ?? conversation.unreadCount ?? conversation.unread_count,
+                          unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
+                      } as Conversation;
+                  })
+                  .filter(Boolean) as Conversation[]
+          ),
+      [messageSearchResults]
+  );
+
+  const dedupedConversations = useMemo(() => mergeDirectConversations(conversations), [conversations]);
+
   const traceClient = (event: string, details?: Record<string, any>) => {
       if (!messagesTraceEnabled) return;
       const payload = {
@@ -737,34 +768,6 @@ const Messages = () => {
   }, [activeConvoId, activeConvo?.messages?.length, searchParams]);
   const activeMessageSearchQuery = debouncedMessageSearch.trim();
   const isMessageSearchActive = activeMessageSearchQuery.length >= 2;
-  const searchResultByConversationId = useMemo(() => {
-      const map = new Map<string, MessageSearchResult>();
-      messageSearchResults.forEach((result) => {
-          if (result.conversationId) map.set(result.conversationId, result);
-      });
-      return map;
-  }, [messageSearchResults]);
-  const searchConversations = useMemo(
-      () =>
-          mergeDirectConversations(
-              messageSearchResults
-                  .map((result) => {
-                      const conversation = result.conversation;
-                      if (!conversation?.id) return null;
-                      return {
-                          ...conversation,
-                          participants: conversation.participants?.length ? conversation.participants : result.participants,
-                          lastMessage: result.lastMessage || conversation.lastMessage || conversation.last_message,
-                          last_message: result.lastMessage || conversation.last_message || conversation.lastMessage,
-                          unreadCount: result.unreadCount ?? conversation.unreadCount ?? conversation.unread_count,
-                          unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
-                      } as Conversation;
-                  })
-                  .filter(Boolean) as Conversation[]
-          ),
-      [messageSearchResults]
-  );
-  const dedupedConversations = useMemo(() => mergeDirectConversations(conversations), [conversations]);
   const isMobileConversationMode = Boolean(isMobileViewport && activeConvo);
   const isMobileKeyboardOpen = Boolean(isMobileViewport && mobileKeyboardInset > 96);
   const mobileConversationViewportStyle: React.CSSProperties | undefined = isMobileConversationMode
