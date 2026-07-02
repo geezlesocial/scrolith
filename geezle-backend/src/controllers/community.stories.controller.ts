@@ -950,9 +950,15 @@ export const engageStory = async (req: Request, res: Response) => {
           title: selectedAlert.title,
           body: selectedAlert.body,
           inboxText: selectedAlert.inboxText,
+          inboxIsSystem: false,
           inboxMetadata: {
             category: `story_${type}`,
             storyId,
+            storyReference: {
+              storyId,
+              caption: String(story.content || ''),
+              mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
+            },
             storyUrl: storyLink
           },
           notificationMetadata: {
@@ -1024,7 +1030,11 @@ export const sendStoryDirectMessage = async (req: Request, res: Response) => {
       inboxMetadata: {
         category: notificationType === 'story_reaction' ? 'story_reaction' : 'story_message',
         storyId,
-        storyReference: { storyId, caption: String(story.content || '') },
+        storyReference: {
+          storyId,
+          caption: String(story.content || ''),
+          mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
+        },
         messagePreview: bodyText || undefined,
         reactionType: reactionType || undefined
       },

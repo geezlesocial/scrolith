@@ -90,6 +90,8 @@ export const createStoryInboxMessage = async (input: {
   kind: string;
   text: string;
   metadata?: Record<string, any> | null;
+  isSystem?: boolean;
+  messageType?: string | null;
 }) => {
   const senderId = normalizeId(input.senderId);
   const recipientId = normalizeId(input.recipientId);
@@ -116,11 +118,16 @@ export const createStoryInboxMessage = async (input: {
       conversationId: conversation.id,
       senderId,
       text,
-      isSystem: true,
+      isSystem: Boolean(input.isSystem ?? false),
+      messageType: (String(input.messageType || '').trim().toUpperCase() as any) || 'TEXT',
       metadata: {
         category: String(input.kind || 'story_event').trim() || 'story_event',
         storyId,
         actionUrl: buildStoryActionUrl(storyId),
+        storyReference: {
+          storyId,
+          ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {})
+        },
         ...(input.metadata || {})
       }
     },
@@ -245,6 +252,8 @@ export const deliverStoryEngagementAlert = async (input: {
   title: string;
   body: string;
   inboxText?: string | null;
+  inboxIsSystem?: boolean;
+  inboxMessageType?: string | null;
   inboxMetadata?: Record<string, any> | null;
   notificationMetadata?: Record<string, any> | null;
   notificationActionUrl?: string | null;
@@ -261,7 +270,9 @@ export const deliverStoryEngagementAlert = async (input: {
         storyId,
         kind: input.notificationType,
         text: input.inboxText,
-        metadata: input.inboxMetadata || undefined
+        metadata: input.inboxMetadata || undefined,
+        isSystem: Boolean(input.inboxIsSystem ?? false),
+        messageType: input.inboxMessageType || 'text'
       })
     : null;
 

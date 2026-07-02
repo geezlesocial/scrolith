@@ -245,10 +245,16 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
         inboxText: parentId
           ? `${actorName} replied on your story: ${snippet}`
           : `${actorName} commented on your story: ${snippet}`,
+        inboxIsSystem: false,
         inboxMetadata: {
           category: parentId ? 'story_reply' : 'story_comment',
           storyId,
           parentId: parentId || null,
+          storyReference: {
+            storyId,
+            caption: String((story as any)?.content || ''),
+            mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
+          },
           storyUrl: storyLink,
           snippet
         },
@@ -272,10 +278,16 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
         title: 'Reply to your story comment',
         body: `${actorName} replied to your story comment: ${snippet}`,
         inboxText: `${actorName} replied to your story comment: ${snippet}`,
+        inboxIsSystem: false,
         inboxMetadata: {
           category: 'story_reply',
           storyId,
           parentId: parentId || null,
+          storyReference: {
+            storyId,
+            caption: String((story as any)?.content || ''),
+            mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
+          },
           storyUrl: storyLink,
           snippet
         },
