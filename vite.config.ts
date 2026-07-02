@@ -28,6 +28,14 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
   {
     name: 'payments',
     patterns: ['/node_modules/stripe/']
+  },
+  {
+    name: 'maps',
+    patterns: ['/node_modules/maplibre-gl/']
+  },
+  {
+    name: 'capacitor',
+    patterns: ['/node_modules/@capacitor/']
   }
 ]
 

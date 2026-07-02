@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import SearchInput from '../../components/SearchInput';
 import MobileDialog, { MobileDialogFooter } from '../../components/mobile/MobileDialog';
+import OptimizedImage from '../../components/media/OptimizedImage';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
 import { useFavorites } from '../../context/FavoritesContext';
@@ -1622,7 +1623,16 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         className="h-[420px] w-full bg-slate-950 object-contain"
                       />
                     ) : (
-                      <img src={cover} alt={selectedListing.title} className="h-[420px] w-full object-cover" />
+                      <OptimizedImage
+                        src={cover}
+                        alt={selectedListing.title}
+                        width={1200}
+                        height={840}
+                        fit="cover"
+                        loading="eager"
+                        fetchPriority="high"
+                        className="h-[420px] w-full object-cover"
+                      />
                     )
                   ) : (
                     <div className="flex h-[420px] items-center justify-center text-slate-400">
@@ -1676,7 +1686,15 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                               <Video className="h-6 w-6" />
                             </div>
                           ) : (
-                            <img src={url} alt={`${selectedListing.title} media ${index + 1}`} className="aspect-[4/3] w-full object-cover" />
+                            <OptimizedImage
+                              src={url}
+                              alt={`${selectedListing.title} media ${index + 1}`}
+                              width={176}
+                              height={132}
+                              fit="cover"
+                              loading="lazy"
+                              className="aspect-[4/3] w-full object-cover"
+                            />
                           )}
                           {selectedMediaIndex === index && <span className="pointer-events-none absolute inset-x-2 bottom-2 h-1 rounded-full bg-white/95" />}
                         </button>
@@ -1738,9 +1756,13 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-center gap-3">
                       <Link to={sellerProfilePath} className="shrink-0">
-                        <img
+                        <OptimizedImage
                           src={seller?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(seller?.name || seller?.username || 'Seller')}`}
                           alt={seller?.name || seller?.username || 'Seller'}
+                          width={56}
+                          height={56}
+                          fit="cover"
+                          loading="lazy"
                           className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200"
                         />
                       </Link>
@@ -1946,7 +1968,19 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
               <h3 className="text-lg font-semibold text-slate-950">Seller</h3>
               <div className="mt-4 flex items-start gap-3">
                 <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
-                  {seller?.avatar ? <img src={seller.avatar} alt={seller.name || 'Seller'} className="h-full w-full object-cover" /> : <UserAvatarFallback name={seller?.name || 'Seller'} />}
+                  {seller?.avatar ? (
+                    <OptimizedImage
+                      src={seller.avatar}
+                      alt={seller.name || 'Seller'}
+                      width={56}
+                      height={56}
+                      fit="cover"
+                      loading="lazy"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <UserAvatarFallback name={seller?.name || 'Seller'} />
+                  )}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
@@ -2339,7 +2373,15 @@ const MarketplaceListingCard: React.FC<{
       <button type="button" onClick={onOpen} className="block w-full text-left">
         <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
           {cover ? (
-            <img src={cover} alt={listing.title} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]" />
+            <OptimizedImage
+              src={cover}
+              alt={listing.title}
+              width={900}
+              height={675}
+              fit="cover"
+              loading="lazy"
+              className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+            />
           ) : (
             <div className="flex h-full items-center justify-center text-slate-400">
               <ImageIcon className="h-10 w-10" />
@@ -2763,7 +2805,15 @@ const MarketplaceForm: React.FC<{
             <div className="space-y-3">
               <div className="overflow-hidden rounded-[24px] bg-slate-100">
                 {cover ? (
-                  <img src={cover} alt="Listing preview" className="h-[320px] w-full object-cover" />
+                  <OptimizedImage
+                    src={cover}
+                    alt="Listing preview"
+                    width={1200}
+                    height={860}
+                    fit="cover"
+                    loading="lazy"
+                    className="h-[320px] w-full object-cover"
+                  />
                 ) : (
                   <div className="flex h-[320px] items-center justify-center text-slate-400">
                     <ImageIcon className="h-10 w-10" />
@@ -2773,7 +2823,16 @@ const MarketplaceForm: React.FC<{
               {(imagePreviews.length > 1 || videoPreview) && (
                 <div className="grid grid-cols-4 gap-3">
                   {imagePreviews.slice(0, 4).map((preview, index) => (
-                    <img key={preview} src={preview} alt={`Image preview ${index + 1}`} className="aspect-[4/3] rounded-2xl object-cover" />
+                    <OptimizedImage
+                      key={preview}
+                      src={preview}
+                      alt={`Image preview ${index + 1}`}
+                      width={360}
+                      height={270}
+                      fit="cover"
+                      loading="lazy"
+                      className="aspect-[4/3] rounded-2xl object-cover"
+                    />
                   ))}
                   {videoPreview && (
                     <div className="flex aspect-[4/3] items-center justify-center rounded-2xl bg-slate-900 text-white">
@@ -2825,7 +2884,15 @@ const MarketplaceForm: React.FC<{
                         <Video className="h-6 w-6" />
                       </div>
                     ) : (
-                      <img src={media.thumbnailUrl || media.url} alt="Listing media" className="aspect-[4/3] w-full object-cover" />
+                      <OptimizedImage
+                        src={media.thumbnailUrl || media.url}
+                        alt="Listing media"
+                        width={320}
+                        height={240}
+                        fit="cover"
+                        loading="lazy"
+                        className="aspect-[4/3] w-full object-cover"
+                      />
                     )}
                     <button
                       type="button"
@@ -2846,7 +2913,16 @@ const MarketplaceForm: React.FC<{
               <p className="text-sm font-semibold text-slate-900">New image uploads</p>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {imagePreviews.map((preview, index) => (
-                  <img key={`${preview}-${index}`} src={preview} alt={`Upload preview ${index + 1}`} className="aspect-[4/3] rounded-2xl object-cover" />
+                  <OptimizedImage
+                    key={`${preview}-${index}`}
+                    src={preview}
+                    alt={`Upload preview ${index + 1}`}
+                    width={360}
+                    height={270}
+                    fit="cover"
+                    loading="lazy"
+                    className="aspect-[4/3] rounded-2xl object-cover"
+                  />
                 ))}
               </div>
             </div>
