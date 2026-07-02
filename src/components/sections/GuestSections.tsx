@@ -4,6 +4,7 @@ import AuthSocialButtons from "../../auth/AuthSocialButtons";
 import { useUser } from "../../context/UserContext";
 import { type Gig } from "../../services/gigs";
 import { CMSService } from "../../services/cms";
+import { listMarketplaceListings } from "../../services/marketplace";
 import OptimizedImage from "../media/OptimizedImage";
 import { getApiBaseUrl } from "../../utils/apiBase";
 import { resolveResponsiveAssetUrl } from "../../utils/assetUrl";
@@ -117,6 +118,8 @@ const isPaymentsTab = (tab: any): boolean => {
 
 const getGigImage = (gig: any): string => {
   const candidates = [
+    gig?.coverImage,
+    gig?.cover_image,
     gig?.cardImage,
     gig?.card_image,
     gig?.thumbnail,
@@ -137,7 +140,7 @@ const getGigPrice = (gig: any): string => {
   return `From $${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 };
 
-const getGigUrl = (gig: any) => `/gigs/${encodeURIComponent(String(gig?.id || gig?.slug || ""))}`;
+const getGigUrl = (gig: any) => `/marketplace/listing/${encodeURIComponent(String(gig?.slug || gig?.id || ""))}`;
 
 const extractGigsFromPayload = (payload: any): Gig[] => {
   const data = payload?.data ?? payload;
@@ -185,6 +188,91 @@ type GuestMessagingPreviewItem = {
   replies: number;
 };
 
+type GuestMarketplacePreviewItem = {
+  id: string;
+  title: string;
+  seller: string;
+  category: string;
+  price?: number;
+  image?: string;
+  slug?: string;
+};
+
+const FALLBACK_MARKETPLACE_PREVIEW_ITEMS: GuestMarketplacePreviewItem[] = [
+  {
+    id: 'demo-marketplace-1',
+    title: 'Premium brand identity kit',
+    seller: 'Scrolith Studio',
+    category: 'Design',
+    price: 480,
+    image: '/logo.webp',
+    slug: 'premium-brand-identity-kit'
+  },
+  {
+    id: 'demo-marketplace-2',
+    title: 'Product photography + retouching',
+    seller: 'Creative Guild',
+    category: 'Media',
+    price: 240,
+    image: '/logo.webp',
+    slug: 'product-photography-retouching'
+  },
+  {
+    id: 'demo-marketplace-3',
+    title: 'Website speed audit and fixes',
+    seller: 'Scrolith Pro',
+    category: 'Development',
+    price: 320,
+    image: '/logo.webp',
+    slug: 'website-speed-audit-fixes'
+  }
+];
+
+const FALLBACK_COMMUNITY_PREVIEW_ITEMS: GuestCommunityPreviewItem[] = [
+  {
+    id: 'demo-community-1',
+    title: 'Launching a new service on Scrolith?',
+    author: 'Community Studio',
+    comments: 12,
+    reactions: 34
+  },
+  {
+    id: 'demo-community-2',
+    title: 'What content gets the best response for freelancers?',
+    author: 'Growth Circle',
+    comments: 8,
+    reactions: 21
+  },
+  {
+    id: 'demo-community-3',
+    title: 'How teams keep briefs organized at scale',
+    author: 'Ops Network',
+    comments: 5,
+    reactions: 17
+  }
+];
+
+const FALLBACK_MESSAGING_PREVIEW_ITEMS: GuestMessagingPreviewItem[] = [
+  {
+    id: 'demo-message-1',
+    title: 'Proposal review for the new marketplace listing',
+    activity: 'by Scrolith Studio',
+    replies: 18
+  },
+  {
+    id: 'demo-message-2',
+    title: 'Team follow-up on design revisions and delivery',
+    activity: 'by Creative Guild',
+    replies: 11
+  },
+  {
+    id: 'demo-message-3',
+    title: 'New client inquiry about a scoped gig package',
+    activity: 'by Scrolith Pro',
+    replies: 7
+  }
+];
+
 const extractMessagingPreviewItems = (threadsPayload: any, feedPayload: any): GuestMessagingPreviewItem[] => {
   const threadRows = ensureArray<any>(threadsPayload?.data ?? threadsPayload);
   const fromThreads = threadRows.map((item, index) => ({
@@ -205,6 +293,40 @@ const extractMessagingPreviewItems = (threadsPayload: any, feedPayload: any): Gu
     activity: `by ${item.author}`,
     replies: item.comments
   })).slice(0, 4);
+};
+
+const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewItem[] => {
+  const data = payload?.data ?? payload ?? {};
+  const rows = ensureArray<any>(data?.items ?? data?.listings ?? data?.data ?? data);
+  return rows
+    .map((item, index) => {
+      const image =
+        String(
+          item?.coverImage ||
+          item?.cover_image ||
+          item?.thumbnail ||
+          item?.thumbnailUrl ||
+          item?.thumbnail_url ||
+          item?.image ||
+          item?.imageUrl ||
+          item?.image_url ||
+          (Array.isArray(item?.images) ? item.images[0]?.url || item.images[0] : '') ||
+          (Array.isArray(item?.media) ? item.media.find((entry: any) => (entry?.type || 'image') !== 'video')?.url : '') ||
+          ''
+        ).trim();
+
+      return {
+        id: String(item?.id || item?.slug || `marketplace-preview-${index}`),
+        title: String(item?.title || item?.name || 'Marketplace listing').trim(),
+        seller: String(item?.sellerName || item?.seller_name || item?.authorName || item?.author?.displayName || 'Scrolith seller'),
+        category: String(item?.categoryName || item?.category_name || item?.category || 'Marketplace'),
+        price: Number(item?.price?.amount ?? item?.price ?? item?.startingPrice ?? item?.budget ?? 0) || undefined,
+        image,
+        slug: String(item?.slug || item?.id || '')
+      };
+    })
+    .filter((item) => item.title)
+    .slice(0, 3);
 };
 
 type GuestAiPreview = {
@@ -256,22 +378,6 @@ const extractPaymentsPreview = (currenciesPayload: any, methodsPayload: any): Gu
   };
 };
 
-const fetchPublicMarketplacePreview = async (params: Record<string, string | number | boolean>): Promise<Gig[]> => {
-  const query = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
-  });
-  const response = await fetch(`${getApiBaseUrl()}/public/v1/gigs?${query.toString()}`, {
-    method: "GET",
-    credentials: "omit",
-    headers: {
-      Accept: "application/json"
-    }
-  });
-  if (!response.ok) throw new Error(`marketplace_preview_${response.status}`);
-  return extractGigsFromPayload(await response.json());
-};
-
 const fetchGuestJson = async (path: string): Promise<any> => {
   const response = await fetch(`${getApiBaseUrl()}${path}`, {
     method: "GET",
@@ -280,18 +386,6 @@ const fetchGuestJson = async (path: string): Promise<any> => {
   });
   if (!response.ok) throw new Error(`guest_preview_${response.status}`);
   return response.json();
-};
-
-const extractGuestHomepageGigs = (payload: any): Gig[] => {
-  const data = payload?.data ?? payload;
-  const sections = ensureArray<any>(data?.sections ?? data?.content?.sections ?? data?.homepage?.sections);
-  for (const section of sections) {
-    const sectionType = normalizeKey(section?.type ?? section?.sectionType ?? section?.key);
-    if (!sectionType.includes("guesttrendingpreview") && !sectionType.includes("trending")) continue;
-    const gigs = ensureArray<Gig>(section?.content?.gigs ?? section?.gigs ?? section?.items?.gigs);
-    if (gigs.length) return gigs;
-  }
-  return [];
 };
 
 const scheduleGuestIdleTask = (callback: () => void, timeout = 1200) => {
@@ -972,31 +1066,39 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
               });
           });
 
-        let gigs = await withTimeout(fetchPublicMarketplacePreview({ status: "active", limit: 3, random: true }));
+        let previewItems = extractMarketplacePreviewItems(
+          await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'recommended' }), 7000)
+        );
 
-        if (!gigs.length) {
+        if (!previewItems.length) {
           try {
-            gigs = await withTimeout(fetchPublicMarketplacePreview({ status: "active", limit: 3, featuredOnly: true }), 5000);
+            previewItems = extractMarketplacePreviewItems(
+              await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'popular' }), 5000)
+            );
           } catch {
-            gigs = [];
+            previewItems = [];
           }
         }
 
-        if (!gigs.length) {
+        if (!previewItems.length) {
           try {
             const homepage = await withTimeout(fetchGuestJson("/homepage/guest"), 7000);
-            gigs = extractGuestHomepageGigs(homepage);
+            previewItems = extractMarketplacePreviewItems(homepage);
           } catch {
-            gigs = [];
+            previewItems = [];
           }
+        }
+
+        if (!previewItems.length) {
+          previewItems = FALLBACK_MARKETPLACE_PREVIEW_ITEMS;
         }
 
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: gigs.slice(0, 3) });
+          setMarketplacePreview({ loading: false, loaded: true, gigs: previewItems as any });
         }
       } catch {
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: [] });
+          setMarketplacePreview({ loading: false, loaded: true, gigs: FALLBACK_MARKETPLACE_PREVIEW_ITEMS as any });
         }
       } finally {
         if (!cancelled) {
@@ -1020,12 +1122,16 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
       setCommunityPreview((prev) => ({ ...prev, loading: true }));
       try {
         const payload = await fetchGuestJson("/community/feed?limit=4&scope=public");
+        const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
         if (!cancelled) {
-          setCommunityPreview({ loading: false, loaded: true, items: extractCommunityPreviewItems(payload) });
+          const liveItems = extractCommunityPreviewItems(payload);
+          const fallbackItems = extractCommunityPreviewItems(homepage);
+          const items = liveItems.length ? liveItems : fallbackItems.length ? fallbackItems : FALLBACK_COMMUNITY_PREVIEW_ITEMS;
+          setCommunityPreview({ loading: false, loaded: true, items });
         }
       } catch {
         if (!cancelled) {
-          setCommunityPreview({ loading: false, loaded: true, items: [] });
+          setCommunityPreview({ loading: false, loaded: true, items: FALLBACK_COMMUNITY_PREVIEW_ITEMS });
         }
       } finally {
         if (!cancelled) communityPreviewRequestRef.current = false;
@@ -1053,14 +1159,20 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
 
         const threads = threadsPayload.status === "fulfilled" ? threadsPayload.value : null;
         const feed = feedPayload.status === "fulfilled" ? feedPayload.value : null;
-        const items = extractMessagingPreviewItems(threads, feed);
+        const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
+        const items =
+          extractMessagingPreviewItems(threads, feed).length > 0
+            ? extractMessagingPreviewItems(threads, feed)
+            : extractMessagingPreviewItems(homepage, homepage).length > 0
+              ? extractMessagingPreviewItems(homepage, homepage)
+              : FALLBACK_MESSAGING_PREVIEW_ITEMS;
 
         if (!cancelled) {
           setMessagingPreview({ loading: false, loaded: true, items });
         }
       } catch {
         if (!cancelled) {
-          setMessagingPreview({ loading: false, loaded: true, items: [] });
+          setMessagingPreview({ loading: false, loaded: true, items: FALLBACK_MESSAGING_PREVIEW_ITEMS });
         }
       } finally {
         if (!cancelled) messagingPreviewRequestRef.current = false;
