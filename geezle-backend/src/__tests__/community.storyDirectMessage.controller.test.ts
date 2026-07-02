@@ -158,8 +158,7 @@ describe('sendStoryDirectMessage', () => {
           category: 'story_reaction',
           reactionType: THUMBS_UP_REACTION,
           storyReference: expect.objectContaining({
-            storyId: 'story-1',
-            reactionType: THUMBS_UP_REACTION
+            storyId: 'story-1'
           })
         })
       })

@@ -462,6 +462,108 @@ const buildConversationPayloadWithAttachments = async (
   return { ...payload, messages };
 };
 
+const getDirectConversationKey = (conversation: any) => {
+  if (!conversation || String(conversation.type || '').toUpperCase() !== 'DIRECT') return '';
+  const participantIds = Array.isArray(conversation.participants)
+    ? conversation.participants
+        .map((participant: any) => String(participant?.userId || '').trim())
+        .filter(Boolean)
+    : [];
+  const uniqueIds = Array.from(new Set(participantIds));
+  if (uniqueIds.length !== 2) return '';
+  return uniqueIds.sort().join(':');
+};
+
+const mergeConversationPayloads = (payloads: any[]) => {
+  if (!Array.isArray(payloads) || payloads.length === 0) return [];
+
+  const directBuckets = new Map<string, any[]>();
+  const passthrough: any[] = [];
+
+  payloads.forEach((payload) => {
+    const key = getDirectConversationKey(payload);
+    if (!key) {
+      passthrough.push(payload);
+      return;
+    }
+    if (!directBuckets.has(key)) directBuckets.set(key, []);
+    directBuckets.get(key)!.push(payload);
+  });
+
+  const mergedDirects = Array.from(directBuckets.entries()).map(([, bucket]) => {
+    const ordered = [...bucket].sort((left, right) => {
+      const leftAt = new Date(left?.last_message_at || left?.lastMessageAt || 0).getTime();
+      const rightAt = new Date(right?.last_message_at || right?.lastMessageAt || 0).getTime();
+      if (leftAt !== rightAt) return rightAt - leftAt;
+      return String(right?.id || '').localeCompare(String(left?.id || ''));
+    });
+    const primary = ordered[0] || bucket[0];
+    const mergedMessages = ordered
+      .flatMap((entry) => Array.isArray(entry?.messages) ? entry.messages : [])
+      .sort((left, right) => {
+        const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
+        const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
+        if (leftAt !== rightAt) return leftAt - rightAt;
+        return String(left?.id || '').localeCompare(String(right?.id || ''));
+      });
+    const lastVisibleMessage = mergedMessages[mergedMessages.length - 1] || null;
+    const unreadCount = ordered.reduce((sum, entry) => sum + Number(entry?.unread_count || entry?.unreadCount || 0), 0);
+    return {
+      ...primary,
+      id: primary?.id,
+      messages: mergedMessages,
+      last_message: lastVisibleMessage?.text || primary?.last_message || '',
+      last_message_at: lastVisibleMessage?.timestamp || primary?.last_message_at || '',
+      unread_count: unreadCount,
+      lastMessage: lastVisibleMessage?.text || primary?.lastMessage || '',
+      lastMessageAt: lastVisibleMessage?.timestamp || primary?.lastMessageAt || '',
+      unreadCount: unreadCount
+    };
+  });
+
+  return [...passthrough, ...mergedDirects].sort((left, right) => {
+    const leftAt = new Date(left?.last_message_at || left?.lastMessageAt || 0).getTime();
+    const rightAt = new Date(right?.last_message_at || right?.lastMessageAt || 0).getTime();
+    if (leftAt !== rightAt) return rightAt - leftAt;
+    return String(right?.id || '').localeCompare(String(left?.id || ''));
+  });
+};
+
+const getMergedDirectConversationRecords = async (conversation: any, userId: string, previewLimit: number, admin: boolean) => {
+  const participantIds = Array.isArray(conversation?.participants)
+    ? conversation.participants
+        .map((participant: any) => String(participant?.userId || '').trim())
+        .filter(Boolean)
+    : [];
+  const uniqueIds = Array.from(new Set(participantIds));
+  if (String(conversation?.type || '').toUpperCase() !== 'DIRECT' || uniqueIds.length !== 2) {
+    return [conversation];
+  }
+
+  const candidates = await prisma.conversation.findMany({
+    where: {
+      type: 'DIRECT',
+      participants: { some: { userId: { in: uniqueIds } } }
+    },
+    include: {
+      participants: {
+        select: conversationParticipantSelect
+      },
+      messages: buildMessagesRelationSelect(previewLimit, true)
+    }
+  } as any);
+
+  return candidates.filter((candidate: any) => {
+    const candidateIds = Array.isArray(candidate?.participants)
+      ? candidate.participants
+          .map((entry: any) => String(entry?.userId || '').trim())
+          .filter(Boolean)
+      : [];
+    const candidateSet = Array.from(new Set(candidateIds)).sort();
+    return candidateSet.length === 2 && candidateSet.join(':') === uniqueIds.sort().join(':');
+  });
+};
+
 const emitToUser = (req: Request, userId: string, event: string, payload: any) => {
   try {
     const ns = req.app.get('communityNs');
@@ -642,13 +744,15 @@ export const listConversations = async (req: Request, res: Response) => {
       conversation.messages.flatMap((msg: any) => (Array.isArray(msg.attachments) ? msg.attachments : []))
     );
     const fileMap = await buildAttachmentMap(attachmentIds);
-    const payload = basePayload.map((conversation: any) => ({
-      ...conversation,
-      messages: conversation.messages.map((msg: any) => ({
-        ...msg,
-        attachments: mapAttachments(msg.attachments || [], fileMap)
+    const payload = mergeConversationPayloads(
+      basePayload.map((conversation: any) => ({
+        ...conversation,
+        messages: conversation.messages.map((msg: any) => ({
+          ...msg,
+          attachments: mapAttachments(msg.attachments || [], fileMap)
+        }))
       }))
-    }));
+    );
     return res.json({
       success: true,
       data: payload,
@@ -704,14 +808,28 @@ export const getConversation = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
-    const hiddenMessageMap = !admin && userId
-      ? await getDeletedForMeMessageMap(userId, [String(conversation.id || '')])
+    const mergedConversationRecords = await getMergedDirectConversationRecords(conversation, userId, messageLimit, admin);
+    const mergedHiddenMessageMap = !admin && userId
+      ? await getDeletedForMeMessageMap(
+          userId,
+          mergedConversationRecords.map((entry: any) => String(entry.id || ''))
+        )
       : new Map<string, Set<string>>();
+
+    const mergedPayloads = await Promise.all(
+      mergedConversationRecords.map(async (entry: any) => {
+        const hiddenMessageIds = mergedHiddenMessageMap.get(String(entry.id || '')) || new Set<string>();
+        return buildConversationPayloadWithAttachments(entry, userId, { hiddenMessageIds });
+      })
+    );
+    const mergedPayload = mergeConversationPayloads(mergedPayloads);
+    if (!mergedPayload.length) {
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+
     return res.json({
       success: true,
-      data: await buildConversationPayloadWithAttachments(conversation, userId, {
-        hiddenMessageIds: hiddenMessageMap.get(String(conversation.id || '')) || new Set<string>()
-      })
+      data: mergedPayload[0]
     });
   } catch (error: any) {
     console.error('Get conversation error:', error);
@@ -1833,4 +1951,3 @@ export const deleteMessage = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete message' });
   }
 };
-
