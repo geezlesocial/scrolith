@@ -150,7 +150,11 @@ describe('Marketplace boost prefill', () => {
     expect(res.body.data.destinationUrl).toContain('/marketplace/listing/boostable-marketplace-listing');
     expect(res.body.data.mediaFileIds).toEqual([fileId]);
     expect(Array.isArray(res.body.data.media)).toBe(true);
-    expect(res.body.data.media[0]).toMatchObject({ id: 'boost-listing-media', fileId });
+    expect(res.body.data.media[0]).toMatchObject({
+      id: 'boost-listing-media',
+      fileId,
+      storagePath: 'marketplace/listings/boost-listing-file.png'
+    });
   });
 
   test('non-owner is denied boost prefill access', async () => {
