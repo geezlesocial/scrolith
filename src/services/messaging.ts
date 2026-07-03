@@ -145,6 +145,11 @@ const extractStoryIdFromMessage = (message: any): string => {
   const storyReference = metadata?.storyReference && typeof metadata.storyReference === 'object'
     ? metadata.storyReference
     : null;
+  const threadKey = safeString(metadata?.storyThreadKey ?? metadata?.threadKey);
+  if (threadKey.startsWith('story:')) {
+    const fromThreadKey = threadKey.slice('story:'.length).trim();
+    if (fromThreadKey) return fromThreadKey;
+  }
   return safeString(
     storyReference?.storyId ??
       metadata?.storyId ??
@@ -154,7 +159,14 @@ const extractStoryIdFromMessage = (message: any): string => {
   );
 };
 
-const extractStoryThreadHint = (message: any): string => {
+const extractStoryThreadKey = (message: any): string => {
+  const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+  const threadKey = safeString(metadata?.storyThreadKey ?? metadata?.threadKey);
+  if (threadKey) return threadKey;
+
+  const storyId = extractStoryIdFromMessage(message);
+  if (storyId) return `story:${storyId}`;
+
   const text = safeString(message?.text ?? message?.message ?? message?.body).toLowerCase();
   if (!text) return '';
   const isStoryContext =
@@ -187,9 +199,11 @@ const getConversationStoryKey = (conversation: Conversation) => {
   if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
   const messages = safeArray<any>(conversation.messages);
   for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const threadKey = extractStoryThreadKey(messages[index]);
+    if (threadKey.startsWith('story:')) return threadKey.slice('story:'.length);
     const storyId = extractStoryIdFromMessage(messages[index]);
     if (storyId) return storyId;
-    const storyThreadHint = extractStoryThreadHint(messages[index]);
+    const storyThreadHint = extractStoryThreadKey(messages[index]);
     if (storyThreadHint) return storyThreadHint;
   }
   return '';
@@ -206,13 +220,14 @@ export const getMessageMergeKey = (message: any) => {
   const senderId = safeString(message?.senderId ?? message?.sender_id);
   const receiverId = safeString(message?.receiverId ?? message?.receiver_id);
   const participants = [senderId, receiverId].filter(Boolean).sort().join(':');
+  const threadKey = extractStoryThreadKey(message);
   const storyId = extractStoryIdFromMessage(message);
-  const storyThreadHint = storyId ? '' : extractStoryThreadHint(message);
+  const storyThreadHint = storyId ? '' : threadKey;
   if (participants) {
     return storyId
       ? `direct:${participants}|story:${storyId}`
       : storyThreadHint
-        ? `direct:${participants}|story:${storyThreadHint}`
+        ? `direct:${participants}|${storyThreadHint.startsWith('story:') ? storyThreadHint : `story:${storyThreadHint}`}`
         : `direct:${participants}`;
   }
   if (storyId) return `story:${storyId}`;
