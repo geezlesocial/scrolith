@@ -1207,12 +1207,14 @@ const MyAds = () => {
     ).trim();
     if (!boostListingId) return;
     if (handledBoostPrefillRef.current === boostListingId) return;
-    handledBoostPrefillRef.current = boostListingId;
 
     let cancelled = false;
 
     const applyBoostPrefill = async () => {
       setPromotionLoading(true);
+      setFormMode('create');
+      setEditingAdId(null);
+      setFormOpen(true);
       try {
         const boost = await AdService.getListingBoostPrefill(boostListingId);
         if (cancelled) return;
@@ -1265,9 +1267,11 @@ const MyAds = () => {
         });
         setFormGatewayId(getPreferredCheckoutGatewayId());
         setFormOpen(true);
+        handledBoostPrefillRef.current = boostListingId;
       } catch (error: any) {
         if (!cancelled) {
           showNotification('error', 'Boost listing', error?.message || 'Unable to prepare boost campaign.');
+          setFormOpen(false);
         }
       } finally {
         if (!cancelled) {
