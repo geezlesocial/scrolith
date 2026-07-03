@@ -508,6 +508,7 @@ const buildEmptyForm = (currency: string): AdFormState => ({
 });
 
 const PENDING_AD_SUBMIT_KEY = 'scrolith:my_ads:pending_submit_after_checkout';
+const BOOST_LISTING_PREFILL_KEY = 'scrolith:my_ads:boost_listing_prefill';
 const CHECKOUT_STATUS_SUCCESS = 'success';
 const CHECKOUT_STATUS_CANCEL = 'cancel';
 const CHECKOUT_STATUS_FAILED = 'failed';
@@ -518,6 +519,7 @@ const MyAds = () => {
   const { showNotification } = useNotification();
   const { availableCurrencies, currency: selectedCurrency } = useCurrency();
   const { user } = useUser();
+  const handledBoostPrefillRef = useRef<string>('');
   const [ads, setAds] = useState<AdCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
@@ -786,7 +788,7 @@ const MyAds = () => {
   const clearBoostListingQuery = () => {
     try {
       const params = new URLSearchParams(location.search);
-      const keys = ['boostListingId'];
+      const keys = ['boostListingId', 'boostOpen'];
       let changed = false;
       keys.forEach((key) => {
         if (params.has(key)) {
@@ -798,6 +800,29 @@ const MyAds = () => {
       const next = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
       window.history.replaceState({}, '', next);
     } catch (e) {}
+  };
+
+  const readBoostListingPrefillContext = () => {
+    try {
+      const raw = sessionStorage.getItem(BOOST_LISTING_PREFILL_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const boostListingId = String(parsed?.boostListingId || '').trim();
+      if (!boostListingId) return null;
+      return {
+        boostListingId,
+        boostListingSlug: String(parsed?.boostListingSlug || '').trim(),
+        boostSource: String(parsed?.boostSource || '').trim()
+      };
+    } catch (error) {
+      return null;
+    }
+  };
+
+  const clearBoostListingPrefillContext = () => {
+    try {
+      sessionStorage.removeItem(BOOST_LISTING_PREFILL_KEY);
+    } catch (error) {}
   };
 
   const resolveGatewayProvider = (gatewayId?: string, sourceGateway?: any): string => {
@@ -1173,8 +1198,16 @@ const MyAds = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const boostListingId = String(params.get('boostListingId') || navigationState?.boostListingId || '').trim();
+    const boostContext = readBoostListingPrefillContext();
+    const boostListingId = String(
+      params.get('boostListingId') ||
+        navigationState?.boostListingId ||
+        boostContext?.boostListingId ||
+        ''
+    ).trim();
     if (!boostListingId) return;
+    if (handledBoostPrefillRef.current === boostListingId) return;
+    handledBoostPrefillRef.current = boostListingId;
 
     let cancelled = false;
 
@@ -1240,6 +1273,7 @@ const MyAds = () => {
         if (!cancelled) {
           setPromotionLoading(false);
           clearBoostListingQuery();
+          clearBoostListingPrefillContext();
         }
       }
     };

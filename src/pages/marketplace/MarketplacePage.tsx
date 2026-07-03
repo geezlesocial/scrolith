@@ -120,6 +120,8 @@ const PAYMENT_METHODS = [
   { value: 'stripe', label: 'Stripe' }
 ];
 
+const BOOST_LISTING_PREFILL_KEY = 'scrolith:my_ads:boost_listing_prefill';
+
 const MEETUP_PREFERENCE_OPTIONS: Array<{ value: MarketplaceMeetupPreference; label: string; help: string }> = [
   { value: 'public_meetup', label: 'Public meetup', help: 'Meetup at a public space' },
   { value: 'door_pickup', label: 'Door pickup', help: 'Buyer pickup at your door' },
@@ -2036,18 +2038,25 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 {canBoostListing && (
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      const boostPayload = {
+                        boostListingId: String(selectedListing.id || '').trim(),
+                        boostListingSlug: String(selectedListing.slug || '').trim(),
+                        boostSource: 'marketplace-listing',
+                        createdAt: new Date().toISOString()
+                      };
+                      try {
+                        window.sessionStorage.setItem(BOOST_LISTING_PREFILL_KEY, JSON.stringify(boostPayload));
+                      } catch (error) {
+                        // Best-effort handoff only.
+                      }
                       navigate(
-                        `/freelancer/dashboard?tab=my-ads&boostListingId=${encodeURIComponent(String(selectedListing.id))}`,
+                        `/freelancer/dashboard?tab=my-ads&boostListingId=${encodeURIComponent(String(selectedListing.id))}&boostOpen=1`,
                         {
-                          state: {
-                            boostListingId: String(selectedListing.id),
-                            boostListingSlug: String(selectedListing.slug || ''),
-                            boostSource: 'marketplace-listing'
-                          }
+                          state: boostPayload
                         }
-                      )
-                    }
+                      );
+                    }}
                     className="flex w-full items-center justify-between rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-700"
                   >
                     <span className="inline-flex items-center gap-2">
