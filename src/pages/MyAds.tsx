@@ -477,7 +477,7 @@ type AdFormState = {
   }[];
 };
 
-type PromotionSourceType = 'post' | 'page' | null;
+type PromotionSourceType = 'post' | 'page' | 'listing' | null;
 
 type PromotionSelection = {
   type: PromotionSourceType;
@@ -782,6 +782,23 @@ const MyAds = () => {
     } catch (e) {}
   };
 
+  const clearBoostListingQuery = () => {
+    try {
+      const params = new URLSearchParams(location.search);
+      const keys = ['boostListingId'];
+      let changed = false;
+      keys.forEach((key) => {
+        if (params.has(key)) {
+          params.delete(key);
+          changed = true;
+        }
+      });
+      if (!changed) return;
+      const next = `${location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
+      window.history.replaceState({}, '', next);
+    } catch (e) {}
+  };
+
   const resolveGatewayProvider = (gatewayId?: string, sourceGateway?: any): string => {
     const rawId = String(gatewayId || '').trim();
     if (!rawId) return '';
@@ -1046,7 +1063,13 @@ const MyAds = () => {
     if (!sourceRaw) return;
 
     const source: PromotionSourceType =
-      sourceRaw === 'post' ? 'post' : sourceRaw === 'business-page' || sourceRaw === 'page' ? 'page' : null;
+      sourceRaw === 'post'
+        ? 'post'
+        : sourceRaw === 'business-page' || sourceRaw === 'page'
+          ? 'page'
+          : sourceRaw === 'listing' || sourceRaw === 'marketplace-listing'
+            ? 'listing'
+            : null;
     if (!source) return;
 
     let cancelled = false;
@@ -1142,6 +1165,85 @@ const MyAds = () => {
     };
 
     applyPromotionSelection();
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search, selectedCurrency.code, showNotification]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const boostListingId = String(params.get('boostListingId') || '').trim();
+    if (!boostListingId) return;
+
+    let cancelled = false;
+
+    const applyBoostPrefill = async () => {
+      setPromotionLoading(true);
+      try {
+        const boost = await AdService.getListingBoostPrefill(boostListingId);
+        if (cancelled) return;
+
+        const boostMedia = Array.isArray(boost.media)
+          ? boost.media
+              .map((media: any) => ({
+                id: String(media?.id || media?.fileId || '').trim(),
+                url: media?.url,
+                downloadUrl: media?.downloadUrl,
+                download_url: media?.download_url,
+                path: media?.path,
+                storageKey: media?.storageKey,
+                name: media?.name,
+                mimeType: media?.mimeType,
+                mime_type: media?.mime_type,
+                type: media?.type
+              }))
+              .filter((media: any) => Boolean(media.id))
+          : [];
+
+        setPromotionSelection({
+          type: 'listing',
+          entityId: boost.listingId,
+          entitySlug: boost.listingSlug,
+          entityUrl: boost.destinationUrl || boost.listingUrl,
+          title: boost.campaignName || `Boost - ${boost.adTitle}`,
+          subtitle: 'Marketplace Listing',
+          bodyDraft: boost.adCopy
+        });
+        setFormMode('create');
+        setEditingAdId(null);
+        setForm({
+          ...buildEmptyForm(boost.currency || selectedCurrency.code),
+          title: boost.campaignName || boost.adTitle || '',
+          body: boost.adCopy || '',
+          objective: boost.objective || 'traffic',
+          destinationType: boost.destinationType || 'url',
+          destinationUrl: boost.destinationUrl || boost.listingUrl || '',
+          ctaText: boost.ctaText || 'View Listing',
+          placements: Array.isArray(boost.placements) && boost.placements.length > 0 ? boost.placements.map((placement) => normalizePlacement(placement)) : ['community_feed'],
+          pricingModel: 'CPM',
+          targetCountries: Array.isArray(boost.targetCountries) ? boost.targetCountries : [],
+          targetAudience: boost.targetAudience || 'users',
+          dailySpend: Number(boost.dailySpend || 0),
+          budget: Number(boost.budget || 120),
+          currency: boost.currency || selectedCurrency.code || 'USD',
+          durationDays: Number(boost.durationDays || 7),
+          media: boostMedia
+        });
+        setFormGatewayId(getPreferredCheckoutGatewayId());
+        setFormOpen(true);
+      } catch (error: any) {
+        if (!cancelled) {
+          showNotification('error', 'Boost listing', error?.message || 'Unable to prepare boost campaign.');
+        }
+      } finally {
+        if (!cancelled) {
+          setPromotionLoading(false);
+          clearBoostListingQuery();
+        }
+      }
+    };
+
+    applyBoostPrefill();
     return () => {
       cancelled = true;
     };
@@ -1305,6 +1407,26 @@ const MyAds = () => {
   const buildPromotionSelectionFromAd = useCallback((ad: AdCampaign): PromotionSelection | null => {
     const targeting = getCampaignTargeting(ad);
     const promotionType = String(targeting.promotionType || '').trim().toLowerCase();
+    const sourceType = String(targeting.sourceType || '').trim().toLowerCase();
+
+    if (promotionType === 'listing' || sourceType === 'marketplace_listing') {
+      const entityId = String(targeting.promotionEntityId || targeting.sourceId || '').trim();
+      if (!entityId) return null;
+      const entitySlug = String(targeting.promotionEntitySlug || targeting.sourceSlug || '').trim();
+      const entityUrl =
+        String(targeting.promotionEntityUrl || targeting.sourceUrl || '').trim() ||
+        `${window.location.origin}/marketplace/listing/${encodeURIComponent(entitySlug || entityId)}`;
+      return {
+        type: 'listing',
+        entityId,
+        entitySlug: entitySlug || undefined,
+        entityUrl,
+        title: String(targeting.promotionTitle || ad.title || 'Boosted Listing').trim(),
+        subtitle: String(targeting.promotionSubtitle || 'Marketplace Listing').trim(),
+        bodyDraft: String(ad.body || targeting.sourceBody || '').trim()
+      };
+    }
+
     if (promotionType === 'post') {
       const entityId = String(targeting.promotionEntityId || '').trim();
       if (!entityId) return null;
@@ -1579,16 +1701,24 @@ const MyAds = () => {
       const primaryPlacement = normalizedPlacements[0] || 'community_feed';
       const targetAudience = form.targetAudience || 'users';
       const dailySpend = toNumber(form.dailySpend) > 0 ? toNumber(form.dailySpend) : undefined;
-      const promotionTargeting =
+    const promotionTargeting =
         promotionSelection && promotionSelection.type
           ? {
               promotionType: promotionSelection.type,
               promotionEntityId: promotionSelection.entityId,
               promotionEntitySlug:
-                promotionSelection.type === 'page' ? promotionSelection.entitySlug || undefined : undefined,
+                promotionSelection.type === 'page' || promotionSelection.type === 'listing'
+                  ? promotionSelection.entitySlug || undefined
+                  : undefined,
               promotionEntityUrl: promotionSelection.entityUrl,
               promotionTitle: promotionSelection.title,
-              promotionSubtitle: promotionSelection.subtitle
+              promotionSubtitle: promotionSelection.subtitle,
+              sourceType: promotionSelection.type === 'listing' ? 'MARKETPLACE_LISTING' : undefined,
+              sourceId: promotionSelection.type === 'listing' ? promotionSelection.entityId : undefined,
+              sourceSlug:
+                promotionSelection.type === 'listing' ? promotionSelection.entitySlug || undefined : undefined,
+              sourceUrl: promotionSelection.type === 'listing' ? promotionSelection.entityUrl : undefined,
+              sourceTitle: promotionSelection.type === 'listing' ? promotionSelection.title : undefined
             }
           : {};
       const payload: Partial<AdCampaign> = {
@@ -2354,6 +2484,8 @@ const MyAds = () => {
                 const promotionLabel =
                   targeting.promotionType === 'page'
                     ? 'Promoted page'
+                    : targeting.promotionType === 'listing' || targeting.sourceType === 'MARKETPLACE_LISTING'
+                      ? 'Boosted listing'
                     : targeting.promotionType === 'post'
                       ? 'Promoted post'
                       : 'Direct campaign';
@@ -2990,7 +3122,12 @@ const MyAds = () => {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
-                        Promoting {promotionSelection.type === 'page' ? 'Page' : 'Post'}
+                        Promoting{' '}
+                        {promotionSelection.type === 'page'
+                          ? 'Page'
+                          : promotionSelection.type === 'listing'
+                            ? 'Listing'
+                            : 'Post'}
                       </p>
                       <p className="mt-1 text-sm font-semibold text-emerald-900">{promotionSelection.title}</p>
                       {promotionSelection.subtitle ? (
@@ -3390,6 +3527,8 @@ const MyAds = () => {
                             {promotionSelection
                               ? promotionSelection.type === 'page'
                                 ? 'Promoted page'
+                                : promotionSelection.type === 'listing'
+                                  ? 'Boosted listing'
                                 : 'Promoted post'
                               : 'Campaign preview'}
                           </p>

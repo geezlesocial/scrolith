@@ -21,6 +21,7 @@ import {
   Navigation,
   Package2,
   Plus,
+  Rocket,
   RotateCcw,
   Search,
   Send,
@@ -1576,6 +1577,16 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     const isVideoActive = Boolean(activeMedia && typeof activeMedia !== 'string' && activeMedia.type === 'video');
     const seller = selectedListing.seller;
     const canManage = listingIsEditable(selectedListing, user?.id, isAdmin);
+    const canBoostListing = Boolean(
+      user?.id &&
+        selectedListing.sellerId === user.id &&
+        selectedListing.seller?.isActive !== false &&
+        !selectedListing.removedAt &&
+        !['removed', 'deleted', 'suspended', 'banned', 'archived', 'sold', 'rejected'].includes(
+          String(selectedListing.status || '').toLowerCase()
+        ) &&
+        String(selectedListing.reviewStatus || '').toLowerCase() !== 'rejected'
+    );
     const canSlideMedia = media.length > 1;
     const sellerProfilePath = toProfilePath(seller);
     const listingLatitude = toLocationValue(selectedListing.latitude);
@@ -2022,6 +2033,23 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   </span>
                   <ChevronRight className="h-4 w-4" />
                 </button>
+                {canBoostListing && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        `/freelancer/dashboard?tab=my-ads&boostListingId=${encodeURIComponent(String(selectedListing.id))}`
+                      )
+                    }
+                    className="flex w-full items-center justify-between rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-700"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <Rocket className="h-4 w-4" />
+                      Boost Listing
+                    </span>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
                 {canManage && (
                   <button
                     type="button"

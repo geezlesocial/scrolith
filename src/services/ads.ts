@@ -62,6 +62,30 @@ const normalizeTargeting = (value: any): Record<string, any> => {
   return { ...value };
 };
 
+export interface ListingBoostPrefill {
+  sourceType: 'MARKETPLACE_LISTING';
+  listingId: string;
+  listingSlug: string;
+  listingUrl: string;
+  campaignName: string;
+  adTitle: string;
+  adCopy: string;
+  destinationType: 'url';
+  destinationUrl: string;
+  ctaText: string;
+  placements: string[];
+  objective: 'traffic';
+  targetAudience: 'users' | 'businesses' | 'all';
+  targetCountries: string[];
+  currency: string;
+  budget: number;
+  dailySpend: number | null;
+  durationDays: number;
+  mediaFileIds: string[];
+  media: Array<Record<string, any>>;
+  targeting: Record<string, any>;
+}
+
 const toAdPayload = (payload: Partial<AdCampaign>) => {
   const incomingTargeting = normalizeTargeting((payload as any).targeting);
   const placementsSource =
@@ -170,6 +194,15 @@ export const AdService = {
       return data || null;
     } catch (error: any) {
       throw new Error(extractApiErrorMessage(error, 'Unable to create ad draft.'));
+    }
+  },
+
+  getListingBoostPrefill: async (listingId: string): Promise<ListingBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/listing/${encodeURIComponent(String(listingId || '').trim())}/prefill`);
+      return extractData<ListingBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare boost prefill.'));
     }
   },
 
