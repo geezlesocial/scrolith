@@ -207,7 +207,9 @@ const isAdVideoMedia = (media: any) => {
 const resolveAdPreviewMediaUrl = (media: any) => {
   return resolveAssetUrl(
     String(
-      media?.url ||
+      media?.thumbnailUrl ||
+        media?.thumbnail_url ||
+        media?.url ||
         media?.downloadUrl ||
         media?.download_url ||
         media?.path ||
@@ -1223,11 +1225,13 @@ const MyAds = () => {
           ? boost.media
               .map((media: any) => ({
                 id: String(media?.id || media?.fileId || '').trim(),
-                url: media?.url,
-                downloadUrl: media?.downloadUrl,
-                download_url: media?.download_url,
-                path: media?.path,
-                storageKey: media?.storageKey,
+                url: resolveAdPreviewMediaUrl(media),
+                thumbnailUrl: resolveAssetUrl(String(media?.thumbnailUrl || media?.thumbnail_url || '').trim()),
+                thumbnail_url: resolveAssetUrl(String(media?.thumbnail_url || media?.thumbnailUrl || '').trim()),
+                downloadUrl: resolveAssetUrl(String(media?.downloadUrl || media?.download_url || '').trim()),
+                download_url: resolveAssetUrl(String(media?.download_url || media?.downloadUrl || '').trim()),
+                path: String(media?.path || '').trim(),
+                storageKey: String(media?.storageKey || '').trim(),
                 name: media?.name,
                 mimeType: media?.mimeType,
                 mime_type: media?.mime_type,
