@@ -2038,7 +2038,14 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                     type="button"
                     onClick={() =>
                       navigate(
-                        `/freelancer/dashboard?tab=my-ads&boostListingId=${encodeURIComponent(String(selectedListing.id))}`
+                        `/freelancer/dashboard?tab=my-ads&boostListingId=${encodeURIComponent(String(selectedListing.id))}`,
+                        {
+                          state: {
+                            boostListingId: String(selectedListing.id),
+                            boostListingSlug: String(selectedListing.slug || ''),
+                            boostSource: 'marketplace-listing'
+                          }
+                        }
                       )
                     }
                     className="flex w-full items-center justify-between rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-700"

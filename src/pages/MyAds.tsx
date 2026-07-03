@@ -514,6 +514,7 @@ const CHECKOUT_STATUS_FAILED = 'failed';
 
 const MyAds = () => {
   const location = useLocation();
+  const navigationState = (location.state as { boostListingId?: string; boostListingSlug?: string } | null) || null;
   const { showNotification } = useNotification();
   const { availableCurrencies, currency: selectedCurrency } = useCurrency();
   const { user } = useUser();
@@ -1172,7 +1173,7 @@ const MyAds = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const boostListingId = String(params.get('boostListingId') || '').trim();
+    const boostListingId = String(params.get('boostListingId') || navigationState?.boostListingId || '').trim();
     if (!boostListingId) return;
 
     let cancelled = false;
@@ -1247,7 +1248,7 @@ const MyAds = () => {
     return () => {
       cancelled = true;
     };
-  }, [location.search, selectedCurrency.code, showNotification]);
+  }, [location.search, navigationState?.boostListingId, selectedCurrency.code, showNotification]);
 
   useEffect(() => {
     const loadGateways = async () => {
