@@ -7,6 +7,7 @@ import { sendSystemEmail } from '../services/email.service';
 import { getStripeClient } from '../services/stripeConfig.service';
 import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
+import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.service';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 const PLATFORM_ORIGIN = process.env.PLATFORM_URL || 'https://scrolith.com';
@@ -1034,6 +1035,26 @@ export const createAdDraft = async (req: Request, res: Response) => {
       });
     }
     return res.status(500).json({ success: false, error: error.message || 'Failed to create ad' });
+  }
+};
+
+export const getListingBoostPrefill = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const listingId = String(req.params.listingId || '').trim();
+    if (!listingId) {
+      return res.status(400).json({ success: false, error: 'Missing listing id' });
+    }
+
+    const data = await buildMarketplaceListingBoostPrefill(userId, listingId);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = Number(error?.status || error?.statusCode || 500);
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      success: false,
+      error: error?.message || 'Failed to prepare marketplace boost prefill.'
+    });
   }
 };
 

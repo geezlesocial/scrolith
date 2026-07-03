@@ -261,6 +261,7 @@ const normalizeListingInclude = {
       country: true,
       role: true,
       isVerified: true,
+      isActive: true,
       createdAt: true
     }
   },
@@ -825,6 +826,196 @@ export const getMarketplaceListingByIdOrSlug = async (idOrSlug: string, viewerId
     : null;
 };
 
+export const buildMarketplaceListingBoostPrefill = async (userId: string, listingId: string) => {
+  const listing = await prisma.marketplaceListing.findUnique({
+    where: { id: listingId },
+    include: normalizeListingInclude
+  });
+
+  if (!listing) {
+    const error = new Error('Listing not found');
+    (error as any).status = 404;
+    throw error;
+  }
+
+  if (String(listing.sellerId || '') !== String(userId || '')) {
+    const error = new Error('Listing ownership required');
+    (error as any).status = 403;
+    throw error;
+  }
+
+  if (listing.seller?.isActive === false) {
+    const error = new Error('Listing owner account is inactive');
+    (error as any).status = 403;
+    throw error;
+  }
+
+  const status = String(listing.status || '').toLowerCase();
+  const reviewStatus = String(listing.reviewStatus || '').toLowerCase();
+  const allowedStatuses = new Set(['active', 'reserved', 'pending_review', 'approved']);
+  if (!allowedStatuses.has(status) && !allowedStatuses.has(reviewStatus)) {
+    const error = new Error('Listing must be active or reviewable before it can be boosted');
+    (error as any).status = 403;
+    throw error;
+  }
+
+  if (['sold', 'removed', 'suspended', 'rejected'].includes(status) || ['rejected'].includes(reviewStatus)) {
+    const error = new Error('Listing is not eligible for boost promotion');
+    (error as any).status = 403;
+    throw error;
+  }
+
+  const normalizedListing = normalizeListing(listing, userId);
+  const images = Array.isArray(normalizedListing?.media)
+    ? normalizedListing.media
+        .filter((entry: any) => String(entry?.type || '').toLowerCase() !== 'video')
+        .sort((left: any, right: any) => Number(left?.sortOrder || 0) - Number(right?.sortOrder || 0))
+    : [];
+  const primaryImage = images[0] || normalizedListing?.media?.[0] || null;
+  const mediaFileIds = Array.from(
+    new Set(
+      (Array.isArray(listing.media) ? listing.media : [])
+        .map((entry: any) => String(entry?.fileId || '').trim())
+        .filter(Boolean)
+    )
+  );
+  const publicAppUrl = String(process.env.PUBLIC_APP_URL || process.env.FRONTEND_URL || 'https://scrolith.com')
+    .trim()
+    .replace(/\/+$/, '');
+  const canonicalUrl = `${publicAppUrl}/marketplace/listing/${encodeURIComponent(
+    String(listing.slug || listing.id || '').trim()
+  )}`;
+  const canonicalTitle = String(listing.title || 'Marketplace listing').trim();
+  const canonicalCopy = String(
+    listing.description ||
+      listing.summary ||
+      `${canonicalTitle} available on Scrolith Marketplace.`
+  ).trim();
+  const placementCandidates = ['community_feed', 'homepage_feed'];
+  const primaryPlacement = placementCandidates[0];
+  const targeting = {
+    sourceType: 'MARKETPLACE_LISTING',
+    sourceId: listing.id,
+    sourceOwnerId: listing.sellerId,
+    sourceSlug: listing.slug,
+    sourceUrl: canonicalUrl,
+    sourceTitle: canonicalTitle,
+    sourceCategoryId: listing.categoryId || null,
+    sourceTags: Array.isArray(listing.tags) ? listing.tags.map(String) : [],
+    sourceLocation: listing.location || null,
+    sourceCurrency: listing.currency || 'USD',
+    sourcePrice: Number(listing.price || 0),
+    sourceMediaFileIds: mediaFileIds,
+    placements: placementCandidates,
+    pricingModel: 'CPM',
+    targetCountries: listing.seller?.country ? [String(listing.seller.country).trim()].filter(Boolean) : [],
+    targetAudience: 'users',
+    dailySpend: null
+  };
+
+  await prisma.marketplaceAuditLog.create({
+    data: {
+      listingId: listing.id,
+      actorId: userId,
+      action: 'listing.boost.prefill',
+      payload: targeting as JsonValue
+    }
+  }).catch(() => null);
+
+  return {
+    sourceType: 'MARKETPLACE_LISTING',
+    listingId: listing.id,
+    listingSlug: listing.slug || listing.id,
+    listingUrl: canonicalUrl,
+    campaignName: `Boost - ${canonicalTitle}`,
+    adTitle: canonicalTitle,
+    adCopy: canonicalCopy,
+    destinationType: 'url',
+    destinationUrl: canonicalUrl,
+    ctaText: 'View Listing',
+    placements: placementCandidates,
+    objective: 'traffic',
+    targetAudience: 'users',
+    targetCountries: targeting.targetCountries,
+    currency: String(listing.currency || 'USD').toUpperCase(),
+    budget: Math.max(120, Number(listing.price || 0) > 0 ? Math.round(Number(listing.price || 0) * 0.1) : 120),
+    dailySpend: null,
+    durationDays: 7,
+    mediaFileIds,
+    media: images.map((entry: any) => ({
+      id: entry.id,
+      fileId: entry.fileId || null,
+      url: entry.url,
+      downloadUrl: entry.url,
+      name: primaryImage?.id === entry.id ? `${canonicalTitle} (primary)` : canonicalTitle,
+      mimeType: entry.mimeType,
+      type: entry.type,
+      thumbnailUrl: entry.thumbnailUrl || null,
+      width: entry.width || null,
+      height: entry.height || null
+    })),
+    targeting
+  };
+};
+
+const pauseMarketplaceBoostCampaignsForListing = async (listingId: string, creatorId: string, actorId: string) => {
+  const ads = await prisma.communityAd.findMany({
+    where: {
+      creatorId
+    },
+    select: {
+      id: true,
+      title: true,
+      status: true,
+      targeting: true
+    }
+  });
+
+  const matchingAds = ads.filter((ad) => {
+    const targeting = ad.targeting as Record<string, any> | null | undefined;
+    return (
+      String(targeting?.sourceType || '').toUpperCase() === 'MARKETPLACE_LISTING' &&
+      String(targeting?.sourceId || '') === String(listingId)
+    );
+  });
+
+  if (!matchingAds.length) {
+    return [];
+  }
+
+  const pausedAt = new Date();
+  const updates = await Promise.all(
+    matchingAds
+      .filter((ad) => !['ENDED', 'REJECTED'].includes(String(ad.status || '').toUpperCase()))
+      .map(async (ad) => {
+        const updated = await prisma.communityAd.update({
+          where: { id: ad.id },
+          data: {
+            status: 'PAUSED',
+            adminReviewNotes: `Source listing ${listingId} was archived or sold.`
+          }
+        });
+        await prisma.marketplaceAuditLog
+          .create({
+            data: {
+              listingId,
+              actorId,
+              action: 'listing.boost.paused',
+              payload: {
+                adId: ad.id,
+                adStatus: ad.status,
+                pausedAt
+              } as JsonValue
+            }
+          })
+          .catch(() => null);
+        return updated;
+      })
+  );
+
+  return updates;
+};
+
 export const createMarketplaceListing = async (user: User, input: any, allowAdmin = false) => {
   const settings = await assertMarketplaceEnabled();
   const normalizedRole = normalizeRole(user.role);
@@ -1087,6 +1278,7 @@ export const archiveMarketplaceListing = async (listingId: string, user: User) =
     },
     include: normalizeListingInclude
   });
+  await pauseMarketplaceBoostCampaignsForListing(updated.id, updated.sellerId, user.id).catch(() => null);
   await publishIntegrationEvent('marketplace.listing.archived', {
     listingId: updated.id,
     slug: updated.slug,
@@ -1115,6 +1307,7 @@ export const markMarketplaceListingSold = async (listingId: string, user: User) 
     },
     include: normalizeListingInclude
   });
+  await pauseMarketplaceBoostCampaignsForListing(updated.id, updated.sellerId, user.id).catch(() => null);
   notifyUser(listing.sellerId, {
     type: 'marketplace.listing.sold',
     title: 'Listing marked sold',
