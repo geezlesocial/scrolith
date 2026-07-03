@@ -14,6 +14,8 @@ const buildSnippet = (value: unknown, maxLength = 140) => {
 export const buildStoryActionUrl = (storyId: string) =>
   `/community?story=${encodeURIComponent(String(storyId || '').trim())}`;
 
+const buildStoryThreadKey = (storyId: string) => `story:${normalizeId(storyId)}`;
+
 const getActorSnapshot = async (actorId?: string | null) => {
   const normalizedActorId = normalizeId(actorId);
   if (!normalizedActorId) return null;
@@ -172,6 +174,8 @@ export const createStoryInboxMessage = async (input: {
       metadata: {
         category: String(input.kind || 'story_event').trim() || 'story_event',
         storyId,
+        storyThreadKey: buildStoryThreadKey(storyId),
+        threadKey: buildStoryThreadKey(storyId),
         actionUrl: buildStoryActionUrl(storyId),
         storyReference: {
           storyId,
@@ -330,6 +334,8 @@ export const deliverStoryEngagementAlert = async (input: {
       ? `/messages/${encodeURIComponent(String(inboxDelivery?.conversationId || '').trim())}`
       : input.notificationActionUrl || buildStoryActionUrl(storyId);
 
+  const storyThreadKey = buildStoryThreadKey(storyId);
+
   const notification = await createStoryNotification({
     recipientId,
     actorId,
@@ -339,6 +345,8 @@ export const deliverStoryEngagementAlert = async (input: {
     actionUrl,
     metadata: {
       storyId,
+      storyThreadKey,
+      threadKey: storyThreadKey,
       entityType: 'story',
       entityId: storyId,
       conversationId: inboxDelivery?.conversationId || null,
