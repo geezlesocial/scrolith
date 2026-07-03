@@ -209,11 +209,14 @@ const resolveAdPreviewMediaUrl = (media: any) => {
     String(
       media?.thumbnailUrl ||
         media?.thumbnail_url ||
+        media?.storagePath ||
+        media?.storage_path ||
+        media?.storageKey ||
+        media?.storage_key ||
         media?.url ||
         media?.downloadUrl ||
         media?.download_url ||
         media?.path ||
-        media?.storageKey ||
         ''
     ).trim()
   );
@@ -1230,6 +1233,8 @@ const MyAds = () => {
                 thumbnail_url: resolveAssetUrl(String(media?.thumbnail_url || media?.thumbnailUrl || '').trim()),
                 downloadUrl: resolveAssetUrl(String(media?.downloadUrl || media?.download_url || '').trim()),
                 download_url: resolveAssetUrl(String(media?.download_url || media?.downloadUrl || '').trim()),
+                storagePath: String(media?.storagePath || media?.storage_path || '').trim(),
+                storage_key: String(media?.storage_key || media?.storagePath || '').trim(),
                 path: String(media?.path || '').trim(),
                 storageKey: String(media?.storageKey || '').trim(),
                 name: media?.name,
