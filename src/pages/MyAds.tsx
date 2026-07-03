@@ -1276,7 +1276,6 @@ const MyAds = () => {
       } finally {
         if (!cancelled) {
           setPromotionLoading(false);
-          clearBoostListingQuery();
           clearBoostListingPrefillContext();
         }
       }
