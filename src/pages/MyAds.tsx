@@ -209,13 +209,13 @@ const resolveAdPreviewMediaUrl = (media: any) => {
     String(
       media?.thumbnailUrl ||
         media?.thumbnail_url ||
+        media?.url ||
+        media?.downloadUrl ||
+        media?.download_url ||
         media?.storagePath ||
         media?.storage_path ||
         media?.storageKey ||
         media?.storage_key ||
-        media?.url ||
-        media?.downloadUrl ||
-        media?.download_url ||
         media?.path ||
         ''
     ).trim()
@@ -1228,7 +1228,22 @@ const MyAds = () => {
           ? boost.media
               .map((media: any) => ({
                 id: String(media?.id || media?.fileId || '').trim(),
-                url: resolveAdPreviewMediaUrl(media),
+                url:
+                  resolveAssetUrl(
+                    String(
+                      media?.url ||
+                        media?.downloadUrl ||
+                        media?.download_url ||
+                        media?.thumbnailUrl ||
+                        media?.thumbnail_url ||
+                        media?.storagePath ||
+                        media?.storage_path ||
+                        media?.storageKey ||
+                        media?.storage_key ||
+                        media?.path ||
+                        ''
+                    ).trim()
+                  ) || resolveAdPreviewMediaUrl(media),
                 thumbnailUrl: resolveAssetUrl(String(media?.thumbnailUrl || media?.thumbnail_url || '').trim()),
                 thumbnail_url: resolveAssetUrl(String(media?.thumbnail_url || media?.thumbnailUrl || '').trim()),
                 downloadUrl: resolveAssetUrl(String(media?.downloadUrl || media?.download_url || '').trim()),
@@ -1517,7 +1532,7 @@ const MyAds = () => {
         Array.isArray(ad.media) && ad.media.length > 0
           ? ad.media.map((media: any) => ({
               id: media.id || '',
-              url: media.url,
+              url: resolveAssetUrl(String(media.url || media.downloadUrl || media.thumbnailUrl || media.storagePath || media.path || '').trim()) || media.url,
               name: media.name,
               mimeType: media.mimeType,
               type: isAdVideoMedia(media) ? 'video' : 'image'
