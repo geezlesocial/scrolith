@@ -6832,7 +6832,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         </div>
                       ) : marketplacePreviewListings.length > 0 ? (
                         marketplacePreviewListings.map((listing) => {
-                          const image = listing.coverImage || (Array.isArray(listing.images) && listing.images.length ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url) : '');
+                          const image = resolveAssetUrl(
+                            listing.coverImage ||
+                              (Array.isArray(listing.images) && listing.images.length
+                                ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url)
+                                : '')
+                          );
                           const price = formatListingAmount(listing.price, listing.currency || 'USD');
                           const location = String(listing.location || '').trim();
                           return (

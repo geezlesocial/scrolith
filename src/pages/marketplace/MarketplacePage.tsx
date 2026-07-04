@@ -63,6 +63,7 @@ import {
   updateMarketplaceListing,
   uploadMarketplaceListingMedia
 } from '../../services/marketplace';
+import { resolveAssetUrl } from '../../utils/assetUrl';
 import type {
   MarketplaceCategory,
   MarketplaceCondition,
@@ -195,12 +196,13 @@ const formatDate = (value?: string | null) => {
 
 const getMediaUrl = (media: MarketplaceListingMedia | string | null | undefined) => {
   if (!media) return '';
-  return typeof media === 'string' ? media : media.url || media.thumbnailUrl || '';
+  const raw = typeof media === 'string' ? media : media.url || media.thumbnailUrl || '';
+  return resolveAssetUrl(raw) || raw;
 };
 
 const getCoverImage = (listing: MarketplaceListing | null | undefined) => {
   if (!listing) return '';
-  if (listing.coverImage) return listing.coverImage;
+  if (listing.coverImage) return resolveAssetUrl(listing.coverImage) || listing.coverImage;
   const firstImage = Array.isArray(listing.images) ? listing.images[0] : null;
   return getMediaUrl(firstImage) || '';
 };
@@ -2929,7 +2931,7 @@ const MarketplaceForm: React.FC<{
                       </div>
                     ) : (
                       <OptimizedImage
-                        src={media.thumbnailUrl || media.url}
+                        src={resolveAssetUrl(media.thumbnailUrl || media.url) || media.thumbnailUrl || media.url}
                         alt="Listing media"
                         width={320}
                         height={240}

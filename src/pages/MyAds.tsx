@@ -3475,13 +3475,14 @@ const MyAds = () => {
                   <div className="grid gap-3 md:grid-cols-2">
                     {form.media.map((media) => {
                       const mediaUrl = resolveAdPreviewMediaUrl(media);
+                      const resolvedMediaUrl = resolveAssetUrl(mediaUrl) || mediaUrl;
                       return (
                       <div key={media.id} className="border rounded-xl p-2 flex items-center gap-3">
-                        {mediaUrl ? (
+                        {resolvedMediaUrl ? (
                           isAdVideoMedia(media) ? (
                             <AdVideoPlayer
-                              key={mediaUrl}
-                              src={mediaUrl}
+                              key={resolvedMediaUrl}
+                              src={resolvedMediaUrl}
                               className="h-16 w-16 rounded-lg"
                               videoClassName="h-full w-full object-cover"
                               preload="auto"
@@ -3489,7 +3490,7 @@ const MyAds = () => {
                               showSoundLabel={false}
                             />
                           ) : (
-                            <img src={mediaUrl} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
+                            <img src={resolvedMediaUrl} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
                           )
                         ) : (
                           <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500">File</div>

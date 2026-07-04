@@ -1,4 +1,5 @@
 import api from './api';
+import { resolveAssetUrl } from '../utils/assetUrl';
 import {
   MarketplaceCategory,
   MarketplaceDashboard,
@@ -40,9 +41,9 @@ const normalizeMedia = (media: any): MarketplaceListingMedia => ({
   ...media,
   id: String(media?.id ?? media?._id ?? ''),
   type: media?.type === 'video' ? 'video' : 'image',
-  url: String(media?.url ?? media?.downloadUrl ?? media?.download_url ?? ''),
+  url: resolveAssetUrl(String(media?.url ?? media?.downloadUrl ?? media?.download_url ?? media?.storagePath ?? media?.storage_path ?? '')),
   storagePath: media?.storagePath ?? media?.storage_path ?? null,
-  thumbnailUrl: media?.thumbnailUrl ?? media?.thumbnail_url ?? null,
+  thumbnailUrl: resolveAssetUrl(String(media?.thumbnailUrl ?? media?.thumbnail_url ?? '')) || null,
   sortOrder: media?.sortOrder ?? media?.sort_order ?? 0,
   mimeType: media?.mimeType ?? media?.mime_type ?? null,
   sizeBytes: media?.sizeBytes ?? media?.size_bytes ?? null,
@@ -64,7 +65,7 @@ const normalizeListing = (listing: any): MarketplaceListing => {
   const coverImage =
     listing?.coverImage ||
     listing?.cover_image ||
-    (Array.isArray(images) && images.length > 0 ? (typeof images[0] === 'string' ? images[0] : images[0]?.url) : null) ||
+    (Array.isArray(images) && images.length > 0 ? (typeof images[0] === 'string' ? resolveAssetUrl(images[0]) : images[0]?.url) : null) ||
     null;
 
   const rawStatus = String(listing?.status ?? 'draft').trim().toLowerCase();

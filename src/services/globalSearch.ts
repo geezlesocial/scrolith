@@ -1,6 +1,7 @@
 import { listMarketplaceListings } from './marketplace';
 import { SearchService } from './search';
 import type { MarketplaceListing } from '../types/marketplace';
+import { resolveAssetUrl } from '../utils/assetUrl';
 
 export type GlobalSearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'marketplace' | 'posts';
 
@@ -133,9 +134,9 @@ export const normalizeMarketplaceSearchItem = (listing: MarketplaceListing): Glo
     : '';
   const subtitle = [price, categoryName, location].filter(Boolean).join(' - ');
   const image =
-    listing.coverImage ||
+    resolveAssetUrl(listing.coverImage || '') ||
     (Array.isArray(listing.images) && listing.images.length
-      ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url)
+      ? (typeof listing.images[0] === 'string' ? resolveAssetUrl(listing.images[0]) : resolveAssetUrl(listing.images[0]?.url))
       : null) ||
     null;
 

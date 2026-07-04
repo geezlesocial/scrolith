@@ -7,7 +7,7 @@ import { CMSService } from "../../services/cms";
 import { listMarketplaceListings } from "../../services/marketplace";
 import OptimizedImage from "../media/OptimizedImage";
 import { getApiBaseUrl } from "../../utils/apiBase";
-import { resolveResponsiveAssetUrl } from "../../utils/assetUrl";
+import { resolveAssetUrl, resolveResponsiveAssetUrl } from "../../utils/assetUrl";
 import {
   FooterCtaStripContent,
   GuestCommunityPreviewContent,
@@ -301,7 +301,7 @@ const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewIt
   return rows
     .map((item, index) => {
       const image =
-        String(
+        resolveAssetUrl(String(
           item?.coverImage ||
           item?.cover_image ||
           item?.thumbnail ||
@@ -313,7 +313,7 @@ const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewIt
           (Array.isArray(item?.images) ? item.images[0]?.url || item.images[0] : '') ||
           (Array.isArray(item?.media) ? item.media.find((entry: any) => (entry?.type || 'image') !== 'video')?.url : '') ||
           ''
-        ).trim();
+        ).trim());
 
       return {
         id: String(item?.id || item?.slug || `marketplace-preview-${index}`),
