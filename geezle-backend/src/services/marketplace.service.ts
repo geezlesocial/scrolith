@@ -283,14 +283,35 @@ const normalizeListingInclude = {
 
 const normalizeListing = (listing: any, viewerId?: string | null) => {
   if (!listing) return null;
+  const baseUrl = resolveFileBaseUrl();
+  const resolveMarketplaceMediaUrl = (media: any) => {
+    const storagePath = String(
+      media?.storagePath ||
+      media?.storage_path ||
+      media?.storageKey ||
+      media?.storage_key ||
+      ''
+    ).trim();
+    if (storagePath) {
+      return `${baseUrl.replace(/\/+$/, '')}/uploads/${storagePath.replace(/^\/+/, '')}`;
+    }
+
+    const directUrl = String(media?.url || media?.downloadUrl || media?.download_url || '').trim();
+    if (!directUrl) return null;
+    if (directUrl.toLowerCase().includes('/api/files/content/')) return null;
+
+    const resolved = resolveDirectMediaUrl(directUrl, baseUrl);
+    return resolved || directUrl;
+  };
+
   const media = Array.isArray(listing.media)
     ? listing.media.map((entry: any) => ({
         id: entry.id,
         listingId: entry.listingId,
         fileId: entry.fileId || null,
         type: entry.type,
-        url: entry.url,
-        storagePath: entry.storagePath,
+        url: resolveMarketplaceMediaUrl(entry) || entry.url,
+        storagePath: entry.storagePath || entry.storage_key || null,
         thumbnailUrl: entry.thumbnailUrl || null,
         sortOrder: entry.sortOrder,
         mimeType: entry.mimeType,
