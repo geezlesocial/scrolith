@@ -2083,6 +2083,38 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
       return;
     }
 
+    const suffixCandidates = Array.from(
+      new Set(
+        [
+          path.basename(relativePath),
+          path.basename(relativePath).replace(/^\d{10,}-/, '')
+        ].filter(Boolean)
+      )
+    );
+    const localFallback = fs.existsSync(uploadsRoot)
+      ? fs
+          .readdirSync(uploadsRoot, { withFileTypes: true })
+          .filter((entry) => entry.isFile())
+          .map((entry) => entry.name)
+          .find((entryName) =>
+            suffixCandidates.some((suffix) => {
+              if (!suffix) return false;
+              return entryName === suffix || entryName.endsWith(`-${suffix}`) || entryName.endsWith(suffix);
+            })
+          )
+      : null;
+    if (localFallback) {
+      const fallbackPath = path.resolve(UPLOAD_DIR, localFallback);
+      if (fallbackPath.startsWith(uploadsRoot) && fs.existsSync(fallbackPath)) {
+        applyFileResponseHeaders(res, {
+          contentType: getMimeTypeFromFilename(fallbackPath),
+          cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL
+        });
+        res.sendFile(fallbackPath);
+        return;
+      }
+    }
+
     if (await tryServeManagedStorageUploadAsset(relativePath, res)) {
       return;
     }
