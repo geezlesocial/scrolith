@@ -17,7 +17,7 @@ const DEFAULT_PROMPT_BLOCKLIST = [
   'dump env',
   'environment variable'
 ];
-const DEFAULT_SCROLITHA_MODEL = 'qwen3:4b';
+const DEFAULT_SCROLITHA_MODEL = 'qwen3:14b';
 
 const buildDefaultMetadata = (scope: ScrolithaScope) => {
   const knowledge = getScrolithaKnowledgeBundle();

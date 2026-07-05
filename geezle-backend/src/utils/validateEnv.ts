@@ -44,7 +44,7 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'SCROLITHA_CORE_BEARER_TOKEN', description: 'Scrolitha Core temporary shared bearer token' },
   { key: 'SCROLITHA_CORE_SIDECAR_MODE', description: 'Allow localhost endpoint for bundled sidecar mode' },
   { key: 'SCROLITHA_OLLAMA_HOST', description: 'Ollama base URL (e.g. http://127.0.0.1:11434)' },
-  { key: 'SCROLITHA_OLLAMA_MODEL', description: 'Ollama model name (e.g. qwen3:4b)' },
+  { key: 'SCROLITHA_OLLAMA_MODEL', description: 'Ollama model name (e.g. qwen3:14b)' },
   { key: 'SCROLITHA_MAX_TOKENS', description: 'Scrolitha max tokens (num_predict)' },
   { key: 'SCROLITHA_TEMPERATURE', description: 'Scrolitha temperature' },
   { key: 'SCROLITHA_TOP_P', description: 'Scrolitha top_p' },
