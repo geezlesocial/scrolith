@@ -36,6 +36,7 @@ export const SCROLITHA_UNAVAILABLE_MESSAGE =
   'Scrolitha is temporarily unavailable. Please try again shortly.';
 export const SCROLITHA_PRODUCTION_ENDPOINT_WARNING =
   'Scrolitha Core endpoint is not configured for production.';
+const DEFAULT_SCROLITHA_MODEL = 'qwen3:4b';
 
 const OLLAMA_MODEL_PULL_TIMEOUT_MS = 240_000;
 const ollamaPullsInFlight = new Map<string, Promise<void>>();
@@ -490,7 +491,7 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
     acceleratorActive: false,
     status: 'operational',
     host: envHost,
-    model: envModel || 'llama3.2:3b',
+    model: envModel || DEFAULT_SCROLITHA_MODEL,
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(process.env.SCROLITHA_MAX_TOKENS, 1024)))),
     temperature: Math.max(0, Math.min(2, asNumber(process.env.SCROLITHA_TEMPERATURE, 0.7))),
     topP: Math.max(0, Math.min(1, asNumber(process.env.SCROLITHA_TOP_P, 0.9))),

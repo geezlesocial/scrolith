@@ -17,6 +17,7 @@ const DEFAULT_PROMPT_BLOCKLIST = [
   'dump env',
   'environment variable'
 ];
+const DEFAULT_SCROLITHA_MODEL = 'qwen3:4b';
 
 const buildDefaultMetadata = (scope: ScrolithaScope) => {
   const knowledge = getScrolithaKnowledgeBundle();
@@ -26,9 +27,9 @@ const buildDefaultMetadata = (scope: ScrolithaScope) => {
     host: 'http://127.0.0.1:11434',
     coreEndpoint: 'http://127.0.0.1:11434',
     ollamaHost: 'http://127.0.0.1:11434',
-    model: 'llama3.2:3b',
-    coreModel: 'llama3.2:3b',
-    ollamaModel: 'llama3.2:3b',
+    model: DEFAULT_SCROLITHA_MODEL,
+    coreModel: DEFAULT_SCROLITHA_MODEL,
+    ollamaModel: DEFAULT_SCROLITHA_MODEL,
     sidecarMode: true,
     maxTokens: scope === 'admin' ? 1536 : 1024,
     temperature: 0.35,

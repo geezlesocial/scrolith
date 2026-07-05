@@ -71,6 +71,8 @@ jest.mock('../../services/scrolitha/scrolitha.policy', () => {
 
 import {
   answerQuestion,
+  answerQuestionWithScrolitha,
+  generateGuideWithScrolitha,
   postEnhance,
   postInsight
 } from '../aiController';
@@ -139,6 +141,74 @@ describe('aiController Scrolitha prompt policy enforcement', () => {
         error: expect.stringContaining('Request blocked by security policy')
       })
     );
+  });
+
+  test('answerQuestionWithScrolitha falls back when prompt scaffold text leaks into the model output', async () => {
+    mockScrolithaGenerate.mockResolvedValue({
+      text: [
+        'Audience: business decision maker',
+        'Response format: concise, structured',
+        'Scrolith knowledge baseline - Overview: internal baseline',
+        'Scrolitha Summary',
+        'Recommended approach:',
+        '- Define the role and success metrics.',
+        'Immediate next steps:',
+        '- Launch with a shortlist rubric.'
+      ].join('\n')
+    });
+
+    const req: any = {
+      body: {
+        question: 'Help me hire a frontend developer',
+        audience: 'business decision maker'
+      },
+      user: { id: 'user-1', role: 'USER' }
+    };
+    const res = createResponse();
+
+    await answerQuestionWithScrolitha(req, res);
+
+    expect(res.status).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          answer: expect.not.stringContaining('Audience:')
+        })
+      })
+    );
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.data.answer).toContain('## Shortlist checklist');
+    expect(payload.data.answer).toContain('## Immediate next steps');
+    expect(payload.data.answer).not.toContain('Scrolith knowledge baseline');
+  });
+
+  test('generateGuideWithScrolitha falls back when the model echoes internal prompt instructions', async () => {
+    mockScrolithaGenerate.mockResolvedValue({
+      text: [
+        'Scrolith platform summary: internal baseline',
+        'Output format: outline',
+        'Return only the guide content.',
+        'Create a structured guide with clear headings, key steps, and best practices.'
+      ].join('\n')
+    });
+
+    const req: any = {
+      body: {
+        topic: 'Hiring a web developer',
+        audience: 'founders and operators'
+      },
+      user: { id: 'user-1', role: 'USER' }
+    };
+    const res = createResponse();
+
+    await generateGuideWithScrolitha(req, res);
+
+    expect(res.status).not.toHaveBeenCalled();
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.success).toBe(true);
+    expect(payload.data.guide).toContain('## Objective');
+    expect(payload.data.guide).not.toContain('Return only the guide content');
   });
 
   test('postEnhance returns 400 and audits failed policy-block requests', async () => {

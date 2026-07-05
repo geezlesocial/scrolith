@@ -15,7 +15,7 @@ describe('sanitizeScrolithaMetadata', () => {
       llm: {
         provider: 'scrolitha',
         host: 'localhost:11434/',
-        model: 'llama3.2:3b',
+        model: 'qwen3:4b',
         sidecarMode: true,
         maxTokens: 999999,
         temperature: 9,
@@ -31,9 +31,9 @@ describe('sanitizeScrolithaMetadata', () => {
         host: 'http://localhost:11434',
         coreEndpoint: 'http://localhost:11434',
         ollamaHost: 'http://localhost:11434',
-        model: 'llama3.2:3b',
-        coreModel: 'llama3.2:3b',
-        ollamaModel: 'llama3.2:3b',
+        model: 'qwen3:4b',
+        coreModel: 'qwen3:4b',
+        ollamaModel: 'qwen3:4b',
         sidecarMode: true,
         coreSidecarMode: true,
         maxTokens: 8192,
@@ -51,7 +51,7 @@ describe('sanitizeScrolithaMetadata', () => {
         llm: {
           provider: 'core',
           host: 'https://ai.example.com',
-          model: 'llama3.2:3b',
+          model: 'qwen3:4b',
           sidecarMode: true
         }
       })
@@ -64,7 +64,7 @@ describe('sanitizeScrolithaMetadata', () => {
         llm: {
           provider: 'core',
           host: 'http://ai.example.com',
-          model: 'llama3.2:3b',
+          model: 'qwen3:4b',
           sidecarMode: false
         }
       })
