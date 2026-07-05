@@ -7,8 +7,28 @@ const EXTERNAL_AI_BRANDING_RULES: Array<[RegExp, string]> = [
   [/\bgpt(?:-\d+(?:\.\d+)?)?\b/gi, 'Scrolitha']
 ];
 
-export const replaceExternalAiBranding = (value: string) => {
+const TEXT_REPAIR_RULES: Array<[RegExp, string]> = [
+  [/â€™/g, "'"],
+  [/â€˜/g, "'"],
+  [/â€œ/g, '"'],
+  [/â€/g, '"'],
+  [/â€“/g, '-'],
+  [/â€”/g, '-'],
+  [/â€¦/g, '...'],
+  [/Â /g, ' '],
+  [/Â/g, '']
+];
+
+export const repairScrolithaText = (value: string) => {
   let next = String(value || '');
+  for (const [pattern, replacement] of TEXT_REPAIR_RULES) {
+    next = next.replace(pattern, replacement);
+  }
+  return next;
+};
+
+export const replaceExternalAiBranding = (value: string) => {
+  let next = repairScrolithaText(value);
   for (const [pattern, replacement] of EXTERNAL_AI_BRANDING_RULES) {
     next = next.replace(pattern, replacement);
   }

@@ -51,7 +51,7 @@ const ScrolithaResponseCard: React.FC<ScrolithaResponseCardProps> = ({
       </div>
       <div className="px-5 py-5">
         <div
-          className="scrolitha-response prose prose-slate max-w-none prose-headings:font-semibold prose-h2:text-base prose-h3:text-sm prose-p:my-3 prose-li:my-1 prose-strong:text-slate-900 text-slate-800 leading-7 whitespace-normal break-words"
+          className="scrolitha-response prose prose-slate max-w-none prose-headings:mb-3 prose-headings:font-semibold prose-headings:text-slate-900 prose-h2:text-base prose-h2:tracking-normal prose-h3:text-sm prose-p:my-3 prose-p:text-slate-700 prose-p:leading-7 prose-ul:my-3 prose-ol:my-3 prose-li:my-1 prose-li:leading-7 prose-strong:text-slate-900 text-slate-800 leading-7 whitespace-normal break-words"
           dangerouslySetInnerHTML={{ __html: html }}
         />
       </div>
