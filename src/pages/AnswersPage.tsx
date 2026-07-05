@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
 import AIService from '../services/ai/ai.service';
 import { AnswersPageConfig } from '../types';
 import { sanitizeScrolithaPageConfig } from '../utils/scrolithaBranding';
+import ScrolithaResponseCard from '../components/scrolitha/ScrolithaResponseCard';
 
 const fallback: AnswersPageConfig = {
   hero: {
@@ -105,7 +106,7 @@ const AnswersPage = () => {
         question,
         context: context || undefined,
         audience: 'business professional',
-        format: 'concise, structured with bullets'
+        format: 'organized markdown with a short summary, section headings, and concise bullets'
       });
       const payload = data?.data || data;
       const nextAnswer = String(payload?.answer || '').trim();
@@ -200,12 +201,7 @@ const AnswersPage = () => {
               </div>
             ) : null}
             {answer && (
-              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <div className="flex items-center gap-2 text-sm text-green-600 mb-3">
-                  <CheckCircle className="w-4 h-4" /> Scrolitha Answer
-                </div>
-                <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">{answer}</div>
-              </div>
+              <ScrolithaResponseCard title="Scrolitha Answer" content={answer} tone="blue" />
             )}
           </div>
 

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
 import AIService from '../services/ai/ai.service';
 import { FreelancerPageConfig } from '../types';
 import { sanitizeScrolithaPageConfig } from '../utils/scrolithaBranding';
+import ScrolithaResponseCard from '../components/scrolitha/ScrolithaResponseCard';
 
 const fallback: FreelancerPageConfig = {
   hero: {
@@ -107,7 +108,7 @@ const FreelancerPage = () => {
         context:
           'Return a short positioning headline, three differentiators, and a concise client-facing pitch for enterprise buyers.',
         audience: 'enterprise clients',
-        format: 'structured bullets with a concise opening line'
+        format: 'organized markdown with a concise opening line, section headings, and readable bullets'
       });
       const payload = data?.data || data;
       const nextPitch = String(payload?.answer || '').trim();
@@ -201,12 +202,7 @@ const FreelancerPage = () => {
             </div>
 
             {pitch && (
-              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <div className="flex items-center gap-2 text-sm text-green-600 mb-3">
-                  <CheckCircle className="w-4 h-4" /> Scrolitha Positioning Draft
-                </div>
-                <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">{pitch}</div>
-              </div>
+              <ScrolithaResponseCard title="Scrolitha Positioning Draft" content={pitch} tone="indigo" />
             )}
           </div>
 

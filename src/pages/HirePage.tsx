@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Sparkles, CheckCircle, AlertCircle } from 'lucide-react';
+import { Loader2, Sparkles, AlertCircle } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
 import { useUser } from '../context/UserContext';
 import { CMSService } from '../services/cms';
 import AIService from '../services/ai/ai.service';
 import { HirePageConfig } from '../types';
 import { sanitizeScrolithaPageConfig } from '../utils/scrolithaBranding';
+import ScrolithaResponseCard from '../components/scrolitha/ScrolithaResponseCard';
 
 const fallback: HirePageConfig = {
   hero: {
@@ -102,7 +103,7 @@ const HirePage = () => {
         context:
           'Return a structured shortlist checklist, ideal candidate profile, scope notes, and immediate next steps for the hiring team.',
         audience: 'business decision maker',
-        format: 'structured bullets with section headings'
+        format: 'organized markdown with short executive summary, section headings, and concise bullet lists'
       });
       const payload = data?.data || data;
       const nextRecommendation = String(payload?.answer || '').trim();
@@ -196,12 +197,7 @@ const HirePage = () => {
             </div>
 
             {recommendation && (
-              <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
-                <div className="flex items-center gap-2 text-sm text-green-600 mb-3">
-                  <CheckCircle className="w-4 h-4" /> Scrolitha Hiring Plan
-                </div>
-                <div className="whitespace-pre-wrap text-gray-800 leading-relaxed">{recommendation}</div>
-              </div>
+              <ScrolithaResponseCard title="Scrolitha Hiring Plan" content={recommendation} tone="emerald" />
             )}
           </div>
 

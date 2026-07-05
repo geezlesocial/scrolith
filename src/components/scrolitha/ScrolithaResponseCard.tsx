@@ -1,0 +1,60 @@
+import React from 'react';
+import { CheckCircle } from 'lucide-react';
+import { plainTextToHtml } from '../../utils/staticPageContent';
+
+type ScrolithaResponseCardProps = {
+  title: string;
+  label?: string;
+  content: string;
+  tone?: 'emerald' | 'indigo' | 'blue';
+};
+
+const toneStyles: Record<NonNullable<ScrolithaResponseCardProps['tone']>, { badge: string; ring: string; accent: string }> = {
+  emerald: {
+    badge: 'text-emerald-700 bg-emerald-50 border-emerald-200',
+    ring: 'ring-emerald-100',
+    accent: 'text-emerald-700'
+  },
+  indigo: {
+    badge: 'text-indigo-700 bg-indigo-50 border-indigo-200',
+    ring: 'ring-indigo-100',
+    accent: 'text-indigo-700'
+  },
+  blue: {
+    badge: 'text-blue-700 bg-blue-50 border-blue-200',
+    ring: 'ring-blue-100',
+    accent: 'text-blue-700'
+  }
+};
+
+const ScrolithaResponseCard: React.FC<ScrolithaResponseCardProps> = ({
+  title,
+  label = 'Scrolitha Response',
+  content,
+  tone = 'indigo'
+}) => {
+  const styles = toneStyles[tone];
+  const html = plainTextToHtml(String(content || '').trim());
+
+  return (
+    <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ${styles.ring}`}>
+      <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+        <div className="space-y-1">
+          <div className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] ${styles.badge}`}>
+            <CheckCircle className={`h-3.5 w-3.5 ${styles.accent}`} />
+            {label}
+          </div>
+          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+        </div>
+      </div>
+      <div className="px-5 py-5">
+        <div
+          className="scrolitha-response prose prose-slate max-w-none prose-headings:font-semibold prose-h2:text-base prose-h3:text-sm prose-p:my-3 prose-li:my-1 text-slate-800 leading-7"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default ScrolithaResponseCard;
