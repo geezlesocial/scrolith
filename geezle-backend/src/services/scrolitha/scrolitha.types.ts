@@ -72,6 +72,15 @@ export type ScrolithaChatInput = {
   context?: {
     page?: string;
     entityId?: string;
+    surface?: string;
+    accountType?: string;
+    userName?: string;
+    userRole?: string;
+    userId?: string;
+    locale?: string;
+    source?: string;
+    route?: string;
+    [key: string]: unknown;
   };
   conversationId?: unknown;
 };

@@ -279,6 +279,28 @@ const formatPageContext = (value: unknown) => {
   return page.replace(/^\//, '').replace(/[/?#].*$/, '').replace(/-/g, ' ') || 'current page';
 };
 
+const buildAccountContextSummary = (actor: ScrolithaActor, context?: ScrolithaChatInput['context']) => {
+  const lines: string[] = [];
+  const userName = text(context?.userName);
+  const userRole = text(context?.userRole || actor.role);
+  const accountType = text(context?.accountType);
+  const surface = text(context?.surface);
+  const route = text(context?.route || context?.page);
+  const locale = text(context?.locale);
+
+  if (userName) lines.push(`User: ${userName}`);
+  if (userRole) lines.push(`Role: ${userRole}`);
+  lines.push(`Scope: ${actor.scope}`);
+  if (accountType && accountType.toLowerCase() !== userRole.toLowerCase()) {
+    lines.push(`Account type: ${accountType}`);
+  }
+  if (surface) lines.push(`Surface: ${surface}`);
+  if (route) lines.push(`Route: ${formatPageContext(route)}`);
+  if (locale) lines.push(`Locale: ${locale}`);
+
+  return lines.join('\n');
+};
+
 const summarizeKnowledgeHighlights = (knowledgeContext?: string | null, max = 3) => {
   if (!knowledgeContext) return [];
   const lines = String(knowledgeContext || '')
@@ -369,6 +391,7 @@ const buildFollowUpPrompts = (input: {
 
 const buildFallbackReply = (input: {
   page?: string | null;
+  accountContext?: string | null;
   safeMode: boolean;
   actionPlans: Array<{ summary?: string; requiresConfirmation?: boolean }>;
   knowledgeHighlights: string[];
@@ -392,6 +415,10 @@ const buildFallbackReply = (input: {
     sections.push(`Current context: ${pageContext}. I can tailor guidance and safe actions for this surface.`);
   }
 
+  if (input.accountContext) {
+    sections.push(`Account context:\n${input.accountContext}`);
+  }
+
   if (input.knowledgeHighlights.length) {
     sections.push(`Relevant help:\n- ${input.knowledgeHighlights.join('\n- ')}`);
   }
@@ -409,6 +436,7 @@ const buildScrolithaSystemPrompt = (params: {
   actor: ScrolithaActor;
   safeMode: boolean;
   pageContext?: string | null;
+  accountContext?: string | null;
   plannedActions: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
   knowledgeContext?: string | null;
   learningContext?: string | null;
@@ -433,6 +461,7 @@ const buildScrolithaSystemPrompt = (params: {
     `Actor scope: ${scope}`,
     `Actor role: ${role}`,
     params.pageContext ? `Current page: ${params.pageContext}` : '',
+    params.accountContext ? `Account context:\n${params.accountContext}` : '',
     actions ? `Planned actions:\n${actions}` : `Planned actions: (none)`,
     ``,
     params.knowledgeContext ? `Scrolith platform knowledge:\n${params.knowledgeContext}` : '',
@@ -454,6 +483,7 @@ const buildLlmReply = async (input: {
   conversationId: string;
   userMessage: string;
   pageContext?: string | null;
+  accountContext?: string | null;
   config: Awaited<ReturnType<typeof ensureScrolithaConfig>>;
   actionPlans: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
 }) => {
@@ -478,6 +508,7 @@ const buildLlmReply = async (input: {
         actor: input.actor,
         safeMode: Boolean(input.config.safeMode),
         pageContext: input.pageContext,
+        accountContext: input.accountContext,
         plannedActions: input.actionPlans,
         knowledgeContext,
         learningContext
@@ -897,6 +928,7 @@ const executeSkillAgentPlan = async (input: {
 export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaActor, app?: any) => {
   const message = text(input.message);
   const pageContext = text(input.context?.page);
+  const accountContext = buildAccountContextSummary(actor, input.context);
   if (!message) throw new Error('message is required.');
 
   const config = await ensureScrolithaConfig(actor.scope);
@@ -971,6 +1003,7 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     conversationId: conversation.id,
     userMessage: message,
     pageContext,
+    accountContext,
     config,
     actionPlans: plannedForPrompt
   });
@@ -978,6 +1011,7 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     llmReply ||
     buildFallbackReply({
       page: pageContext,
+      accountContext,
       safeMode: Boolean(config.safeMode),
       actionPlans,
       knowledgeHighlights,
