@@ -1270,11 +1270,11 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                 </button>
               ) : (
                 <Link
-                  to={`/my-ads?source=business-page&pageId=${encodeURIComponent(page.id)}&pageSlug=${encodeURIComponent(page.slug || '')}`}
-                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+                  to={`/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(page.id)}&boostOpen=1`}
+                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                 >
                   <Megaphone className="h-4 w-4" />
-                  Promote Page
+                  Boost Page
                 </Link>
               )}
             </div>

@@ -207,6 +207,16 @@ const isAdVideoMedia = (media: any) => {
 const resolveAdPreviewMediaUrl = (media: any) => {
   return resolveAssetUrl(
     String(
+      media?.imageUrl ||
+        media?.image_url ||
+        media?.previewUrl ||
+        media?.preview_url ||
+        media?.fileUrl ||
+        media?.file_url ||
+        media?.contentUrl ||
+        media?.content_url ||
+        media?.resolvedUrl ||
+        media?.resolved_url ||
       media?.thumbnailUrl ||
         media?.thumbnail_url ||
         media?.url ||
@@ -482,7 +492,7 @@ type AdFormState = {
   }[];
 };
 
-type PromotionSourceType = 'post' | 'page' | 'listing' | null;
+type PromotionSourceType = 'post' | 'page' | 'group' | 'listing' | null;
 
 type PromotionSelection = {
   type: PromotionSourceType;
@@ -520,7 +530,13 @@ const CHECKOUT_STATUS_FAILED = 'failed';
 
 const MyAds = () => {
   const location = useLocation();
-  const navigationState = (location.state as { boostListingId?: string; boostListingSlug?: string } | null) || null;
+  const navigationState = (location.state as {
+    boostListingId?: string;
+    boostListingSlug?: string;
+    boostPostId?: string;
+    boostPageId?: string;
+    boostGroupId?: string;
+  } | null) || null;
   const { showNotification } = useNotification();
   const { availableCurrencies, currency: selectedCurrency } = useCurrency();
   const { user } = useUser();
@@ -776,7 +792,7 @@ const MyAds = () => {
   const clearPromotionSourceQuery = () => {
     try {
       const params = new URLSearchParams(location.search);
-      const keys = ['source', 'postId', 'pageId', 'pageSlug'];
+      const keys = ['source', 'postId', 'pageId', 'pageSlug', 'groupId', 'clubId', 'groupSlug', 'boostOpen'];
       let changed = false;
       keys.forEach((key) => {
         if (params.has(key)) {
@@ -793,7 +809,7 @@ const MyAds = () => {
   const clearBoostListingQuery = () => {
     try {
       const params = new URLSearchParams(location.search);
-      const keys = ['boostListingId', 'boostOpen'];
+      const keys = ['boostListingId', 'boostPostId', 'boostPageId', 'boostGroupId', 'boostOpen'];
       let changed = false;
       keys.forEach((key) => {
         if (params.has(key)) {
@@ -817,7 +833,10 @@ const MyAds = () => {
       return {
         boostListingId,
         boostListingSlug: String(parsed?.boostListingSlug || '').trim(),
-        boostSource: String(parsed?.boostSource || '').trim()
+        boostSource: String(parsed?.boostSource || '').trim(),
+        boostPostId: String(parsed?.boostPostId || '').trim(),
+        boostPageId: String(parsed?.boostPageId || '').trim(),
+        boostGroupId: String(parsed?.boostGroupId || '').trim()
       };
     } catch (error) {
       return null;
@@ -1047,6 +1066,19 @@ const MyAds = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const hasBoostParams =
+      Boolean(
+        params.get('boostListingId') ||
+          params.get('boostPostId') ||
+          params.get('boostPageId') ||
+          params.get('boostGroupId') ||
+          navigationState?.boostListingId ||
+          navigationState?.boostPostId ||
+          navigationState?.boostPageId ||
+          navigationState?.boostGroupId
+      ) ||
+      Boolean(readBoostListingPrefillContext()?.boostListingId || readBoostListingPrefillContext()?.boostPostId || readBoostListingPrefillContext()?.boostPageId || readBoostListingPrefillContext()?.boostGroupId);
+    if (hasBoostParams) return;
     const paymentState = String(
       params.get('ad_payment') || params.get('ad_payment_status') || ''
     ).toLowerCase();
@@ -1092,12 +1124,22 @@ const MyAds = () => {
     const params = new URLSearchParams(location.search);
     const sourceRaw = String(params.get('source') || '').trim().toLowerCase();
     if (!sourceRaw) return;
+    if (
+      params.get('boostListingId') ||
+      params.get('boostPostId') ||
+      params.get('boostPageId') ||
+      params.get('boostGroupId')
+    ) {
+      return;
+    }
 
     const source: PromotionSourceType =
       sourceRaw === 'post'
         ? 'post'
         : sourceRaw === 'business-page' || sourceRaw === 'page'
           ? 'page'
+          : sourceRaw === 'group' || sourceRaw === 'club' || sourceRaw === 'community-group'
+            ? 'group'
           : sourceRaw === 'listing' || sourceRaw === 'marketplace-listing'
             ? 'listing'
             : null;
@@ -1136,6 +1178,41 @@ const MyAds = () => {
             destinationType: 'url',
             destinationUrl: selection.entityUrl,
             ctaText: 'Learn more'
+          });
+          setFormGatewayId(getPreferredCheckoutGatewayId());
+          setFormOpen(true);
+          return;
+        }
+
+        if (source === 'group') {
+          const groupRef = String(params.get('groupId') || params.get('clubId') || params.get('groupSlug') || '').trim();
+          if (!groupRef) throw new Error('Group details are missing.');
+          const group = await CommunityService.getGroup(groupRef);
+          const resolvedGroupId = String(group?.id || groupRef).trim();
+          if (!resolvedGroupId) throw new Error('Group details are not available.');
+          const resolvedGroupSlug = String(group?.slug || groupRef).trim();
+          const selection: PromotionSelection = {
+            type: 'group',
+            entityId: resolvedGroupId,
+            entitySlug: resolvedGroupSlug,
+            entityUrl: `${window.location.origin}/community/clubs?group=${encodeURIComponent(resolvedGroupSlug || resolvedGroupId)}`,
+            title: String(group?.name || '').trim() || 'Promoted Group',
+            subtitle: String(group?.summary || group?.category || '').trim() || 'Community Group',
+            bodyDraft: String(group?.description || '').trim()
+          };
+
+          if (cancelled) return;
+          setPromotionSelection(selection);
+          setFormMode('create');
+          setEditingAdId(null);
+          setForm({
+            ...buildEmptyForm(selectedCurrency.code),
+            title: selection.title,
+            body: selection.bodyDraft || '',
+            objective: 'traffic',
+            destinationType: 'url',
+            destinationUrl: selection.entityUrl,
+            ctaText: 'Join group'
           });
           setFormGatewayId(getPreferredCheckoutGatewayId());
           setFormOpen(true);
@@ -1204,14 +1281,13 @@ const MyAds = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const boostContext = readBoostListingPrefillContext();
-    const boostListingId = String(
-      params.get('boostListingId') ||
-        navigationState?.boostListingId ||
-        boostContext?.boostListingId ||
-        ''
-    ).trim();
-    if (!boostListingId) return;
-    if (handledBoostPrefillRef.current === boostListingId) return;
+    const boostListingId = String(params.get('boostListingId') || navigationState?.boostListingId || boostContext?.boostListingId || '').trim();
+    const boostPostId = String(params.get('boostPostId') || navigationState?.boostPostId || boostContext?.boostPostId || '').trim();
+    const boostPageId = String(params.get('boostPageId') || navigationState?.boostPageId || boostContext?.boostPageId || '').trim();
+    const boostGroupId = String(params.get('boostGroupId') || navigationState?.boostGroupId || boostContext?.boostGroupId || '').trim();
+    const boostKey = boostListingId || boostPostId || boostPageId || boostGroupId;
+    if (!boostKey) return;
+    if (handledBoostPrefillRef.current === boostKey) return;
 
     let cancelled = false;
 
@@ -1221,7 +1297,13 @@ const MyAds = () => {
       setEditingAdId(null);
       setFormOpen(true);
       try {
-        const boost = await AdService.getListingBoostPrefill(boostListingId);
+        const boost = boostListingId
+          ? await AdService.getListingBoostPrefill(boostListingId)
+          : boostPostId
+            ? await AdService.getPostBoostPrefill(boostPostId)
+            : boostPageId
+              ? await AdService.getPageBoostPrefill(boostPageId)
+              : await AdService.getGroupBoostPrefill(boostGroupId);
         if (cancelled) return;
 
         const boostMedia = Array.isArray(boost.media)
@@ -1231,6 +1313,16 @@ const MyAds = () => {
                 url:
                   resolveAssetUrl(
                     String(
+                      media?.imageUrl ||
+                        media?.image_url ||
+                        media?.previewUrl ||
+                        media?.preview_url ||
+                        media?.fileUrl ||
+                        media?.file_url ||
+                        media?.contentUrl ||
+                        media?.content_url ||
+                        media?.resolvedUrl ||
+                        media?.resolved_url ||
                       media?.url ||
                         media?.downloadUrl ||
                         media?.download_url ||
@@ -1246,8 +1338,12 @@ const MyAds = () => {
                   ) || resolveAdPreviewMediaUrl(media),
                 thumbnailUrl: resolveAssetUrl(String(media?.thumbnailUrl || media?.thumbnail_url || '').trim()),
                 thumbnail_url: resolveAssetUrl(String(media?.thumbnail_url || media?.thumbnailUrl || '').trim()),
+                imageUrl: resolveAssetUrl(String(media?.imageUrl || media?.image_url || '').trim()),
+                image_url: resolveAssetUrl(String(media?.image_url || media?.imageUrl || '').trim()),
                 downloadUrl: resolveAssetUrl(String(media?.downloadUrl || media?.download_url || '').trim()),
                 download_url: resolveAssetUrl(String(media?.download_url || media?.downloadUrl || '').trim()),
+                previewUrl: resolveAssetUrl(String(media?.previewUrl || media?.preview_url || '').trim()),
+                preview_url: resolveAssetUrl(String(media?.preview_url || media?.previewUrl || '').trim()),
                 storagePath: String(media?.storagePath || media?.storage_path || '').trim(),
                 storage_key: String(media?.storage_key || media?.storagePath || '').trim(),
                 path: String(media?.path || '').trim(),
@@ -1261,12 +1357,26 @@ const MyAds = () => {
           : [];
 
         setPromotionSelection({
-          type: 'listing',
-          entityId: boost.listingId,
-          entitySlug: boost.listingSlug,
-          entityUrl: boost.destinationUrl || boost.listingUrl,
+          type:
+            boost.sourceType === 'COMMUNITY_POST'
+              ? 'post'
+              : boost.sourceType === 'BUSINESS_PAGE'
+                ? 'page'
+                : boost.sourceType === 'COMMUNITY_GROUP'
+                  ? 'group'
+                  : 'listing',
+          entityId: String(boost.sourceId || boost.listingId || '').trim(),
+          entitySlug: String(boost.sourceSlug || boost.listingSlug || '').trim() || undefined,
+          entityUrl: boost.destinationUrl || boost.sourceUrl || boost.listingUrl,
           title: boost.campaignName || `Boost - ${boost.adTitle}`,
-          subtitle: 'Marketplace Listing',
+          subtitle:
+            boost.sourceType === 'COMMUNITY_POST'
+              ? 'Community Post'
+              : boost.sourceType === 'BUSINESS_PAGE'
+                ? 'Business Page'
+                : boost.sourceType === 'COMMUNITY_GROUP'
+                  ? 'Community Group'
+                  : 'Marketplace Listing',
           bodyDraft: boost.adCopy
         });
         setFormMode('create');
@@ -1291,7 +1401,7 @@ const MyAds = () => {
         });
         setFormGatewayId(getPreferredCheckoutGatewayId());
         setFormOpen(true);
-        handledBoostPrefillRef.current = boostListingId;
+        handledBoostPrefillRef.current = boostKey;
       } catch (error: any) {
         if (!cancelled) {
           showNotification('error', 'Boost listing', error?.message || 'Unable to prepare boost campaign.');
@@ -1309,7 +1419,15 @@ const MyAds = () => {
     return () => {
       cancelled = true;
     };
-  }, [location.search, navigationState?.boostListingId, selectedCurrency.code, showNotification]);
+  }, [
+    location.search,
+    navigationState?.boostListingId,
+    navigationState?.boostPostId,
+    navigationState?.boostPageId,
+    navigationState?.boostGroupId,
+    selectedCurrency.code,
+    showNotification
+  ]);
 
   useEffect(() => {
     const loadGateways = async () => {
@@ -1500,6 +1618,24 @@ const MyAds = () => {
           `${window.location.origin}/community/posts/${encodeURIComponent(entityId)}`,
         title: String(targeting.promotionTitle || ad.title || 'Promoted Post').trim(),
         subtitle: String(targeting.promotionSubtitle || 'Community Post').trim(),
+        bodyDraft: String(ad.body || '').trim()
+      };
+    }
+
+    if (promotionType === 'group') {
+      const entityId = String(targeting.promotionEntityId || targeting.sourceId || '').trim();
+      if (!entityId) return null;
+      const entitySlug = String(targeting.promotionEntitySlug || targeting.sourceSlug || '').trim();
+      const entityUrl =
+        String(targeting.promotionEntityUrl || targeting.sourceUrl || '').trim() ||
+        `${window.location.origin}/community/clubs?group=${encodeURIComponent(entitySlug || entityId)}`;
+      return {
+        type: 'group',
+        entityId,
+        entitySlug: entitySlug || undefined,
+        entityUrl,
+        title: String(targeting.promotionTitle || ad.title || 'Promoted Group').trim(),
+        subtitle: String(targeting.promotionSubtitle || 'Community Group').trim(),
         bodyDraft: String(ad.body || '').trim()
       };
     }
@@ -1763,24 +1899,35 @@ const MyAds = () => {
       const primaryPlacement = normalizedPlacements[0] || 'community_feed';
       const targetAudience = form.targetAudience || 'users';
       const dailySpend = toNumber(form.dailySpend) > 0 ? toNumber(form.dailySpend) : undefined;
-    const promotionTargeting =
+      const promotionTargeting =
         promotionSelection && promotionSelection.type
           ? {
               promotionType: promotionSelection.type,
               promotionEntityId: promotionSelection.entityId,
               promotionEntitySlug:
-                promotionSelection.type === 'page' || promotionSelection.type === 'listing'
+                promotionSelection.type === 'page' ||
+                promotionSelection.type === 'listing' ||
+                promotionSelection.type === 'group'
                   ? promotionSelection.entitySlug || undefined
                   : undefined,
               promotionEntityUrl: promotionSelection.entityUrl,
               promotionTitle: promotionSelection.title,
               promotionSubtitle: promotionSelection.subtitle,
-              sourceType: promotionSelection.type === 'listing' ? 'MARKETPLACE_LISTING' : undefined,
-              sourceId: promotionSelection.type === 'listing' ? promotionSelection.entityId : undefined,
+              sourceType:
+                promotionSelection.type === 'listing'
+                  ? 'MARKETPLACE_LISTING'
+                  : promotionSelection.type === 'post'
+                    ? 'COMMUNITY_POST'
+                    : promotionSelection.type === 'page'
+                      ? 'BUSINESS_PAGE'
+                      : promotionSelection.type === 'group'
+                        ? 'COMMUNITY_GROUP'
+                        : undefined,
+              sourceId: promotionSelection.entityId,
               sourceSlug:
-                promotionSelection.type === 'listing' ? promotionSelection.entitySlug || undefined : undefined,
-              sourceUrl: promotionSelection.type === 'listing' ? promotionSelection.entityUrl : undefined,
-              sourceTitle: promotionSelection.type === 'listing' ? promotionSelection.title : undefined
+                promotionSelection.entitySlug || undefined,
+              sourceUrl: promotionSelection.entityUrl,
+              sourceTitle: promotionSelection.title
             }
           : {};
       const payload: Partial<AdCampaign> = {
@@ -2546,7 +2693,9 @@ const MyAds = () => {
                 const promotionLabel =
                   targeting.promotionType === 'page'
                     ? 'Promoted page'
-                    : targeting.promotionType === 'listing' || targeting.sourceType === 'MARKETPLACE_LISTING'
+                    : targeting.promotionType === 'group'
+                      ? 'Promoted group'
+                      : targeting.promotionType === 'listing' || targeting.sourceType === 'MARKETPLACE_LISTING'
                       ? 'Boosted listing'
                     : targeting.promotionType === 'post'
                       ? 'Promoted post'
@@ -3189,6 +3338,8 @@ const MyAds = () => {
                           ? 'Page'
                           : promotionSelection.type === 'listing'
                             ? 'Listing'
+                            : promotionSelection.type === 'group'
+                              ? 'Group'
                             : 'Post'}
                       </p>
                       <p className="mt-1 text-sm font-semibold text-emerald-900">{promotionSelection.title}</p>
@@ -3592,7 +3743,9 @@ const MyAds = () => {
                                 ? 'Promoted page'
                                 : promotionSelection.type === 'listing'
                                   ? 'Boosted listing'
-                                : 'Promoted post'
+                                  : promotionSelection.type === 'group'
+                                    ? 'Promoted group'
+                                    : 'Promoted post'
                               : 'Campaign preview'}
                           </p>
                           <p className="mt-2 line-clamp-2 text-base font-semibold">

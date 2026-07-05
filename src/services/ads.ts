@@ -86,6 +86,30 @@ export interface ListingBoostPrefill {
   targeting: Record<string, any>;
 }
 
+export interface PromotionBoostPrefill {
+  sourceType: 'COMMUNITY_POST' | 'BUSINESS_PAGE' | 'COMMUNITY_GROUP' | 'MARKETPLACE_LISTING';
+  sourceId: string;
+  sourceSlug?: string;
+  sourceUrl: string;
+  campaignName: string;
+  adTitle: string;
+  adCopy: string;
+  destinationType: 'url';
+  destinationUrl: string;
+  ctaText: string;
+  placements: string[];
+  objective: 'traffic';
+  targetAudience: 'users' | 'businesses' | 'all';
+  targetCountries: string[];
+  currency: string;
+  budget: number;
+  dailySpend: number | null;
+  durationDays: number;
+  mediaFileIds: string[];
+  media: Array<Record<string, any>>;
+  targeting: Record<string, any>;
+}
+
 const toAdPayload = (payload: Partial<AdCampaign>) => {
   const incomingTargeting = normalizeTargeting((payload as any).targeting);
   const placementsSource =
@@ -203,6 +227,33 @@ export const AdService = {
       return extractData<ListingBoostPrefill>(response);
     } catch (error: any) {
       throw new Error(extractApiErrorMessage(error, 'Unable to prepare boost prefill.'));
+    }
+  },
+
+  getPostBoostPrefill: async (postId: string): Promise<PromotionBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/post/${encodeURIComponent(String(postId || '').trim())}/prefill`);
+      return extractData<PromotionBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare post boost prefill.'));
+    }
+  },
+
+  getPageBoostPrefill: async (pageId: string): Promise<PromotionBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/page/${encodeURIComponent(String(pageId || '').trim())}/prefill`);
+      return extractData<PromotionBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare page boost prefill.'));
+    }
+  },
+
+  getGroupBoostPrefill: async (clubId: string): Promise<PromotionBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/group/${encodeURIComponent(String(clubId || '').trim())}/prefill`);
+      return extractData<PromotionBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare group boost prefill.'));
     }
   },
 

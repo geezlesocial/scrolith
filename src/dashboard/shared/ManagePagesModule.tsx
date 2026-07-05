@@ -586,7 +586,7 @@ const ManagePagesModule: React.FC = () => {
   }, [pages]);
 
   const promoteUrl = selectedPage
-    ? `/my-ads?source=business-page&pageId=${encodeURIComponent(selectedPage.id)}&pageSlug=${encodeURIComponent(selectedPage.slug || '')}`
+    ? `/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(selectedPage.id)}&boostOpen=1`
     : '';
 
   const handleDraftNameChange = (value: string) => {

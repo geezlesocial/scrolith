@@ -1906,7 +1906,7 @@ const CommunityHome = () => {
       showNotification('error', 'Promote this post', 'Post details are not available.');
       return;
     }
-    navigate(`/my-ads?source=post&postId=${encodeURIComponent(postId)}`);
+    navigate(`/freelancer/dashboard?tab=my-ads&boostPostId=${encodeURIComponent(postId)}&boostOpen=1`);
   };
 
   const resolveAuthorId = (post: any) => String(

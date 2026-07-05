@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   Check,
@@ -146,6 +146,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const { showNotification } = useNotification();
   const { user } = useUser();
   const location = useLocation();
+  const navigate = useNavigate();
   const inviteInboxRef = useRef<HTMLDivElement | null>(null);
   const moderationPanelRef = useRef<HTMLDivElement | null>(null);
   const [groups, setGroups] = useState<CommunityClub[]>([]);
@@ -260,6 +261,15 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       showNotification('error', 'Groups', error?.message || 'Unable to load your invite inbox.');
     }
   }, [showNotification]);
+
+  const boostSelectedGroup = useCallback(() => {
+    const groupId = String(selectedGroup?.id || '').trim();
+    if (!groupId) {
+      showNotification('warning', 'Groups', 'Select a group first.');
+      return;
+    }
+    navigate(`/freelancer/dashboard?tab=my-ads&boostGroupId=${encodeURIComponent(groupId)}&boostOpen=1`);
+  }, [navigate, selectedGroup?.id, showNotification]);
 
   useEffect(() => {
     void reloadGroups();
@@ -1111,15 +1121,23 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
                           </>
                         )}
                         {canManageSelectedGroup ? (
-                          <button
-                            onClick={() => {
-                              applyGroupToForm(selectedGroup);
-                              setShowComposer(true);
-                            }}
-                            className="rounded-2xl border border-white/20 bg-white/15 px-4 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-white/20"
-                          >
-                            Manage group
-                          </button>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={boostSelectedGroup}
+                              className="rounded-2xl border border-blue-200 bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                            >
+                              Boost group
+                            </button>
+                            <button
+                              onClick={() => {
+                                applyGroupToForm(selectedGroup);
+                                setShowComposer(true);
+                              }}
+                              className="rounded-2xl border border-white/20 bg-white/15 px-4 py-2 text-sm font-semibold text-white backdrop-blur hover:bg-white/20"
+                            >
+                              Manage group
+                            </button>
+                          </div>
                         ) : null}
                       </div>
                     </div>

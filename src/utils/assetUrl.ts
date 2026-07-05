@@ -88,7 +88,9 @@ export const resolveAssetUrl = (value?: string | null) => {
     if (!isAssetPath(lower)) return trimmed;
     try {
       const url = new URL(trimmed);
-      if (!localAssetHosts.has(url.hostname.toLowerCase())) return trimmed;
+      const hostname = url.hostname.toLowerCase();
+      const platformHostMatch = hostname.includes('scrolith.com');
+      if (!localAssetHosts.has(hostname) && !platformHostMatch) return trimmed;
       return `${backendOrigin}${url.pathname}${url.search}${url.hash}`;
     } catch {
       return trimmed;
