@@ -101,10 +101,24 @@ export type ScrolithaWidgetConfig = {
   maxHistoryItems?: number;
 };
 
+export type ScrolithaChatContext = {
+  page?: string;
+  entityId?: string;
+  surface?: string;
+  accountType?: string;
+  userName?: string;
+  userRole?: string;
+  userId?: string;
+  locale?: string;
+  source?: string;
+  route?: string;
+  [key: string]: unknown;
+};
+
 export class ScrolithaService {
   static async chat(payload: {
     message: string;
-    context?: { page?: string; entityId?: string };
+    context?: ScrolithaChatContext;
     conversationId?: string;
   }): Promise<ScrolithaChatResponse> {
     const response = await api.post('/scrolitha/chat', payload, { timeout: SCROLITHA_CHAT_TIMEOUT_MS });

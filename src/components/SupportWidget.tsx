@@ -9,6 +9,7 @@ import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { useSocket } from '../context/SocketContext';
 import { buildScrolithaPath, clearScrolithaLaunchParams, readScrolithaLaunchParams } from '../utils/scrolithaLaunch';
+import type { ScrolithaChatContext } from '../services/scrolitha';
 
 type Sender = 'user' | 'agent' | 'system';
 type UserRole = 'Freelancer' | 'Employer' | null;
@@ -71,6 +72,24 @@ const colorToText = (color: string, fallback = '#ffffff') => {
   const b = parseInt(hex.slice(4, 6), 16);
   const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return luma > 0.62 ? '#0f172a' : '#ffffff';
+};
+
+const buildChatContext = (
+  pathname: string,
+  search: string,
+  user: { id?: string; name?: string; role?: string } | null | undefined
+): ScrolithaChatContext => {
+  const role = String(user?.role || '').trim();
+  return {
+    page: pathname,
+    route: `${pathname}${search || ''}`,
+    surface: 'support-widget',
+    accountType: role,
+    userRole: role,
+    userId: String(user?.id || '').trim() || undefined,
+    userName: String(user?.name || '').trim() || undefined,
+    source: 'support_widget'
+  };
 };
 
 const normalizeActionSearchIndex = (action: ScrolithaSuggestedAction) =>
@@ -784,7 +803,7 @@ const SupportWidget: React.FC = () => {
         const data = await ScrolithaService.chat({
           message: payloadMessage,
           conversationId: conversationId || undefined,
-          context: { page: location.pathname }
+          context: buildChatContext(location.pathname, location.search, user)
         });
         if (data?.conversationId) setConversationId(data.conversationId);
         pushMessages({ sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() });

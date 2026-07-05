@@ -6,6 +6,7 @@ import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import ScrolithaService, { ScrolithaSuggestedAction } from '../../services/scrolitha';
 import { FileService } from '../../services/files';
+import type { ScrolithaChatContext } from '../../services/scrolitha';
 
 type ChatLine = {
   id: string;
@@ -35,6 +36,24 @@ const defaultQuickActionForRole = (role: string) => {
     return ['Post job', 'Upload file', 'My orders', 'Generate brief'];
   }
   return ['Upload file', 'My orders', 'Generate brief'];
+};
+
+const buildChatContext = (
+  pathname: string,
+  search: string,
+  user: { id?: string; name?: string; role?: string } | null | undefined
+): ScrolithaChatContext => {
+  const role = String(user?.role || '').trim();
+  return {
+    page: pathname,
+    route: `${pathname}${search || ''}`,
+    surface: 'scrolitha-widget',
+    accountType: role,
+    userRole: role,
+    userId: String(user?.id || '').trim() || undefined,
+    userName: String(user?.name || '').trim() || undefined,
+    source: 'scrolitha_widget'
+  };
 };
 
 const ScrolithaWidget: React.FC = () => {
@@ -123,7 +142,7 @@ const ScrolithaWidget: React.FC = () => {
     try {
       const data = await ScrolithaService.chat({
         message: text,
-        context: { page: location.pathname },
+        context: buildChatContext(location.pathname, location.search, user),
         conversationId: conversationId || undefined
       });
       if (data?.conversationId) setConversationId(data.conversationId);
@@ -187,7 +206,7 @@ const ScrolithaWidget: React.FC = () => {
       appendLine({ sender: 'system', text: `Uploaded file: ${uploaded.name}` });
       const data = await ScrolithaService.chat({
         message: 'Upload file to library',
-        context: { page: location.pathname },
+        context: buildChatContext(location.pathname, location.search, user),
         conversationId: conversationId || undefined
       });
       if (data?.conversationId) setConversationId(data.conversationId);
