@@ -8,6 +8,7 @@ import { getStripeClient } from '../services/stripeConfig.service';
 import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.service';
+import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 const PLATFORM_ORIGIN = process.env.PLATFORM_URL || 'https://scrolith.com';
@@ -663,18 +664,275 @@ const estimateAdOutcomes = (
   return { pricingModel, estimatedImpressions: 0, estimatedClicks: Math.max(0, clicks) };
 };
 
-const normalizePromotionType = (value: any): 'post' | 'page' | null => {
+const normalizePromotionType = (value: any): 'post' | 'page' | 'group' | null => {
   const normalized = String(value || '').trim().toLowerCase();
   if (normalized === 'post') return 'post';
   if (normalized === 'page' || normalized === 'business-page' || normalized === 'business_page') return 'page';
+  if (normalized === 'group' || normalized === 'club' || normalized === 'community-group' || normalized === 'community_group') return 'group';
   return null;
 };
 
-const buildPlatformPromotionUrl = (type: 'post' | 'page', entityId: string, slug?: string | null) => {
+const buildPlatformPromotionUrl = (type: 'post' | 'page' | 'group', entityId: string, slug?: string | null) => {
   if (type === 'post') return `${PLATFORM_ORIGIN}/post/${encodeURIComponent(entityId)}`;
   const safeSlug = String(slug || '').trim();
   if (!safeSlug) throw createValidationError('Promotion page slug is required.', 'PROMOTION_PAGE_REQUIRED');
+  if (type === 'group') return `${PLATFORM_ORIGIN}/community/clubs?group=${encodeURIComponent(safeSlug)}`;
   return `${PLATFORM_ORIGIN}/company/${encodeURIComponent(safeSlug)}`;
+};
+
+const resolveBoostMediaUrl = (file: { url?: string | null } | null | undefined) => {
+  const raw = String(file?.url || '').trim();
+  if (!raw) return '';
+  return resolveDirectMediaUrl(raw, resolveFileBaseUrl()) || raw;
+};
+
+const buildBoostMediaItem = (file: any): any => {
+  const resolvedUrl = resolveBoostMediaUrl(file);
+  const name = String(file.originalName || '').trim();
+  const mimeType = String(file.mimeType || '').trim();
+  return {
+    id: file.id,
+    url: resolvedUrl,
+    downloadUrl: resolvedUrl,
+    download_url: resolvedUrl,
+    thumbnailUrl: resolvedUrl,
+    thumbnail_url: resolvedUrl,
+    path: resolvedUrl,
+    storageKey: resolvedUrl,
+    storage_key: resolvedUrl,
+    name: name || null,
+    mimeType: mimeType || null,
+    mime_type: mimeType || null,
+    type: mimeType.startsWith('video/') ? 'video' : 'image'
+  };
+};
+
+const resolveBoostMediaItems = async (fileIds: string[]): Promise<any[]> => {
+  if (!Array.isArray(fileIds) || fileIds.length === 0) return [];
+  const normalized = fileIds.map((value) => String(value || '').trim()).filter(Boolean);
+  if (normalized.length === 0) return [];
+  const files = await prisma.file.findMany({
+    where: { id: { in: normalized } },
+    select: { id: true, url: true, mimeType: true, originalName: true }
+  });
+  const map = new Map<string, any>(files.map((file: any) => [String(file.id), file]));
+  return normalized
+    .map((value, index) => {
+      const file = map.get(value);
+      if (file) return buildBoostMediaItem(file as any);
+      if (/^(https?:)?\/\//i.test(value) || value.startsWith('/api/files/') || value.startsWith('api/files/') || value.startsWith('/uploads') || value.startsWith('uploads/')) {
+        const resolvedUrl = resolveDirectMediaUrl(value, resolveFileBaseUrl()) || value;
+        return {
+          id: `boost-media-${index}`,
+          url: resolvedUrl,
+          downloadUrl: resolvedUrl,
+          download_url: resolvedUrl,
+          thumbnailUrl: resolvedUrl,
+          thumbnail_url: resolvedUrl,
+          path: resolvedUrl,
+          storageKey: resolvedUrl,
+          storage_key: resolvedUrl,
+          name: null,
+          mimeType: null,
+          mime_type: null,
+          type: 'image'
+        };
+      }
+      return null;
+    })
+    .filter(Boolean) as any[];
+};
+
+const buildBoostPrefillBase = (args: {
+  sourceType: 'COMMUNITY_POST' | 'BUSINESS_PAGE' | 'COMMUNITY_GROUP';
+  sourceId: string;
+  sourceSlug?: string | null;
+  sourceTitle: string;
+  sourceSubtitle?: string | null;
+  sourceUrl: string;
+  mediaFileIds: string[];
+  body: string;
+  targetAudience?: 'users' | 'businesses' | 'all';
+  targetCountries?: string[];
+  category?: string | null;
+  tags?: string[];
+  location?: string | null;
+  currency?: string;
+}) => {
+  return {
+    sourceType: args.sourceType,
+    sourceId: args.sourceId,
+    sourceSlug: String(args.sourceSlug || '').trim() || '',
+    sourceUrl: args.sourceUrl,
+    campaignName: `Boost - ${String(args.sourceTitle || '').trim() || 'Campaign'}`,
+    adTitle: String(args.sourceTitle || '').trim() || 'Boosted Content',
+    adCopy: String(args.body || '').trim(),
+    destinationType: 'url',
+    destinationUrl: args.sourceUrl,
+    ctaText: 'View Listing',
+    placements: ['homepage_feed', 'community_feed'],
+    objective: 'traffic',
+    targetAudience: args.targetAudience || 'users',
+    targetCountries: Array.isArray(args.targetCountries) ? args.targetCountries : [],
+    currency: String(args.currency || 'USD').trim().toUpperCase(),
+    budget: 120,
+    dailySpend: null,
+    durationDays: 7,
+    mediaFileIds: Array.isArray(args.mediaFileIds) ? args.mediaFileIds : [],
+    media: [] as any[],
+    targeting: sanitizeJsonValue({
+      sourceType: args.sourceType,
+      sourceId: args.sourceId,
+      sourceSlug: String(args.sourceSlug || '').trim() || undefined,
+      sourceUrl: args.sourceUrl,
+      sourceTitle: String(args.sourceTitle || '').trim() || undefined,
+      sourceSubtitle: String(args.sourceSubtitle || '').trim() || undefined,
+      category: String(args.category || '').trim() || undefined,
+      tags: Array.isArray(args.tags) ? args.tags.filter(Boolean) : [],
+      location: String(args.location || '').trim() || undefined,
+      targetAudience: args.targetAudience || 'users',
+      targetCountries: Array.isArray(args.targetCountries) ? args.targetCountries : []
+    }) || {}
+  };
+};
+
+const buildPostBoostPrefill = async (userId: string, postId: string) => {
+  const post = await prisma.communityPost.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      authorId: true,
+      title: true,
+      content: true,
+      attachments: true,
+      tags: true,
+      location: true,
+      visibility: true,
+      status: true,
+      author: { select: { id: true, name: true, username: true } },
+      businessPage: { select: { id: true, ownerId: true, name: true, slug: true } },
+      club: { select: { id: true, ownerId: true, name: true, slug: true } }
+    }
+  });
+  if (!post) throw createValidationError('Post not found.', 'PROMOTION_POST_INVALID');
+  const isAdmin = false;
+  const canPromote =
+    post.authorId === userId ||
+    post.businessPage?.ownerId === userId ||
+    post.club?.ownerId === userId ||
+    isAdmin;
+  if (!canPromote) throw createValidationError('You can only promote posts you own.', 'PROMOTION_POST_INVALID');
+  const sourceTitle = String(post.title || '').trim() || String(post.author?.name || 'Community Post').trim() || 'Community Post';
+  const sourceSubtitle = String(post.businessPage?.name || post.club?.name || post.author?.username || '').trim() || 'Community Post';
+  const sourceUrl = buildPlatformPromotionUrl('post', post.id);
+  const mediaFileIds = Array.isArray(post.attachments) ? post.attachments.filter(Boolean).slice(0, 10) : [];
+  const media = await resolveBoostMediaItems(mediaFileIds);
+  return {
+    ...buildBoostPrefillBase({
+      sourceType: 'COMMUNITY_POST',
+      sourceId: post.id,
+      sourceTitle,
+      sourceSubtitle,
+      sourceUrl,
+      mediaFileIds,
+      body: String(post.content || '').trim() || sourceTitle,
+      targetAudience: 'users',
+      targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+      tags: Array.isArray(post.tags) ? post.tags : [],
+      location: post.location || '',
+      currency: 'USD'
+    }),
+    campaignName: `Boost - ${sourceTitle}`,
+    ctaText: 'View Post',
+    media
+  };
+};
+
+const buildPageBoostPrefill = async (userId: string, pageId: string) => {
+  const page = await prisma.communityBusinessPage.findUnique({
+    where: { id: pageId },
+    select: {
+      id: true,
+      ownerId: true,
+      name: true,
+      slug: true,
+      tagline: true,
+      category: true,
+      description: true,
+      logoFileId: true,
+      coverFileId: true
+    }
+  });
+  if (!page) throw createValidationError('Page not found.', 'PROMOTION_PAGE_INVALID');
+  if (page.ownerId !== userId) throw createValidationError('You can only promote pages you own.', 'PROMOTION_PAGE_INVALID');
+  const sourceUrl = buildPlatformPromotionUrl('page', page.id, page.slug);
+  const mediaFileIds = [page.coverFileId, page.logoFileId].filter(Boolean) as string[];
+  const media = await resolveBoostMediaItems(mediaFileIds);
+  const sourceTitle = String(page.name || '').trim() || 'Business Page';
+  return {
+    ...buildBoostPrefillBase({
+      sourceType: 'BUSINESS_PAGE',
+      sourceId: page.id,
+      sourceSlug: page.slug,
+      sourceTitle,
+      sourceSubtitle: String(page.tagline || page.category || '').trim() || 'Business Page',
+      sourceUrl,
+      mediaFileIds,
+      body: String(page.description || page.tagline || '').trim() || sourceTitle,
+      targetAudience: 'users',
+      targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+      category: page.category || null,
+      currency: 'USD'
+    }),
+    campaignName: `Boost - ${sourceTitle}`,
+    ctaText: 'Visit Page',
+    media
+  };
+};
+
+const buildGroupBoostPrefill = async (userId: string, clubId: string) => {
+  const club = await prisma.communityClub.findUnique({
+    where: { id: clubId },
+    select: {
+      id: true,
+      ownerId: true,
+      name: true,
+      slug: true,
+      summary: true,
+      description: true,
+      coverImage: true,
+      avatarImage: true,
+      visibility: true,
+      category: true,
+      location: true
+    }
+  });
+  if (!club) throw createValidationError('Group not found.', 'PROMOTION_GROUP_INVALID');
+  if (club.ownerId !== userId) throw createValidationError('You can only promote groups you own.', 'PROMOTION_GROUP_INVALID');
+  const sourceUrl = buildPlatformPromotionUrl('group', club.id, club.slug);
+  const mediaFileIds = [club.coverImage, club.avatarImage].filter(Boolean).map((entry) => String(entry || '').trim());
+  const media = await resolveBoostMediaItems(mediaFileIds);
+  const sourceTitle = String(club.name || '').trim() || 'Group';
+  return {
+    ...buildBoostPrefillBase({
+      sourceType: 'COMMUNITY_GROUP',
+      sourceId: club.id,
+      sourceSlug: club.slug,
+      sourceTitle,
+      sourceSubtitle: String(club.summary || club.category || club.visibility || '').trim() || 'Community Group',
+      sourceUrl,
+      mediaFileIds,
+      body: String(club.description || club.summary || '').trim() || sourceTitle,
+      targetAudience: 'users',
+      targetCountries: DEFAULT_AD_TARGET_COUNTRIES,
+      category: club.category || null,
+      location: club.location || null,
+      currency: 'USD'
+    }),
+    campaignName: `Boost - ${sourceTitle}`,
+    ctaText: 'Join Group',
+    media
+  };
 };
 
 const resolvePromotionTargeting = async (rawTargeting: Record<string, any>, userId: string) => {
@@ -688,6 +946,12 @@ const resolvePromotionTargeting = async (rawTargeting: Record<string, any>, user
     delete targeting.promotionEntityUrl;
     delete targeting.promotionTitle;
     delete targeting.promotionSubtitle;
+    delete targeting.sourceType;
+    delete targeting.sourceId;
+    delete targeting.sourceSlug;
+    delete targeting.sourceUrl;
+    delete targeting.sourceTitle;
+    delete targeting.sourceSubtitle;
     return targeting;
   }
 
@@ -716,6 +980,53 @@ const resolvePromotionTargeting = async (rawTargeting: Record<string, any>, user
     targeting.promotionEntityUrl = buildPlatformPromotionUrl('post', post.id);
     targeting.promotionTitle = String(post.title || '').trim() || 'Promoted Post';
     targeting.promotionSubtitle = String(post.businessPage?.name || '').trim() || 'Community Post';
+    targeting.sourceType = 'COMMUNITY_POST';
+    targeting.sourceId = post.id;
+    targeting.sourceSlug = null;
+    targeting.sourceUrl = targeting.promotionEntityUrl;
+    targeting.sourceTitle = targeting.promotionTitle;
+    targeting.sourceSubtitle = targeting.promotionSubtitle;
+    return targeting;
+  }
+
+  if (promotionType === 'group') {
+    const clubId = String(targeting.promotionEntityId || '').trim();
+    const clubSlug = String(targeting.promotionEntitySlug || '').trim();
+    if (!clubId && !clubSlug) {
+      throw createValidationError('Promotion group is required.', 'PROMOTION_GROUP_REQUIRED');
+    }
+
+    const group = await prisma.communityClub.findFirst({
+      where: {
+        ownerId: userId,
+        ...(clubId ? { id: clubId } : { slug: clubSlug })
+      },
+      select: {
+        id: true,
+        ownerId: true,
+        name: true,
+        slug: true,
+        summary: true,
+        category: true
+      }
+    });
+
+    if (!group) {
+      throw createValidationError('You can only promote groups you own.', 'PROMOTION_GROUP_INVALID');
+    }
+
+    targeting.promotionType = 'group';
+    targeting.promotionEntityId = group.id;
+    targeting.promotionEntitySlug = group.slug;
+    targeting.promotionEntityUrl = buildPlatformPromotionUrl('group', group.id, group.slug);
+    targeting.promotionTitle = String(group.name || '').trim() || 'Promoted Group';
+    targeting.promotionSubtitle = String(group.summary || group.category || '').trim() || 'Community Group';
+    targeting.sourceType = 'COMMUNITY_GROUP';
+    targeting.sourceId = group.id;
+    targeting.sourceSlug = group.slug;
+    targeting.sourceUrl = targeting.promotionEntityUrl;
+    targeting.sourceTitle = targeting.promotionTitle;
+    targeting.sourceSubtitle = targeting.promotionSubtitle;
     return targeting;
   }
 
@@ -750,6 +1061,12 @@ const resolvePromotionTargeting = async (rawTargeting: Record<string, any>, user
   targeting.promotionEntityUrl = buildPlatformPromotionUrl('page', page.id, page.slug);
   targeting.promotionTitle = String(page.name || '').trim() || 'Promoted Page';
   targeting.promotionSubtitle = String(page.tagline || page.category || '').trim() || 'Business Page';
+  targeting.sourceType = 'BUSINESS_PAGE';
+  targeting.sourceId = page.id;
+  targeting.sourceSlug = page.slug;
+  targeting.sourceUrl = targeting.promotionEntityUrl;
+  targeting.sourceTitle = targeting.promotionTitle;
+  targeting.sourceSubtitle = targeting.promotionSubtitle;
   return targeting;
 };
 
@@ -1054,6 +1371,63 @@ export const getListingBoostPrefill = async (req: Request, res: Response) => {
     return res.status(status >= 400 && status < 600 ? status : 500).json({
       success: false,
       error: error?.message || 'Failed to prepare marketplace boost prefill.'
+    });
+  }
+};
+
+export const getPostBoostPrefill = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const postId = String(req.params.postId || '').trim();
+    if (!postId) {
+      return res.status(400).json({ success: false, error: 'Missing post id' });
+    }
+    const data = await buildPostBoostPrefill(userId, postId);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = Number(error?.status || error?.statusCode || 500);
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      success: false,
+      error: error?.message || 'Failed to prepare post boost prefill.'
+    });
+  }
+};
+
+export const getPageBoostPrefill = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const pageId = String(req.params.pageId || '').trim();
+    if (!pageId) {
+      return res.status(400).json({ success: false, error: 'Missing page id' });
+    }
+    const data = await buildPageBoostPrefill(userId, pageId);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = Number(error?.status || error?.statusCode || 500);
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      success: false,
+      error: error?.message || 'Failed to prepare page boost prefill.'
+    });
+  }
+};
+
+export const getGroupBoostPrefill = async (req: Request, res: Response) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const clubId = String(req.params.clubId || '').trim();
+    if (!clubId) {
+      return res.status(400).json({ success: false, error: 'Missing group id' });
+    }
+    const data = await buildGroupBoostPrefill(userId, clubId);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    const status = Number(error?.status || error?.statusCode || 500);
+    return res.status(status >= 400 && status < 600 ? status : 500).json({
+      success: false,
+      error: error?.message || 'Failed to prepare group boost prefill.'
     });
   }
 };

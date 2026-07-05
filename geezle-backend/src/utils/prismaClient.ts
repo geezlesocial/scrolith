@@ -81,8 +81,8 @@ const prismaLogConfig = prismaSlowQueryLoggingEnabled
 
 const prisma = global.__prisma || new PrismaClient({ log: prismaLogConfig });
 
-if (prismaSlowQueryLoggingEnabled && !global.__prismaSlowQueryListenerAttached) {
-  prisma.$on('query', (event: any) => {
+if (prismaSlowQueryLoggingEnabled && !global.__prismaSlowQueryListenerAttached && typeof (prisma as any)?.$on === 'function') {
+  (prisma as any).$on('query', (event: any) => {
     const duration = Number(event?.duration || 0);
     if (!Number.isFinite(duration) || duration < prismaSlowQueryMs) return;
 

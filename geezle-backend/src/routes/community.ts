@@ -77,6 +77,9 @@ import {
 import {
   createAdDraft,
   getListingBoostPrefill,
+  getPostBoostPrefill,
+  getPageBoostPrefill,
+  getGroupBoostPrefill,
   getPublicAds,
   payAd,
   submitAd,
@@ -328,6 +331,9 @@ router.get('/ads', getPublicAds);
 router.get('/ads/runtime-config', getAdsRuntimeConfig);
 router.get('/ads/config', authMiddleware, getAdsConfig);
 router.get('/ads/boost/listing/:listingId/prefill', authMiddleware, getListingBoostPrefill);
+router.get('/ads/boost/post/:postId/prefill', authMiddleware, getPostBoostPrefill);
+router.get('/ads/boost/page/:pageId/prefill', authMiddleware, getPageBoostPrefill);
+router.get('/ads/boost/group/:clubId/prefill', authMiddleware, getGroupBoostPrefill);
 router.post('/ads/draft', authMiddleware, createAdDraft);
 router.post('/ads/:id/pay', authMiddleware, payAd);
 router.post('/ads/:id/submit', authMiddleware, submitAd);
