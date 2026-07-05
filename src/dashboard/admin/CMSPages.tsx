@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../../types';
 import { CMSService } from '../../services/cms';
+import { AIService } from '../../services/ai/ai.service';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import { htmlToPlainText, plainTextToHtml, prepareStaticPageContent, normalizeLegacyPageHtml } from '../../utils/staticPageContent';
@@ -99,6 +100,63 @@ const createPageBlock = (type: 'callout' | 'cta' | 'ad'): ContentBlock => {
             description: 'Use this callout for key notices, policy clarifications, or important summaries.'
         }
     };
+};
+
+const extractJsonObject = (value: string) => {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+        return JSON.parse(match[0]);
+    } catch {
+        return null;
+    }
+};
+
+const normalizeStringArray = (value: any, limit = 6) => {
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .slice(0, limit);
+    }
+    if (typeof value === 'string') {
+        return value
+            .split(',')
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .slice(0, limit);
+    }
+    return [];
+};
+
+const normalizeFeaturedQuestions = (value: any) => {
+    if (!Array.isArray(value)) return [];
+    return value
+        .map((item, index) => ({
+            id: String(item?.id || `q-${Date.now()}-${index}`),
+            question: String(item?.question || item?.title || '').trim(),
+            tags: normalizeStringArray(item?.tags || item?.keywords || item?.topics || '', 6)
+        }))
+        .filter(Boolean)
+        .filter((item) => item.question || item.tags.length)
+        .slice(0, 6);
+};
+
+const normalizeFeaturedGuides = (value: any) => {
+    if (!Array.isArray(value)) return [];
+    return value
+        .map((item) => ({
+            id: String(item?.id || `guide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+            title: String(item?.title || '').trim(),
+            excerpt: String(item?.excerpt || '').trim(),
+            category: String(item?.category || '').trim(),
+            readTime: String(item?.readTime || item?.read_time || '').trim(),
+            coverImage: String(item?.coverImage || item?.cover_image || '').trim()
+        }))
+        .filter((item) => item.title || item.excerpt || item.category || item.readTime || item.coverImage)
+        .slice(0, 6);
 };
 
 const CMSPages = () => {
@@ -1137,6 +1195,7 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: AnswersPageConfig = {
         hero: {
@@ -1203,6 +1262,80 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping admin draft the Scrolith Answers page.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "heroSubtitle": string,',
+                    '  "featuredQuestions": [{"question": string, "tags": [string]}],',
+                    '  "faq": [{"question": string, "answer": string}]',
+                    '}',
+                    'Keep everything concise, professional, and helpful for users.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    hero: config.hero,
+                    categories: config.categories,
+                    featuredQuestions: config.featuredQuestions,
+                    faq: config.faq
+                }),
+                audience: 'cms-admin',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextHeroSubtitle = String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim();
+                const nextQuestions = normalizeFeaturedQuestions(parsed.featuredQuestions || parsed.questions || parsed.items);
+                const nextFaq = Array.isArray(parsed.faq)
+                    ? parsed.faq
+                        .map((item, index) => ({
+                            id: String(item?.id || `faq-${Date.now()}-${index}`),
+                            question: String(item?.question || item?.title || '').trim(),
+                            answer: String(item?.answer || item?.body || item?.content || '').trim()
+                        }))
+                        .filter((item) => item.question || item.answer)
+                        .slice(0, 8)
+                    : [];
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: nextHeroSubtitle || config.hero.subtitle
+                    },
+                    featuredQuestions: nextQuestions.length ? nextQuestions : config.featuredQuestions,
+                    faq: nextFaq.length ? nextFaq : config.faq
+                });
+                showNotification('success', 'Scrolitha Draft', 'Answers page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Answers draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate an Answers page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1258,7 +1391,18 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Answers
@@ -1366,6 +1510,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
     const [coverPickerOpen, setCoverPickerOpen] = useState(false);
     const [coverIndex, setCoverIndex] = useState<number | null>(null);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: GuidesPageConfig = {
         hero: {
@@ -1439,6 +1584,76 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ featuredGuides: next });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.generateGuideWithScrolitha({
+                topic: 'Draft a guides landing page for Scrolith with curated topics, featured guides, and a concise call to action.',
+                audience: 'cms-admin',
+                depth: 'detailed',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.guide || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextHeroSubtitle = String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim();
+                const nextTopics = Array.isArray(parsed.topics)
+                    ? parsed.topics
+                        .map((item, index) => ({
+                            id: String(item?.id || `topic-${Date.now()}-${index}`),
+                            label: String(item?.label || item?.title || '').trim(),
+                            description: String(item?.description || item?.body || item?.summary || '').trim()
+                        }))
+                        .filter((item) => item.label || item.description)
+                        .slice(0, 8)
+                    : [];
+                const nextGuides = normalizeFeaturedGuides(parsed.featuredGuides || parsed.guides || parsed.items);
+                const nextCta = parsed.callToAction
+                    ? {
+                          ...(config.callToAction || fallback.callToAction),
+                          title: String(parsed.callToAction.title || parsed.callToAction.heading || config.callToAction?.title || '').trim() || config.callToAction?.title || '',
+                          subtitle: String(parsed.callToAction.subtitle || parsed.callToAction.description || config.callToAction?.subtitle || '').trim() || config.callToAction?.subtitle || '',
+                          ctaLabel: String(parsed.callToAction.ctaLabel || parsed.callToAction.label || config.callToAction?.ctaLabel || '').trim() || config.callToAction?.ctaLabel || '',
+                          ctaUrl: String(parsed.callToAction.ctaUrl || parsed.callToAction.url || config.callToAction?.ctaUrl || '').trim() || config.callToAction?.ctaUrl || ''
+                      }
+                    : config.callToAction;
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: nextHeroSubtitle || config.hero.subtitle
+                    },
+                    topics: nextTopics.length ? nextTopics : config.topics,
+                    featuredGuides: nextGuides.length ? nextGuides : config.featuredGuides,
+                    callToAction: nextCta || config.callToAction
+                });
+                showNotification('success', 'Scrolitha Draft', 'Guides page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Guides draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a Guides page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1505,7 +1720,18 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Guides
@@ -1616,6 +1842,7 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: HirePageConfig = {
         hero: {
@@ -1684,6 +1911,113 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping admin draft the Scrolith Hire page.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "heroSubtitle": string,',
+                    '  "highlights": [{"title": string, "description": string}],',
+                    '  "steps": [{"title": string, "description": string}],',
+                    '  "testimonials": [{"name": string, "role": string, "quote": string}],',
+                    '  "callToAction": {"title": string, "subtitle": string, "ctaLabel": string, "ctaUrl": string}',
+                    '}',
+                    'Keep the copy professional and enterprise ready.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    hero: config.hero,
+                    highlights: config.highlights,
+                    steps: config.steps,
+                    testimonials: config.testimonials,
+                    callToAction: config.callToAction
+                }),
+                audience: 'cms-admin',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextHighlights = Array.isArray(parsed.highlights)
+                    ? parsed.highlights
+                        .map((item, index) => ({
+                            id: String(item?.id || `h-${Date.now()}-${index}`),
+                            title: String(item?.title || '').trim(),
+                            description: String(item?.description || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.title || item.description)
+                        .slice(0, 6)
+                    : [];
+                const nextSteps = Array.isArray(parsed.steps)
+                    ? parsed.steps
+                        .map((item, index) => ({
+                            id: String(item?.id || `s-${Date.now()}-${index}`),
+                            title: String(item?.title || '').trim(),
+                            description: String(item?.description || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.title || item.description)
+                        .slice(0, 6)
+                    : [];
+                const nextTestimonials = Array.isArray(parsed.testimonials)
+                    ? parsed.testimonials
+                        .map((item, index) => ({
+                            id: String(item?.id || `t-${Date.now()}-${index}`),
+                            name: String(item?.name || '').trim(),
+                            role: String(item?.role || '').trim(),
+                            quote: String(item?.quote || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.name || item.role || item.quote)
+                        .slice(0, 6)
+                    : [];
+                const nextCta = parsed.callToAction
+                    ? {
+                          ...(config.callToAction || fallback.callToAction),
+                          title: String(parsed.callToAction.title || config.callToAction?.title || '').trim() || config.callToAction?.title || '',
+                          subtitle: String(parsed.callToAction.subtitle || config.callToAction?.subtitle || '').trim() || config.callToAction?.subtitle || '',
+                          ctaLabel: String(parsed.callToAction.ctaLabel || config.callToAction?.ctaLabel || '').trim() || config.callToAction?.ctaLabel || '',
+                          ctaUrl: String(parsed.callToAction.ctaUrl || config.callToAction?.ctaUrl || '').trim() || config.callToAction?.ctaUrl || ''
+                      }
+                    : config.callToAction;
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim() || config.hero.subtitle
+                    },
+                    highlights: nextHighlights.length ? nextHighlights : config.highlights,
+                    steps: nextSteps.length ? nextSteps : config.steps,
+                    testimonials: nextTestimonials.length ? nextTestimonials : config.testimonials,
+                    callToAction: nextCta || config.callToAction
+                });
+                showNotification('success', 'Scrolitha Draft', 'Hire page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Hire draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a Hire page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1740,7 +2074,18 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Matching
@@ -1844,6 +2189,7 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: FreelancerPageConfig = {
         hero: {
@@ -1912,6 +2258,99 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping admin draft the Scrolith Freelancer page.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "heroSubtitle": string,',
+                    '  "services": [{"title": string, "description": string}],',
+                    '  "proof": [{"metric": string, "label": string}],',
+                    '  "callToAction": {"title": string, "subtitle": string, "ctaLabel": string, "ctaUrl": string}',
+                    '}',
+                    'Keep the copy professional and aligned with enterprise freelancers.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    hero: config.hero,
+                    services: config.services,
+                    proof: config.proof,
+                    callToAction: config.callToAction
+                }),
+                audience: 'cms-admin',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextServices = Array.isArray(parsed.services)
+                    ? parsed.services
+                        .map((item, index) => ({
+                            id: String(item?.id || `svc-${Date.now()}-${index}`),
+                            title: String(item?.title || '').trim(),
+                            description: String(item?.description || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.title || item.description)
+                        .slice(0, 6)
+                    : [];
+                const nextProof = Array.isArray(parsed.proof)
+                    ? parsed.proof
+                        .map((item, index) => ({
+                            id: String(item?.id || `p-${Date.now()}-${index}`),
+                            metric: String(item?.metric || '').trim(),
+                            label: String(item?.label || item?.description || '').trim()
+                        }))
+                        .filter((item) => item.metric || item.label)
+                        .slice(0, 6)
+                    : [];
+                const nextCta = parsed.callToAction
+                    ? {
+                          ...(config.callToAction || fallback.callToAction),
+                          title: String(parsed.callToAction.title || config.callToAction?.title || '').trim() || config.callToAction?.title || '',
+                          subtitle: String(parsed.callToAction.subtitle || config.callToAction?.subtitle || '').trim() || config.callToAction?.subtitle || '',
+                          ctaLabel: String(parsed.callToAction.ctaLabel || config.callToAction?.ctaLabel || '').trim() || config.callToAction?.ctaLabel || '',
+                          ctaUrl: String(parsed.callToAction.ctaUrl || config.callToAction?.ctaUrl || '').trim() || config.callToAction?.ctaUrl || ''
+                      }
+                    : config.callToAction;
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim() || config.hero.subtitle
+                    },
+                    services: nextServices.length ? nextServices : config.services,
+                    proof: nextProof.length ? nextProof : config.proof,
+                    callToAction: nextCta || config.callToAction
+                });
+                showNotification('success', 'Scrolitha Draft', 'Freelancer page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Freelancer draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a Freelancer page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1968,7 +2407,18 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Assistance

@@ -3,10 +3,11 @@ import React, { useState, useEffect } from 'react';
 import { 
     Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Eye, Search, Filter, 
     Settings, List, Layout, Globe, Calendar, CheckCircle, XCircle, Type, 
-    MoreVertical, Video, Quote, Code, ArrowUp, ArrowDown, Upload
+    MoreVertical, Video, Quote, Code, ArrowUp, ArrowDown, Upload, Sparkles, Loader2
 } from 'lucide-react';
 import { BlogPost, BlogCategory, BlogSettings, ContentBlock, BlogPostStatus, UploadedFile } from '../../types';
 import { CMSService } from '../../services/cms';
+import { AIService } from '../../services/ai/ai.service';
 import { useNotification } from '../../context/NotificationContext';
 import FilePickerModal from '../shared/FilePickerModal';
 
@@ -158,6 +159,28 @@ const BlogManagement = () => {
     );
 };
 
+const extractJsonObject = (value: string) => {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+        return JSON.parse(match[0]);
+    } catch {
+        return null;
+    }
+};
+
+const normalizeTagList = (value: any, limit = 8) => {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item || '').trim()).filter(Boolean).slice(0, limit);
+    }
+    if (typeof value === 'string') {
+        return value.split(',').map((item) => String(item || '').trim()).filter(Boolean).slice(0, limit);
+    }
+    return [];
+};
+
 // --- 1. POSTS LIST ---
 
 const PostsList = ({ posts, onEdit, onDelete }: { posts: BlogPost[], onEdit: (p: BlogPost) => void, onDelete: (id: string) => void }) => {
@@ -265,10 +288,20 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
     onCancel: () => void, 
     categories: BlogCategory[] 
 }) => {
+    const { showNotification } = useNotification();
     const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
     const [imageTarget, setImageTarget] = useState<{ field: 'banner' | 'block'; blockId?: string } | null>(null);
+    const [isScrolithaDrafting, setIsScrolithaDrafting] = useState(false);
     
     // --- Block Helpers ---
+    const getDraftSourceText = () => {
+        const blockText = post.blocks
+            .map((block) => `${String(block.content || '').trim()} ${String(block.settings?.caption || '').trim()}`.trim())
+            .filter(Boolean)
+            .join('\n\n');
+        return [post.title, post.shortDescription, blockText].map((value) => String(value || '').trim()).filter(Boolean).join('\n\n');
+    };
+
     const addBlock = (type: ContentBlock['type']) => {
         const newBlock: ContentBlock = {
             id: Math.random().toString(36).substr(2, 9),
@@ -316,6 +349,109 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
         }
     };
 
+    const handleScrolithaDraft = async () => {
+        if (isScrolithaDrafting) return;
+        const sourceText = getDraftSourceText();
+        if (!sourceText) {
+            showNotification('alert', 'Missing content', 'Add some draft text before asking Scrolitha to improve the blog.');
+            return;
+        }
+
+        setIsScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping the admin draft a blog post for Scrolith.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "title": string,',
+                    '  "shortDescription": string,',
+                    '  "body": string,',
+                    '  "tags": [string]',
+                    '}',
+                    'Keep the writing professional, concise, and useful for blog readers.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    title: post.title,
+                    shortDescription: post.shortDescription,
+                    content: sourceText,
+                    category: post.categoryName,
+                    tags: post.tags
+                }),
+                audience: 'blog-editor',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextTitle = String(parsed.title || post.title || '').trim();
+                const nextDescription = String(parsed.shortDescription || parsed.excerpt || parsed.summary || '').trim();
+                const nextBody = String(parsed.body || parsed.content || '').trim();
+                const nextTags = normalizeTagList(parsed.tags || parsed.keywords || post.tags, 8);
+
+                const nextBlocks = [...post.blocks];
+                const firstTextIndex = nextBlocks.findIndex((block) => block.type === 'text');
+                const draftBlock: ContentBlock = {
+                    id: firstTextIndex >= 0 ? nextBlocks[firstTextIndex].id : `b-${Date.now()}`,
+                    type: 'text',
+                    content: nextBody || nextDescription || rawText,
+                    settings: firstTextIndex >= 0 ? { ...nextBlocks[firstTextIndex].settings } : {}
+                };
+
+                if (firstTextIndex >= 0) {
+                    nextBlocks[firstTextIndex] = draftBlock;
+                } else {
+                    nextBlocks.unshift(draftBlock);
+                }
+
+                setPost({
+                    ...post,
+                    title: nextTitle || post.title,
+                    shortDescription: nextDescription || post.shortDescription,
+                    tags: nextTags.length ? nextTags : post.tags,
+                    blocks: nextBlocks
+                });
+                showNotification('success', 'Scrolitha Draft', 'Blog draft updated with Scrolitha suggestions.');
+                return;
+            }
+
+            const enhanced = await AIService.enhancePostDraft({ text: sourceText, mode: 'professional' });
+            const enhancedText = String(enhanced?.enhancedText || '').trim();
+            if (enhancedText) {
+                const nextBlocks = [...post.blocks];
+                const firstTextIndex = nextBlocks.findIndex((block) => block.type === 'text');
+                const draftBlock: ContentBlock = {
+                    id: firstTextIndex >= 0 ? nextBlocks[firstTextIndex].id : `b-${Date.now()}`,
+                    type: 'text',
+                    content: enhancedText,
+                    settings: firstTextIndex >= 0 ? { ...nextBlocks[firstTextIndex].settings } : {}
+                };
+                if (firstTextIndex >= 0) {
+                    nextBlocks[firstTextIndex] = draftBlock;
+                } else {
+                    nextBlocks.unshift(draftBlock);
+                }
+
+                setPost({
+                    ...post,
+                    shortDescription: enhancedText.slice(0, 180),
+                    blocks: nextBlocks
+                });
+                showNotification('info', 'Scrolitha Draft', 'Scrolitha polished the blog draft copy.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable blog draft.');
+        } catch (error) {
+            console.error('Scrolitha blog drafting failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a blog draft right now.');
+        } finally {
+            setIsScrolithaDrafting(false);
+        }
+    };
+
     return (
         <div className="bg-gray-50 min-h-screen pb-20">
             {/* Toolbar Header */}
@@ -332,6 +468,15 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
                     </div>
                 </div>
                 <div className="flex space-x-3">
+                    <button
+                        type="button"
+                        onClick={handleScrolithaDraft}
+                        disabled={isScrolithaDrafting}
+                        className="inline-flex items-center rounded-lg border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700 transition-colors hover:bg-purple-100 disabled:opacity-60"
+                    >
+                        {isScrolithaDrafting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                        {isScrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                    </button>
                     <button className="text-gray-600 hover:text-gray-900 px-3 py-2 text-sm font-medium"><Eye className="w-4 h-4 inline mr-1" /> Preview</button>
                     <button onClick={onSave} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center shadow-md transition-transform active:scale-95">
                         <Save className="w-4 h-4 mr-2" /> {post.status === 'published' ? 'Update' : 'Save Draft'}
@@ -454,6 +599,27 @@ const BlogEditor = ({ post, setPost, onSave, onCancel, categories }: {
 
                 {/* Sidebar Column */}
                 <div className="space-y-6">
+                    <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 className="font-bold text-gray-900 flex items-center">
+                                    <Sparkles className="w-4 h-4 mr-2 text-purple-600" />
+                                    Scrolitha Assistant
+                                </h3>
+                                <p className="text-xs text-gray-500 mt-1">Polish the blog draft with Scrolitha before saving or publishing.</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={handleScrolithaDraft}
+                                disabled={isScrolithaDrafting}
+                                className="inline-flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs font-semibold text-purple-700 transition-colors hover:bg-purple-100 disabled:opacity-60"
+                            >
+                                {isScrolithaDrafting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                                {isScrolithaDrafting ? 'Working...' : 'Draft now'}
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Publishing */}
                     <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
                         <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Globe className="w-4 h-4 mr-2" /> Publishing</h3>
