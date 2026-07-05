@@ -1,6 +1,7 @@
 import React from 'react';
 import { CheckCircle } from 'lucide-react';
 import { plainTextToHtml } from '../../utils/staticPageContent';
+import { normalizeScrolithaResponseText } from './scrolithaResponseFormat';
 
 type ScrolithaResponseCardProps = {
   title: string;
@@ -34,7 +35,8 @@ const ScrolithaResponseCard: React.FC<ScrolithaResponseCardProps> = ({
   tone = 'indigo'
 }) => {
   const styles = toneStyles[tone];
-  const html = plainTextToHtml(String(content || '').trim());
+  const normalized = normalizeScrolithaResponseText(String(content || '').trim());
+  const html = plainTextToHtml(normalized);
 
   return (
     <div className={`rounded-2xl border border-slate-200 bg-white shadow-sm ring-1 ${styles.ring}`}>
@@ -49,7 +51,7 @@ const ScrolithaResponseCard: React.FC<ScrolithaResponseCardProps> = ({
       </div>
       <div className="px-5 py-5">
         <div
-          className="scrolitha-response prose prose-slate max-w-none prose-headings:font-semibold prose-h2:text-base prose-h3:text-sm prose-p:my-3 prose-li:my-1 text-slate-800 leading-7"
+          className="scrolitha-response prose prose-slate max-w-none prose-headings:font-semibold prose-h2:text-base prose-h3:text-sm prose-p:my-3 prose-li:my-1 prose-strong:text-slate-900 text-slate-800 leading-7 whitespace-normal break-words"
           dangerouslySetInnerHTML={{ __html: html }}
         />
       </div>
