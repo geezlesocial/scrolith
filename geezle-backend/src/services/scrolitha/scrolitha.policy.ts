@@ -193,7 +193,7 @@ export const sanitizeScrolithaLlmMetadata = (
     maxTokens: Math.max(64, Math.min(8192, Math.floor(asFiniteNumber(source.maxTokens, Number(existing.maxTokens ?? defaults.maxTokens))))),
     temperature: Math.max(0, Math.min(1.5, asFiniteNumber(source.temperature, Number(existing.temperature ?? defaults.temperature)))),
     topP: Math.max(0.05, Math.min(1, asFiniteNumber(source.topP, Number(existing.topP ?? defaults.topP)))),
-    timeoutMs: Math.max(5_000, Math.min(120_000, Math.floor(asFiniteNumber(source.timeoutMs, Number(existing.timeoutMs ?? defaults.timeoutMs))))),
+    timeoutMs: Math.max(5_000, Math.min(240_000, Math.floor(asFiniteNumber(source.timeoutMs, Number(existing.timeoutMs ?? defaults.timeoutMs))))),
     enableStreaming: typeof source.enableStreaming === 'boolean' ? source.enableStreaming : Boolean(existing.enableStreaming ?? defaults.enableStreaming),
     allowGeminiFallback:
       typeof source.allowGeminiFallback === 'boolean'

@@ -462,7 +462,7 @@ const mergeRuntime = (base: ScrolithaLlmRuntime, override: Record<string, any>):
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(override.maxTokens, base.maxTokens)))),
     temperature: Math.max(0, Math.min(2, asNumber(override.temperature, base.temperature))),
     topP: Math.max(0, Math.min(1, asNumber(override.topP, base.topP))),
-    timeoutMs: Math.max(1000, Math.min(120_000, Math.floor(asNumber(override.timeoutMs, base.timeoutMs)))),
+    timeoutMs: Math.max(1000, Math.min(240_000, Math.floor(asNumber(override.timeoutMs, base.timeoutMs)))),
     enableStreaming:
       typeof override.enableStreaming === 'boolean' ? override.enableStreaming : base.enableStreaming,
     allowGeminiFallback:
@@ -495,7 +495,7 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
     maxTokens: Math.max(32, Math.min(8192, Math.floor(asNumber(process.env.SCROLITHA_MAX_TOKENS, 1024)))),
     temperature: Math.max(0, Math.min(2, asNumber(process.env.SCROLITHA_TEMPERATURE, 0.7))),
     topP: Math.max(0, Math.min(1, asNumber(process.env.SCROLITHA_TOP_P, 0.9))),
-    timeoutMs: Math.max(1000, Math.min(120_000, Math.floor(asNumber(process.env.SCROLITHA_TIMEOUT_MS, 25_000)))),
+    timeoutMs: Math.max(1000, Math.min(240_000, Math.floor(asNumber(process.env.SCROLITHA_TIMEOUT_MS, 25_000)))),
     enableStreaming: asBool(process.env.SCROLITHA_ENABLE_STREAMING, false),
     allowGeminiFallback: asBool(process.env.SCROLITHA_GEMINI_FALLBACK, false)
   };
