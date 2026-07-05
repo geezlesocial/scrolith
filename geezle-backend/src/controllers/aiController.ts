@@ -94,7 +94,7 @@ const buildQaPrompt = (payload: any) => {
   const context = payload?.context || '';
   const audience = payload?.audience || 'business professional';
   const format = payload?.format || 'concise, structured';
-  return `You are Scrolith Answers, a professional business advisor.\nAudience: ${audience}.\nResponse format: ${format}.\n${buildKnowledgeBlock(audience)}\nQuestion: ${question}\nContext: ${context}\nProvide a clear, actionable answer with bullets and a short summary.`;
+  return `You are Scrolith Answers, a professional business advisor.\nAudience: ${audience}.\nResponse format: ${format}.\n${buildKnowledgeBlock(audience)}\nQuestion: ${question}\nContext: ${context}\nReturn only the final answer. Do not repeat the question, context, prompt, or instructions.\nUse short headings, bullet points, and a short summary. Keep the response organized, readable, and professional.`;
 };
 
 const buildGuidePrompt = (payload: any) => {
@@ -102,7 +102,7 @@ const buildGuidePrompt = (payload: any) => {
   const audience = payload?.audience || 'founders and operators';
   const depth = payload?.depth || 'in-depth';
   const format = payload?.format || 'outline';
-  return `You are Scrolith Guides, a professional business strategist.\nAudience: ${audience}.\nDepth: ${depth}.\nOutput format: ${format}.\n${buildKnowledgeBlock(audience)}\nTopic: ${topic}\nCreate a structured guide with headings, key steps, and best practices.`;
+  return `You are Scrolith Guides, a professional business strategist.\nAudience: ${audience}.\nDepth: ${depth}.\nOutput format: ${format}.\n${buildKnowledgeBlock(audience)}\nTopic: ${topic}\nReturn only the guide content. Do not repeat the topic, context, prompt, or instructions.\nCreate a structured guide with clear headings, key steps, and best practices. Keep the writing organized and professional.`;
 };
 
 const cleanInlineText = (value: unknown) =>
