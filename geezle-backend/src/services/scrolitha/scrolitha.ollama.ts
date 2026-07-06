@@ -154,6 +154,11 @@ const sanitizeDiagnosticMessage = (value: unknown, fallback = 'Scrolitha request
     .slice(0, 220);
 };
 
+const waitFor = (ms: number) =>
+  new Promise<void>((resolve) => {
+    setTimeout(resolve, Math.max(0, ms));
+  });
+
 export const sanitizeScrolithaUserMessage = (
   value: unknown,
   fallback = SCROLITHA_UNAVAILABLE_MESSAGE
@@ -315,6 +320,19 @@ const isMissingModelError = (status: number, bodyText: string) => {
     status === 404 ||
     source.includes('model') && source.includes('not found') ||
     source.includes('pull') && source.includes('model') && source.includes('not found')
+  );
+};
+
+const isTransientOllamaBusyError = (status: number, bodyText: string) => {
+  if (![502, 503, 504].includes(status)) return false;
+  const source = String(bodyText || '').trim().toLowerCase();
+  if (!source) return true;
+  return (
+    source.includes('service unavailable') ||
+    source.includes('loading model') ||
+    source.includes('llm server') ||
+    source.includes('try again') ||
+    source.includes('timed out waiting')
   );
 };
 
@@ -794,6 +812,7 @@ export const ollamaChat = async (input: {
   const topP = asNumber(input.topP, 0.9);
   const maxTokens = Math.max(32, Math.min(8192, Math.floor(asNumber(input.maxTokens, 1024))));
   const autoPullModel = input.autoPullModel !== false;
+  const keepAlive = String(process.env.SCROLITHA_OLLAMA_KEEP_ALIVE || '24h').trim() || '24h';
 
   const url = `${host}/api/chat`;
   const body = {
@@ -807,7 +826,8 @@ export const ollamaChat = async (input: {
       temperature,
       top_p: topP,
       num_predict: maxTokens
-    }
+    },
+    keep_alive: keepAlive
   };
 
   const requestChat = async () => {
@@ -836,17 +856,23 @@ export const ollamaChat = async (input: {
     }
   };
 
+  const deadline = Date.now() + timeoutMs;
   let res = await requestChat();
-  if (!res.ok) {
-    let responseText = await readResponseText(res);
+  let responseText = '';
+  while (!res.ok) {
+    responseText = await readResponseText(res);
     if (autoPullModel && isMissingModelError(res.status, responseText)) {
       await ollamaPullModel(host, model, Math.max(OLLAMA_MODEL_PULL_TIMEOUT_MS, timeoutMs * 4));
       res = await requestChat();
-      responseText = await readResponseText(res);
+      continue;
     }
-    if (!res.ok) {
-      throw new Error(`Ollama HTTP ${res.status}: ${responseText || res.statusText}`);
+    if (isTransientOllamaBusyError(res.status, responseText) && Date.now() < deadline) {
+      const remainingMs = Math.max(0, deadline - Date.now());
+      await waitFor(Math.min(5000, Math.max(1000, remainingMs)));
+      res = await requestChat();
+      continue;
     }
+    throw new Error(`Ollama HTTP ${res.status}: ${responseText || res.statusText}`);
   }
 
   const json: any = await res.json().catch(() => null);
