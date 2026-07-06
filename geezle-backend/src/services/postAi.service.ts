@@ -172,6 +172,8 @@ const applyCommonGrammarFixes = (value: string) => {
   let text = cleanFallbackText(value);
   const replacements: Array<[RegExp, string]> = [
     [/\bthank for\b/gi, 'thank you for'],
+    [/\bthan you\b/gi, 'thank you'],
+    [/\bthx\b/gi, 'thanks'],
     [/\bi has\b/gi, 'I have'],
     [/\bmany idea\b/gi, 'many ideas'],
     [/\bneed make\b/gi, 'need to make'],
@@ -179,6 +181,11 @@ const applyCommonGrammarFixes = (value: string) => {
     [/\bneed send\b/gi, 'need to send'],
     [/\bneed present\b/gi, 'need to present'],
     [/\bneed explain\b/gi, 'need to explain'],
+    [/\bwonful\b/gi, 'wonderful'],
+    [/\bwondful\b/gi, 'wonderful'],
+    [/\bwoderful\b/gi, 'wonderful'],
+    [/\brespnse\b/gi, 'response'],
+    [/\bresponsese\b/gi, 'response'],
     [/\bpls\b/gi, 'please'],
     [/\bim\b/gi, "I'm"],
     [/\bdont\b/gi, "don't"],
