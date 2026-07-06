@@ -818,6 +818,7 @@ export const ollamaChat = async (input: {
   const body = {
     model,
     stream: false,
+    think: false,
     messages: input.messages.map((m) => ({
       role: m.role,
       content: String(m.content || '')
@@ -876,7 +877,7 @@ export const ollamaChat = async (input: {
   }
 
   const json: any = await res.json().catch(() => null);
-  const content = String(json?.message?.content || '').trim();
+  const content = String(json?.message?.content || json?.response || '').trim();
   return { text: content, raw: json };
 };
 
