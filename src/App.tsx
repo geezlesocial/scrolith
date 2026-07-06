@@ -1,4 +1,4 @@
-import React, { useEffect, Suspense, useRef, useState, useCallback } from 'react';
+import React, { useEffect, Suspense, useRef, useState, useCallback, lazy } from 'react';
 import { 
   BrowserRouter, 
   Routes, 
@@ -17,12 +17,9 @@ import { LiveFeatureProvider, useLiveFeature } from './context/LiveFeatureContex
 import { NotificationProvider, useNotification } from './context/NotificationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CartProvider } from './context/CartContext';
-import { MessageProvider } from './context/MessageContext';
 import { NetworkStatusProvider } from './context/NetworkStatusContext';
 import { UserProvider, useUser } from './context/UserContext';
-import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
-import { RealtimeProvider } from './dashboard/shared/RealtimeProvider';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
 import { AlertTriangleIcon } from './components/icons/ShellIcons';
@@ -45,6 +42,7 @@ const ROUTE_SYNC_RELOAD_GUARD_KEY = 'scrolith:route-sync-reload-target';
 const BIOMETRIC_PREF_KEY = 'Scrolith.pref.biometric.enabled';
 const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
+const AuthenticatedRuntimeProviders = lazy(() => import('./context/AuthenticatedRuntimeProviders'));
 
 const getCapacitorRuntime = () => {
   if (typeof window === 'undefined') return null;
@@ -1928,6 +1926,20 @@ const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children })
   return <>{children}</>;
 };
 
+const AuthenticatedRuntimeBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isAuthenticated, isLoading } = useUser();
+
+  if (isLoading || !isAuthenticated || !user) {
+    return <>{children}</>;
+  }
+
+  return (
+    <Suspense fallback={<GlobalPreloader />}>
+      <AuthenticatedRuntimeProviders>{children}</AuthenticatedRuntimeProviders>
+    </Suspense>
+  );
+};
+
 // Update the ProtectedRoute component to NOT redirect for homepage
   const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
     const { user, isAuthenticated, isLoading } = useUser();
@@ -1972,31 +1984,27 @@ function App() {
         <RouterHistorySync />
         <ChunkLoadRecovery />
         <UserProvider>
-          <SocketProvider>
-            <PreloaderProvider>
-              <ContentProvider>
-                <I18nProvider>
-                  <NotificationProvider>
-                    <ToastContainer />
-                    <RealtimeProvider>
-                      <CurrencyProvider>
-                        <FavoritesProvider>
-                          <CartProvider>
-                            <MessageProvider>
-                              <LiveFeatureProvider>
-                                <GlobalPreloader />
-                                <AppContent />
-                              </LiveFeatureProvider>
-                            </MessageProvider>
-                          </CartProvider>
-                        </FavoritesProvider>
-                      </CurrencyProvider>
-                    </RealtimeProvider>
-                  </NotificationProvider>
-                </I18nProvider>
-              </ContentProvider>
-            </PreloaderProvider>
-          </SocketProvider>
+          <PreloaderProvider>
+            <ContentProvider>
+              <I18nProvider>
+                <NotificationProvider>
+                  <ToastContainer />
+                  <CurrencyProvider>
+                    <FavoritesProvider>
+                      <CartProvider>
+                        <LiveFeatureProvider>
+                          <AuthenticatedRuntimeBoundary>
+                            <GlobalPreloader />
+                            <AppContent />
+                          </AuthenticatedRuntimeBoundary>
+                        </LiveFeatureProvider>
+                      </CartProvider>
+                    </FavoritesProvider>
+                  </CurrencyProvider>
+                </NotificationProvider>
+              </I18nProvider>
+            </ContentProvider>
+          </PreloaderProvider>
         </UserProvider>
       </NetworkStatusProvider>
     </BrowserRouter>

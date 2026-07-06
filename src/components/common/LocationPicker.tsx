@@ -26,14 +26,64 @@ const DEFAULT_TILE_URL =
   'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const DEFAULT_ATTRIBUTION =
   String(import.meta.env.VITE_MAP_ATTRIBUTION || '').trim() || '&copy; OpenStreetMap contributors';
+const MAPLIBRE_CSS_HREF = '/vendor/maplibre-gl.css';
 
 let maplibreCssPromise: Promise<unknown> | null = null;
 
+const ensureMaplibreCss = () => {
+  if (typeof document === 'undefined') return Promise.resolve();
+
+  const existingLink = document.querySelector<HTMLLinkElement>('link[data-maplibre-css="true"]');
+  if (existingLink) {
+    if (existingLink.dataset.loaded === 'true') {
+      return Promise.resolve();
+    }
+
+    maplibreCssPromise ||= new Promise<void>((resolve, reject) => {
+      existingLink.addEventListener(
+        'load',
+        () => {
+          existingLink.dataset.loaded = 'true';
+          resolve();
+        },
+        { once: true }
+      );
+      existingLink.addEventListener(
+        'error',
+        () => reject(new Error('Unable to load MapLibre styles.')),
+        { once: true }
+      );
+    });
+    return maplibreCssPromise;
+  }
+
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = MAPLIBRE_CSS_HREF;
+  link.dataset.maplibreCss = 'true';
+  maplibreCssPromise ||= new Promise<void>((resolve, reject) => {
+    link.addEventListener(
+      'load',
+      () => {
+        link.dataset.loaded = 'true';
+        resolve();
+      },
+      { once: true }
+    );
+    link.addEventListener(
+      'error',
+      () => reject(new Error('Unable to load MapLibre styles.')),
+      { once: true }
+    );
+  });
+  document.head.appendChild(link);
+  return maplibreCssPromise;
+};
+
 const loadMaplibre = async () => {
-  maplibreCssPromise ||= import('maplibre-gl/dist/maplibre-gl.css');
   const [maplibre] = await Promise.all([
     import('maplibre-gl'),
-    maplibreCssPromise
+    ensureMaplibreCss()
   ]);
   return maplibre;
 };

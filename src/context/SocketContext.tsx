@@ -18,7 +18,12 @@ export interface SocketContextType {
   isConnected: boolean
 }
 
-export const SocketContext = createContext<SocketContextType | undefined>(undefined)
+const DEFAULT_SOCKET_CONTEXT: SocketContextType = {
+  socket: null,
+  isConnected: false
+}
+
+export const SocketContext = createContext<SocketContextType>(DEFAULT_SOCKET_CONTEXT)
 const isSocketTraceEnabled = () => {
   const raw = String(import.meta.env.VITE_SOCKET_TRACE || '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
@@ -374,10 +379,6 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 }
 
 export const useSocket = (): SocketContextType => {
-  const context = useContext(SocketContext)
-  if (context === undefined) {
-    throw new Error('useSocket must be used within a SocketProvider')
-  }
-  return context
+  return useContext(SocketContext)
 }
 

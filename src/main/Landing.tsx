@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, Suspense, useMemo, useCallback, lazy } from 'react';
 import { LoaderIcon } from '../components/icons/ShellIcons';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
@@ -34,23 +34,11 @@ import {
 } from '../types';
 import { upsertImagePreloadLink } from '../utils/resourceHints';
 import { resolveResponsiveAssetUrl } from '../utils/assetUrl';
-import {
-  PopularServicesSection,
-  PromoBannersSection,
-  TrustValueSection,
-  VideoFeatureSection,
-  MarketplaceTilesSection,
-  GuidesGridSection,
-  MadeOnScrolithSection,
-  FooterCtaStripSection,
-  GuestHeroAuthSection,
-  GuestWhatIsScrolithSection,
-  GuestPathsSection,
-  GuestFeatureShowcaseSection,
-  GuestTrendingPreviewSection,
-  GuestCommunityPreviewSection,
-  GuestFinalCtaSection
-} from '../components/sections/GuestSections';
+const lazyGuestSection = <T extends keyof typeof import('../components/sections/GuestSections')>(name: T) =>
+  lazy(async () => {
+    const module = await import('../components/sections/GuestSections');
+    return { default: module[name] as React.ComponentType<any> };
+  });
 
 // Modular Sections (Lazy Loaded)
 const HeroAISection = React.lazy(() => import('../components/sections/HeroAISection'));
@@ -64,6 +52,21 @@ const TopProServices = React.lazy(() => import('../components/sections/TopProSer
 const TrustSecurity = React.lazy(() => import('../components/sections/TrustSecurity'));
 const MemberHomeSection = React.lazy(() => import('../components/sections/MemberHomeSection'));
 const Recommendations = React.lazy(() => import('../components/Recommendations'));
+const PopularServicesSection = lazyGuestSection('PopularServicesSection');
+const PromoBannersSection = lazyGuestSection('PromoBannersSection');
+const TrustValueSection = lazyGuestSection('TrustValueSection');
+const VideoFeatureSection = lazyGuestSection('VideoFeatureSection');
+const MarketplaceTilesSection = lazyGuestSection('MarketplaceTilesSection');
+const GuidesGridSection = lazyGuestSection('GuidesGridSection');
+const MadeOnScrolithSection = lazyGuestSection('MadeOnScrolithSection');
+const FooterCtaStripSection = lazyGuestSection('FooterCtaStripSection');
+const GuestHeroAuthSection = lazyGuestSection('GuestHeroAuthSection');
+const GuestWhatIsScrolithSection = lazyGuestSection('GuestWhatIsScrolithSection');
+const GuestPathsSection = lazyGuestSection('GuestPathsSection');
+const GuestFeatureShowcaseSection = lazyGuestSection('GuestFeatureShowcaseSection');
+const GuestTrendingPreviewSection = lazyGuestSection('GuestTrendingPreviewSection');
+const GuestCommunityPreviewSection = lazyGuestSection('GuestCommunityPreviewSection');
+const GuestFinalCtaSection = lazyGuestSection('GuestFinalCtaSection');
 
 // Legacy Sections
 import { TrustSection, CategoriesSection, HowItWorksSection, FeaturedSection, CTASection } from '../components/sections/LegacySections';

@@ -17,7 +17,17 @@ interface MessageContextType {
   refreshMessages: (options?: { force?: boolean }) => Promise<void>;
 }
 
-const MessageContext = createContext<MessageContextType | undefined>(undefined);
+const DEFAULT_MESSAGE_CONTEXT: MessageContextType = {
+  unreadCount: 0,
+  conversations: [],
+  loading: false,
+  error: null,
+  syncState: 'idle',
+  lastSyncedAt: null,
+  refreshMessages: async () => {}
+};
+
+const MessageContext = createContext<MessageContextType>(DEFAULT_MESSAGE_CONTEXT);
 
 export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useUser();
@@ -140,7 +150,5 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 };
 
 export const useMessages = () => {
-  const context = useContext(MessageContext);
-  if (!context) throw new Error('useMessages must be used within MessageProvider');
-  return context;
+  return useContext(MessageContext);
 };
