@@ -80,6 +80,21 @@ const resolveFileUrl = (file: SearchFileRecord, req?: Request) => {
 const fallbackAvatar = (label: string, kind: string) =>
   `https://ui-avatars.com/api/?name=${encodeURIComponent(String(label || kind))}`;
 
+const isAnonymousRequest = (req: Request) =>
+  !req.headers.authorization &&
+  !req.headers.cookie &&
+  !req.headers['x-user-id'];
+
+const setPublicCache = (res: Response, seconds = 120) => {
+  if (res.headersSent) return;
+  const maxAge = Math.max(0, Math.trunc(seconds));
+  res.setHeader(
+    'Cache-Control',
+    `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${Math.max(60, maxAge * 2)}`
+  );
+  res.setHeader('Vary', 'Accept-Encoding');
+};
+
 const containsFilter = (q: string) => ({ contains: q, mode: 'insensitive' as const });
 
 const searchPosts = async (q: string, limit: number): Promise<SearchEntry[]> => {
@@ -383,6 +398,9 @@ router.get('/unified', async (req: Request, res: Response) => {
     const q = normalizeQuery(req.query.q).replace(/\s+/g, ' ').trim();
     const perType = clampInt(req.query.perType, 4, 1, 12);
     const limit = clampInt(req.query.limit, 20, 1, 50);
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, q.length >= 2 ? 90 : 300);
+    }
 
     if (q.length < 2) {
       return res.json({
@@ -408,6 +426,9 @@ router.get('/suggestions', async (req: Request, res: Response) => {
   try {
     const q = normalizeQuery(req.query.q).replace(/\s+/g, ' ').trim();
     const limit = clampInt(req.query.limit, 8, 1, 12);
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, q.length >= 2 ? 60 : 300);
+    }
     const data = await resolveSuggestedQueries(req, q, limit);
     return res.json({ success: true, data });
   } catch (error: any) {
@@ -426,6 +447,9 @@ router.get('/suggestions', async (req: Request, res: Response) => {
 router.get('/trending', async (req: Request, res: Response) => {
   try {
     const limit = clampInt(req.query.limit, 6, 1, 20);
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 180);
+    }
     const [jobs, gigs, pages] = await Promise.all([
       prisma.job.findMany({
         where: { isActive: true, isVisible: true },
@@ -474,6 +498,9 @@ router.get('/trending', async (req: Request, res: Response) => {
 });
 
 router.get('/quick-tags', async (req: Request, res: Response) => {
+  if (isAnonymousRequest(req)) {
+    setPublicCache(res, 900);
+  }
   const data = DEFAULT_SEARCH_PROMPTS.slice(0, 8).map((label, index) => ({
     id: `qt-${index + 1}`,
     label,
@@ -494,6 +521,9 @@ router.post('/history', async (_req: Request, res: Response) => {
 router.get('/semantic', async (req: Request, res: Response) => {
   try {
     const q = normalizeQuery(req.query.query || req.query.q).replace(/\s+/g, ' ').trim();
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, q.length >= 2 ? 90 : 300);
+    }
     if (q.length < 2) return res.json({ success: true, data: [] });
     const unified = await resolveUnifiedSearch(req, q, 5, clampInt(req.query.limit, 20, 1, 50));
     const posts = await searchPosts(q, 8);
@@ -505,6 +535,9 @@ router.get('/semantic', async (req: Request, res: Response) => {
 });
 
 router.get('/analytics', async (req: Request, res: Response) => {
+  if (isAnonymousRequest(req)) {
+    setPublicCache(res, 300);
+  }
   const query = normalizeQuery(req.query.query || req.query.q);
   return res.json({
     success: true,

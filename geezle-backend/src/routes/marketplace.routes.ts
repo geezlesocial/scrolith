@@ -58,8 +58,26 @@ const handleError = (res: express.Response, error: any, fallbackMessage: string)
   });
 };
 
-router.get('/settings', optionalAuthMiddleware, async (_req, res) => {
+const isAnonymousRequest = (req: express.Request) =>
+  !req.user?.id &&
+  !req.headers.authorization &&
+  !req.headers.cookie;
+
+const setPublicCache = (res: express.Response, seconds = 120) => {
+  if (res.headersSent) return;
+  const maxAge = Math.max(0, Math.trunc(seconds));
+  res.setHeader(
+    'Cache-Control',
+    `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${Math.max(60, maxAge * 2)}`
+  );
+  res.setHeader('Vary', 'Accept-Encoding');
+};
+
+router.get('/settings', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 300);
+    }
     const data = await getMarketplaceSettings();
     return res.json({ success: true, data });
   } catch (error: any) {
@@ -67,8 +85,11 @@ router.get('/settings', optionalAuthMiddleware, async (_req, res) => {
   }
 });
 
-router.get('/categories', optionalAuthMiddleware, async (_req, res) => {
+router.get('/categories', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 900);
+    }
     const data = await listMarketplaceCategories();
     return res.json({ success: true, data });
   } catch (error: any) {
@@ -87,6 +108,11 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
 
 router.get('/listings', optionalAuthMiddleware, async (req, res) => {
   try {
+    const includeMine = parseBoolean(req.query.includeMine);
+    const includeAll = parseBoolean(req.query.includeAll);
+    if (isAnonymousRequest(req) && !includeMine && !includeAll) {
+      setPublicCache(res, 120);
+    }
     const data = await listMarketplaceListings({
       page: parseNumber(req.query.page, 1),
       pageSize: parseNumber(req.query.pageSize, 24),
@@ -101,8 +127,8 @@ router.get('/listings', optionalAuthMiddleware, async (req, res) => {
       deliveryOption: parseOptionalString(req.query.deliveryOption),
       status: parseOptionalString(req.query.status),
       sort: parseOptionalString(req.query.sort),
-      includeMine: parseBoolean(req.query.includeMine),
-      includeAll: parseBoolean(req.query.includeAll),
+      includeMine,
+      includeAll,
       viewerId: req.user?.id || null,
       viewerRole: req.user?.role || null
     });
@@ -114,6 +140,9 @@ router.get('/listings', optionalAuthMiddleware, async (req, res) => {
 
 router.get('/listings/:idOrSlug', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 120);
+    }
     const data = await getMarketplaceListingByIdOrSlug(
       String(req.params.idOrSlug || '').trim(),
       req.user?.id || null,

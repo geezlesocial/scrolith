@@ -12,8 +12,26 @@ const handleError = (res: express.Response, error: unknown, fallback: string) =>
   return res.status(status).json({ success: false, error: message || fallback });
 };
 
+const isAnonymousRequest = (req: express.Request) =>
+  !req.user?.id &&
+  !req.headers.authorization &&
+  !req.headers.cookie;
+
+const setPublicCache = (res: express.Response, seconds = 120) => {
+  if (res.headersSent) return;
+  const maxAge = Math.max(0, Math.trunc(seconds));
+  res.setHeader(
+    'Cache-Control',
+    `public, max-age=${maxAge}, s-maxage=${maxAge}, stale-while-revalidate=${Math.max(60, maxAge * 2)}`
+  );
+  res.setHeader('Vary', 'Accept-Encoding');
+};
+
 router.get('/v2', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 120);
+    }
     const data = await getDiscoveryV2({
       query: req.query.q || req.query.query,
       mode: req.query.mode,
@@ -28,6 +46,9 @@ router.get('/v2', optionalAuthMiddleware, async (req, res) => {
 
 router.get('/v2/feed', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 120);
+    }
     const data = await getDiscoveryV2({
       query: req.query.q || req.query.query,
       mode: req.query.mode,
@@ -42,6 +63,9 @@ router.get('/v2/feed', optionalAuthMiddleware, async (req, res) => {
 
 router.get('/v2/search', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 90);
+    }
     const data = await getDiscoveryV2({
       query: req.query.q || req.query.query,
       mode: req.query.mode || 'for_you',
@@ -56,6 +80,9 @@ router.get('/v2/search', optionalAuthMiddleware, async (req, res) => {
 
 router.get('/v2/briefing', optionalAuthMiddleware, async (req, res) => {
   try {
+    if (isAnonymousRequest(req)) {
+      setPublicCache(res, 180);
+    }
     const [forYou, hire, sell] = await Promise.all([
       getDiscoveryV2({ mode: 'for_you', limit: 8, viewerId: req.user?.id || null }),
       getDiscoveryV2({ mode: 'hire', limit: 6, viewerId: req.user?.id || null }),
