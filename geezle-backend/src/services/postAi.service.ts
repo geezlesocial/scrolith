@@ -168,10 +168,28 @@ const cleanFallbackText = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const applyLineAwareGrammarPolish = (value: string) =>
+  String(value || '')
+    .split('\n')
+    .map((line) => {
+      const normalized = cleanFallbackText(line);
+      if (!normalized) return '';
+      return ensureSentence(capitalizeFirst(normalized));
+    })
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
 const applyCommonGrammarFixes = (value: string) => {
   let text = cleanFallbackText(value);
   const replacements: Array<[RegExp, string]> = [
+    [/\bth respn\b/gi, 'the response'],
+    [/\bth respon\b/gi, 'the response'],
+    [/\bth response\b/gi, 'the response'],
     [/\bthank for\b/gi, 'thank you for'],
+    [/\bthan yo\b/gi, 'thank you'],
+    [/\bthan u\b/gi, 'thank you'],
     [/\bthan you\b/gi, 'thank you'],
     [/\bthx\b/gi, 'thanks'],
     [/\bi has\b/gi, 'I have'],
@@ -185,21 +203,36 @@ const applyCommonGrammarFixes = (value: string) => {
     [/\bwondful\b/gi, 'wonderful'],
     [/\bwoderful\b/gi, 'wonderful'],
     [/\brespnse\b/gi, 'response'],
+    [/\brespn\b/gi, 'response'],
     [/\bresponsese\b/gi, 'response'],
     [/\bpls\b/gi, 'please'],
     [/\bim\b/gi, "I'm"],
     [/\bdont\b/gi, "don't"],
     [/\bcant\b/gi, "can't"],
+    [/\bhell,/gi, 'hello,'],
   ];
   for (const [pattern, replacement] of replacements) {
     text = text.replace(pattern, replacement);
   }
   text = text
-    .replace(/\b([Tt]hanks?) you for\b/g, 'Thank you for')
+    .replace(/\b([Tt]hanks?) you for\b/g, 'thank you for')
     .replace(/\bi\b/g, 'I')
     .replace(/\bideas and need to make it professional\b/i, 'ideas and need to make them more professional');
 
   return ensureSentence(capitalizeFirst(text));
+};
+
+const hasObviousTextIssues = (value: string) => {
+  const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+  if (!normalized) return false;
+  const fragments = normalized
+    .split(/[^a-z0-9]+/i)
+    .filter((entry) => entry.length >= 4 && !/[aeiou]/i.test(entry) && !/^(html|css|sql|crm|api|sdk|jwt|php|cpp|tsx|jsx)$/i.test(entry));
+  if (fragments.length > 0) return true;
+  if (/\b(?:than yo|than u|th respn|th respon|respn|respnse|wondful|wonful|woderful)\b/i.test(normalized)) {
+    return true;
+  }
+  return false;
 };
 
 const toProfessionalFallbackText = (value: string) => {
@@ -263,7 +296,7 @@ const fallbackEnhanceText = (text: string, mode: PostEnhanceMode) => {
 const buildEnhanceUserPrompt = (text: string, mode: PostEnhanceMode) => {
   const modeInstruction =
     mode === 'grammar'
-      ? 'Correct grammar, spelling, and punctuation only.'
+      ? 'Correct grammar, spelling, punctuation, and obviously incomplete words only. Infer the most likely intended correction when a word is clearly truncated or misspelled.'
       : mode === 'rephrase'
         ? 'Rewrite the text so it clearly uses different wording while preserving the same meaning.'
         : mode === 'professional'
@@ -337,6 +370,18 @@ const shouldRetryEnhanceResponse = (sourceText: string, mode: PostEnhanceMode, c
   const candidateLinkCount = (normalized.match(/https?:\/\/|www\./gi) || []).length;
   if (!sourceLinkCount && candidateLinkCount) return true;
 
+  const sourceLength = source.length;
+  const candidateLength = normalized.length;
+  const normalizedSource = source.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
+  const normalizedCandidate = normalized.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
+  const sourceWordCount = source.split(/\s+/).filter(Boolean).length;
+  const candidateWordCount = normalized.split(/\s+/).filter(Boolean).length;
+  const sourceSentenceCount = (source.match(/[.!?]+/g) || []).length;
+  const candidateSentenceCount = (normalized.match(/[.!?]+/g) || []).length;
+  const sourceLooksBroken = hasObviousTextIssues(source);
+  const candidateLooksBroken = hasObviousTextIssues(normalized);
+  const grammarBaseline = applyLineAwareGrammarPolish(applyCommonGrammarFixes(source));
+  const normalizedBaseline = grammarBaseline.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
   const sourceWords = new Set(
     source
       .toLowerCase()
@@ -348,19 +393,44 @@ const shouldRetryEnhanceResponse = (sourceText: string, mode: PostEnhanceMode, c
     .split(/[^a-z0-9]+/i)
     .filter((entry) => entry.length > 2 && sourceWords.has(entry)).length;
 
-  if (overlap < 3) return true;
+  if (
+    sourceLooksBroken &&
+    normalizedBaseline &&
+    normalizedCandidate === normalizedBaseline &&
+    (mode === 'grammar' || mode === 'professional' || mode === 'rephrase')
+  ) {
+    return false;
+  }
 
-  const sourceLength = source.length;
-  const candidateLength = normalized.length;
-  const normalizedSource = source.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
-  const normalizedCandidate = normalized.toLowerCase().replace(/[^a-z0-9]+/gi, ' ').trim();
-  const sourceWordCount = source.split(/\s+/).filter(Boolean).length;
-  const candidateWordCount = normalized.split(/\s+/).filter(Boolean).length;
-  const sourceSentenceCount = (source.match(/[.!?]+/g) || []).length;
-  const candidateSentenceCount = (normalized.match(/[.!?]+/g) || []).length;
+  if (overlap < 3) return true;
 
   if (mode === 'rephrase' && normalizedCandidate === normalizedSource) {
     return true;
+  }
+
+  if ((mode === 'grammar' || mode === 'professional' || mode === 'rephrase') && candidateLooksBroken) {
+    return true;
+  }
+
+  if ((mode === 'grammar' || mode === 'professional') && sourceLooksBroken) {
+    if (normalizedCandidate === normalizedSource) {
+      return true;
+    }
+    if (normalizedBaseline && normalizedCandidate === normalizedSource && normalizedBaseline !== normalizedSource) {
+      return true;
+    }
+  }
+
+  if ((mode === 'grammar' || mode === 'professional' || mode === 'rephrase') && candidateWordCount >= 4) {
+    const suspiciousFragments = normalized
+      .split(/[^a-z0-9]+/i)
+      .filter((entry) => entry.length >= 4 && !/[aeiou]/i.test(entry) && !/^(html|css|sql|crm|api|sdk|jwt|php|cpp|tsx|jsx)$/i.test(entry));
+    if (suspiciousFragments.length > 0) {
+      return true;
+    }
+    if (!/[.!?]$/.test(normalized) && sourceSentenceCount <= 1) {
+      return true;
+    }
   }
 
   if (mode === 'expand') {
@@ -555,6 +625,10 @@ export const enhancePostDraftWithAi = async (input: {
 
       // Remove leftover assistant-like lead-ins that may appear after sentence breaks
       out = out.replace(/^(?:the revised text is[:\-\s]*|revised version[:\-\s]*|updated version[:\-\s]*|here is[:\-\s]*|here's[:\-\s]*)/i, '').trim();
+
+      if (mode === 'grammar' || mode === 'professional' || mode === 'rephrase') {
+        out = applyLineAwareGrammarPolish(applyCommonGrammarFixes(out));
+      }
 
       return out;
     };
