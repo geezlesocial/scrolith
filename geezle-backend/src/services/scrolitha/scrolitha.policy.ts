@@ -5,6 +5,7 @@ import type { ScrolithaActor, ScrolithaScope, ScrolithaToolDefinition } from './
 
 const CONFIG_CACHE_PREFIX = 'scrolitha:config:';
 const CONFIG_CACHE_TTL_MS = 45_000;
+const CONFIG_FALLBACK_CACHE_TTL_MS = 15_000;
 
 const DEFAULT_PROMPT_BLOCKLIST = [
   'ignore previous instructions',
@@ -275,50 +276,73 @@ const normalizeConfigRecord = (record: any, scope: ScrolithaScope) => {
   };
 };
 
+const buildFallbackConfigRecord = (scope: ScrolithaScope) => {
+  const defaults = DEFAULT_CONFIG[scope];
+  return normalizeConfigRecord(
+    {
+      ...defaults,
+      metadata: defaults.metadata
+    },
+    scope
+  );
+};
+
 export const ensureScrolithaConfig = async (scope: ScrolithaScope) => {
   const key = `${CONFIG_CACHE_PREFIX}${scope}`;
   const cached = scrolithaCache.get<any>(key);
   if (cached) return cached;
 
   const defaults = DEFAULT_CONFIG[scope];
-  const row = await prisma.scrolithaConfig.upsert({
-    where: { scope },
-    create: {
-      scope,
-      enabled: defaults.enabled,
-      safeMode: defaults.safeMode,
-      requireConfirmationByDefault: defaults.requireConfirmationByDefault,
-      lowRiskAutoExecute: defaults.lowRiskAutoExecute,
-      denyListedTools: [...defaults.denyListedTools],
-      promptBlocklist: [...defaults.promptBlocklist],
-      userRateLimitPerMinute: defaults.userRateLimitPerMinute,
-      adminActionCapPerMinute: defaults.adminActionCapPerMinute,
-      metadata: defaults.metadata
-    },
-    update: {}
-  });
 
-  const normalized = normalizeConfigRecord(row, scope);
-  const sourceMetadata =
-    row?.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
-      ? (row.metadata as Record<string, any>)
-      : {};
-  const normalizedMetadata = normalized?.metadata && typeof normalized.metadata === 'object' && !Array.isArray(normalized.metadata)
-    ? (normalized.metadata as Record<string, any>)
-    : {};
-
-  if (JSON.stringify(sourceMetadata) !== JSON.stringify(normalizedMetadata)) {
-    const backfilled = await prisma.scrolithaConfig.update({
-      where: { id: row.id },
-      data: { metadata: normalizedMetadata }
+  try {
+    const row = await prisma.scrolithaConfig.upsert({
+      where: { scope },
+      create: {
+        scope,
+        enabled: defaults.enabled,
+        safeMode: defaults.safeMode,
+        requireConfirmationByDefault: defaults.requireConfirmationByDefault,
+        lowRiskAutoExecute: defaults.lowRiskAutoExecute,
+        denyListedTools: [...defaults.denyListedTools],
+        promptBlocklist: [...defaults.promptBlocklist],
+        userRateLimitPerMinute: defaults.userRateLimitPerMinute,
+        adminActionCapPerMinute: defaults.adminActionCapPerMinute,
+        metadata: defaults.metadata
+      },
+      update: {}
     });
-    const hydrated = normalizeConfigRecord(backfilled, scope);
-    scrolithaCache.set(key, hydrated, CONFIG_CACHE_TTL_MS);
-    return hydrated;
-  }
 
-  scrolithaCache.set(key, normalized, CONFIG_CACHE_TTL_MS);
-  return normalized;
+    const normalized = normalizeConfigRecord(row, scope);
+    const sourceMetadata =
+      row?.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, any>)
+        : {};
+    const normalizedMetadata =
+      normalized?.metadata && typeof normalized.metadata === 'object' && !Array.isArray(normalized.metadata)
+        ? (normalized.metadata as Record<string, any>)
+        : {};
+
+    if (JSON.stringify(sourceMetadata) !== JSON.stringify(normalizedMetadata)) {
+      const backfilled = await prisma.scrolithaConfig.update({
+        where: { id: row.id },
+        data: { metadata: normalizedMetadata }
+      });
+      const hydrated = normalizeConfigRecord(backfilled, scope);
+      scrolithaCache.set(key, hydrated, CONFIG_CACHE_TTL_MS);
+      return hydrated;
+    }
+
+    scrolithaCache.set(key, normalized, CONFIG_CACHE_TTL_MS);
+    return normalized;
+  } catch (error) {
+    const fallback = buildFallbackConfigRecord(scope);
+    scrolithaCache.set(key, fallback, CONFIG_FALLBACK_CACHE_TTL_MS);
+    console.warn('[scrolitha:config] using fallback config due to database failure', {
+      scope,
+      error: String((error as any)?.message || error || '').slice(0, 220)
+    });
+    return fallback;
+  }
 };
 
 export const updateScrolithaConfig = async (input: {

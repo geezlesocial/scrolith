@@ -7,7 +7,7 @@ import http from 'http';
 import { Server } from 'socket.io';
 import helmet from 'helmet';
 import { createHash } from 'crypto';
-import prisma from './utils/prismaClient';
+import prisma, { ensurePrismaReady, getPrismaConnectionState } from './utils/prismaClient';
 import fs from 'fs';
 import jwt from 'jsonwebtoken'; // Ensure jwt import exists
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
@@ -2838,7 +2838,7 @@ app.get('/share/posts/:id', async (req: Request, res: Response) => {
 });
 
 const buildHealthPayload = () => ({
-  status: 'OK',
+  status: getPrismaConnectionState() === 'degraded' ? 'DEGRADED' : 'OK',
   timestamp: new Date().toISOString(),
   uptimeSeconds: Math.round(process.uptime()),
   environment: process.env.NODE_ENV || 'development',
@@ -2856,6 +2856,10 @@ const buildHealthPayload = () => ({
   socket: {
     status: io.engine?.clientsCount ? 'active' : 'inactive',
     connected: io.engine?.clientsCount || 0
+  },
+  database: {
+    client: 'prisma',
+    status: getPrismaConnectionState()
   },
   foundation: {
     realtime: {
@@ -3552,6 +3556,12 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
   });
   startDemoAutomationScheduler();
   server.listen(PORT, async () => {
+    try {
+      await ensurePrismaReady();
+      console.log(`[prisma] connection state: ${getPrismaConnectionState()}`);
+    } catch (error) {
+      console.error('[prisma] initial connect failed; continuing in degraded mode', error);
+    }
     console.log(`========================================`);
     console.log(`🚀 Scrolith Marketplace Backend Started`);
     console.log(`📍 Port: ${PORT}`);

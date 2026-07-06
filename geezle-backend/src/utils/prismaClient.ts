@@ -7,6 +7,12 @@ declare global {
   var __prisma: PrismaClient | undefined;
   // eslint-disable-next-line no-var
   var __prismaSlowQueryListenerAttached: boolean | undefined;
+  // eslint-disable-next-line no-var
+  var __prismaRetryMiddlewareAttached: boolean | undefined;
+  // eslint-disable-next-line no-var
+  var __prismaConnectPromise: Promise<void> | undefined;
+  // eslint-disable-next-line no-var
+  var __prismaConnectionState: 'idle' | 'connecting' | 'ready' | 'degraded' | undefined;
 }
 
 const isLocalDev = process.env.NODE_ENV !== 'production';
@@ -17,8 +23,21 @@ const parseBooleanEnv = (value: string | undefined, fallback: boolean) => {
   if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
   return fallback;
 };
+const parseIntegerEnv = (value: string | undefined, fallback: number, min = 1, max = 120) => {
+  const numeric = Number.parseInt(String(value || '').trim(), 10);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(min, Math.min(max, numeric));
+};
+const wait = (ms: number) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 const prismaSlowQueryLoggingEnabled = parseBooleanEnv(process.env.PRISMA_SLOW_QUERY_LOGGING, true);
 const prismaSlowQueryMs = Math.max(50, Number(process.env.PRISMA_SLOW_QUERY_MS || 350));
+const prismaConnectionLimit = parseIntegerEnv(process.env.PRISMA_CONNECTION_LIMIT, 12, 1, 80);
+const prismaPoolTimeoutSeconds = parseIntegerEnv(process.env.PRISMA_POOL_TIMEOUT_SECONDS, 25, 5, 120);
+const prismaConnectTimeoutSeconds = parseIntegerEnv(process.env.PRISMA_CONNECT_TIMEOUT_SECONDS, 15, 3, 120);
+const prismaReadRetryCount = parseIntegerEnv(process.env.PRISMA_READ_RETRY_COUNT, 2, 0, 5);
+const prismaReadRetryBaseDelayMs = parseIntegerEnv(process.env.PRISMA_READ_RETRY_BASE_DELAY_MS, 200, 50, 5_000);
+const prismaStartupRetryCount = parseIntegerEnv(process.env.PRISMA_STARTUP_RETRY_COUNT, 4, 1, 12);
+const prismaStartupRetryBaseDelayMs = parseIntegerEnv(process.env.PRISMA_STARTUP_RETRY_BASE_DELAY_MS, 400, 100, 10_000);
 
 const resolveGeneratedClientPath = () => {
   const candidates = [
@@ -43,6 +62,25 @@ const detectEngineType = (): 'library' | 'binary' | 'client' | 'unknown' => {
 };
 
 const hasPostgresScheme = (url: string) => /^postgres(ql)?:\/\//i.test(url);
+const normalizePrismaDatabaseUrl = (rawUrl: string) => {
+  const value = String(rawUrl || '').trim();
+  if (!value || !hasPostgresScheme(value)) return value;
+  try {
+    const normalized = new URL(value);
+    if (!normalized.searchParams.has('connection_limit')) {
+      normalized.searchParams.set('connection_limit', String(prismaConnectionLimit));
+    }
+    if (!normalized.searchParams.has('pool_timeout')) {
+      normalized.searchParams.set('pool_timeout', String(prismaPoolTimeoutSeconds));
+    }
+    if (!normalized.searchParams.has('connect_timeout')) {
+      normalized.searchParams.set('connect_timeout', String(prismaConnectTimeoutSeconds));
+    }
+    return normalized.toString();
+  } catch {
+    return value;
+  }
+};
 const assertPrismaEngineCompatibility = () => {
   if (!isLocalDev) return;
   if (String(process.env.PRISMA_ENGINE_GUARD || '').trim().toLowerCase() === 'off') return;
@@ -67,6 +105,10 @@ const assertPrismaEngineCompatibility = () => {
 };
 
 assertPrismaEngineCompatibility();
+const normalizedDatabaseUrl = normalizePrismaDatabaseUrl(String(process.env.DATABASE_URL || '').trim());
+if (normalizedDatabaseUrl) {
+  process.env.DATABASE_URL = normalizedDatabaseUrl;
+}
 
 const prismaLogConfig = prismaSlowQueryLoggingEnabled
   ? [
@@ -79,7 +121,86 @@ const prismaLogConfig = prismaSlowQueryLoggingEnabled
       { emit: 'stdout' as const, level: 'error' as const }
     ];
 
-const prisma = global.__prisma || new PrismaClient({ log: prismaLogConfig });
+const prisma = global.__prisma || new PrismaClient({
+  log: prismaLogConfig,
+  ...(normalizedDatabaseUrl
+    ? {
+        datasources: {
+          db: {
+            url: normalizedDatabaseUrl
+          }
+        }
+      }
+    : {})
+});
+
+const prismaRetryableCodes = new Set(['P1001', 'P1002', 'P1017', 'P2024', 'P2037']);
+const prismaRetryableMessagePatterns = [
+  'too many connections',
+  'connection pool timeout',
+  'timed out fetching a new connection',
+  'connection terminated unexpectedly',
+  'server has closed the connection',
+  'cannot reach database server',
+  'can\'t reach database server',
+  'remaining connection slots are reserved',
+  'econnreset',
+  'etimedout',
+  'connection closed',
+  'connection refused'
+];
+const prismaReadActions = new Set([
+  'findUnique',
+  'findUniqueOrThrow',
+  'findFirst',
+  'findFirstOrThrow',
+  'findMany',
+  'count',
+  'aggregate',
+  'groupBy'
+]);
+
+const isRetryablePrismaError = (error: unknown) => {
+  const code = String((error as any)?.code || '').trim().toUpperCase();
+  if (code && prismaRetryableCodes.has(code)) return true;
+  const message = String((error as any)?.message || '').trim().toLowerCase();
+  return prismaRetryableMessagePatterns.some((pattern) => message.includes(pattern));
+};
+
+export const getPrismaConnectionState = () => global.__prismaConnectionState || 'idle';
+
+export const ensurePrismaReady = async () => {
+  if (global.__prismaConnectPromise) return global.__prismaConnectPromise;
+  global.__prismaConnectionState = 'connecting';
+  global.__prismaConnectPromise = (async () => {
+    try {
+      for (let attempt = 0; attempt < prismaStartupRetryCount; attempt += 1) {
+        try {
+          await prisma.$connect();
+          global.__prismaConnectionState = 'ready';
+          return;
+        } catch (error) {
+          global.__prismaConnectionState = 'degraded';
+          const isLastAttempt = attempt === prismaStartupRetryCount - 1;
+          console.warn(
+            '[prisma:connect]',
+            JSON.stringify({
+              attempt: attempt + 1,
+              maxAttempts: prismaStartupRetryCount,
+              willRetry: !isLastAttempt,
+              error: String((error as any)?.message || error || '').slice(0, 260)
+            })
+          );
+          if (isLastAttempt) throw error;
+          await wait(prismaStartupRetryBaseDelayMs * (attempt + 1));
+        }
+      }
+    } finally {
+      global.__prismaConnectPromise = undefined;
+    }
+  })();
+  return global.__prismaConnectPromise;
+};
 
 if (prismaSlowQueryLoggingEnabled && !global.__prismaSlowQueryListenerAttached && typeof (prisma as any)?.$on === 'function') {
   (prisma as any).$on('query', (event: any) => {
@@ -103,6 +224,55 @@ if (prismaSlowQueryLoggingEnabled && !global.__prismaSlowQueryListenerAttached &
     );
   });
   global.__prismaSlowQueryListenerAttached = true;
+}
+
+if (!global.__prismaRetryMiddlewareAttached && typeof (prisma as any)?.$use === 'function') {
+  (prisma as any).$use(async (params: any, next: (params: any) => Promise<any>) => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await next(params);
+      } catch (error) {
+        const action = String(params?.action || '').trim();
+        const shouldRetry =
+          attempt < prismaReadRetryCount &&
+          prismaReadActions.has(action) &&
+          isRetryablePrismaError(error);
+        if (!shouldRetry) {
+          global.__prismaConnectionState = 'degraded';
+          throw error;
+        }
+
+        const delayMs = prismaReadRetryBaseDelayMs * (attempt + 1);
+        console.warn(
+          '[prisma:retry]',
+          JSON.stringify({
+            action,
+            model: String(params?.model || ''),
+            attempt: attempt + 1,
+            maxRetries: prismaReadRetryCount,
+            delayMs,
+            error: String((error as any)?.message || error || '').slice(0, 220)
+          })
+        );
+        await wait(delayMs);
+        try {
+          await prisma.$connect();
+          global.__prismaConnectionState = 'ready';
+        } catch (connectError) {
+          global.__prismaConnectionState = 'degraded';
+          console.warn(
+            '[prisma:retry-connect]',
+            JSON.stringify({
+              action,
+              attempt: attempt + 1,
+              error: String((connectError as any)?.message || connectError || '').slice(0, 220)
+            })
+          );
+        }
+      }
+    }
+  });
+  global.__prismaRetryMiddlewareAttached = true;
 }
 
 if (process.env.NODE_ENV !== 'production') {

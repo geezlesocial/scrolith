@@ -49,12 +49,22 @@ const SCROLITHA_PROMPT_LEAK_PATTERNS = [
   'primary platform strengths',
   'audience-specific guidance',
   'operational guardrails',
+  'internal platform context only',
+  'prepared for founders and operators',
   'return only the final answer',
   'return only the guide content',
   'use short headings, bullet points, and a short summary',
   'create a structured guide with clear headings',
   'response format:',
   'output format:'
+];
+const SCROLITHA_KNOWLEDGE_DUMP_PATTERNS = [
+  'marketplace for gigs, jobs, proposals, and project briefs',
+  'community and homepage feeds for content, engagement, recommendations, and professional discovery',
+  'uploaded files module for centralized asset management and attachment reuse',
+  'role-aware dashboards for freelancers, clients/employers, moderators, and admins',
+  'real-time messaging, notifications, and collaboration with file-sharing support',
+  'track project progress, notifications, and account operations from dashboard tools'
 ];
 
 const brandModelLabel = (provider: AiProvider | string, model: unknown) => {
@@ -271,7 +281,8 @@ const shouldFallbackFromScrolithaReply = (value: string) => {
   const normalized = String(value || '').toLowerCase();
   if (!normalized.trim()) return true;
   const leakedSignals = SCROLITHA_PROMPT_LEAK_PATTERNS.filter((pattern) => normalized.includes(pattern)).length;
-  return leakedSignals >= 1;
+  const knowledgeDumpSignals = SCROLITHA_KNOWLEDGE_DUMP_PATTERNS.filter((pattern) => normalized.includes(pattern)).length;
+  return leakedSignals >= 1 || knowledgeDumpSignals >= 2;
 };
 
 const finalizeScrolithaReply = (raw: unknown, fallback: string) => {
@@ -762,7 +773,7 @@ export const supportChat = async (req: Request, res: Response) => {
         data: {
           provider: result.provider,
           model: brandModelLabel(result.provider, result.model),
-          reply: result.text
+          reply: finalizeScrolithaReply(result.text, buildScrolithaSupportFallbackReply({ message, role: userRole }))
         },
         message: 'Support reply ready'
       });

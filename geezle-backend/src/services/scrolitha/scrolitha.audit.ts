@@ -29,25 +29,34 @@ export const writeScrolithaAuditLog = async (input: {
   confirmationStatus?: string | null;
 }) => {
   if (!input.actor?.id) return null;
-  return prisma.scrolithaAuditLog.create({
-    data: {
-      actorId: input.actor.id,
-      actorRole: input.actor.role || 'user',
-      actorScope: input.actor.scope,
-      conversationId: input.conversationId || null,
-      actionPlanId: input.actionPlanId || null,
+  try {
+    return await prisma.scrolithaAuditLog.create({
+      data: {
+        actorId: input.actor.id,
+        actorRole: input.actor.role || 'user',
+        actorScope: input.actor.scope,
+        conversationId: input.conversationId || null,
+        actionPlanId: input.actionPlanId || null,
+        eventType: input.eventType,
+        intent: input.intent || null,
+        toolKey: input.toolKey || null,
+        requestPayload: input.requestPayload ?? null,
+        redactedPayload: input.redactedPayload ?? null,
+        resultStatus: input.resultStatus || 'ok',
+        resultSummary: input.resultSummary || null,
+        confirmationStatus: input.confirmationStatus || null,
+        ipAddress: input.actor.ipAddress || null,
+        userAgent: input.actor.userAgent || null
+      }
+    });
+  } catch (error) {
+    console.warn('[scrolitha:audit] audit log write skipped', {
       eventType: input.eventType,
-      intent: input.intent || null,
-      toolKey: input.toolKey || null,
-      requestPayload: input.requestPayload ?? null,
-      redactedPayload: input.redactedPayload ?? null,
-      resultStatus: input.resultStatus || 'ok',
-      resultSummary: input.resultSummary || null,
-      confirmationStatus: input.confirmationStatus || null,
-      ipAddress: input.actor.ipAddress || null,
-      userAgent: input.actor.userAgent || null
-    }
-  });
+      actorId: input.actor.id,
+      error: String((error as any)?.message || error || '').slice(0, 220)
+    });
+    return null;
+  }
 };
 
 export const listScrolithaAuditLogs = async (params: {
