@@ -230,7 +230,11 @@ if (!global.__prismaRetryMiddlewareAttached && typeof (prisma as any)?.$use === 
   (prisma as any).$use(async (params: any, next: (params: any) => Promise<any>) => {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        return await next(params);
+        const result = await next(params);
+        if (global.__prismaConnectionState !== 'ready') {
+          global.__prismaConnectionState = 'ready';
+        }
+        return result;
       } catch (error) {
         const action = String(params?.action || '').trim();
         const shouldRetry =
