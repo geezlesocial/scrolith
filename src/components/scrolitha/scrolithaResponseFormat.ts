@@ -28,6 +28,13 @@ const META_PREFIXES = [
   'create a structured guide',
   'use short headings'
 ];
+const KNOWLEDGE_DUMP_PHRASES = [
+  'marketplace for gigs, jobs, proposals, and project briefs',
+  'community and homepage feeds for content, engagement, recommendations, and professional discovery',
+  'uploaded files module for centralized asset management and attachment reuse',
+  'role-aware dashboards for freelancers, clients/employers, moderators, and admins',
+  'real-time messaging, notifications, and collaboration with file-sharing support'
+];
 
 const INLINE_SECTION_LABELS = [
   'Executive summary',
@@ -76,7 +83,13 @@ const stripPromptLabel = (line: string) => line.replace(/^[#>*\-\s]+/, '').trim(
 
 const isMetaLine = (line: string) => {
   const normalized = stripPromptLabel(line).toLowerCase();
-  return META_PREFIXES.some((prefix) => normalized.startsWith(`${prefix}:`));
+  return META_PREFIXES.some((prefix) => {
+    if (normalized === prefix) return true;
+    if (!normalized.includes(prefix)) return false;
+    if (normalized.startsWith(prefix)) return true;
+    const tail = normalized.slice(prefix.length, prefix.length + 3);
+    return /^[:|\-\s]/.test(tail);
+  });
 };
 
 const isAnswerStart = (line: string) => ANSWER_START_RE.test(stripPromptLabel(line));
@@ -113,6 +126,8 @@ const normalizeInlineSections = (value: string) =>
     .trim();
 
 const hasStructuredShape = (value: string) => /(^|\n)(#{1,3}\s+|[A-Z][A-Za-z0-9\s&/-]{2,80}:$|-\s+)/m.test(value);
+const looksLikeKnowledgeDump = (value: string) =>
+  KNOWLEDGE_DUMP_PHRASES.filter((phrase) => String(value || '').toLowerCase().includes(phrase)).length >= 2;
 
 const structureLongNarrative = (value: string) => {
   const collapsed = String(value || '').replace(/\n+/g, ' ').trim();
@@ -162,6 +177,7 @@ export const normalizeScrolithaResponseText = (input: string) => {
 
   const normalized = filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   if (!normalized) return '';
+  if (looksLikeKnowledgeDump(normalized)) return '';
   if (hasStructuredShape(normalized)) return normalized;
   return structureLongNarrative(normalized);
 };
