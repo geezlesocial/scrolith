@@ -81,6 +81,11 @@ const shouldSplitPipeLine = (line: string) => line.includes('|') && line.length 
 
 const stripPromptLabel = (line: string) => line.replace(/^[#>*\-\s]+/, '').trim();
 
+const canonicalizeSectionLabel = (value: string) => {
+  const normalized = stripPromptLabel(value).replace(/:$/, '').toLowerCase();
+  return INLINE_SECTION_LABELS.find((label) => label.toLowerCase() === normalized) || value.trim();
+};
+
 const isMetaLine = (line: string) => {
   const normalized = stripPromptLabel(line).toLowerCase();
   return META_PREFIXES.some((prefix) => {
@@ -121,7 +126,7 @@ const inlineSectionPattern = new RegExp(`\\b(${INLINE_SECTION_LABELS.join('|').r
 
 const normalizeInlineSections = (value: string) =>
   String(value || '')
-    .replace(inlineSectionPattern, (_match, label) => `\n\n${label}:\n`)
+    .replace(inlineSectionPattern, (_match, label) => `\n\n${canonicalizeSectionLabel(label)}:\n`)
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -140,13 +145,13 @@ const structureLongNarrative = (value: string) => {
   const lastSentence = sentences[sentences.length - 1];
 
   return [
-    'Executive summary',
+    '## Executive summary',
     summary,
     '',
-    'Recommended approach',
+    '## Recommended approach',
     ...bullets.map((sentence) => `- ${sentence}`),
     '',
-    'Recommended next step',
+    '## Recommended next step',
     lastSentence
   ]
     .filter(Boolean)
@@ -170,7 +175,17 @@ export const normalizeScrolithaResponseText = (input: string) => {
   const filtered = lines
     .filter((line) => !isMetaLine(line))
     .map((line) => {
-      if (isStructuralLine(line)) return stripPromptLabel(line);
+      if (isStructuralLine(line)) {
+        const normalized = stripPromptLabel(line);
+        const headingMatch = normalized.match(/^(?:\*\*|__)?([A-Za-z][A-Za-z0-9\s&/()-]{2,80})(?:\*\*|__)?\s*:?\s*$/);
+        if (headingMatch) {
+          const heading = canonicalizeSectionLabel(headingMatch[1]);
+          if (INLINE_SECTION_LABELS.some((label) => label.toLowerCase() === heading.toLowerCase())) {
+            return `## ${heading}`;
+          }
+        }
+        return normalized;
+      }
       return normalizeBulletLine(line);
     })
     .filter(Boolean);
