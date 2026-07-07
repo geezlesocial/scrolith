@@ -40,6 +40,7 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.6.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.562.0",
@@ -78,6 +79,7 @@
     "appId": "com.scrolith.desktop",
     "productName": "Scrolith",
     "copyright": "Copyright 2026 Scrolith",
+    "artifactName": "Scrolith-Desktop-${version}-${arch}.${ext}",
     "directories": {
       "output": "desktop-dist"
     },
@@ -90,8 +92,18 @@
     ],
     "asar": true,
     "npmRebuild": false,
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://downloads.scrolith.com/desktop/win",
+        "channel": "latest"
+      }
+    ],
     "win": {
-      "icon": "public/favicon.ico"
+      "icon": "public/favicon.ico",
+      "signtoolOptions": {
+        "publisherName": "Scrolith"
+      }
     },
     "nsis": {
       "oneClick": false,

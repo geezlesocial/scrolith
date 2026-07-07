@@ -42,9 +42,31 @@ Then rebuild:
 npm run desktop:dist
 ```
 
+Recommended production signing inputs:
+
+- `CSC_LINK`
+- `CSC_KEY_PASSWORD`
+
+Optional Windows-specific overrides:
+
+- `WIN_CSC_LINK`
+- `WIN_CSC_KEY_PASSWORD`
+
+Signed production installers should be built on a trusted release machine or CI runner that holds the signing certificate securely.
+
 ### Optional auto-update readiness
 
-The current package intentionally does not force a live auto-update channel. This keeps distribution stable until a trusted update host is configured.
+Scrolith desktop now includes update-check wiring through Electron Updater using a Scrolith-controlled generic feed.
+
+Default feed:
+
+- `https://downloads.scrolith.com/desktop/win`
+
+Runtime override:
+
+```powershell
+$env:SCROLITH_DESKTOP_UPDATE_URL="https://downloads.scrolith.com/desktop/win"
+```
 
 When Scrolith is ready for managed desktop updates, use:
 
@@ -53,3 +75,9 @@ When Scrolith is ready for managed desktop updates, use:
 3. An Electron auto-update integration that points only to Scrolith-controlled infrastructure
 
 Keep update hosting under Scrolith ownership. Do not depend on third-party public file hosts for production desktop updates.
+
+To disable updater checks for a packaged environment:
+
+```powershell
+$env:SCROLITH_DISABLE_AUTO_UPDATE="1"
+```
