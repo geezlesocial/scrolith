@@ -450,6 +450,15 @@ const collectReplyFragments = (value: string) =>
     .filter((line) => !looksLikeScrolithaMetaLine(line))
     .filter((line) => !looksLikeScrolithaKnowledgeDumpLine(line));
 
+const looksLikeWeakSupportFragment = (value: string) => {
+  const normalized = cleanInlineText(value).toLowerCase();
+  if (!normalized) return true;
+  if (normalized === 'support' || normalized === 'summary' || normalized === 'recommended next steps') return true;
+  if (/^(here are your|here are the|next steps|recommended actions?)$/.test(normalized)) return true;
+  if (/^(support summary|recommended next steps)[:\-]?$/.test(normalized)) return true;
+  return false;
+};
+
 const buildBlueprintStructuredReply = (
   value: string,
   blueprint: { summaryLabel: string; sections: string[]; finalLabel: string }
@@ -522,7 +531,9 @@ const finalizeScrolithaSupportReply = (raw: unknown, fallback: string) => {
   const cleaned = normalizePlainTextScrolithaReply(raw);
   if (!cleaned) return fallback;
   const normalized = cleaned.toLowerCase();
-  const fragments = collectReplyFragments(cleaned).filter((line) => !looksLikeScrolithaKnowledgeDumpLine(line));
+  const fragments = collectReplyFragments(cleaned)
+    .filter((line) => !looksLikeScrolithaKnowledgeDumpLine(line))
+    .filter((line) => !looksLikeWeakSupportFragment(line));
   const compacted =
     fragments.length >= 2
       ? [
@@ -530,7 +541,11 @@ const finalizeScrolithaSupportReply = (raw: unknown, fallback: string) => {
           fragments[0],
           '',
           'Recommended next steps:',
-          ...fragments.slice(1, 5).map((item) => `- ${item}`)
+          ...fragments
+            .slice(1, 7)
+            .filter((item) => !looksLikeWeakSupportFragment(item))
+            .slice(0, 4)
+            .map((item) => `- ${item}`)
         ]
           .filter(Boolean)
           .join('\n')
