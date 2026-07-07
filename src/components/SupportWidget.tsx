@@ -9,6 +9,8 @@ import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { useSocket } from '../context/SocketContext';
 import { buildScrolithaPath, clearScrolithaLaunchParams, readScrolithaLaunchParams } from '../utils/scrolithaLaunch';
+import { plainTextToHtml } from '../utils/staticPageContent';
+import { normalizeScrolithaResponseText } from './scrolitha/scrolithaResponseFormat';
 import type { ScrolithaChatContext } from '../services/scrolitha';
 
 type Sender = 'user' | 'agent' | 'system';
@@ -72,6 +74,13 @@ const colorToText = (color: string, fallback = '#ffffff') => {
   const b = parseInt(hex.slice(4, 6), 16);
   const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return luma > 0.62 ? '#0f172a' : '#ffffff';
+};
+
+const buildAgentMessageHtml = (value?: string) => {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  const normalized = normalizeScrolithaResponseText(source) || source;
+  return plainTextToHtml(normalized);
 };
 
 const buildChatContext = (
@@ -935,7 +944,15 @@ const SupportWidget: React.FC = () => {
                               : { backgroundColor: agentBubbleColor, color: textColor }
                           }
                         >
-                        {msg.text && <p>{msg.text}</p>}
+                        {msg.text &&
+                          (msg.sender === 'agent' ? (
+                            <div
+                              className="scrolitha-widget-response prose prose-sm prose-slate max-w-none prose-p:my-2 prose-p:leading-6 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-li:leading-6 prose-headings:my-2 prose-headings:font-semibold prose-headings:text-current prose-h2:text-[13px] prose-h3:text-[12px] text-current whitespace-normal break-words"
+                              dangerouslySetInnerHTML={{ __html: buildAgentMessageHtml(msg.text) }}
+                            />
+                          ) : (
+                            <p>{msg.text}</p>
+                          ))}
                         
                         {msg.attachments && msg.attachments.map(att => (
                             <div key={att.id} className="mt-2 p-2 bg-white/20 rounded border border-white/20 flex items-center">
