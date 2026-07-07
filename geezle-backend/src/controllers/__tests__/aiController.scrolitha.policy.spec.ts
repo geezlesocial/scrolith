@@ -74,7 +74,8 @@ import {
   answerQuestionWithScrolitha,
   generateGuideWithScrolitha,
   postEnhance,
-  postInsight
+  postInsight,
+  supportChat
 } from '../aiController';
 import { createScrolithaPromptPolicyError } from '../../services/scrolitha/scrolitha.policy';
 
@@ -209,6 +210,41 @@ describe('aiController Scrolitha prompt policy enforcement', () => {
     expect(payload.success).toBe(true);
     expect(payload.data.guide).toContain('## Objective');
     expect(payload.data.guide).not.toContain('Return only the guide content');
+  });
+
+  test('supportChat strips markdown scaffolding and table formatting from the live reply', async () => {
+    mockScrolithaGenerate.mockResolvedValue({
+      text: [
+        '### **Project Title**: Responsive Web Design for Client',
+        '| Milestone | Duration | Deliverable |',
+        '| --- | --- | --- |',
+        '| Kickoff | Day 1 | Confirm scope |',
+        '#### **Immediate next steps**',
+        '- Gather the content requirements.',
+        '- Confirm the delivery timeline.'
+      ].join('\n')
+    });
+
+    const req: any = {
+      body: {
+        message: 'Create a structured project brief for a responsive web design project.',
+        role: 'Employer',
+        history: []
+      },
+      user: { id: 'user-1', role: 'USER' }
+    };
+    const res = createResponse();
+
+    await supportChat(req, res);
+
+    const payload = res.json.mock.calls[0][0];
+    expect(payload.success).toBe(true);
+    expect(payload.data.reply).toContain('Project Title:');
+    expect(payload.data.reply).toContain('- Milestone | Duration | Deliverable');
+    expect(payload.data.reply).toContain('Immediate next steps:');
+    expect(payload.data.reply).not.toContain('###');
+    expect(payload.data.reply).not.toContain('**');
+    expect(payload.data.reply).not.toContain('| --- |');
   });
 
   test('postEnhance returns 400 and audits failed policy-block requests', async () => {

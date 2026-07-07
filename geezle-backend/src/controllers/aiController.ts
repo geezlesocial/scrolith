@@ -291,6 +291,12 @@ const splitScrolithaSentences = (line: string) =>
     .map((part) => part.trim())
     .filter(Boolean);
 
+const stripMarkdownTokens = (value: string) =>
+  String(value || '')
+    .replace(/[*_`~]/g, '')
+    .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+    .trim();
+
 const isKnownScrolithaSection = (value: string) => {
   const normalized = cleanInlineText(value).replace(/:$/, '').toLowerCase();
   return SCROLITHA_SECTION_LABELS.some((label) => label.toLowerCase() === normalized);
@@ -351,6 +357,50 @@ const normalizeStructuredScrolithaReply = (value: unknown) => {
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+};
+
+const normalizePlainTextScrolithaReply = (value: unknown) => {
+  const lines = normalizeStructuredScrolithaReply(value)
+    .split('\n')
+    .map((line) => stripMarkdownTokens(line))
+    .flatMap((line) => {
+      const normalized = String(line || '').trim();
+      if (!normalized) return [];
+      if (/^\|.*\|$/.test(normalized)) {
+        const cells = normalized
+          .split('|')
+          .map((cell) => cleanInlineText(cell))
+          .filter(Boolean);
+        if (!cells.length) return [];
+        if (cells.every((cell) => /^:?-{2,}:?$/.test(cell))) return [];
+        if (cells.length <= 1) return cells;
+        return [`- ${cells.join(' | ')}`];
+      }
+      if (/^[-=]{2,}$/.test(normalized)) return [];
+      if (/^#{1,4}\s+/.test(normalized)) {
+        const heading = cleanInlineText(normalized.replace(/^#{1,4}\s+/, '')).replace(/:$/, '');
+        return heading ? [`${canonicalizeScrolithaSectionLabel(heading)}:`] : [];
+      }
+      const numberedHeading = normalized.match(/^\d+[\).]?\s+([A-Za-z][A-Za-z0-9\s&/()-]{2,80})$/);
+      if (numberedHeading) {
+        return [`${canonicalizeScrolithaSectionLabel(numberedHeading[1])}:`];
+      }
+      return [normalized];
+    })
+    .map((line) => {
+      if (!line) return '';
+      if (/^##\s+/.test(line)) {
+        return `${canonicalizeScrolithaSectionLabel(line.replace(/^##\s+/, ''))}:`;
+      }
+      if (/^-\s+/.test(line)) {
+        return `- ${cleanInlineText(line.replace(/^-\s+/, ''))}`;
+      }
+      return cleanInlineText(line);
+    })
+    .filter(Boolean)
+    .filter((line) => !looksLikeScrolithaMetaLine(line));
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
 const hasMarkdownHeading = (value: string, label: string) =>
@@ -433,6 +483,24 @@ const finalizeScrolithaReply = (raw: unknown, fallback: string) => {
   const cleaned = normalizeStructuredScrolithaReply(raw);
   if (!cleaned) return fallback;
   return shouldFallbackFromStructuredScrolithaReply(cleaned) ? fallback : cleaned;
+};
+
+const finalizeScrolithaSupportReply = (raw: unknown, fallback: string) => {
+  if (shouldFallbackFromStructuredScrolithaReply(String(raw || ''))) {
+    return fallback;
+  }
+  const cleaned = normalizePlainTextScrolithaReply(raw);
+  if (!cleaned) return fallback;
+  const normalized = cleaned.toLowerCase();
+  if (
+    shouldFallbackFromStructuredScrolithaReply(cleaned) ||
+    normalized.includes('internal platform context only') ||
+    normalized.includes('requested output style') ||
+    normalized.includes('scrolith knowledge baseline')
+  ) {
+    return fallback;
+  }
+  return cleaned;
 };
 
 const finalizeScrolithaAnswerReply = (raw: unknown, payload: any, fallback: string) => {
@@ -942,9 +1010,12 @@ export const supportChat = async (req: Request, res: Response) => {
     const system = [
       `You are Scrolitha, a helpful customer support agent for the Scrolith platform.`,
       `Rules:`,
-      `- Be concise and professional.`,
+      `- Be concise, professional, and human.`,
       `- Do not request secrets, passwords, or OTP codes.`,
       `- If you need account-specific details, ask the user to log in or contact support.`,
+      `- Respond in plain text only.`,
+      `- Do not use markdown tables, code fences, or prompt scaffolding.`,
+      `- Keep the structure readable with short labels and bullet points when needed.`,
       `User role: ${userRole}`,
       buildKnowledgeBlock(userRole)
     ].join('\n');
@@ -960,7 +1031,7 @@ export const supportChat = async (req: Request, res: Response) => {
         data: {
           provider: result.provider,
           model: brandModelLabel(result.provider, result.model),
-          reply: finalizeScrolithaReply(result.text, buildScrolithaSupportFallbackReply({ message, role: userRole }))
+          reply: finalizeScrolithaSupportReply(result.text, buildScrolithaSupportFallbackReply({ message, role: userRole }))
         },
         message: 'Support reply ready'
       });
