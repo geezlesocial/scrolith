@@ -30,6 +30,26 @@ export interface ChatFlow {
 const getAiApiUrl = () => getApiBaseUrl();
 const SUPPORT_CHAT_TIMEOUT_MS = 95_000;
 
+const normalizeSupportReplyText = (value: string) =>
+  String(value || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\*\*/g, '')
+    .replace(/__+/g, '')
+    .replace(/`+/g, '')
+    .replace(/^#{1,4}\s+/gm, '')
+    .replace(/^\|.*\|$/gm, (line) => {
+      const cells = line
+        .split('|')
+        .map((cell) => cell.trim())
+        .filter(Boolean);
+      if (!cells.length) return '';
+      if (cells.every((cell) => /^:?-{2,}:?$/.test(cell))) return '';
+      return `- ${cells.join(' | ')}`;
+    })
+    .replace(/^-{2,}$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
 // Cache the flow to avoid refetching constantly for fallback
 let cachedChatFlow: ChatFlow | null = null;
 
@@ -151,7 +171,7 @@ export const getSupportResponse = async (
     }
     const payload = await res.json().catch(() => null);
     const reply = String(payload?.data?.reply || payload?.data?.text || payload?.reply || '').trim();
-    if (reply) return roleSafetyFilter(reply, userRole);
+    if (reply) return roleSafetyFilter(normalizeSupportReplyText(reply), userRole);
   } catch (error: any) {
     if (String(error?.name || '').trim() === 'AbortError') {
       console.warn('[SupportWidget] support-chat timed out, falling back to static flow');
