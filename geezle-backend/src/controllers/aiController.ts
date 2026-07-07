@@ -278,10 +278,18 @@ const titleize = (value: string) =>
     .toLowerCase()
     .replace(/\b\w/g, (entry) => entry.toUpperCase());
 
+const escapeRegExp = (value: string) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const formatBulletSection = (title: string, items: string[]) =>
   `${title}:\n${items.map((item) => `- ${item}`).join('\n')}`;
 
 const stripScrolithaMetaLabel = (line: string) => line.replace(/^[#>*\-\s]+/, '').trim();
+
+const splitScrolithaSentences = (line: string) =>
+  String(line || '')
+    .split(/(?<=[.!?])\s+(?=[A-Z0-9])/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
 
 const isKnownScrolithaSection = (value: string) => {
   const normalized = cleanInlineText(value).replace(/:$/, '').toLowerCase();
@@ -345,6 +353,57 @@ const normalizeStructuredScrolithaReply = (value: unknown) => {
     .trim();
 };
 
+const hasMarkdownHeading = (value: string, label: string) =>
+  new RegExp(`(^|\\n)##\\s+${escapeRegExp(label)}\\b`, 'i').test(String(value || ''));
+
+const collectReplyFragments = (value: string) =>
+  normalizeStructuredScrolithaReply(value)
+    .split('\n')
+    .flatMap((line) => {
+      const normalized = String(line || '').trim();
+      if (!normalized) return [];
+      if (/^##\s+/.test(normalized)) return [];
+      if (/^-\s+/.test(normalized)) return [normalized.replace(/^-\s+/, '').trim()];
+      return splitScrolithaSentences(normalized);
+    })
+    .map((line) => cleanInlineText(line))
+    .filter(Boolean)
+    .filter((line) => !looksLikeScrolithaMetaLine(line));
+
+const buildBlueprintStructuredReply = (
+  value: string,
+  blueprint: { summaryLabel: string; sections: string[]; finalLabel: string }
+) => {
+  const fragments = collectReplyFragments(value);
+  if (!fragments.length) return '';
+
+  const summary = fragments[0];
+  const body = fragments.slice(1, 7);
+  const decision = fragments[fragments.length - 1] || summary;
+  const primarySection = blueprint.sections[0] || 'Recommended approach';
+  const secondarySection = blueprint.sections[1] || 'Immediate next steps';
+  const primaryItems = body.slice(0, Math.max(2, Math.min(4, body.length)));
+  const secondaryItems = body.slice(primaryItems.length, primaryItems.length + 3);
+
+  return [
+    `## ${blueprint.summaryLabel}`,
+    summary,
+    '',
+    `## ${primarySection}`,
+    ...primaryItems.map((item) => `- ${item}`),
+    ...(secondaryItems.length
+      ? ['', `## ${secondarySection}`, ...secondaryItems.map((item) => `- ${item}`)]
+      : []),
+    '',
+    `## ${blueprint.finalLabel}`,
+    decision
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
 const shouldFallbackFromScrolithaReply = (value: string) => {
   const normalized = String(value || '').toLowerCase();
   if (!normalized.trim()) return true;
@@ -374,6 +433,52 @@ const finalizeScrolithaReply = (raw: unknown, fallback: string) => {
   const cleaned = normalizeStructuredScrolithaReply(raw);
   if (!cleaned) return fallback;
   return shouldFallbackFromStructuredScrolithaReply(cleaned) ? fallback : cleaned;
+};
+
+const finalizeScrolithaAnswerReply = (raw: unknown, payload: any, fallback: string) => {
+  if (shouldFallbackFromStructuredScrolithaReply(String(raw || ''))) {
+    return fallback;
+  }
+
+  const cleaned = normalizeStructuredScrolithaReply(raw);
+  if (!cleaned) return fallback;
+
+  const blueprint = buildQaBlueprint(payload);
+  const headingMatches = [blueprint.summaryLabel, ...blueprint.sections, blueprint.finalLabel].filter((label) =>
+    hasMarkdownHeading(cleaned, label)
+  ).length;
+
+  if (headingMatches >= 2) {
+    return shouldFallbackFromStructuredScrolithaReply(cleaned) ? fallback : cleaned;
+  }
+
+  const structured = buildBlueprintStructuredReply(cleaned, blueprint);
+  if (!structured) return fallback;
+  return shouldFallbackFromStructuredScrolithaReply(structured) ? fallback : structured;
+};
+
+const GUIDE_SECTION_LABELS = ['Overview', 'Objective', 'Preparation', 'Execution plan', 'Risks to watch', 'Recommended next step'];
+
+const finalizeScrolithaGuideReply = (raw: unknown, fallback: string) => {
+  if (shouldFallbackFromStructuredScrolithaReply(String(raw || ''))) {
+    return fallback;
+  }
+
+  const cleaned = normalizeStructuredScrolithaReply(raw);
+  if (!cleaned) return fallback;
+
+  const headingMatches = GUIDE_SECTION_LABELS.filter((label) => hasMarkdownHeading(cleaned, label)).length;
+  if (headingMatches >= 2) {
+    return shouldFallbackFromStructuredScrolithaReply(cleaned) ? fallback : cleaned;
+  }
+
+  const structured = buildBlueprintStructuredReply(cleaned, {
+    summaryLabel: 'Overview',
+    sections: ['Objective', 'Execution plan'],
+    finalLabel: 'Recommended next step'
+  });
+  if (!structured) return fallback;
+  return shouldFallbackFromStructuredScrolithaReply(structured) ? fallback : structured;
 };
 
 const buildScrolithaFallbackAnswer = (payload: any) => {
@@ -671,7 +776,7 @@ export const answerQuestion = async (req: Request, res: Response) => {
         data: {
           provider: result.provider,
           model: brandModelLabel(result.provider, result.model),
-          answer: finalizeScrolithaReply(result.text, fallbackAnswer)
+          answer: finalizeScrolithaAnswerReply(result.text, req.body || {}, fallbackAnswer)
         }
       });
     } catch (error) {
@@ -723,7 +828,7 @@ export const answerQuestionWithScrolitha = async (req: Request, res: Response) =
       data: {
         provider: result.provider,
         model: brandModelLabel(result.provider, result.model),
-        answer: finalizeScrolithaReply(result.text, fallbackAnswer)
+        answer: finalizeScrolithaAnswerReply(result.text, req.body || {}, fallbackAnswer)
       }
     });
   } catch (error: any) {
@@ -754,7 +859,7 @@ export const generateGuide = async (req: Request, res: Response) => {
         data: {
           provider: result.provider,
           model: brandModelLabel(result.provider, result.model),
-          guide: finalizeScrolithaReply(result.text, fallbackGuide)
+          guide: finalizeScrolithaGuideReply(result.text, fallbackGuide)
         }
       });
     } catch (error) {
@@ -807,7 +912,7 @@ export const generateGuideWithScrolitha = async (req: Request, res: Response) =>
       data: {
         provider: result.provider,
         model: brandModelLabel(result.provider, result.model),
-        guide: finalizeScrolithaReply(result.text, fallbackGuide)
+        guide: finalizeScrolithaGuideReply(result.text, fallbackGuide)
       }
     });
   } catch (error: any) {

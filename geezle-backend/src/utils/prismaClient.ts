@@ -31,8 +31,15 @@ const parseIntegerEnv = (value: string | undefined, fallback: number, min = 1, m
 const wait = (ms: number) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 const prismaSlowQueryLoggingEnabled = parseBooleanEnv(process.env.PRISMA_SLOW_QUERY_LOGGING, true);
 const prismaSlowQueryMs = Math.max(50, Number(process.env.PRISMA_SLOW_QUERY_MS || 350));
-const prismaConnectionLimit = parseIntegerEnv(process.env.PRISMA_CONNECTION_LIMIT, 12, 1, 80);
-const prismaPoolTimeoutSeconds = parseIntegerEnv(process.env.PRISMA_POOL_TIMEOUT_SECONDS, 25, 5, 120);
+const defaultPrismaConnectionLimit = isLocalDev ? 12 : 5;
+const defaultPrismaPoolTimeoutSeconds = isLocalDev ? 25 : 15;
+const prismaConnectionLimit = parseIntegerEnv(process.env.PRISMA_CONNECTION_LIMIT, defaultPrismaConnectionLimit, 1, 80);
+const prismaPoolTimeoutSeconds = parseIntegerEnv(
+  process.env.PRISMA_POOL_TIMEOUT_SECONDS,
+  defaultPrismaPoolTimeoutSeconds,
+  5,
+  120
+);
 const prismaConnectTimeoutSeconds = parseIntegerEnv(process.env.PRISMA_CONNECT_TIMEOUT_SECONDS, 15, 3, 120);
 const prismaReadRetryCount = parseIntegerEnv(process.env.PRISMA_READ_RETRY_COUNT, 2, 0, 5);
 const prismaReadRetryBaseDelayMs = parseIntegerEnv(process.env.PRISMA_READ_RETRY_BASE_DELAY_MS, 200, 50, 5_000);
