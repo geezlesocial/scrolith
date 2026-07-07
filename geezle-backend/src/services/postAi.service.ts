@@ -676,6 +676,7 @@ export const enhancePostDraftWithAi = async (input: {
         // If this was the last allowed attempt, mark as rejected and fall through to fallback
         if (attempt === attemptPrompts.length - 1) {
           response = { ...response, text: sanitized };
+          accepted = Boolean(sanitized);
           break;
         }
         // otherwise continue to next (stricter) attempt

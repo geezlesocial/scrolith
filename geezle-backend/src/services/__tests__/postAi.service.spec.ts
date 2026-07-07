@@ -68,4 +68,29 @@ describe('enhancePostDraftWithAi', () => {
     expect(result.fallbackUsed).toBe(false);
     expect(result.model).toBe('qwen3:14b');
   });
+
+  it('accepts the final sanitized model response instead of dropping to heuristic fallback', async () => {
+    mockGenerate
+      .mockResolvedValueOnce({
+        text: 'Can you please provide more context for this rewrite?',
+        model: 'qwen3:14b',
+        usedFallback: false
+      })
+      .mockResolvedValueOnce({
+        text: 'I appreciate your feedback. Hello, thank you for the response.',
+        model: 'qwen3:14b',
+        usedFallback: false
+      });
+
+    const result = await enhancePostDraftWithAi({
+      text: 'hell, than yo for th respn',
+      mode: 'grammar',
+      scope: 'user'
+    });
+
+    expect(result.enhancedText).toBe('I appreciate your feedback. Hello, thank you for the response.');
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.warning).toBeUndefined();
+    expect(mockGenerate).toHaveBeenCalledTimes(2);
+  });
 });
