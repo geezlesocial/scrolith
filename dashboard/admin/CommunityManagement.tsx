@@ -363,7 +363,7 @@ const AdManager = () => {
             impressions: isEditing.impressions || 0,
             clicks: isEditing.clicks || 0,
             ctr: isEditing.ctr || 0,
-            creativeUrl: isEditing.creativeUrl || 'https://via.placeholder.com/400x200'
+            creativeUrl: isEditing.creativeUrl || '/placeholders/media-preview.svg'
         } as AdCampaign;
         
         await AdService.saveCampaign(toSave);

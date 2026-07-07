@@ -696,7 +696,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
                                     <div className="flex items-center space-x-6">
                                         <div className="relative group w-24 h-24 rounded-full bg-gray-100 overflow-hidden border-2 border-gray-200 cursor-pointer" onClick={() => openPicker('avatar')}>
-                                            <img src={user?.avatar || "https://via.placeholder.com/150"} alt="Profile" className="w-full h-full object-cover" />
+                                            <img src={user?.avatar || "/placeholders/avatar.svg"} alt="Profile" className="w-full h-full object-cover" />
                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                 <Camera className="w-6 h-6 text-white" />
                                             </div>

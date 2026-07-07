@@ -5,7 +5,7 @@ import { test, expect } from '@playwright/test';
 
 const BASE = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000';
 let ADMIN_TOKEN = process.env.PLAYWRIGHT_ADMIN_TOKEN || process.env.ADMIN_TOKEN || '';
-const TEST_FAVICON = 'https://via.placeholder.com/32.png';
+const TEST_FAVICON = '/logo.png';
 
 test.describe('Admin favicon propagation', () => {
   test.beforeEach(async ({ request }, testInfo) => {
@@ -62,7 +62,7 @@ test.describe('Admin favicon propagation', () => {
     const headerData = (body?.data && body.data) || body;
     const serverFavicon = headerData?.favicon_url || headerData?.faviconUrl || '';
     expect(serverFavicon).toBeTruthy();
-    expect(serverFavicon).toContain('placeholder.com');
+    expect(serverFavicon).toContain('/logo.png');
 
     // 2) Open admin client page and verify link[rel~="icon"] contains the new favicon (cache-bust allowed)
     const adminContext = await browser.newContext();
@@ -79,7 +79,7 @@ test.describe('Admin favicon propagation', () => {
       const el = document.querySelector('link[rel~="icon"]') || document.querySelector('link[rel="shortcut icon"]');
       return el ? (el as HTMLLinkElement).href : '';
     });
-    expect(adminFaviconHref).toContain('placeholder.com');
+    expect(adminFaviconHref).toContain('/logo.png');
 
     // 3) Open a second (public) client and verify it reads the header config and picks up the favicon
     const publicContext = await browser.newContext();
@@ -97,7 +97,7 @@ test.describe('Admin favicon propagation', () => {
       return el ? (el as HTMLLinkElement).href : '';
     });
 
-    expect(publicFaviconHref).toContain('placeholder.com');
+    expect(publicFaviconHref).toContain('/logo.png');
 
     await adminContext.close();
     await publicContext.close();

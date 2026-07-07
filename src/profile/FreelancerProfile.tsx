@@ -669,7 +669,7 @@ const FreelancerProfile = () => {
                                     className={`h-24 w-24 rounded-xl border-4 border-white bg-white object-cover shadow-md sm:h-28 sm:w-28 md:h-32 md:w-32 ${
                                       stories.length > 0 ? 'ring-4 ring-emerald-400 ring-offset-2 ring-offset-white' : ''
                                     }`}
-                                    src={resolveAssetUrl(String(publicUser?.avatar || '')) || "https://via.placeholder.com/256"}
+                                    src={resolveAssetUrl(String(publicUser?.avatar || '')) || "/placeholders/avatar.svg"}
                                     alt={publicUser?.name || 'Profile photo'}
                                 />
                                 {storiesLoading && (

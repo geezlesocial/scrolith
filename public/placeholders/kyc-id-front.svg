@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 260" role="img" aria-label="KYC ID front placeholder">
+  <rect width="400" height="260" rx="24" fill="#e0f2fe"/>
+  <rect x="28" y="34" width="344" height="192" rx="18" fill="#ffffff" stroke="#7dd3fc" stroke-width="8"/>
+  <rect x="54" y="66" width="92" height="92" rx="14" fill="#dbeafe"/>
+  <circle cx="100" cy="102" r="20" fill="#93c5fd"/>
+  <path d="M68 146c7-22 20-34 32-34s25 12 32 34" fill="#93c5fd"/>
+  <rect x="170" y="74" width="150" height="12" rx="6" fill="#475569"/>
+  <rect x="170" y="106" width="120" height="12" rx="6" fill="#94a3b8"/>
+  <rect x="170" y="138" width="136" height="12" rx="6" fill="#94a3b8"/>
+  <rect x="54" y="184" width="266" height="12" rx="6" fill="#cbd5e1"/>
+</svg>

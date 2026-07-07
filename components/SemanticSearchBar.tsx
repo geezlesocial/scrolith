@@ -87,7 +87,7 @@ const SemanticSearchBar: React.FC<SemanticSearchBarProps> = ({ userId, className
                   className="flex items-start p-3 hover:bg-gray-50 rounded-lg transition-colors cursor-pointer border border-transparent hover:border-indigo-100"
                 >
                   <img
-                    src={gig.image || "https://via.placeholder.com/60"}
+                    src={gig.image || "/placeholders/media-preview.svg"}
                     alt={gig.title}
                     className="w-16 h-16 rounded-md object-cover mr-4 bg-gray-200"
                   />

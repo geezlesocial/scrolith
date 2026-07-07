@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" role="img" aria-label="Media placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <rect width="400" height="300" rx="24" fill="url(#bg)"/>
+  <rect x="56" y="52" width="288" height="196" rx="18" fill="#f8fafc" stroke="#94a3b8" stroke-width="8"/>
+  <circle cx="140" cy="120" r="24" fill="#93c5fd"/>
+  <path d="M94 214l60-62 44 42 46-56 62 76H94z" fill="#64748b"/>
+  <text x="200" y="272" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" fill="#334155">Scrolith Media</text>
+</svg>

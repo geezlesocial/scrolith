@@ -41,8 +41,8 @@ const FilePicker: React.FC<FilePickerProps> = ({ isOpen, onClose, onSelect, acce
       console.error('Failed to load file library:', error);
       // Set fallback data
       setFiles([
-        { id: 'file-1', name: 'sample-logo.png', url: 'https://via.placeholder.com/300x200.png', type: 'image/png', size: 124000, category: 'portfolio', uploadedAt: new Date().toISOString(), thumbnail: 'https://via.placeholder.com/300x200.png' },
-        { id: 'file-2', name: 'portfolio.pdf', url: 'https://via.placeholder.com/300x200.png', type: 'application/pdf', size: 2450000, category: 'document', uploadedAt: new Date().toISOString(), thumbnail: 'https://via.placeholder.com/300x200.png' }
+        { id: 'file-1', name: 'sample-logo.png', url: '/placeholders/media-preview.svg', type: 'image/png', size: 124000, category: 'portfolio', uploadedAt: new Date().toISOString(), thumbnail: '/placeholders/media-preview.svg' },
+        { id: 'file-2', name: 'portfolio.pdf', url: '/placeholders/document-preview.svg', type: 'application/pdf', size: 2450000, category: 'document', uploadedAt: new Date().toISOString(), thumbnail: '/placeholders/document-preview.svg' }
       ]);
     }
   };
