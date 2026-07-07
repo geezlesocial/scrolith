@@ -25,6 +25,7 @@
     "seed:analytics": "ts-node scripts/seed_analytics.ts",
     "create:admin": "ts-node scripts/create_admin.ts",
     "dedupe:config": "ts-node scripts/dedupe_config_rows.ts",
+    "repair:legacy-local-files": "ts-node --transpile-only scripts/repairLegacyLocalFiles.ts",
     "check-env": "ts-node src/scripts/checkEnv.ts",
     "sync-env": "ts-node src/scripts/syncEnvToSettings.ts",
     "test:docker": "powershell -ExecutionPolicy Bypass -File ./scripts/test-with-docker.ps1",
