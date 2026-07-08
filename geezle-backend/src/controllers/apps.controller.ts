@@ -147,7 +147,8 @@ const defaultConfig = () => ({
     message: 'Install the desktop build with your latest logo/icon branding.',
     ctaLabel: 'Download Desktop App',
     secondaryCtaLabel: 'I Installed',
-    downloadUrl: '',
+    downloadUrl:
+      'https://storage.googleapis.com/downloads.scrolith.com/desktop/win/Scrolith-Desktop-Setup-latest-x64.exe',
     version: 'beta',
     iconUrl: BRAND_ASSET_URL
   }
