@@ -19,6 +19,7 @@ export const MOBILE_STORY_VIEWER_CLASS =
 
 export const shouldUseMobileShellViewport = () => {
   if (typeof window === 'undefined') return false;
+  if ((window as any)?.scrolithDesktop?.shell === 'desktop') return false;
   const hasCoarseTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
   return shouldUseMobileShellViewportFor(window.innerWidth, hasCoarseTouch, MOBILE_SHELL_BREAKPOINT);
 };

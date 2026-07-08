@@ -66,6 +66,7 @@ const hasNativeRuntime = () => {
 
 const isCompactTouchRuntime = () => {
   if (typeof window === 'undefined') return false;
+  if ((window as any)?.scrolithDesktop?.shell === 'desktop') return false;
   try {
     const coarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
     const maxTouchPoints = Number(window.navigator?.maxTouchPoints || 0);
@@ -76,9 +77,7 @@ const isCompactTouchRuntime = () => {
       document.documentElement?.clientWidth,
       window.visualViewport?.width,
       window.screen?.width,
-      window.screen?.availWidth,
-      window.screen?.height,
-      window.screen?.availHeight
+      window.screen?.availWidth
     ].filter((value): value is number => Number.isFinite(value) && value > 0);
     if (!widths.length) return false;
     return Math.min(...widths) <= 900;

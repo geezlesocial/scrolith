@@ -46,6 +46,18 @@ const resolveProfileUrl = (author: PostHeaderAuthor, currentUserId?: string | nu
   return '/profile/edit';
 };
 
+const formatPostHeaderTimestamp = (createdAt?: string | null) => {
+  if (!createdAt) return 'Just now';
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return 'Just now';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+};
+
 const PostHeader: React.FC<PostHeaderProps> = ({
   author,
   createdAt,
@@ -63,15 +75,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const authorType = String(author.type || 'user').toLowerCase();
   const verificationLevel = resolveVerificationLevel(author);
   const authorHandle = String(author.username || '').trim().replace(/^@+/, '');
-  const formattedCreatedAt = createdAt
-    ? `${new Date(createdAt).toLocaleString(undefined, {
-        month: 'short',
-        day: 'numeric'
-      })} • ${new Date(createdAt).toLocaleString(undefined, {
-        hour: 'numeric',
-        minute: '2-digit'
-      })}`
-    : 'Just now';
+  const formattedCreatedAt = formatPostHeaderTimestamp(createdAt);
   const canShowFollow =
     showFollow &&
     authorType === 'user' &&
@@ -79,8 +83,8 @@ const PostHeader: React.FC<PostHeaderProps> = ({
     String(author.id || '') !== String(currentUserId || '');
 
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-      <div className="flex min-w-0 items-start gap-3 sm:gap-4">
+    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
+      <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
         <Link
           to={profileUrl}
           className="relative h-12 w-12 shrink-0 overflow-hidden rounded-[18px] border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm ring-1 ring-white sm:h-14 sm:w-14 sm:rounded-[22px]"
@@ -91,9 +95,13 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             <Users className="mx-auto mt-3 h-5 w-5 text-slate-400 sm:mt-4 sm:h-6 sm:w-6" />
           )}
         </Link>
-        <div className="min-w-0 pt-0.5">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5">
-            <Link to={profileUrl} className="text-sm font-semibold leading-6 text-slate-950 hover:text-slate-700 sm:text-[15px]">
+        <div className="min-w-0 flex-1 pt-0.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2.5">
+            <Link
+              to={profileUrl}
+              className="max-w-full truncate text-sm font-semibold leading-6 text-slate-950 hover:text-slate-700 sm:text-[15px]"
+              title={authorName}
+            >
               {authorName}
             </Link>
             {verificationLevel ? (
@@ -115,10 +123,13 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               </span>
             ) : null}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500 sm:gap-2 sm:text-xs">
+          <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 sm:text-xs">
             <span className="font-medium text-slate-600">{formattedCreatedAt}</span>
             {authorHandle ? (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600">
+              <span
+                className="max-w-full truncate rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600"
+                title={`@${authorHandle}`}
+              >
                 @{authorHandle}
               </span>
             ) : null}
@@ -131,7 +142,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           {metaBadges ? <div className="mt-2 flex flex-wrap items-center gap-2">{metaBadges}</div> : null}
         </div>
       </div>
-      <div className="flex w-full min-w-fit shrink-0 items-center justify-end gap-2 sm:w-auto sm:flex-nowrap sm:items-start">
+      <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:min-w-fit md:shrink-0 md:justify-end md:flex-nowrap md:items-start">
         {canShowFollow ? (
           <FollowButton
             targetUserId={author.id}
