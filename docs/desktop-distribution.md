@@ -54,18 +54,22 @@ Optional Windows-specific overrides:
 
 Signed production installers should be built on a trusted release machine or CI runner that holds the signing certificate securely.
 
+Use this Google Cloud secret for release publishing:
+
+- `GCP_DESKTOP_RELEASE_SA_KEY` with Storage Object Admin access to `gs://downloads.scrolith.com`
+
 ### Optional auto-update readiness
 
 Scrolith desktop now includes update-check wiring through Electron Updater using a Scrolith-controlled generic feed.
 
 Default feed:
 
-- `https://downloads.scrolith.com/desktop/win`
+- `https://storage.googleapis.com/downloads.scrolith.com/desktop/win`
 
 Runtime override:
 
 ```powershell
-$env:SCROLITH_DESKTOP_UPDATE_URL="https://downloads.scrolith.com/desktop/win"
+$env:SCROLITH_DESKTOP_UPDATE_URL="https://storage.googleapis.com/downloads.scrolith.com/desktop/win"
 ```
 
 When Scrolith is ready for managed desktop updates, use:
@@ -81,3 +85,45 @@ To disable updater checks for a packaged environment:
 ```powershell
 $env:SCROLITH_DISABLE_AUTO_UPDATE="1"
 ```
+
+### Release hosting
+
+Desktop release origin bucket:
+
+- `gs://downloads.scrolith.com/desktop/win`
+
+Published URLs:
+
+- Installer alias: `https://storage.googleapis.com/downloads.scrolith.com/desktop/win/Scrolith-Desktop-Setup-latest-x64.exe`
+- Portable alias: `https://storage.googleapis.com/downloads.scrolith.com/desktop/win/Scrolith-Desktop-Portable-latest-x64.exe`
+- Auto-update feed: `https://storage.googleapis.com/downloads.scrolith.com/desktop/win/latest.yml`
+
+Production vanity URLs:
+
+- `https://downloads.scrolith.com/desktop/win/Scrolith-Desktop-Setup-latest-x64.exe`
+- `https://downloads.scrolith.com/desktop/win/latest.yml`
+
+DNS cutover required at Namecheap:
+
+- Type: `A`
+- Host: `downloads`
+- Value: `136.68.253.165`
+- TTL: automatic or 5 minutes during rollout
+
+Provisioned Google Cloud edge resources:
+
+- Global IP: `scrolith-downloads-ip`
+- Backend bucket: `scrolith-downloads-bucket`
+- URL map: `scrolith-downloads-map`
+- HTTPS proxy: `scrolith-downloads-https-proxy`
+- Managed certificate: `scrolith-downloads-ssl`
+
+### CI release workflow
+
+Use `.github/workflows/desktop-release.yml` for signed Windows release generation and bucket publishing. The workflow:
+
+1. validates desktop signing secrets
+2. builds signed NSIS and portable artifacts on `windows-latest`
+3. uploads versioned artifacts and stable aliases to `gs://downloads.scrolith.com/desktop/win`
+4. refreshes cache headers for installer aliases and `latest.yml`
+5. attaches the same artifacts to a GitHub release when triggered from a `desktop-v*` tag

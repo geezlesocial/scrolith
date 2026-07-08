@@ -13,6 +13,7 @@
     "desktop:dist": "npm run desktop:dist:nsis && npm run desktop:dist:portable",
     "desktop:dist:nsis": "electron-builder --win nsis --x64 -c.win.artifactName=Scrolith-Desktop-Setup-${version}-${arch}.${ext}",
     "desktop:dist:portable": "electron-builder --win portable --x64 -c.win.artifactName=Scrolith-Desktop-Portable-${version}-${arch}.${ext}",
+    "desktop:publish:gcs": "powershell -ExecutionPolicy Bypass -File scripts/publish-desktop-release.ps1",
     "test:mobile:unit": "node --import tsx --test tests/unit/**/*.test.ts",
     "test:mobile:release": "node scripts/mobile-release-gate.cjs",
     "server": "npx tsx server/src/server.ts",
@@ -95,7 +96,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://downloads.scrolith.com/desktop/win",
+        "url": "https://storage.googleapis.com/downloads.scrolith.com/desktop/win",
         "channel": "latest"
       }
     ],

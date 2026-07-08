@@ -45,7 +45,8 @@ const defaultConfig = {
     message: 'Install the desktop build with your latest logo/icon branding.',
     ctaLabel: 'Download Desktop App',
     secondaryCtaLabel: 'I Installed',
-    downloadUrl: '',
+    downloadUrl:
+      'https://storage.googleapis.com/downloads.scrolith.com/desktop/win/Scrolith-Desktop-Setup-latest-x64.exe',
     version: 'beta',
     iconUrl: 'https://scrolith.com/icon-192.png'
   }
@@ -503,6 +504,12 @@ const AppManagement: React.FC = () => {
                 onChange={(e) => handleConfigChange('desktop.downloadUrl', e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
               />
+              <p className="mt-2 text-[11px] text-gray-500">
+                Current live origin:
+                <span className="ml-1 font-medium text-gray-700">
+                  storage.googleapis.com/downloads.scrolith.com/desktop/win
+                </span>
+              </p>
               <label className="mt-2 block text-xs text-gray-500">Icon URL</label>
               <input
                 type="text"
