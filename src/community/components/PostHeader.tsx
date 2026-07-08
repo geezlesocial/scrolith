@@ -83,7 +83,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
     String(author.id || '') !== String(currentUserId || '');
 
   return (
-    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
+    <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between xl:gap-4">
       <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
         <Link
           to={profileUrl}
@@ -124,7 +124,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             ) : null}
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500 sm:text-xs">
-            <span className="font-medium text-slate-600">{formattedCreatedAt}</span>
+            <span className="whitespace-nowrap font-medium text-slate-600">{formattedCreatedAt}</span>
             {authorHandle ? (
               <span
                 className="max-w-full truncate rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600"
@@ -142,7 +142,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
           {metaBadges ? <div className="mt-2 flex flex-wrap items-center gap-2">{metaBadges}</div> : null}
         </div>
       </div>
-      <div className="flex w-full flex-wrap items-center justify-start gap-2 md:w-auto md:min-w-fit md:shrink-0 md:justify-end md:flex-nowrap md:items-start">
+      <div className="flex w-full flex-wrap items-center justify-start gap-2 xl:w-auto xl:min-w-fit xl:shrink-0 xl:justify-end xl:flex-nowrap xl:items-start">
         {canShowFollow ? (
           <FollowButton
             targetUserId={author.id}
