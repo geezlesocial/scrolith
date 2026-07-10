@@ -9,6 +9,7 @@ import {
   LayoutDashboardIcon as LayoutDashboard,
   LogOutIcon as LogOut,
   PlusIcon as Plus,
+  ShoppingCartIcon as ShoppingCart,
   Repeat2Icon as Repeat2,
   SettingsIcon as Settings,
   StarIcon as Star,
@@ -35,6 +36,8 @@ type QuickMenuConfig = {
   browseJobs?: boolean;
   browseGigs?: boolean;
   community?: boolean;
+  marketplace?: boolean;
+  groups?: boolean;
   projectBrief?: boolean;
   gigCreation?: boolean;
   settings?: boolean;
@@ -83,6 +86,8 @@ type MobileHomeSheetsProps = {
   onBrowseJobs: () => void;
   onBrowseGigs: () => void;
   onCommunity: () => void;
+  onMarketplace: () => void;
+  onGroups: () => void;
   onProjectBriefs: () => void;
   onGigCreation: () => void;
 };
@@ -321,6 +326,8 @@ export default function MobileHomeSheets({
   onBrowseJobs,
   onBrowseGigs,
   onCommunity,
+  onMarketplace,
+  onGroups,
   onProjectBriefs,
   onGigCreation
 }: MobileHomeSheetsProps) {
@@ -504,6 +511,26 @@ export default function MobileHomeSheets({
           description: 'Open the Scrolith community hub, posts, and live discussions.',
           tone: 'indigo',
           onClick: onCommunity
+        }
+      : null,
+    quickMenu.marketplace !== false
+      ? {
+          id: 'quick-marketplace',
+          icon: <ShoppingCart className="h-4 w-4" />,
+          label: 'Marketplace',
+          description: 'Browse listings, saved items, and seller storefronts.',
+          tone: 'green',
+          onClick: onMarketplace
+        }
+      : null,
+    quickMenu.groups !== false
+      ? {
+          id: 'quick-groups',
+          icon: <Users className="h-4 w-4" />,
+          label: 'Groups',
+          description: 'Open clubs, requests, and community spaces.',
+          tone: 'amber',
+          onClick: onGroups
         }
       : null,
     quickMenu.settings !== false

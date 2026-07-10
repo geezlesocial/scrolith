@@ -1519,7 +1519,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
           </div>
 
           {(isMyListingsRoute || isDashboardVariant) && (
-            <div className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div data-marketplace-actions-panel className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-slate-950">Your marketplace</h3>
                 <button

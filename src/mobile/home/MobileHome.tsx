@@ -55,6 +55,8 @@ type MobileHomeLayoutConfig = {
     browseJobs?: boolean;
     browseGigs?: boolean;
     community?: boolean;
+    marketplace?: boolean;
+    groups?: boolean;
     projectBrief?: boolean;
     gigCreation?: boolean;
     settings?: boolean;
@@ -134,6 +136,8 @@ const DEFAULT_LAYOUT: MobileHomeLayoutConfig = {
     browseJobs: true,
     browseGigs: true,
     community: true,
+    marketplace: true,
+    groups: true,
     projectBrief: true,
     gigCreation: true,
     settings: true
@@ -885,6 +889,12 @@ const MobileHome = () => {
           }}
           onCommunity={() => {
             navigateFromShell('/community');
+          }}
+          onMarketplace={() => {
+            navigateFromShell('/marketplace');
+          }}
+          onGroups={() => {
+            navigateFromShell('/community/clubs');
           }}
           onProjectBriefs={() => {
             navigateFromShell('/m/briefs');
