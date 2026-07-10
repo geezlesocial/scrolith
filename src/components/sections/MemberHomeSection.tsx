@@ -6683,11 +6683,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
             <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-2">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Quick actions</p>
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={focusComposer}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700"
+                  className="col-span-2 flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
                 >
                   Share an update
                   <Plus className="h-4 w-4 text-slate-400" />
@@ -6695,7 +6695,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 <button
                   type="button"
                   onClick={() => navigate('/browse-jobs')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm sm:text-base text-slate-700"
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
                 >
                   Browse jobs
                   <Briefcase className="h-4 w-4 text-slate-400" />
@@ -6703,15 +6703,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 <button
                   type="button"
                   onClick={() => navigate('/browse')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm sm:text-base text-slate-700"
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
                 >
                   Browse gigs
                   <Sparkles className="h-4 w-4 text-slate-400" />
                 </button>
                 <button
                   type="button"
+                  onClick={() => navigate('/marketplace')}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                >
+                  Marketplace
+                  <ShoppingBag className="h-4 w-4 text-slate-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/community/clubs')}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                >
+                  Groups
+                  <Users className="h-4 w-4 text-slate-400" />
+                </button>
+                <button
+                  type="button"
                   onClick={() => navigate('/messages')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm sm:text-base text-slate-700"
+                  className="col-span-2 flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
                 >
                   Messages
                   <MessageCircle className="h-4 w-4 text-slate-400" />
