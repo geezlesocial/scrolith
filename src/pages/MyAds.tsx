@@ -37,6 +37,10 @@ import { PaymentGateway } from '../types';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import {
+  resolvePostAttachmentMediaUrl,
+  resolvePostAttachmentPosterUrl
+} from '../utils/postAttachmentMedia';
 
 const toNumber = (value: any): number => {
   const n = typeof value === 'number' ? value : Number(value ?? 0);
@@ -204,32 +208,158 @@ const isAdVideoMedia = (media: any) => {
   return type === 'video' || type.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
 };
 
+const normalizeAdStoragePathCandidate = (value: unknown) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return '';
+  if (isResolvedAdMediaValue(trimmed)) return trimmed;
+  return `/uploads/${trimmed.replace(/^\/+/, '')}`;
+};
+
+const normalizeAdMediaAttachment = (media: any) => {
+  if (!media) return null;
+  const fileId = String(media?.fileId || media?.file_id || media?.id || '').trim();
+  const resolvedPathCandidate = isResolvedAdMediaValue(media?.path) ? String(media.path).trim() : '';
+  const storagePathCandidate = normalizeAdStoragePathCandidate(
+    media?.storagePath || media?.storage_path || media?.storageKey || media?.storage_key || ''
+  );
+  const directMediaUrl =
+    media?.url ||
+    media?.downloadUrl ||
+    media?.download_url ||
+    media?.fileUrl ||
+    media?.file_url ||
+    media?.contentUrl ||
+    media?.content_url ||
+    media?.resolvedUrl ||
+    media?.resolved_url ||
+    media?.imageUrl ||
+    media?.image_url ||
+    '';
+
+  return {
+    ...media,
+    id: String(media?.id || fileId).trim(),
+    fileId,
+    file_id: fileId,
+    url: directMediaUrl || storagePathCandidate || resolvedPathCandidate || '',
+    downloadUrl:
+      media?.downloadUrl ||
+      media?.download_url ||
+      media?.url ||
+      media?.fileUrl ||
+      media?.file_url ||
+      media?.contentUrl ||
+      media?.content_url ||
+      storagePathCandidate ||
+      resolvedPathCandidate ||
+      '',
+    path: resolvedPathCandidate || storagePathCandidate || '',
+    thumbnailUrl:
+      media?.thumbnailUrl ||
+      media?.thumbnail_url ||
+      media?.previewUrl ||
+      media?.preview_url ||
+      media?.posterUrl ||
+      media?.poster_url ||
+      '',
+    thumbnail_url:
+      media?.thumbnail_url ||
+      media?.thumbnailUrl ||
+      media?.preview_url ||
+      media?.previewUrl ||
+      '',
+    thumbnailFileId:
+      media?.thumbnailFileId ||
+      media?.thumbnail_file_id ||
+      media?.posterId ||
+      media?.poster_id ||
+      '',
+    thumbnail_file_id:
+      media?.thumbnail_file_id ||
+      media?.thumbnailFileId ||
+      media?.poster_id ||
+      media?.posterId ||
+      ''
+  };
+};
+
+const isResolvedAdMediaValue = (value: unknown) => {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return false;
+  const normalized = trimmed.toLowerCase();
+  return (
+    /^https?:\/\//i.test(trimmed) ||
+    normalized.startsWith('/api/files/') ||
+    normalized.startsWith('api/files/') ||
+    normalized.startsWith('/files/content/') ||
+    normalized.startsWith('files/content/') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/')
+  );
+};
+
+const pickResolvedAdMediaUrl = (media: any, keys: string[]) => {
+  if (!media) return '';
+  for (const key of keys) {
+    const candidate = String(media?.[key] || '').trim();
+    if (!isResolvedAdMediaValue(candidate)) continue;
+    return resolveAssetUrl(candidate) || candidate;
+  }
+  return '';
+};
+
 const resolveAdPreviewMediaUrl = (media: any) => {
+  const normalizedMedia = normalizeAdMediaAttachment(media);
+  if (!normalizedMedia) return '';
+  const resolvedMediaUrl = pickResolvedAdMediaUrl(normalizedMedia, [
+    'url',
+    'downloadUrl',
+    'download_url',
+    'fileUrl',
+    'file_url',
+    'contentUrl',
+    'content_url',
+    'resolvedUrl',
+    'resolved_url',
+    'imageUrl',
+    'image_url',
+    'previewUrl',
+    'preview_url',
+    'path',
+    'storagePath',
+    'storage_path'
+  ]);
+  if (resolvedMediaUrl) return resolvedMediaUrl;
+  const directUrl = resolvePostAttachmentMediaUrl(normalizedMedia);
+  if (directUrl) return directUrl;
   return resolveAssetUrl(
     String(
-      media?.imageUrl ||
-        media?.image_url ||
-        media?.previewUrl ||
-        media?.preview_url ||
-        media?.fileUrl ||
-        media?.file_url ||
-        media?.contentUrl ||
-        media?.content_url ||
-        media?.resolvedUrl ||
-        media?.resolved_url ||
-      media?.thumbnailUrl ||
-        media?.thumbnail_url ||
-        media?.url ||
-        media?.downloadUrl ||
-        media?.download_url ||
-        media?.storagePath ||
-        media?.storage_path ||
-        media?.storageKey ||
-        media?.storage_key ||
-        media?.path ||
+      normalizedMedia?.imageUrl ||
+        normalizedMedia?.image_url ||
+        normalizedMedia?.previewUrl ||
+        normalizedMedia?.preview_url ||
+        normalizedMedia?.thumbnailUrl ||
+        normalizedMedia?.thumbnail_url ||
         ''
     ).trim()
   );
+};
+
+const resolveAdPreviewPosterUrl = (media: any) => {
+  const normalizedMedia = normalizeAdMediaAttachment(media);
+  if (!normalizedMedia) return '';
+  const resolvedPosterUrl = pickResolvedAdMediaUrl(normalizedMedia, [
+    'thumbnailUrl',
+    'thumbnail_url',
+    'posterUrl',
+    'poster_url',
+    'previewUrl',
+    'preview_url',
+    'thumbnailFileUrl',
+    'thumbnail_file_url'
+  ]);
+  if (resolvedPosterUrl) return resolvedPosterUrl;
+  return resolvePostAttachmentPosterUrl(normalizedMedia) || resolveAdPreviewMediaUrl(normalizedMedia);
 };
 
 const getStatusGroup = (status?: string): Exclude<StudioStatusFilter, 'all'> => {
@@ -528,6 +658,21 @@ const CHECKOUT_STATUS_SUCCESS = 'success';
 const CHECKOUT_STATUS_CANCEL = 'cancel';
 const CHECKOUT_STATUS_FAILED = 'failed';
 
+type BoostPrefillContext = {
+  boostListingId?: string;
+  boostListingSlug?: string;
+  boostSource?: string;
+  boostPostId?: string;
+  boostPageId?: string;
+  boostGroupId?: string;
+  boostTitle?: string;
+  boostBody?: string;
+  boostSubtitle?: string;
+  boostDestinationUrl?: string;
+  boostCtaText?: string;
+  boostMedia?: any[];
+};
+
 const MyAds = () => {
   const location = useLocation();
   const navigationState = (location.state as {
@@ -541,6 +686,7 @@ const MyAds = () => {
   const { availableCurrencies, currency: selectedCurrency } = useCurrency();
   const { user } = useUser();
   const handledBoostPrefillRef = useRef<string>('');
+  const handledPromotionSourceRef = useRef<string>('');
   const [ads, setAds] = useState<AdCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
@@ -823,20 +969,29 @@ const MyAds = () => {
     } catch (e) {}
   };
 
-  const readBoostListingPrefillContext = () => {
+  const readBoostListingPrefillContext = (): BoostPrefillContext | null => {
     try {
       const raw = sessionStorage.getItem(BOOST_LISTING_PREFILL_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
       const boostListingId = String(parsed?.boostListingId || '').trim();
-      if (!boostListingId) return null;
+      const boostPostId = String(parsed?.boostPostId || '').trim();
+      const boostPageId = String(parsed?.boostPageId || '').trim();
+      const boostGroupId = String(parsed?.boostGroupId || '').trim();
+      if (!boostListingId && !boostPostId && !boostPageId && !boostGroupId) return null;
       return {
         boostListingId,
         boostListingSlug: String(parsed?.boostListingSlug || '').trim(),
         boostSource: String(parsed?.boostSource || '').trim(),
-        boostPostId: String(parsed?.boostPostId || '').trim(),
-        boostPageId: String(parsed?.boostPageId || '').trim(),
-        boostGroupId: String(parsed?.boostGroupId || '').trim()
+        boostPostId,
+        boostPageId,
+        boostGroupId,
+        boostTitle: String(parsed?.boostTitle || '').trim(),
+        boostBody: String(parsed?.boostBody || '').trim(),
+        boostSubtitle: String(parsed?.boostSubtitle || '').trim(),
+        boostDestinationUrl: String(parsed?.boostDestinationUrl || '').trim(),
+        boostCtaText: String(parsed?.boostCtaText || '').trim(),
+        boostMedia: Array.isArray(parsed?.boostMedia) ? parsed.boostMedia : []
       };
     } catch (error) {
       return null;
@@ -1122,6 +1277,34 @@ const MyAds = () => {
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
+    const boostContext = readBoostListingPrefillContext();
+    const hasBoostParams = Boolean(
+      params.get('boostListingId') ||
+        params.get('boostPostId') ||
+        params.get('boostPageId') ||
+        params.get('boostGroupId') ||
+        navigationState?.boostListingId ||
+        navigationState?.boostPostId ||
+        navigationState?.boostPageId ||
+        navigationState?.boostGroupId ||
+        boostContext?.boostListingId ||
+        boostContext?.boostPostId ||
+        boostContext?.boostPageId ||
+        boostContext?.boostGroupId
+    );
+    if (!hasBoostParams) {
+      handledBoostPrefillRef.current = '';
+    }
+  }, [
+    location.search,
+    navigationState?.boostListingId,
+    navigationState?.boostPostId,
+    navigationState?.boostPageId,
+    navigationState?.boostGroupId
+  ]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
     const sourceRaw = String(params.get('source') || '').trim().toLowerCase();
     if (!sourceRaw) return;
     if (
@@ -1181,6 +1364,7 @@ const MyAds = () => {
           });
           setFormGatewayId(getPreferredCheckoutGatewayId());
           setFormOpen(true);
+          handledPromotionSourceRef.current = `post:${resolvedId}`;
           return;
         }
 
@@ -1216,6 +1400,7 @@ const MyAds = () => {
           });
           setFormGatewayId(getPreferredCheckoutGatewayId());
           setFormOpen(true);
+          handledPromotionSourceRef.current = `group:${resolvedGroupId}`;
           return;
         }
 
@@ -1260,6 +1445,7 @@ const MyAds = () => {
         });
         setFormGatewayId(getPreferredCheckoutGatewayId());
         setFormOpen(true);
+        handledPromotionSourceRef.current = `page:${resolvedPageId}`;
       } catch (error: any) {
         if (!cancelled) {
           showNotification('error', 'Promote', error?.message || 'Unable to prepare promotion campaign.');
@@ -1267,7 +1453,6 @@ const MyAds = () => {
       } finally {
         if (!cancelled) {
           setPromotionLoading(false);
-          clearPromotionSourceQuery();
         }
       }
     };
@@ -1292,6 +1477,98 @@ const MyAds = () => {
     let cancelled = false;
 
     const applyBoostPrefill = async () => {
+      const boostType: PromotionSourceType = boostListingId
+        ? 'listing'
+        : boostPostId
+          ? 'post'
+          : boostPageId
+            ? 'page'
+            : boostGroupId
+              ? 'group'
+              : null;
+      const fallbackTitle = String(boostContext?.boostTitle || '').trim();
+      const fallbackBody = String(boostContext?.boostBody || '').trim();
+      const fallbackSubtitle = String(boostContext?.boostSubtitle || '').trim();
+      const fallbackDestinationUrl = String(boostContext?.boostDestinationUrl || '').trim();
+      const fallbackCtaText = String(boostContext?.boostCtaText || '').trim();
+      const fallbackMedia = Array.isArray(boostContext?.boostMedia)
+        ? boostContext.boostMedia
+            .map((media: any) => {
+              const normalizedMedia = normalizeAdMediaAttachment(media);
+              const resolvedMediaUrl = resolveAdPreviewMediaUrl(normalizedMedia);
+              const resolvedPosterUrl = resolveAdPreviewPosterUrl(normalizedMedia);
+              return {
+                id: String(media?.id || media?.fileId || media?.file_id || resolvedMediaUrl || '').trim(),
+                fileId: String(media?.fileId || media?.file_id || media?.id || '').trim(),
+                file_id: String(media?.file_id || media?.fileId || media?.id || '').trim(),
+                url: resolvedMediaUrl,
+                thumbnailUrl: resolvedPosterUrl,
+                thumbnail_url: resolvedPosterUrl,
+                imageUrl: resolvedMediaUrl,
+                image_url: resolvedMediaUrl,
+                downloadUrl: resolvedMediaUrl,
+                download_url: resolvedMediaUrl,
+                previewUrl: resolvedPosterUrl || resolvedMediaUrl,
+                preview_url: resolvedPosterUrl || resolvedMediaUrl,
+                path: resolvedMediaUrl,
+                name: media?.name,
+                mimeType: media?.mimeType,
+                mime_type: media?.mime_type,
+                type: media?.type
+              };
+            })
+            .filter((media: any) => Boolean(media.id) && Boolean(media.url))
+        : [];
+
+      const applyContextFallback = () => {
+        if (!boostType) return false;
+        const fallbackEntityId = boostListingId || boostPostId || boostPageId || boostGroupId;
+        const fallbackEntityUrl = fallbackDestinationUrl || `${window.location.origin}/freelancer/dashboard?tab=my-ads`;
+        const fallbackResolvedTitle = fallbackTitle || 'Promoted Content';
+        const fallbackResolvedSubtitle =
+          fallbackSubtitle ||
+          (boostType === 'listing'
+            ? 'Marketplace Listing'
+            : boostType === 'page'
+              ? 'Business Page'
+              : boostType === 'group'
+                ? 'Community Group'
+                : 'Community Post');
+        if (!fallbackEntityId && !fallbackResolvedTitle && !fallbackBody && fallbackMedia.length === 0) return false;
+        setPromotionSelection({
+          type: boostType,
+          entityId: fallbackEntityId,
+          entitySlug: String(boostContext?.boostListingSlug || '').trim() || undefined,
+          entityUrl: fallbackEntityUrl,
+          title: fallbackResolvedTitle,
+          subtitle: fallbackResolvedSubtitle,
+          bodyDraft: fallbackBody
+        });
+        setForm({
+          ...buildEmptyForm(selectedCurrency.code),
+          title: fallbackResolvedTitle,
+          body: fallbackBody,
+          objective: 'traffic',
+          destinationType: 'url',
+          destinationUrl: fallbackEntityUrl,
+          ctaText:
+            fallbackCtaText ||
+            (boostType === 'listing'
+              ? 'View Listing'
+              : boostType === 'page'
+                ? 'Visit page'
+                : boostType === 'group'
+                  ? 'Join group'
+                  : 'Learn more'),
+          placements: ['community_feed'],
+          media: fallbackMedia
+        });
+        setFormGatewayId(getPreferredCheckoutGatewayId());
+        setFormOpen(true);
+        handledBoostPrefillRef.current = boostKey;
+        return true;
+      };
+
       setPromotionLoading(true);
       setFormMode('create');
       setEditingAdId(null);
@@ -1308,53 +1585,47 @@ const MyAds = () => {
 
         const boostMedia = Array.isArray(boost.media)
           ? boost.media
-              .map((media: any) => ({
-                id: String(media?.id || media?.fileId || '').trim(),
-                url:
-                  resolveAssetUrl(
-                    String(
-                      media?.imageUrl ||
-                        media?.image_url ||
-                        media?.previewUrl ||
-                        media?.preview_url ||
-                        media?.fileUrl ||
-                        media?.file_url ||
-                        media?.contentUrl ||
-                        media?.content_url ||
-                        media?.resolvedUrl ||
-                        media?.resolved_url ||
-                      media?.url ||
-                        media?.downloadUrl ||
-                        media?.download_url ||
-                        media?.thumbnailUrl ||
-                        media?.thumbnail_url ||
-                        media?.storagePath ||
-                        media?.storage_path ||
-                        media?.storageKey ||
-                        media?.storage_key ||
-                        media?.path ||
-                        ''
-                    ).trim()
-                  ) || resolveAdPreviewMediaUrl(media),
-                thumbnailUrl: resolveAssetUrl(String(media?.thumbnailUrl || media?.thumbnail_url || '').trim()),
-                thumbnail_url: resolveAssetUrl(String(media?.thumbnail_url || media?.thumbnailUrl || '').trim()),
-                imageUrl: resolveAssetUrl(String(media?.imageUrl || media?.image_url || '').trim()),
-                image_url: resolveAssetUrl(String(media?.image_url || media?.imageUrl || '').trim()),
-                downloadUrl: resolveAssetUrl(String(media?.downloadUrl || media?.download_url || '').trim()),
-                download_url: resolveAssetUrl(String(media?.download_url || media?.downloadUrl || '').trim()),
-                previewUrl: resolveAssetUrl(String(media?.previewUrl || media?.preview_url || '').trim()),
-                preview_url: resolveAssetUrl(String(media?.preview_url || media?.previewUrl || '').trim()),
-                storagePath: String(media?.storagePath || media?.storage_path || '').trim(),
-                storage_key: String(media?.storage_key || media?.storagePath || '').trim(),
-                path: String(media?.path || '').trim(),
-                storageKey: String(media?.storageKey || '').trim(),
-                name: media?.name,
-                mimeType: media?.mimeType,
-                mime_type: media?.mime_type,
-                type: media?.type
-              }))
-              .filter((media: any) => Boolean(media.id))
+              .map((media: any) => {
+                const normalizedMedia = normalizeAdMediaAttachment(media);
+                const resolvedMediaUrl = resolveAdPreviewMediaUrl(normalizedMedia);
+                const resolvedPosterUrl = resolveAdPreviewPosterUrl(normalizedMedia);
+                return {
+                  id: String(media?.id || media?.fileId || media?.file_id || resolvedMediaUrl || '').trim(),
+                  fileId: String(media?.fileId || media?.file_id || media?.id || '').trim(),
+                  file_id: String(media?.file_id || media?.fileId || media?.id || '').trim(),
+                  url: resolvedMediaUrl,
+                  thumbnailUrl: resolvedPosterUrl,
+                  thumbnail_url: resolvedPosterUrl,
+                  imageUrl: resolvedMediaUrl,
+                  image_url: resolvedMediaUrl,
+                  downloadUrl: resolvedMediaUrl,
+                  download_url: resolvedMediaUrl,
+                  previewUrl: resolvedPosterUrl || resolvedMediaUrl,
+                  preview_url: resolvedPosterUrl || resolvedMediaUrl,
+                  storagePath: String(media?.storagePath || media?.storage_path || '').trim(),
+                  storage_key: String(media?.storage_key || media?.storagePath || '').trim(),
+                  path: resolvedMediaUrl,
+                  storageKey: String(media?.storageKey || media?.storagePath || '').trim(),
+                  name: media?.name,
+                  mimeType: media?.mimeType,
+                  mime_type: media?.mime_type,
+                  type: media?.type
+                };
+              })
+              .filter((media: any) => Boolean(media.id) && Boolean(media.url))
           : [];
+        const effectiveMedia = boostMedia.length > 0 ? boostMedia : fallbackMedia;
+        const effectiveEntityUrl = String(boost.destinationUrl || boost.sourceUrl || boost.listingUrl || fallbackDestinationUrl || '').trim();
+        const effectiveTitle = String(boost.campaignName || boost.adTitle || fallbackTitle || '').trim();
+        const effectiveBody = String(boost.adCopy || fallbackBody || '').trim();
+        const effectiveSubtitle =
+          boost.sourceType === 'COMMUNITY_POST'
+            ? fallbackSubtitle || 'Community Post'
+            : boost.sourceType === 'BUSINESS_PAGE'
+              ? fallbackSubtitle || 'Business Page'
+              : boost.sourceType === 'COMMUNITY_GROUP'
+                ? fallbackSubtitle || 'Community Group'
+                : fallbackSubtitle || 'Marketplace Listing';
 
         setPromotionSelection({
           type:
@@ -1365,30 +1636,23 @@ const MyAds = () => {
                 : boost.sourceType === 'COMMUNITY_GROUP'
                   ? 'group'
                   : 'listing',
-          entityId: String(boost.sourceId || boost.listingId || '').trim(),
-          entitySlug: String(boost.sourceSlug || boost.listingSlug || '').trim() || undefined,
-          entityUrl: boost.destinationUrl || boost.sourceUrl || boost.listingUrl,
-          title: boost.campaignName || `Boost - ${boost.adTitle}`,
-          subtitle:
-            boost.sourceType === 'COMMUNITY_POST'
-              ? 'Community Post'
-              : boost.sourceType === 'BUSINESS_PAGE'
-                ? 'Business Page'
-                : boost.sourceType === 'COMMUNITY_GROUP'
-                  ? 'Community Group'
-                  : 'Marketplace Listing',
-          bodyDraft: boost.adCopy
+          entityId: String(boost.sourceId || boost.listingId || boostListingId || boostPostId || boostPageId || boostGroupId || '').trim(),
+          entitySlug: String(boost.sourceSlug || boost.listingSlug || boostContext?.boostListingSlug || '').trim() || undefined,
+          entityUrl: effectiveEntityUrl,
+          title: effectiveTitle || `Boost - ${String(boost.adTitle || fallbackTitle || 'Promotion').trim()}`,
+          subtitle: effectiveSubtitle,
+          bodyDraft: effectiveBody
         });
         setFormMode('create');
         setEditingAdId(null);
         setForm({
           ...buildEmptyForm(boost.currency || selectedCurrency.code),
-          title: boost.campaignName || boost.adTitle || '',
-          body: boost.adCopy || '',
+          title: effectiveTitle,
+          body: effectiveBody,
           objective: boost.objective || 'traffic',
           destinationType: boost.destinationType || 'url',
-          destinationUrl: boost.destinationUrl || boost.listingUrl || '',
-          ctaText: boost.ctaText || 'View Listing',
+          destinationUrl: effectiveEntityUrl,
+          ctaText: boost.ctaText || fallbackCtaText || 'View Listing',
           placements: Array.isArray(boost.placements) && boost.placements.length > 0 ? boost.placements.map((placement) => normalizePlacement(placement)) : ['community_feed'],
           pricingModel: 'CPM',
           targetCountries: Array.isArray(boost.targetCountries) ? boost.targetCountries : [],
@@ -1397,20 +1661,22 @@ const MyAds = () => {
           budget: Number(boost.budget || 120),
           currency: boost.currency || selectedCurrency.code || 'USD',
           durationDays: Number(boost.durationDays || 7),
-          media: boostMedia
+          media: effectiveMedia
         });
         setFormGatewayId(getPreferredCheckoutGatewayId());
         setFormOpen(true);
         handledBoostPrefillRef.current = boostKey;
       } catch (error: any) {
         if (!cancelled) {
-          showNotification('error', 'Boost listing', error?.message || 'Unable to prepare boost campaign.');
-          setFormOpen(false);
+          const usedContextFallback = applyContextFallback();
+          if (!usedContextFallback) {
+            showNotification('error', 'Boost promotion', error?.message || 'Unable to prepare boost campaign.');
+            setFormOpen(false);
+          }
         }
       } finally {
         if (!cancelled) {
           setPromotionLoading(false);
-          clearBoostListingPrefillContext();
         }
       }
     };
@@ -1428,6 +1694,21 @@ const MyAds = () => {
     selectedCurrency.code,
     showNotification
   ]);
+
+  useEffect(() => {
+    if (promotionLoading || formOpen) return;
+
+    if (handledPromotionSourceRef.current) {
+      clearPromotionSourceQuery();
+      handledPromotionSourceRef.current = '';
+    }
+
+    if (handledBoostPrefillRef.current) {
+      clearBoostListingPrefillContext();
+      clearBoostListingQuery();
+      handledBoostPrefillRef.current = '';
+    }
+  }, [formOpen, promotionLoading, location.search]);
 
   useEffect(() => {
     const loadGateways = async () => {
@@ -3641,14 +3922,13 @@ const MyAds = () => {
                   <div className="grid gap-3 md:grid-cols-2">
                     {form.media.map((media) => {
                       const mediaUrl = resolveAdPreviewMediaUrl(media);
-                      const resolvedMediaUrl = resolveAssetUrl(mediaUrl) || mediaUrl;
                       return (
                       <div key={media.id} className="border rounded-xl p-2 flex items-center gap-3">
-                        {resolvedMediaUrl ? (
+                        {mediaUrl ? (
                           isAdVideoMedia(media) ? (
                             <AdVideoPlayer
-                              key={resolvedMediaUrl}
-                              src={resolvedMediaUrl}
+                              key={mediaUrl}
+                              src={mediaUrl}
                               className="h-16 w-16 rounded-lg"
                               videoClassName="h-full w-full object-cover"
                               preload="auto"
@@ -3656,7 +3936,7 @@ const MyAds = () => {
                               showSoundLabel={false}
                             />
                           ) : (
-                            <img src={resolvedMediaUrl} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
+                            <img src={mediaUrl} alt={media.name || 'media'} className="w-16 h-16 object-cover rounded-lg" />
                           )
                         ) : (
                           <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-500">File</div>

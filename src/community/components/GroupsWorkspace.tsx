@@ -268,7 +268,19 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       showNotification('warning', 'Groups', 'Select a group first.');
       return;
     }
-    navigate(`/freelancer/dashboard?tab=my-ads&boostGroupId=${encodeURIComponent(groupId)}&boostOpen=1`);
+    const boostPayload = {
+      boostGroupId: groupId,
+      boostSource: 'community-group',
+      createdAt: new Date().toISOString()
+    };
+    try {
+      window.sessionStorage.setItem('scrolith:my_ads:boost_listing_prefill', JSON.stringify(boostPayload));
+    } catch (error) {
+      // Best-effort handoff only.
+    }
+    navigate(`/freelancer/dashboard?tab=my-ads&boostGroupId=${encodeURIComponent(groupId)}&boostOpen=1`, {
+      state: boostPayload
+    });
   }, [navigate, selectedGroup?.id, showNotification]);
 
   useEffect(() => {

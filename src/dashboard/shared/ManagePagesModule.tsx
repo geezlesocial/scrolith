@@ -589,6 +589,22 @@ const ManagePagesModule: React.FC = () => {
     ? `/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(selectedPage.id)}&boostOpen=1`
     : '';
 
+  const handlePromotePage = useCallback(() => {
+    const pageId = String(selectedPage?.id || '').trim();
+    if (!pageId) return;
+    const boostPayload = {
+      boostPageId: pageId,
+      boostSource: 'business-page',
+      createdAt: new Date().toISOString()
+    };
+    try {
+      window.sessionStorage.setItem('scrolith:my_ads:boost_listing_prefill', JSON.stringify(boostPayload));
+    } catch (error) {
+      // Best-effort handoff only.
+    }
+    navigate(promoteUrl, { state: boostPayload });
+  }, [navigate, promoteUrl, selectedPage?.id]);
+
   const handleDraftNameChange = (value: string) => {
     setDraft((current) => {
       const nextSlug = toSlug(value);
@@ -1054,13 +1070,15 @@ const ManagePagesModule: React.FC = () => {
                     <Eye className="h-4 w-4" />
                     View public page
                   </Link>
-                  <Link
-                    to={promoteUrl}
-                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                  <button
+                    type="button"
+                    onClick={handlePromotePage}
+                    disabled={!selectedPage}
+                    className="inline-flex items-center justify-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Megaphone className="h-4 w-4" />
                     Promote page
-                  </Link>
+                  </button>
                   <button
                     type="button"
                     onClick={() => openDeleteDialog(selectedPage)}

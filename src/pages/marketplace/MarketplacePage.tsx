@@ -1323,8 +1323,8 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   const renderBrowse = () => (
     <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
       <div className="space-y-4">
-        <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="grid gap-3 xl:grid-cols-[1.4fr_1fr_1fr]">
+        <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+          <div className="grid gap-2 md:grid-cols-[1.4fr_1fr_1fr] md:gap-3">
             <SearchInput
               placeholder="Search items, brands, sellers..."
               className="lg:col-span-1"
@@ -1360,7 +1360,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
               <option value="recommended">Recommended</option>
             </select>
           </div>
-          <div className="mt-3 flex items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             {(['pickup', 'local_delivery', 'shipping', 'cash_on_delivery'] as MarketplaceDeliveryOption[]).map((value) => (
               <MarketplaceChip
                 key={value}
@@ -1394,7 +1394,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             <button
               type="button"
               onClick={() => setQuery({ page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: 'newest' })}
-              className="inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               <RotateCcw className="h-4 w-4" />
               Reset
@@ -1410,7 +1410,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   })
                   .catch(() => setError('Unable to access your current location for nearby listings'));
               }}
-              className="inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               <LocateFixed className="h-4 w-4" />
               Nearby
@@ -1418,7 +1418,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             <button
               type="button"
               onClick={() => setQuery((previous) => ({ ...previous, search: searchDraft.trim(), page: 1 }))}
-              className="inline-flex shrink-0 whitespace-nowrap items-center gap-2 rounded-full bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white"
+              className="inline-flex w-full shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:w-auto sm:py-1.5"
             >
               <Search className="h-4 w-4" />
               Search
@@ -1603,7 +1603,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
     return (
       <div className="grid gap-4 lg:gap-6 xl:grid-cols-[1.3fr_420px]">
         <div className="space-y-4">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-2.5 shadow-sm sm:p-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <button
                 type="button"
@@ -1626,16 +1626,16 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                 </button>
               </div>
             </div>
-            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
+            <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
               <div className="space-y-3">
-                <div className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)]">
+                <div className="relative aspect-[1/1] min-h-[18rem] overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] sm:min-h-0 sm:aspect-[4/3] lg:aspect-[16/10]">
                   {cover ? (
                     isVideoActive ? (
                       <video
                         src={cover}
                         controls
                         playsInline
-                        className="h-[280px] w-full bg-slate-950 object-contain sm:h-[360px] lg:h-[420px]"
+                        className="h-full w-full bg-slate-950 object-contain"
                       />
                     ) : (
                       <OptimizedImage
@@ -1647,11 +1647,11 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         loading="eager"
                         fetchPriority="high"
                         sizes="(max-width: 640px) 100vw, (max-width: 1280px) 70vw, 840px"
-                        className="h-[280px] w-full bg-slate-50 object-contain sm:h-[360px] lg:h-[420px]"
+                        className="h-full w-full bg-slate-50 object-contain"
                       />
                     )
                   ) : (
-                    <div className="flex h-[280px] items-center justify-center text-slate-400 sm:h-[360px] lg:h-[420px]">
+                    <div className="flex h-full items-center justify-center text-slate-400">
                       <ImageIcon className="h-12 w-12" />
                     </div>
                   )}
@@ -1661,7 +1661,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         type="button"
                         aria-label="Show previous listing image"
                         onClick={() => setSelectedMediaIndex((previous) => (previous - 1 + media.length) % media.length)}
-                        className="absolute left-3 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:left-4 sm:h-11 sm:w-11"
+                        className="absolute left-2 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:left-4"
                       >
                         <ChevronLeft className="h-5 w-5" />
                       </button>
@@ -1669,18 +1669,18 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         type="button"
                         aria-label="Show next listing image"
                         onClick={() => setSelectedMediaIndex((previous) => (previous + 1) % media.length)}
-                        className="absolute right-3 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:right-4 sm:h-11 sm:w-11"
+                        className="absolute right-2 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:right-4"
                       >
                         <ChevronRight className="h-5 w-5" />
                       </button>
-                      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-950/72 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                      <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 rounded-full bg-slate-950/72 px-2 py-1 text-[10px] font-semibold text-white backdrop-blur sm:bottom-4 sm:px-3 sm:text-xs">
                         {selectedMediaIndex + 1} / {media.length}
                       </div>
                     </>
                   )}
                 </div>
                 {media.length > 1 && (
-                  <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 sm:gap-3">
+                  <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-2 sm:gap-3">
                     {media.map((item, index) => {
                       const url = getMediaUrl(item);
                       if (!url) return null;
@@ -1709,8 +1709,8 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                               height={132}
                               fit="contain"
                               loading="lazy"
-                              sizes="88px"
-                              className="aspect-[4/3] w-full bg-slate-50 object-contain p-1"
+                              sizes="(max-width: 640px) 64px, 88px"
+                              className="aspect-[4/3] w-full bg-slate-50 object-contain p-1 sm:p-1.5"
                             />
                           )}
                           {selectedMediaIndex === index && <span className="pointer-events-none absolute inset-x-2 bottom-2 h-1 rounded-full bg-white/95" />}
@@ -1795,17 +1795,17 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         </p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                       <FollowButton
                         targetUserId={seller?.id}
                         currentUserId={user?.id}
                         tone="default"
-                        className="h-10 min-w-[7rem] border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+                        className="h-10 w-full min-w-[7rem] border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 sm:w-auto"
                         onRequireLogin={() => navigate('/auth/login')}
                       />
                       <Link
                         to={sellerProfilePath}
-                        className="inline-flex h-10 items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                        className="inline-flex h-10 w-full items-center justify-center rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:border-slate-300 hover:bg-slate-50 sm:w-auto"
                       >
                         View profile
                       </Link>
@@ -1817,7 +1817,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                           contactPanel?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                           window.setTimeout(() => contactInput?.focus(), 180);
                         }}
-                        className="inline-flex h-10 items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800"
+                        className="inline-flex h-10 w-full items-center justify-center rounded-full bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-800 sm:w-auto"
                       >
                         Message seller
                       </button>
@@ -1831,7 +1831,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h1 className="break-words text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{selectedListing.title}</h1>
+                        <h1 className="break-words text-[1.85rem] font-bold tracking-tight text-slate-950 sm:text-3xl">{selectedListing.title}</h1>
                         <VerifiedBadge size="sm" ariaHidden={!seller?.isVerified && !seller?.verifiedBadge} />
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -2421,7 +2421,7 @@ const MarketplaceListingCard: React.FC<{
   return (
     <article className="group overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <button type="button" onClick={onOpen} className="block w-full text-left">
-        <div className="relative aspect-[4/3] overflow-hidden bg-slate-100 sm:aspect-[5/4] xl:aspect-[4/3]">
+        <div className="relative aspect-[1/1] overflow-hidden bg-slate-100 sm:aspect-[4/3] xl:aspect-[4/3]">
           {cover ? (
             <OptimizedImage
               src={cover}
@@ -2544,7 +2544,7 @@ const MarketplaceListingCard: React.FC<{
         <button
           type="button"
           onClick={onShare}
-          className="inline-flex h-10 w-full items-center justify-center rounded-full border border-slate-200 text-slate-700 sm:w-10"
+          className="col-span-2 inline-flex h-10 w-full items-center justify-center rounded-full border border-slate-200 text-slate-700 sm:col-auto sm:w-10"
         >
           <Send className="h-4 w-4" />
         </button>

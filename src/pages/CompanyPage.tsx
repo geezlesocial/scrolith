@@ -843,6 +843,24 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
     }
   };
 
+  const handleBoostPage = () => {
+    const pageId = String(page?.id || '').trim();
+    if (!pageId) return;
+    const boostPayload = {
+      boostPageId: pageId,
+      boostSource: 'business-page',
+      createdAt: new Date().toISOString()
+    };
+    try {
+      window.sessionStorage.setItem('scrolith:my_ads:boost_listing_prefill', JSON.stringify(boostPayload));
+    } catch (error) {
+      // Best-effort handoff only.
+    }
+    navigate(`/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(pageId)}&boostOpen=1`, {
+      state: boostPayload
+    });
+  };
+
   const normalizeUploadedAttachment = useCallback((file: any): UploadedAttachment | null => {
     const id = String(file?.id || '').trim();
     if (!id) return null;
@@ -1269,13 +1287,14 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                   {page.isFollowing ? 'Following' : 'Follow'}
                 </button>
               ) : (
-                <Link
-                  to={`/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(page.id)}&boostOpen=1`}
+                <button
+                  type="button"
+                  onClick={handleBoostPage}
                   className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                 >
                   <Megaphone className="h-4 w-4" />
                   Boost Page
-                </Link>
+                </button>
               )}
             </div>
           </div>

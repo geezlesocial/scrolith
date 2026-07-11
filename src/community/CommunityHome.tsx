@@ -1906,7 +1906,42 @@ const CommunityHome = () => {
       showNotification('error', 'Promote this post', 'Post details are not available.');
       return;
     }
-    navigate(`/freelancer/dashboard?tab=my-ads&boostPostId=${encodeURIComponent(postId)}&boostOpen=1`);
+    const boostMedia = Array.isArray(post?.attachments)
+      ? post.attachments
+          .map((item: any) => {
+            const url = String(resolvePostAttachmentMediaUrl(item) || item?.url || '').trim();
+            if (!url) return null;
+            return {
+              id: String(item?.id || item?.fileId || item?.file_id || url).trim(),
+              fileId: String(item?.fileId || item?.file_id || item?.file?.id || item?.asset?.id || item?.id || '').trim(),
+              url,
+              thumbnailUrl: String(resolvePostAttachmentPosterUrl(item) || item?.thumbnailUrl || item?.thumbnail_url || '').trim(),
+              mimeType: String(item?.mimeType || item?.mime_type || '').trim(),
+              type: item?.type || inferMediaType(item)
+            };
+          })
+          .filter(Boolean)
+          .slice(0, 6)
+      : [];
+    const boostPayload = {
+      boostPostId: postId,
+      boostSource: 'community-post',
+      boostTitle: String(post?.title || '').trim() || 'Promoted Post',
+      boostBody: String(post?.content || '').trim(),
+      boostSubtitle: String(post?.businessPage?.name || post?.author?.displayName || post?.authorName || '').trim() || 'Community Post',
+      boostDestinationUrl: `${window.location.origin}/community/posts/${encodeURIComponent(postId)}`,
+      boostCtaText: 'Learn more',
+      boostMedia,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      window.sessionStorage.setItem('scrolith:my_ads:boost_listing_prefill', JSON.stringify(boostPayload));
+    } catch (error) {
+      // Best-effort handoff only.
+    }
+    navigate(`/freelancer/dashboard?tab=my-ads&boostPostId=${encodeURIComponent(postId)}&boostOpen=1`, {
+      state: boostPayload
+    });
   };
 
   const resolveAuthorId = (post: any) => String(
@@ -1926,6 +1961,24 @@ const CommunityHome = () => {
     if (authorType === 'user') return resolveAuthorId(post);
     return '';
   };
+
+  const canPromotePost = useCallback(
+    (post: any) => {
+      const viewerId = String(user?.id || '').trim();
+      if (!viewerId) return false;
+      const directOwnerId = resolveAuthorOwnerUserId(post);
+      if (directOwnerId && directOwnerId === viewerId) return true;
+
+      const pageOwnerId = String(post?.businessPage?.ownerId || '').trim();
+      if (pageOwnerId && pageOwnerId === viewerId) return true;
+
+      const clubOwnerId = String(post?.club?.ownerId || '').trim();
+      if (clubOwnerId && clubOwnerId === viewerId) return true;
+
+      return false;
+    },
+    [user?.id]
+  );
 
   const beginEditPost = useCallback((post: any) => {
     const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
@@ -2718,6 +2771,7 @@ const CommunityHome = () => {
                   const ownerUserId = resolveAuthorOwnerUserId(post);
                   const isOwner = Boolean(ownerUserId) && String(user?.id || '') === ownerUserId;
                   const canManage = isOwner || isPrivilegedRole(user?.role);
+                  const canPromote = canPromotePost(post);
                   const isEditing = editingPostId === post.id;
                   const actionBusy = Boolean(postActionBusy[post.id]);
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
@@ -2786,7 +2840,7 @@ const CommunityHome = () => {
                         }
                         rightSlot={
                           <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
-                            {canManage ? (
+                            {canPromote ? (
                               <button
                                 onClick={() => promotePost(post)}
                                 className="rounded-full border border-indigo-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 shadow-sm transition hover:bg-indigo-50 sm:px-3 sm:text-[11px] sm:tracking-[0.16em]"
