@@ -1278,7 +1278,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">{routeSubheading}</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
           {isBrowseRoute && (
             <MarketplaceChip active={!isMyListingsRoute && !isSavedRoute} onClick={() => setActivePanel('browse')}>
               Browse
@@ -1360,69 +1360,73 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
               <option value="recommended">Recommended</option>
             </select>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {(['pickup', 'local_delivery', 'shipping', 'cash_on_delivery'] as MarketplaceDeliveryOption[]).map((value) => (
-              <MarketplaceChip
-                key={value}
-                active={query.deliveryOption === value}
-                onClick={() =>
-                  setQuery((previous) => ({
-                    ...previous,
-                    deliveryOption: previous.deliveryOption === value ? null : value,
-                    page: 1
-                  }))
-                }
+          <div className="mt-3 space-y-3">
+            <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1">
+              {(['pickup', 'local_delivery', 'shipping', 'cash_on_delivery'] as MarketplaceDeliveryOption[]).map((value) => (
+                <MarketplaceChip
+                  key={value}
+                  active={query.deliveryOption === value}
+                  onClick={() =>
+                    setQuery((previous) => ({
+                      ...previous,
+                      deliveryOption: previous.deliveryOption === value ? null : value,
+                      page: 1
+                    }))
+                  }
+                >
+                  {DELIVERY_OPTIONS.find((item) => item.value === value)?.label || value}
+                </MarketplaceChip>
+              ))}
+              {CONDITION_OPTIONS.map((option) => (
+                <MarketplaceChip
+                  key={option.value}
+                  active={query.condition === option.value}
+                  onClick={() =>
+                    setQuery((previous) => ({
+                      ...previous,
+                      condition: previous.condition === option.value ? null : option.value,
+                      page: 1
+                    }))
+                  }
+                >
+                  {option.label}
+                </MarketplaceChip>
+              ))}
+            </div>
+            <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+              <button
+                type="button"
+                onClick={() => setQuery({ page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: 'newest' })}
+                className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
               >
-                {DELIVERY_OPTIONS.find((item) => item.value === value)?.label || value}
-              </MarketplaceChip>
-            ))}
-            {CONDITION_OPTIONS.map((option) => (
-              <MarketplaceChip
-                key={option.value}
-                active={query.condition === option.value}
-                onClick={() =>
-                  setQuery((previous) => ({
-                    ...previous,
-                    condition: previous.condition === option.value ? null : option.value,
-                    page: 1
-                  }))
-                }
+                <RotateCcw className="h-4 w-4" />
+                Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void getCurrentDeviceCoordinates()
+                    .then((coords) => {
+                      if (!coords) return;
+                      setViewerCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
+                      setQuery((previous) => ({ ...previous, sort: 'nearest', page: 1 }));
+                    })
+                    .catch(() => setError('Unable to access your current location for nearby listings'));
+                }}
+                className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
               >
-                {option.label}
-              </MarketplaceChip>
-            ))}
-            <button
-              type="button"
-              onClick={() => setQuery({ page: 1, pageSize: DEFAULT_PAGE_SIZE, sort: 'newest' })}
-              className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Reset
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                void getCurrentDeviceCoordinates()
-                  .then((coords) => {
-                    if (!coords) return;
-                    setViewerCoordinates({ latitude: coords.latitude, longitude: coords.longitude });
-                    setQuery((previous) => ({ ...previous, sort: 'nearest', page: 1 }));
-                  })
-                  .catch(() => setError('Unable to access your current location for nearby listings'));
-              }}
-              className="inline-flex shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              <LocateFixed className="h-4 w-4" />
-              Nearby
-            </button>
-            <button
-              type="button"
-              onClick={() => setQuery((previous) => ({ ...previous, search: searchDraft.trim(), page: 1 }))}
-              className="inline-flex w-full shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:w-auto sm:py-1.5"
-            >
-              <Search className="h-4 w-4" />
-              Search
-            </button>
+                <LocateFixed className="h-4 w-4" />
+                Nearby
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuery((previous) => ({ ...previous, search: searchDraft.trim(), page: 1 }))}
+                className="inline-flex w-full shrink-0 whitespace-nowrap items-center justify-center gap-2 rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:w-auto"
+              >
+                <Search className="h-4 w-4" />
+                Search
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1628,7 +1632,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
               <div className="space-y-3">
-                <div className="relative aspect-[1/1] min-h-[18rem] overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] sm:min-h-0 sm:aspect-[4/3] lg:aspect-[16/10]">
+                <div className="relative aspect-[4/5] min-h-[16rem] overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] sm:min-h-0 sm:aspect-[4/3] lg:aspect-[16/10]">
                   {cover ? (
                     isVideoActive ? (
                       <video
@@ -1680,7 +1684,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   )}
                 </div>
                 {media.length > 1 && (
-                  <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-2 sm:gap-3">
+                  <div className="-mx-1 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-2 sm:mx-0 sm:gap-3 sm:px-0">
                     {media.map((item, index) => {
                       const url = getMediaUrl(item);
                       if (!url) return null;
@@ -1690,7 +1694,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                           key={`${item.id}-${index}`}
                           onClick={() => setSelectedMediaIndex(index)}
                           className={[
-                            'relative w-16 shrink-0 snap-start overflow-hidden rounded-2xl border bg-white transition sm:w-[88px]',
+                            'relative w-[4.75rem] shrink-0 snap-start overflow-hidden rounded-2xl border bg-white transition sm:w-[88px]',
                             selectedMediaIndex === index
                               ? 'border-slate-900 ring-2 ring-slate-200'
                               : 'border-slate-200 hover:border-slate-300'
@@ -2056,12 +2060,9 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                       } catch (error) {
                         // Best-effort handoff only.
                       }
-                      navigate(
-                        `/freelancer/dashboard?tab=my-ads&boostListingId=${encodeURIComponent(String(selectedListing.id))}&boostOpen=1`,
-                        {
-                          state: boostPayload
-                        }
-                      );
+                      navigate(`/my-ads?boostListingId=${encodeURIComponent(String(selectedListing.id))}&boostOpen=1`, {
+                        state: boostPayload
+                      });
                     }}
                     className="flex w-full items-center justify-between rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-medium text-blue-700"
                   >
@@ -2421,7 +2422,7 @@ const MarketplaceListingCard: React.FC<{
   return (
     <article className="group overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <button type="button" onClick={onOpen} className="block w-full text-left">
-        <div className="relative aspect-[1/1] overflow-hidden bg-slate-100 sm:aspect-[4/3] xl:aspect-[4/3]">
+        <div className="relative aspect-[4/5] overflow-hidden bg-slate-100 sm:aspect-[4/3] xl:aspect-[4/3]">
           {cover ? (
             <OptimizedImage
               src={cover}
@@ -2516,7 +2517,7 @@ const MarketplaceListingCard: React.FC<{
           <button
             type="button"
             onClick={onContact}
-            className="col-span-2 min-w-[8.5rem] rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white sm:flex-1"
+            className="col-span-2 min-w-[8.5rem] rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:flex-1"
           >
             Contact
           </button>

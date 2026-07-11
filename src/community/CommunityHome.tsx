@@ -1939,7 +1939,7 @@ const CommunityHome = () => {
     } catch (error) {
       // Best-effort handoff only.
     }
-    navigate(`/freelancer/dashboard?tab=my-ads&boostPostId=${encodeURIComponent(postId)}&boostOpen=1`, {
+    navigate(`/my-ads?boostPostId=${encodeURIComponent(postId)}&boostOpen=1`, {
       state: boostPayload
     });
   };

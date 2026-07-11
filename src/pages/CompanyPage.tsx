@@ -856,7 +856,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
     } catch (error) {
       // Best-effort handoff only.
     }
-    navigate(`/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(pageId)}&boostOpen=1`, {
+    navigate(`/my-ads?boostPageId=${encodeURIComponent(pageId)}&boostOpen=1`, {
       state: boostPayload
     });
   };

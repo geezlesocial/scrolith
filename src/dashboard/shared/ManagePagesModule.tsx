@@ -586,7 +586,7 @@ const ManagePagesModule: React.FC = () => {
   }, [pages]);
 
   const promoteUrl = selectedPage
-    ? `/freelancer/dashboard?tab=my-ads&boostPageId=${encodeURIComponent(selectedPage.id)}&boostOpen=1`
+    ? `/my-ads?boostPageId=${encodeURIComponent(selectedPage.id)}&boostOpen=1`
     : '';
 
   const handlePromotePage = useCallback(() => {

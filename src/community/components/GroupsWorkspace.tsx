@@ -278,7 +278,7 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
     } catch (error) {
       // Best-effort handoff only.
     }
-    navigate(`/freelancer/dashboard?tab=my-ads&boostGroupId=${encodeURIComponent(groupId)}&boostOpen=1`, {
+    navigate(`/my-ads?boostGroupId=${encodeURIComponent(groupId)}&boostOpen=1`, {
       state: boostPayload
     });
   }, [navigate, selectedGroup?.id, showNotification]);
