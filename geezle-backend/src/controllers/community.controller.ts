@@ -653,6 +653,7 @@ const communityPostAuthorSelect = {
 
 const communityBusinessPageSelect = {
   id: true,
+  ownerId: true,
   name: true,
   handle: true,
   slug: true,
@@ -663,7 +664,8 @@ const communityClubSelect = {
   id: true,
   name: true,
   slug: true,
-  visibility: true
+  visibility: true,
+  ownerId: true
 };
 
 const communityPostFeedSelect: any = {
@@ -2561,6 +2563,7 @@ export const getPostById = async (req: Request, res: Response) => {
         businessPage: {
           select: {
             id: true,
+            ownerId: true,
             name: true,
             handle: true,
             slug: true,
@@ -2944,6 +2947,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
         businessPage: {
           select: {
             id: true,
+            ownerId: true,
             name: true,
             handle: true,
             slug: true,
@@ -3273,7 +3277,8 @@ export const createPost = async (req: Request, res: Response) => {
             id: true,
             name: true,
             slug: true,
-            visibility: true
+            visibility: true,
+            ownerId: true
           }
         },
         originalPost: {
@@ -3803,6 +3808,7 @@ export const updatePost = async (req: Request, res: Response) => {
         businessPage: {
           select: {
             id: true,
+            ownerId: true,
             name: true,
             handle: true,
             slug: true,

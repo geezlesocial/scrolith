@@ -452,8 +452,6 @@ const resolveListingVisibilityForViewer = (listing: any, userId?: string | null,
 const resolveBoostMediaUrl = (media: any) => {
   const baseUrl = resolveFileBaseUrl();
   const directCandidates = [
-    media?.thumbnailUrl,
-    media?.thumbnail_url,
     media?.storagePath,
     media?.storage_path,
     media?.storageKey,
@@ -485,6 +483,28 @@ const resolveBoostMediaUrl = (media: any) => {
   }
 
   return null;
+};
+
+const resolveBoostMediaThumbnailUrl = (media: any) => {
+  const baseUrl = resolveFileBaseUrl();
+  const directCandidates = [
+    media?.thumbnailUrl,
+    media?.thumbnail_url,
+    media?.url,
+    media?.downloadUrl,
+    media?.download_url,
+    media?.storagePath,
+    media?.storage_path,
+    media?.storageKey,
+    media?.storage_key
+  ];
+
+  for (const candidate of directCandidates) {
+    const resolved = resolveDirectMediaUrl(candidate, baseUrl);
+    if (resolved) return resolved;
+  }
+
+  return resolveBoostMediaUrl(media);
 };
 
 const ensureMarketplaceCategoriesSeeded = async () => {
@@ -1002,19 +1022,25 @@ export const buildMarketplaceListingBoostPrefill = async (userId: string, listin
     dailySpend: null,
     durationDays: 7,
     mediaFileIds,
-    media: images.map((entry: any) => ({
-      id: entry.id,
-      fileId: entry.fileId || null,
-      url: resolveBoostMediaUrl(entry) || entry.url,
-      downloadUrl: resolveBoostMediaUrl(entry) || entry.url,
-      storagePath: entry.storagePath || entry.storage_path || null,
-      name: primaryImage?.id === entry.id ? `${canonicalTitle} (primary)` : canonicalTitle,
-      mimeType: entry.mimeType,
-      type: entry.type,
-      thumbnailUrl: entry.thumbnailUrl || null,
-      width: entry.width || null,
-      height: entry.height || null
-    })),
+    media: images.map((entry: any) => {
+      const primaryUrl = resolveBoostMediaUrl(entry) || entry.url || entry.downloadUrl || null;
+      const thumbnailUrl =
+        resolveBoostMediaThumbnailUrl(entry) || entry.thumbnailUrl || primaryUrl || null;
+
+      return {
+        id: entry.id,
+        fileId: entry.fileId || null,
+        url: primaryUrl,
+        downloadUrl: primaryUrl,
+        storagePath: entry.storagePath || entry.storage_path || null,
+        name: primaryImage?.id === entry.id ? `${canonicalTitle} (primary)` : canonicalTitle,
+        mimeType: entry.mimeType,
+        type: entry.type,
+        thumbnailUrl,
+        width: entry.width || null,
+        height: entry.height || null
+      };
+    }),
     targeting
   };
 };
