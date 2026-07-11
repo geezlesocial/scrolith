@@ -196,7 +196,7 @@ const getCampaignPrimaryMedia = (ad: AdCampaign) => {
   const mediaType = isAdVideoMedia(media) ? 'video' : 'image';
 
   return {
-    url: resolveAdPreviewMediaUrl(media),
+    url: mediaType === 'video' ? resolveAdPreviewMediaUrl(media) : resolveAdPreviewPosterUrl(media) || resolveAdPreviewMediaUrl(media),
     type: mediaType,
     name: String(media?.name || ad.title || 'Creative').trim()
   };
@@ -360,6 +360,12 @@ const resolveAdPreviewPosterUrl = (media: any) => {
   ]);
   if (resolvedPosterUrl) return resolvedPosterUrl;
   return resolvePostAttachmentPosterUrl(normalizedMedia) || resolveAdPreviewMediaUrl(normalizedMedia);
+};
+
+const resolveAdRenderablePreviewUrl = (media: any) => {
+  if (!media) return '';
+  if (isAdVideoMedia(media)) return resolveAdPreviewMediaUrl(media);
+  return resolveAdPreviewPosterUrl(media) || resolveAdPreviewMediaUrl(media);
 };
 
 const getStatusGroup = (status?: string): Exclude<StudioStatusFilter, 'all'> => {
@@ -1497,10 +1503,12 @@ const MyAds = () => {
               const normalizedMedia = normalizeAdMediaAttachment(media);
               const resolvedMediaUrl = resolveAdPreviewMediaUrl(normalizedMedia);
               const resolvedPosterUrl = resolveAdPreviewPosterUrl(normalizedMedia);
+              const fileId = String(media?.fileId || media?.file_id || '').trim();
+              const mediaId = fileId || String(media?.id || resolvedMediaUrl || '').trim();
               return {
-                id: String(media?.id || media?.fileId || media?.file_id || resolvedMediaUrl || '').trim(),
-                fileId: String(media?.fileId || media?.file_id || media?.id || '').trim(),
-                file_id: String(media?.file_id || media?.fileId || media?.id || '').trim(),
+                id: mediaId,
+                fileId: fileId || mediaId,
+                file_id: fileId || mediaId,
                 url: resolvedMediaUrl,
                 thumbnailUrl: resolvedPosterUrl,
                 thumbnail_url: resolvedPosterUrl,
@@ -1589,10 +1597,12 @@ const MyAds = () => {
                 const normalizedMedia = normalizeAdMediaAttachment(media);
                 const resolvedMediaUrl = resolveAdPreviewMediaUrl(normalizedMedia);
                 const resolvedPosterUrl = resolveAdPreviewPosterUrl(normalizedMedia);
+                const fileId = String(media?.fileId || media?.file_id || '').trim();
+                const mediaId = fileId || String(media?.id || resolvedMediaUrl || '').trim();
                 return {
-                  id: String(media?.id || media?.fileId || media?.file_id || resolvedMediaUrl || '').trim(),
-                  fileId: String(media?.fileId || media?.file_id || media?.id || '').trim(),
-                  file_id: String(media?.file_id || media?.fileId || media?.id || '').trim(),
+                  id: mediaId,
+                  fileId: fileId || mediaId,
+                  file_id: fileId || mediaId,
                   url: resolvedMediaUrl,
                   thumbnailUrl: resolvedPosterUrl,
                   thumbnail_url: resolvedPosterUrl,
@@ -2741,7 +2751,7 @@ const MyAds = () => {
   }, [form.body, form.budget, form.destinationType, form.destinationUrl, form.media.length, form.objective, form.placements, form.title, formGatewayId, minBudget]);
 
   const formPreviewMedia = form.media[0] || null;
-  const formPreviewMediaUrl = resolveAdPreviewMediaUrl(formPreviewMedia);
+  const formPreviewMediaUrl = resolveAdRenderablePreviewUrl(formPreviewMedia);
   const formPlacementLabels = form.placements
     .map((placement) => placementOptions.find((option) => option.value === placement)?.label || placement)
     .slice(0, maxPlacements);
@@ -3921,7 +3931,7 @@ const MyAds = () => {
                 {form.media.length > 0 && (
                   <div className="grid gap-3 md:grid-cols-2">
                     {form.media.map((media) => {
-                      const mediaUrl = resolveAdPreviewMediaUrl(media);
+                      const mediaUrl = resolveAdRenderablePreviewUrl(media);
                       return (
                       <div key={media.id} className="border rounded-xl p-2 flex items-center gap-3">
                         {mediaUrl ? (
