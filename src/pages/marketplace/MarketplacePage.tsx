@@ -1278,7 +1278,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">{routeSubheading}</p>
           </div>
         </div>
-        <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0">
+        <div className="flex flex-wrap items-center gap-2">
           {isBrowseRoute && (
             <MarketplaceChip active={!isMyListingsRoute && !isSavedRoute} onClick={() => setActivePanel('browse')}>
               Browse
@@ -1361,7 +1361,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             </select>
           </div>
           <div className="mt-3 space-y-3">
-            <div className="-mx-1 flex items-center gap-2 overflow-x-auto px-1 pb-1">
+            <div className="flex flex-wrap items-center gap-2 sm:-mx-1 sm:flex-nowrap sm:overflow-x-auto sm:px-1 sm:pb-1">
               {(['pickup', 'local_delivery', 'shipping', 'cash_on_delivery'] as MarketplaceDeliveryOption[]).map((value) => (
                 <MarketplaceChip
                   key={value}
@@ -1632,7 +1632,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(260px,340px)] xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)]">
               <div className="space-y-3">
-                <div className="relative aspect-[4/5] min-h-[16rem] overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] sm:min-h-0 sm:aspect-[4/3] lg:aspect-[16/10]">
+                <div className="relative aspect-[5/4] min-h-[14rem] overflow-hidden rounded-[24px] border border-slate-200 bg-slate-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] sm:min-h-0 sm:aspect-[4/3] lg:aspect-[16/10]">
                   {cover ? (
                     isVideoActive ? (
                       <video
@@ -1665,7 +1665,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         type="button"
                         aria-label="Show previous listing image"
                         onClick={() => setSelectedMediaIndex((previous) => (previous - 1 + media.length) % media.length)}
-                        className="absolute left-2 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:left-4"
+                        className="absolute left-1.5 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:left-4 sm:h-11 sm:w-11"
                       >
                         <ChevronLeft className="h-5 w-5" />
                       </button>
@@ -1673,7 +1673,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                         type="button"
                         aria-label="Show next listing image"
                         onClick={() => setSelectedMediaIndex((previous) => (previous + 1) % media.length)}
-                        className="absolute right-2 top-1/2 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:right-4"
+                        className="absolute right-1.5 top-1/2 inline-flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-white/70 bg-white/90 text-slate-700 shadow-lg backdrop-blur transition hover:bg-white sm:right-4 sm:h-11 sm:w-11"
                       >
                         <ChevronRight className="h-5 w-5" />
                       </button>
@@ -1694,7 +1694,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                           key={`${item.id}-${index}`}
                           onClick={() => setSelectedMediaIndex(index)}
                           className={[
-                            'relative w-[4.75rem] shrink-0 snap-start overflow-hidden rounded-2xl border bg-white transition sm:w-[88px]',
+                            'relative w-[4.25rem] shrink-0 snap-start overflow-hidden rounded-2xl border bg-white transition sm:w-[88px]',
                             selectedMediaIndex === index
                               ? 'border-slate-900 ring-2 ring-slate-200'
                               : 'border-slate-200 hover:border-slate-300'
@@ -1835,7 +1835,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h1 className="break-words text-[1.85rem] font-bold tracking-tight text-slate-950 sm:text-3xl">{selectedListing.title}</h1>
+                        <h1 className="break-words text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">{selectedListing.title}</h1>
                         <VerifiedBadge size="sm" ariaHidden={!seller?.isVerified && !seller?.verifiedBadge} />
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -2186,7 +2186,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   );
 
   return (
-    <div ref={mainRef} className={isDashboardVariant ? 'space-y-6' : 'space-y-6 pb-10'}>
+    <div ref={mainRef} className={isDashboardVariant ? 'space-y-6 overflow-x-hidden' : 'space-y-6 overflow-x-hidden pb-10'}>
       {renderHeader()}
       {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
       {notice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
@@ -2422,7 +2422,7 @@ const MarketplaceListingCard: React.FC<{
   return (
     <article className="group overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <button type="button" onClick={onOpen} className="block w-full text-left">
-        <div className="relative aspect-[4/5] overflow-hidden bg-slate-100 sm:aspect-[4/3] xl:aspect-[4/3]">
+        <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
           {cover ? (
             <OptimizedImage
               src={cover}
@@ -2512,12 +2512,12 @@ const MarketplaceListingCard: React.FC<{
         </div>
       </button>
 
-      <div className="grid grid-cols-2 gap-2 border-t border-slate-100 px-3 py-3 sm:flex sm:flex-wrap sm:items-center sm:px-4">
+      <div className="grid grid-cols-1 gap-2 border-t border-slate-100 px-3 py-3 sm:flex sm:flex-wrap sm:items-center sm:px-4">
         {onContact && (
           <button
             type="button"
             onClick={onContact}
-            className="col-span-2 min-w-[8.5rem] rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:flex-1"
+            className="min-w-[8.5rem] rounded-full bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white sm:flex-1"
           >
             Contact
           </button>
@@ -2545,7 +2545,7 @@ const MarketplaceListingCard: React.FC<{
         <button
           type="button"
           onClick={onShare}
-          className="col-span-2 inline-flex h-10 w-full items-center justify-center rounded-full border border-slate-200 text-slate-700 sm:col-auto sm:w-10"
+          className="inline-flex h-10 w-full items-center justify-center rounded-full border border-slate-200 text-slate-700 sm:w-10"
         >
           <Send className="h-4 w-4" />
         </button>

@@ -684,9 +684,16 @@ const MyAds = () => {
   const navigationState = (location.state as {
     boostListingId?: string;
     boostListingSlug?: string;
+    boostSource?: string;
     boostPostId?: string;
     boostPageId?: string;
     boostGroupId?: string;
+    boostTitle?: string;
+    boostBody?: string;
+    boostSubtitle?: string;
+    boostDestinationUrl?: string;
+    boostCtaText?: string;
+    boostMedia?: any[];
   } | null) || null;
   const { showNotification } = useNotification();
   const { availableCurrencies, currency: selectedCurrency } = useCurrency();
@@ -1312,6 +1319,7 @@ const MyAds = () => {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const sourceRaw = String(params.get('source') || '').trim().toLowerCase();
+    const boostContext = readBoostListingPrefillContext();
     if (!sourceRaw) return;
     if (
       params.get('boostListingId') ||
@@ -1340,7 +1348,13 @@ const MyAds = () => {
       setPromotionLoading(true);
       try {
         if (source === 'post') {
-          const postId = String(params.get('postId') || '').trim();
+          const postId = String(
+            params.get('boostPostId') ||
+            params.get('postId') ||
+            navigationState?.boostPostId ||
+            boostContext?.boostPostId ||
+            ''
+          ).trim();
           if (!postId) throw new Error('Post details are missing.');
           const post = await CommunityService.getPostById(postId);
           const resolvedId = String(post?.id || postId).trim();
@@ -1492,13 +1506,17 @@ const MyAds = () => {
             : boostGroupId
               ? 'group'
               : null;
-      const fallbackTitle = String(boostContext?.boostTitle || '').trim();
-      const fallbackBody = String(boostContext?.boostBody || '').trim();
-      const fallbackSubtitle = String(boostContext?.boostSubtitle || '').trim();
-      const fallbackDestinationUrl = String(boostContext?.boostDestinationUrl || '').trim();
-      const fallbackCtaText = String(boostContext?.boostCtaText || '').trim();
-      const fallbackMedia = Array.isArray(boostContext?.boostMedia)
+      const fallbackTitle = String(boostContext?.boostTitle || navigationState?.boostTitle || '').trim();
+      const fallbackBody = String(boostContext?.boostBody || navigationState?.boostBody || '').trim();
+      const fallbackSubtitle = String(boostContext?.boostSubtitle || navigationState?.boostSubtitle || '').trim();
+      const fallbackDestinationUrl = String(boostContext?.boostDestinationUrl || navigationState?.boostDestinationUrl || '').trim();
+      const fallbackCtaText = String(boostContext?.boostCtaText || navigationState?.boostCtaText || '').trim();
+      const fallbackMediaSource = Array.isArray(boostContext?.boostMedia)
         ? boostContext.boostMedia
+        : Array.isArray(navigationState?.boostMedia)
+          ? navigationState.boostMedia
+          : [];
+      const fallbackMedia = fallbackMediaSource
             .map((media: any) => {
               const normalizedMedia = normalizeAdMediaAttachment(media);
               const resolvedMediaUrl = resolveAdPreviewMediaUrl(normalizedMedia);
@@ -1525,8 +1543,7 @@ const MyAds = () => {
                 type: media?.type
               };
             })
-            .filter((media: any) => Boolean(media.id) && Boolean(media.url))
-        : [];
+            .filter((media: any) => Boolean(media.id) && Boolean(media.url));
 
       const applyContextFallback = () => {
         if (!boostType) return false;
@@ -1546,7 +1563,7 @@ const MyAds = () => {
         setPromotionSelection({
           type: boostType,
           entityId: fallbackEntityId,
-          entitySlug: String(boostContext?.boostListingSlug || '').trim() || undefined,
+          entitySlug: String(boostContext?.boostListingSlug || navigationState?.boostListingSlug || '').trim() || undefined,
           entityUrl: fallbackEntityUrl,
           title: fallbackResolvedTitle,
           subtitle: fallbackResolvedSubtitle,
