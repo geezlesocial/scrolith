@@ -101,7 +101,8 @@ const replyToMessageSelect: any = {
 };
 
 const DEFAULT_CONVERSATION_MESSAGE_LIMIT = 200;
-const DEFAULT_CONVERSATION_PREVIEW_LIMIT = 20;
+/** Inbox list only needs a short preview; full history loads via getConversation. */
+const DEFAULT_CONVERSATION_PREVIEW_LIMIT = 5;
 
 const parseIntInRange = (value: unknown, fallback: number, min: number, max: number) => {
   const parsed = Number.parseInt(String(value ?? ''), 10);
@@ -410,8 +411,16 @@ const buildConversationPayload = (
   );
 
   const lastVisibleMessage = messages[messages.length - 1];
-  const lastMessage = lastVisibleMessage?.text || '';
-  const lastMessageAt = lastVisibleMessage?.timestamp || '';
+  const lastMessage =
+    lastVisibleMessage?.text ||
+    String(conversation?.lastMessageText || conversation?.last_message_text || '').trim() ||
+    '';
+  const lastMessageAt =
+    lastVisibleMessage?.timestamp ||
+    (conversation?.lastMessageAt
+      ? new Date(conversation.lastMessageAt).toISOString()
+      : String(conversation?.last_message_at || '').trim()) ||
+    '';
 
   const unreadCount = viewerId
     ? messages.filter(
@@ -474,6 +483,34 @@ const getDirectConversationKey = (conversation: any) => {
   return uniqueIds.sort().join(':');
 };
 
+/**
+ * Stable inbox merge key for direct chats.
+ * Always merges by participant pair so legacy duplicate DIRECT rows collapse to one inbox row.
+ * Story reaction + story comment messages already share the same pair (and usually the same row),
+ * so they stay merged without splitting the inbox by story id.
+ */
+const getConversationInboxMergeKey = (conversation: any) => {
+  const participantKey = getDirectConversationKey(conversation);
+  if (!participantKey) return '';
+  return `direct:${participantKey}`;
+};
+
+const dedupeMessagesById = (messages: any[]) => {
+  if (!Array.isArray(messages) || messages.length === 0) return [];
+  const byId = new Map<string, any>();
+  messages.forEach((message) => {
+    const messageId = String(message?.id || '').trim();
+    if (!messageId) return;
+    if (!byId.has(messageId)) byId.set(messageId, message);
+  });
+  return Array.from(byId.values()).sort((left, right) => {
+    const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
+    const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
+    if (leftAt !== rightAt) return leftAt - rightAt;
+    return String(left?.id || '').localeCompare(String(right?.id || ''));
+  });
+};
+
 const mergeConversationPayloads = (payloads: any[]) => {
   if (!Array.isArray(payloads) || payloads.length === 0) return [];
 
@@ -481,7 +518,7 @@ const mergeConversationPayloads = (payloads: any[]) => {
   const passthrough: any[] = [];
 
   payloads.forEach((payload) => {
-    const key = getDirectConversationKey(payload);
+    const key = getConversationInboxMergeKey(payload);
     if (!key) {
       passthrough.push(payload);
       return;
@@ -498,14 +535,9 @@ const mergeConversationPayloads = (payloads: any[]) => {
       return String(right?.id || '').localeCompare(String(left?.id || ''));
     });
     const primary = ordered[0] || bucket[0];
-    const mergedMessages = ordered
-      .flatMap((entry) => Array.isArray(entry?.messages) ? entry.messages : [])
-      .sort((left, right) => {
-        const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
-        const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
-        if (leftAt !== rightAt) return leftAt - rightAt;
-        return String(left?.id || '').localeCompare(String(right?.id || ''));
-      });
+    const mergedMessages = dedupeMessagesById(
+      ordered.flatMap((entry) => (Array.isArray(entry?.messages) ? entry.messages : []))
+    );
     const lastVisibleMessage = mergedMessages[mergedMessages.length - 1] || null;
     const unreadCount = ordered.reduce((sum, entry) => sum + Number(entry?.unread_count || entry?.unreadCount || 0), 0);
     return {
@@ -527,6 +559,15 @@ const mergeConversationPayloads = (payloads: any[]) => {
     if (leftAt !== rightAt) return rightAt - leftAt;
     return String(right?.id || '').localeCompare(String(left?.id || ''));
   });
+};
+
+/** Test-only exports for focused inbox merge/pagination unit tests. */
+export const messagingInboxTestUtils = {
+  mergeConversationPayloads,
+  getConversationInboxMergeKey,
+  getDirectConversationKey,
+  dedupeMessagesById,
+  DEFAULT_CONVERSATION_PREVIEW_LIMIT
 };
 
 const getMergedDirectConversationRecords = async (conversation: any, userId: string, previewLimit: number, admin: boolean) => {
@@ -718,6 +759,7 @@ export const listConversations = async (req: Request, res: Response) => {
       ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {})
     };
 
+    // Inbox list skips replyToMessage joins — reply previews load with the full conversation.
     let conversations: any[] = [];
     try {
       conversations = await prisma.conversation.findMany({
@@ -726,10 +768,11 @@ export const listConversations = async (req: Request, res: Response) => {
           participants: {
             select: conversationParticipantSelect
           },
-          messages: buildMessagesRelationSelect(previewLimit, true)
+          messages: buildMessagesRelationSelect(previewLimit, false)
         }
       } as any);
     } catch (error: any) {
+      // Keep a single fallback path for environments where message selects are partially unsupported.
       if (!isReplyFeatureUnsupportedError(error)) throw error;
       conversations = await prisma.conversation.findMany({
         ...queryBase,
@@ -756,6 +799,7 @@ export const listConversations = async (req: Request, res: Response) => {
     const attachmentIds = basePayload.flatMap((conversation: any) =>
       conversation.messages.flatMap((msg: any) => (Array.isArray(msg.attachments) ? msg.attachments : []))
     );
+    // Single batched file lookup for the whole page (no per-conversation attachment N+1).
     const fileMap = await buildAttachmentMap(attachmentIds);
     const payload = mergeConversationPayloads(
       basePayload.map((conversation: any) => ({
@@ -829,12 +873,24 @@ export const getConversation = async (req: Request, res: Response) => {
         )
       : new Map<string, Set<string>>();
 
-    const mergedPayloads = await Promise.all(
-      mergedConversationRecords.map(async (entry: any) => {
-        const hiddenMessageIds = mergedHiddenMessageMap.get(String(entry.id || '')) || new Set<string>();
-        return buildConversationPayloadWithAttachments(entry, userId, { hiddenMessageIds });
-      })
+    // Build payloads first, then one batched attachment map (avoids N file queries for N merged rows).
+    const baseMergedPayloads = mergedConversationRecords.map((entry: any) => {
+      const hiddenMessageIds = mergedHiddenMessageMap.get(String(entry.id || '')) || new Set<string>();
+      return buildConversationPayload(entry, userId, { hiddenMessageIds });
+    });
+    const attachmentIds = baseMergedPayloads.flatMap((entry: any) =>
+      (Array.isArray(entry?.messages) ? entry.messages : []).flatMap((msg: any) =>
+        Array.isArray(msg?.attachments) ? msg.attachments : []
+      )
     );
+    const fileMap = await buildAttachmentMap(attachmentIds);
+    const mergedPayloads = baseMergedPayloads.map((entry: any) => ({
+      ...entry,
+      messages: (Array.isArray(entry?.messages) ? entry.messages : []).map((msg: any) => ({
+        ...msg,
+        attachments: mapAttachments(msg.attachments || [], fileMap)
+      }))
+    }));
     const mergedPayload = mergeConversationPayloads(mergedPayloads);
     if (!mergedPayload.length) {
       return res.status(404).json({ success: false, error: 'Conversation not found' });
