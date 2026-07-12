@@ -1796,8 +1796,9 @@ export const serveFileContent = async (req: Request, res: Response) => {
       return;
     }
 
+    const isImageMime = String(file.mimeType || '').toLowerCase().startsWith('image/');
     const isProfilePhotoFile =
-      String(file.mimeType || '').toLowerCase().startsWith('image/') &&
+      isImageMime &&
       (await prisma.user
         .count({
           where: {
@@ -1809,22 +1810,40 @@ export const serveFileContent = async (req: Request, res: Response) => {
         })
         .then((count) => count > 0)
         .catch(() => false));
+    // Cover photos are public identity assets (member home + /u/:username).
+    // Browsers cannot attach bearer tokens on <img>, so allow read-only delivery
+    // when this file is referenced by a profile coverPhotoUrl.
+    const isCoverPhotoFile =
+      isImageMime &&
+      (await prisma.profile
+        .count({
+          where: {
+            OR: [
+              { coverPhotoUrl: { equals: file.id } },
+              { coverPhotoUrl: { endsWith: `/api/files/content/${file.id}` } },
+              { coverPhotoUrl: { contains: `/api/files/content/${file.id}` } },
+              { coverPhotoUrl: { contains: file.id } }
+            ]
+          }
+        })
+        .then((count) => count > 0)
+        .catch(() => false));
     const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
     // Profile photos are intentionally public identity assets. They may have
     // been uploaded through private file flows, but browsers cannot attach app
     // bearer tokens to <img> requests, so allow read-only avatar delivery here.
-    const canServeAsPublicProfilePhoto = isPrivate && isProfilePhotoFile;
+    const canServeAsPublicIdentityPhoto = isPrivate && (isProfilePhotoFile || isCoverPhotoFile);
     const canAccessPrivate =
       Boolean(requester?.id) &&
       (isAdmin ||
         requester?.id === file.ownerId ||
         (await canRequesterAccessPrivateMessengerFile(file.id, String(requester?.id || ''))));
-    if (isPrivate && !canAccessPrivate && !canServeAsPublicProfilePhoto) {
+    if (isPrivate && !canAccessPrivate && !canServeAsPublicIdentityPhoto) {
       res.status(403).json({ success: false, error: 'You do not have access to this file' });
       return;
     }
 
-    const cacheControl = isPrivate && !canServeAsPublicProfilePhoto
+    const cacheControl = isPrivate && !canServeAsPublicIdentityPhoto
       ? 'private, no-store, max-age=0'
       : 'public, max-age=31536000, immutable';
     const imageVariant = parseImageVariantRequest(req);

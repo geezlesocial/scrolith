@@ -7,6 +7,8 @@ import { extractLocationMutation, toLocationResponse } from '../services/locatio
 import { computeUserTrustScore, getTrustScoreSettings } from '../services/trustScore.service';
 import { serializeGig } from './gigs.controller';
 import { getStorefrontSettings, isUserStorefrontEnabled } from '../services/storefront.service';
+import { syncFileUsages } from '../utils/fileUsage';
+import { FileVisibility } from '@prisma/client';
 
 const nowIso = () => new Date().toISOString();
 
@@ -38,6 +40,26 @@ const RESERVED_USERNAMES = new Set([
   'profile',
   'dashboard'
 ]);
+
+const extractFileIdFromMediaUrl = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  // Bare storage id
+  if (/^[a-z0-9_-]{12,}$/i.test(raw) && !raw.includes('/') && !raw.includes(':')) return raw;
+  if (raw.toLowerCase().startsWith('disk:')) return raw;
+  try {
+    const url = raw.includes('://') ? new URL(raw) : new URL(raw, 'https://api.scrolith.com');
+    const marker = '/api/files/content/';
+    const idx = url.pathname.toLowerCase().indexOf(marker);
+    if (idx >= 0) {
+      const encoded = url.pathname.slice(idx + marker.length).split('/').filter(Boolean)[0] || '';
+      return decodeURIComponent(encoded).trim();
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return '';
+};
 
 const validateUsername = (username: string) => {
   if (!username) return { ok: false, reason: 'Username is required' };
@@ -647,6 +669,29 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 
       return profileRow;
     });
+
+    // Pin cover media so storage GC does not delete identity assets still referenced by Profile.
+    if (coverPhotoUrl !== undefined) {
+      const coverFileId = extractFileIdFromMediaUrl(String(updated.coverPhotoUrl || coverPhotoUrl || ''));
+      try {
+        await syncFileUsages(
+          'profile_cover',
+          userId,
+          coverFileId ? [coverFileId] : [],
+          'Profile Cover Photo'
+        );
+        if (coverFileId && !coverFileId.toLowerCase().startsWith('disk:')) {
+          await prisma.file
+            .updateMany({
+              where: { id: coverFileId },
+              data: { visibility: FileVisibility.PUBLIC }
+            })
+            .catch(() => undefined);
+        }
+      } catch (usageError) {
+        console.warn('updateUserProfile cover file usage sync failed:', (usageError as any)?.message || usageError);
+      }
+    }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     const professionalIdentity = user ? await buildProfessionalIdentity(updated, user) : null;
