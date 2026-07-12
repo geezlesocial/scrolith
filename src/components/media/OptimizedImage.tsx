@@ -107,14 +107,17 @@ export default function OptimizedImage({
     [fallback, fit, normalizedHeight, normalizedWidth, quality]
   );
 
+  const originalSrc = React.useMemo(() => resolveAssetUrl(src), [src]);
   const [currentSrc, setCurrentSrc] = React.useState(resolvedSources.baseSrc);
   const [currentSrcSet, setCurrentSrcSet] = React.useState(
     disableSrcSet ? undefined : resolvedSources.srcSet
   );
+  const [triedOriginal, setTriedOriginal] = React.useState(false);
 
   React.useEffect(() => {
     setCurrentSrc(resolvedSources.baseSrc);
     setCurrentSrcSet(disableSrcSet ? undefined : resolvedSources.srcSet);
+    setTriedOriginal(false);
   }, [disableSrcSet, resolvedSources.baseSrc, resolvedSources.srcSet]);
 
   const computedSizes = currentSrcSet ? sizes || `${normalizedWidth}px` : undefined;
@@ -132,6 +135,18 @@ export default function OptimizedImage({
       decoding={decoding}
       fetchPriority={fetchPriority}
       onError={(event) => {
+        // Prefer original untransformed content URL when responsive variants fail
+        // (missing transform, cache-key miss, or backend 404 on ?w=&h=).
+        if (
+          !triedOriginal &&
+          originalSrc &&
+          currentSrc !== originalSrc
+        ) {
+          setTriedOriginal(true);
+          setCurrentSrc(originalSrc);
+          setCurrentSrcSet(undefined);
+          return;
+        }
         if (fallbackSources && currentSrc !== fallbackSources.baseSrc) {
           setCurrentSrc(fallbackSources.baseSrc);
           setCurrentSrcSet(disableSrcSet ? undefined : fallbackSources.srcSet);

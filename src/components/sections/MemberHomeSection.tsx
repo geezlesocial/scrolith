@@ -3547,32 +3547,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       return;
     }
     let active = true;
+    // Match FreelancerProfile/EditProfile: resolve cover from the same fields and
+    // prefer a stable content URL (no OptimizedImage transform query params).
     const resolveCoverCandidate = (source: any) => {
       if (!source) return '';
+      const raw =
+        source?.coverPhotoUrl ||
+        source?.cover_photo_url ||
+        source?.coverUrl ||
+        source?.cover_url ||
+        '';
+      const fileId =
+        source?.coverFileId ||
+        source?.cover_file_id ||
+        source?.coverPhotoFileId ||
+        source?.cover_photo_file_id ||
+        '';
       return (
         resolvePostAttachmentMediaUrl({
-          url: source?.coverPhotoUrl || source?.cover_photo_url || source?.coverUrl || source?.cover_url,
-          fileId:
-            source?.coverFileId ||
-            source?.cover_file_id ||
-            source?.coverPhotoFileId ||
-            source?.cover_photo_file_id,
+          url: raw,
+          fileId,
           path: source?.cover?.path || source?.cover?.url
         }) ||
         resolvePostAttachmentMediaUrl(source?.cover) ||
-        resolvePostAttachmentMediaUrl(source?.coverPhotoUrl || source?.cover_photo_url) ||
-        resolveUserAvatarUrl({
-          coverUrl: source?.coverPhotoUrl || source?.cover_photo_url || source?.coverUrl,
-          coverFileId: source?.coverFileId || source?.cover_file_id || source?.coverPhotoFileId,
-          cover: source?.cover
-        }) ||
+        (raw ? resolveAssetUrl(String(raw)) : '') ||
         ''
       );
     };
     const fallbackCover = resolveCoverCandidate(user);
     const loadSelfCover = async () => {
       try {
-        const profile = await UserService.getProfile(currentUserId);
+        // Prefer /profile/me for the signed-in owner (same source as dashboard profile).
+        let profile: any = null;
+        try {
+          profile = await UserService.getMyProfile();
+        } catch {
+          profile = await UserService.getProfile(currentUserId);
+        }
         if (!active) return;
         const resolved = resolveCoverCandidate(profile) || fallbackCover;
         setSelfProfileCover(resolved);
@@ -6824,12 +6835,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
               <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
                 {selfProfileCover ? (
-                  <OptimizedImage
+                  // Plain img (same as FreelancerProfile) so cover reuses the browser-cached
+                  // content URL. OptimizedImage adds ?w=&h= variants that miss cache and can 404.
+                  <img
                     src={selfProfileCover}
                     alt=""
-                    width={1200}
-                    height={360}
-                    sizes="(max-width: 768px) 100vw, 320px"
                     className="h-full w-full object-cover"
                     loading="eager"
                     decoding="async"
