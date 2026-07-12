@@ -532,7 +532,7 @@ const CommunityHome = () => {
   const openVideoPostInScroll = useCallback(
     (post: any, media: any) => {
       const postId = String(post?.id || '').trim();
-      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || media?.url || '').trim();
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
       if (!postId || !mediaUrl) return;
       const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
@@ -617,7 +617,7 @@ const CommunityHome = () => {
       }
       const preview = toPreviewMedia({
         ...media,
-        url: resolvePostAttachmentMediaUrl(media) || media?.url,
+        url: resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || media?.url,
         thumbnailUrl: resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl
       });
       if (preview) {
@@ -3123,7 +3123,7 @@ const CommunityHome = () => {
                             <div className="grid gap-3 md:grid-cols-2">
                               {editingDraft.media.map((media) => {
                                 const type = media.type || inferMediaType(media);
-                                const mediaUrl = resolvePostAttachmentMediaUrl(media) || media?.url;
+                                const mediaUrl = resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || media?.url;
                                 const posterUrl = resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl;
                                 return (
                                   <div key={media.localId} className="relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
@@ -3264,7 +3264,7 @@ const CommunityHome = () => {
                                 {post.attachments.map((media: any) => {
                                   const type = inferMediaType(media || {});
                                   const mediaKey = String(media.id || media.url || '');
-                                  const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || media?.url || '').trim();
+                                  const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
                                   const posterUrl = String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl).trim();
                                   const mediaHeightClass =
                                     post.attachments.length === 1

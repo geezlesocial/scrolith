@@ -83,6 +83,17 @@ test('resolvePostAttachmentMediaUrl resolves file IDs to content endpoint', asyn
   const { resolvePostAttachmentMediaUrl } = await loadMediaUtils();
   const resolved = resolvePostAttachmentMediaUrl({ fileId: 'file_abc123456789' });
   assert.ok(resolved.includes('/api/files/content/file_abc123456789'));
+  const diskResolved = resolvePostAttachmentMediaUrl({ fileId: 'disk:avatars/user1.jpg' });
+  assert.ok(diskResolved.includes('/api/files/content/'));
+  assert.ok(diskResolved.includes('disk'));
+  // Relative content paths should become absolute API-hosted URLs
+  const relative = resolvePostAttachmentMediaUrl({ url: '/api/files/content/file_abc123456789' });
+  assert.ok(relative.includes('api.scrolith.com') || relative.includes('/api/files/content/file_abc123456789'));
+  const scrolithHost = resolvePostAttachmentMediaUrl({
+    url: 'https://scrolith.com/api/files/content/file_abc123456789'
+  });
+  assert.ok(scrolithHost.includes('api.scrolith.com'));
+  assert.ok(!scrolithHost.startsWith('https://scrolith.com/api/files'));
 });
 
 test('resolvePostAttachmentMediaUrl returns empty for malformed/empty media', async () => {

@@ -1562,7 +1562,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const openVideoPostInScroll = useCallback(
     (post: any, media: any) => {
       const postId = String(post?.id || '').trim();
-      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || media?.url || '').trim();
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
       if (!postId || !mediaUrl) return;
       const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
@@ -1647,7 +1647,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
       const preview = toPreviewMedia({
         ...media,
-        url: resolvePostAttachmentMediaUrl(media) || media?.url,
+        url: resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || media?.url,
         thumbnailUrl: resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl
       });
       if (preview) {
@@ -6162,8 +6162,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     className="relative block h-48 w-full cursor-pointer overflow-hidden"
                                   >
                                     <InlineAutoplayVideo
-                                      src={resolvePostAttachmentMediaUrl(media) || media.url}
-                                      poster={resolvePostAttachmentPosterUrl(media) || media.thumbnailUrl || undefined}
+                                      src={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                      poster={resolvePostAttachmentPosterUrl(media) || resolveAssetUrl(media.thumbnailUrl) || undefined}
                                       className="h-48 w-full object-cover"
                                       controls={false}
                                       loop
@@ -6189,8 +6189,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     className="block h-48 w-full"
                                   >
                                     <OptimizedImage
-                                      src={resolvePostAttachmentPosterUrl(media) || media.thumbnailUrl || media.url}
-                                      fallbackSrc={resolvePostAttachmentMediaUrl(media) || media.url}
+                                      src={resolvePostAttachmentPosterUrl(media) || resolveAssetUrl(media.thumbnailUrl || media.url) || ''}
+                                      fallbackSrc={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
                                       alt={media.name || 'Post media'}
                                       width={960}
                                       height={540}
@@ -7929,14 +7929,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     </button>
                                     {type === 'video' ? (
                                       <video
-                                        src={resolvePostAttachmentMediaUrl(media) || media.url}
+                                        src={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
                                         className="h-40 w-full object-cover"
                                         controls
                                       />
                                     ) : type === 'image' ? (
                                       <OptimizedImage
-                                        src={resolvePostAttachmentPosterUrl(media) || resolvePostAttachmentMediaUrl(media) || media.url}
-                                        fallbackSrc={resolvePostAttachmentMediaUrl(media) || media.url}
+                                        src={resolvePostAttachmentPosterUrl(media) || resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                        fallbackSrc={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
                                         alt={media.name || 'Post media'}
                                         width={960}
                                         height={540}

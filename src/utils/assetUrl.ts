@@ -2,6 +2,8 @@ import { getBackendOrigin } from './apiBase';
 
 const localAssetHosts = new Set(['localhost', '127.0.0.1', '0.0.0.0', '10.0.2.2']);
 const FILE_CONTENT_PATH = '/api/files/content/';
+/** Used when getBackendOrigin() is empty so relative media never resolves against the SPA host. */
+const DEFAULT_PRODUCTION_API_ORIGIN = 'https://api.scrolith.com';
 
 type AssetTransformFit = 'inside' | 'cover' | 'contain';
 
@@ -61,6 +63,35 @@ const recoverEncodedAbsoluteAssetUrl = (value: string) => {
   return null;
 };
 
+const resolveBackendOrigin = () => {
+  const origin = String(getBackendOrigin() || '').trim().replace(/\/+$/, '');
+  if (origin) return origin;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const host = String(window.location?.hostname || '').toLowerCase();
+      // Signed-in SPA on scrolith.com must never load /api/files/* from the frontend origin.
+      if (host === 'scrolith.com' || host.endsWith('.scrolith.com') || host.endsWith('.run.app')) {
+        return DEFAULT_PRODUCTION_API_ORIGIN;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return '';
+};
+
+const isPlatformAssetHost = (hostname: string) => {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return false;
+  if (localAssetHosts.has(host)) return true;
+  if (host.includes('scrolith.com')) return true;
+  // Historical Cloud Run backend host used in stored absolute media URLs.
+  if (host.includes('scrolith-backend') && host.endsWith('.run.app')) return true;
+  return false;
+};
+
 export const resolveAssetUrl = (value?: string | null) => {
   if (!value) return value ?? '';
   const trimmed = String(value).trim();
@@ -81,27 +112,35 @@ export const resolveAssetUrl = (value?: string | null) => {
     return trimmed;
   }
 
-  const backendOrigin = getBackendOrigin();
-  if (!backendOrigin) return trimmed;
+  // disk: legacy local-file ids are served through the content API.
+  if (lower.startsWith('disk:')) {
+    const origin = resolveBackendOrigin() || DEFAULT_PRODUCTION_API_ORIGIN;
+    return `${origin}/api/files/content/${encodeURIComponent(trimmed)}`;
+  }
+
+  let backendOrigin = resolveBackendOrigin();
 
   if (lower.startsWith('http://') || lower.startsWith('https://')) {
     if (!isAssetPath(lower)) return trimmed;
     try {
       const url = new URL(trimmed);
       const hostname = url.hostname.toLowerCase();
-      const platformHostMatch = hostname.includes('scrolith.com');
-      if (!localAssetHosts.has(hostname) && !platformHostMatch) return trimmed;
-      return `${backendOrigin}${url.pathname}${url.search}${url.hash}`;
+      if (!isPlatformAssetHost(hostname)) return trimmed;
+      // Rewrite platform asset hosts to the active API origin so media is not
+      // requested from the frontend SPA host (which returns HTML).
+      const origin = backendOrigin || DEFAULT_PRODUCTION_API_ORIGIN;
+      return `${origin}${url.pathname}${url.search}${url.hash}`;
     } catch {
       return trimmed;
     }
   }
 
   if (isAssetPath(lower)) {
-    if (lower.startsWith('uploads/')) return `${backendOrigin}/${trimmed}`;
-    if (lower.startsWith('api/files/')) return `${backendOrigin}/${trimmed}`;
-    if (lower.startsWith('files/content/')) return `${backendOrigin}/${trimmed}`;
-    return `${backendOrigin}${trimmed}`;
+    const origin = backendOrigin || DEFAULT_PRODUCTION_API_ORIGIN;
+    if (lower.startsWith('uploads/')) return `${origin}/${trimmed}`;
+    if (lower.startsWith('api/files/')) return `${origin}/${trimmed}`;
+    if (lower.startsWith('files/content/')) return `${origin}/${trimmed}`;
+    return `${origin}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
   }
 
   return trimmed;

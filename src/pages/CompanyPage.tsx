@@ -117,11 +117,20 @@ type BusinessFollowingEntry = {
 };
 
 const resolvePageMediaUrl = (media: any, fileId?: string | null) => {
+  // Prefer explicit page-level file IDs, then nested media objects/strings.
+  const explicitId = String(fileId || media?.fileId || media?.file_id || '').trim();
+  if (explicitId) {
+    const fromId = resolvePostAttachmentMediaUrl({ fileId: explicitId, url: media?.url || media?.path });
+    if (fromId) return fromId;
+  }
   const fromAttachment = resolvePostAttachmentMediaUrl(media);
   if (fromAttachment) return fromAttachment;
-  const direct = String(media?.url || media?.path || media || '').trim();
-  if (direct) return resolveAssetUrl(direct);
-  if (fileId) return resolvePostAttachmentMediaUrl({ fileId });
+  const direct = String(media?.url || media?.path || (typeof media === 'string' ? media : '') || '').trim();
+  if (direct) {
+    const fromDirect = resolvePostAttachmentMediaUrl(direct);
+    if (fromDirect) return fromDirect;
+    return resolveAssetUrl(direct);
+  }
   return '';
 };
 
