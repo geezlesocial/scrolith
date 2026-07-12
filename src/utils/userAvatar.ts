@@ -38,6 +38,23 @@ const looksLikeFileId = (value: string) => {
 export const resolveUserAvatarUrl = (userLike: any): string => {
   if (!userLike) return '';
 
+  const attachmentResolved = [
+    userLike.avatar,
+    userLike.logo,
+    userLike.image,
+    userLike.imageUrl,
+    userLike.profileImage,
+    userLike.profile_image,
+    userLike.photo,
+    userLike.photoUrl,
+    userLike.photo_url,
+    userLike.authorAvatar,
+    userLike.userAvatar
+  ]
+    .map((candidate) => resolvePostAttachmentMediaUrl(candidate))
+    .find(Boolean);
+  if (attachmentResolved) return attachmentResolved;
+
   const directUrl = pickFirstString(
     userLike.avatarUrl,
     userLike.avatar_url,
@@ -46,7 +63,9 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
     userLike.userAvatar,
     userLike.user_avatar,
     userLike.photoUrl,
-    userLike.photo_url
+    userLike.photo_url,
+    userLike.logoUrl,
+    userLike.imageUrl
   );
 
   const fileId = pickFirstString(
@@ -59,7 +78,13 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
     userLike.avatarFileId,
     userLike.avatar_file_id,
     userLike.authorAvatarFileId,
-    userLike.userAvatarFileId
+    userLike.userAvatarFileId,
+    userLike.logoFileId,
+    userLike.logo_file_id,
+    userLike.imageFileId,
+    userLike.image_file_id,
+    userLike.profileImageFileId,
+    userLike.profile_image_file_id
   );
 
   const effectiveFileId = fileId || (looksLikeFileId(directUrl) ? directUrl : '');

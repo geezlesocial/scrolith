@@ -58,6 +58,12 @@ import FollowButton from '../../community/components/FollowButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import {
+  extractFeedItemList,
+  extractNextCursor,
+  mergeUniqueFeedItems,
+  shouldContinueOffsetFallback
+} from '../../utils/feedPagination';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
@@ -536,16 +542,7 @@ const normalizeOwnedBusinessPage = (page: any): PostAuthorOption | null => {
   if (!pageId || !label) return null;
   const subtitle =
     readRenderableText(page?.tagline || page?.headline || page?.industry || page?.category) || 'Post as page';
-  const avatarUrl =
-    readRenderableText(
-      page?.avatarUrl ||
-        page?.avatar ||
-        page?.logoUrl ||
-        page?.logo ||
-        page?.imageUrl ||
-        page?.profileImage ||
-        page?.profile_image
-    ) || null;
+  const avatarUrl = resolveUserAvatarUrl(page) || null;
   const slug = readRenderableText(page?.slug || page?.handle) || null;
   return {
     id: `page:${pageId}`,
@@ -1332,13 +1329,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [feedTopic, setFeedTopic] = useState('');
   const [feedRegion, setFeedRegion] = useState('');
   const [feedLoading, setFeedLoading] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
+  const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
+  const [feedOffsetFallbackEnabled, setFeedOffsetFallbackEnabled] = useState(false);
   const desktopConstrainedFeed = profile.lowBandwidth || profile.dataSaver;
   const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
   const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
   const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
   const feedItemsRef = useRef<FeedPost[]>([]);
   const feedLoadRequestIdRef = useRef(0);
+  const feedLoadingMoreRef = useRef(false);
+  const extractFeedItems = useCallback((value: any) => extractFeedItemList(value), []);
+  const extractFeedCursor = useCallback((value: any) => extractNextCursor(value), []);
   const commitFeedItems = useCallback((items: FeedPost[]) => {
     feedItemsRef.current = items;
     setFeedItems(items);
@@ -1346,6 +1349,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       Math.min(desktopInitialRenderCount, items.length || desktopInitialRenderCount)
     );
   }, [desktopInitialRenderCount]);
+  const appendFeedItems = useCallback((items: FeedPost[]) => {
+    if (!items.length) return { addedCount: 0 };
+    const { merged, addedCount } = mergeUniqueFeedItems(feedItemsRef.current, items);
+    if (addedCount <= 0) return { addedCount: 0 };
+    feedItemsRef.current = merged as FeedPost[];
+    setFeedItems(merged as FeedPost[]);
+    setRenderedFeedItemCount((prev) => {
+      const minimum = Math.min(desktopInitialRenderCount, merged.length || desktopInitialRenderCount);
+      const nextCount = Math.max(prev + Math.max(addedCount, desktopRenderStep), minimum);
+      return Math.min(merged.length, nextCount);
+    });
+    return { addedCount };
+  }, [desktopInitialRenderCount, desktopRenderStep]);
   const deferredFeedItems = useDeferredValue(feedItems);
   const visibleFeedItems = useMemo(
     () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
@@ -1546,18 +1562,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const openVideoPostInScroll = useCallback(
     (post: any, media: any) => {
       const postId = String(post?.id || '').trim();
-      const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || media?.url || '').trim();
       if (!postId || !mediaUrl) return;
       const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
         fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
         mediaUrl,
-        thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
+        thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
         description: String(post?.content || '').trim() || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
-        authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
+        authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || '').trim() || null,
         authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
         isFollowingAuthor:
           typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
@@ -1631,8 +1647,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
       const preview = toPreviewMedia({
         ...media,
-        url: media?.url || resolvePostAttachmentMediaUrl(media),
-        thumbnailUrl: media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media)
+        url: resolvePostAttachmentMediaUrl(media) || media?.url,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl
       });
       if (preview) {
         setPreviewMedia(preview);
@@ -2078,7 +2094,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       handle: source?.pageHandle || source?.handle || page?.handle || '',
       tagline: source?.headline || source?.tagline || page?.tagline || page?.description || '',
       industry: source?.industry || page?.industry || '',
-      avatar: source?.avatar || page?.logo?.url || page?.logoUrl || null,
+      avatar: resolveUserAvatarUrl(source || page) || null,
       followersCount: Number(source?.followersCount || page?.followersCount || 0),
       isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
       followId: source?.followId || page?.followId || null
@@ -2136,7 +2152,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       post.author?.userName ||
       post.author?.user_name ||
       null;
-    const authorAvatar = post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+    const authorAvatar = resolveUserAvatarUrl(post.author || post);
     const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
     const authorUserId =
       post.authorUserId ||
@@ -2196,7 +2212,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
         displayName: post.author?.displayName || authorName,
-        avatarUrl: post.author?.avatarUrl || authorAvatar,
+        avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
@@ -2394,14 +2410,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         if (feedTopic) payload.topic = feedTopic;
         if (feedRegion) payload.region = feedRegion;
       }
-      const extractFeedItems = (value: any) => {
-        if (Array.isArray(value?.items)) return value.items;
-        if (Array.isArray(value?.posts)) return value.posts;
-        if (Array.isArray(value?.data?.items)) return value.data.items;
-        if (Array.isArray(value?.data?.posts)) return value.data.posts;
-        if (Array.isArray(value?.data)) return value.data;
-        return Array.isArray(value) ? value : [];
-      };
       const normalizeFeedItems = (sourceItems: any[]) =>
         (Array.isArray(sourceItems) ? sourceItems : [])
           .map((item) => {
@@ -2451,6 +2459,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       ]);
       if (requestId !== feedLoadRequestIdRef.current) return;
       const data = feedResult.status === 'fulfilled' ? feedResult.value : null;
+      let nextCursor = extractFeedCursor(data);
       let items = extractFeedItems(data);
       const normalizedServiceBaselineItems =
         serviceBaselineResult.status === 'fulfilled'
@@ -2479,6 +2488,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           const fallbackItems = extractFeedItems(fallbackData);
           if (fallbackItems.length > 0) {
             items = fallbackItems;
+            nextCursor = extractFeedCursor(fallbackData);
           }
         } catch (fallbackError) {
           console.warn('Failed to load desktop discover feed fallback', fallbackError);
@@ -2546,11 +2556,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
       if (normalized.length === 0 && scope === 'discover') {
         try {
-          const authoritativeFeedItems = normalizeFeedItems(
-            extractFeedItems(await CommunityService.getFeed(payload))
-          );
+          const authoritativeFeedResponse = await CommunityService.getFeed(payload);
+          const authoritativeFeedItems = normalizeFeedItems(extractFeedItems(authoritativeFeedResponse));
           if (requestId !== feedLoadRequestIdRef.current) return;
           if (authoritativeFeedItems.length > 0) {
+            nextCursor = nextCursor || extractFeedCursor(authoritativeFeedResponse);
             normalized = shouldFetchCommunityBaseline
               ? mergeFeedItems(authoritativeFeedItems, normalizedBaselineItems)
               : authoritativeFeedItems;
@@ -2567,11 +2577,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         !feedRegion
       ) {
         try {
-          const authoritativeFallbackItems = normalizeFeedItems(
-            extractFeedItems(await CommunityService.getFeed({ limit: maxFeedItems, scope: 'discover' }))
-          );
+          const authoritativeFallbackResponse = await CommunityService.getFeed({ limit: maxFeedItems, scope: 'discover' });
+          const authoritativeFallbackItems = normalizeFeedItems(extractFeedItems(authoritativeFallbackResponse));
           if (requestId !== feedLoadRequestIdRef.current) return;
           if (authoritativeFallbackItems.length > 0) {
+            nextCursor = nextCursor || extractFeedCursor(authoritativeFallbackResponse);
             normalized = authoritativeFallbackItems;
           }
         } catch (authoritativeFallbackError) {
@@ -2605,6 +2615,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         !feedRegion;
       const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
       commitFeedItems(effectiveFeedItems);
+      setFeedNextCursor(shouldPreserveExistingFeed ? feedNextCursor : nextCursor);
+      setFeedOffsetFallbackEnabled(
+        !shouldPreserveExistingFeed &&
+          Boolean(effectiveFeedItems.length) &&
+          !nextCursor &&
+          scope === 'discover' &&
+          !feedTopic &&
+          !feedRegion
+      );
       if (effectiveFeedItems.length > 0) {
         try {
           window.localStorage.setItem(
@@ -2651,6 +2670,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     } catch (error) {
       if (requestId !== feedLoadRequestIdRef.current) return;
       console.error('Failed to load home feed', error);
+      setFeedNextCursor(null);
+      setFeedOffsetFallbackEnabled(false);
       if (!feedItemsRef.current.length) {
         try {
           const raw = window.localStorage.getItem(feedCacheKey);
@@ -2677,7 +2698,106 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     commitFeedItems,
     defaultIntentFeedTab,
     desktopInitialRenderCount,
+    extractFeedCursor,
+    extractFeedItems,
     feedCacheKey,
+    feedNextCursor,
+    feedRegion,
+    feedTab,
+    feedTopic,
+    maxFeedItems,
+    normalizePost,
+    showCategoriesFilter,
+    showIntentModes,
+    user
+  ]);
+
+  const loadMoreFeed = useCallback(async () => {
+    if (!user || feedLoadingMoreRef.current) return;
+    const cursor = String(feedNextCursor || '').trim();
+
+    const scope = feedTab === 'following' ? 'following' : 'discover';
+    const canUseOffsetFallback =
+      !cursor &&
+      feedOffsetFallbackEnabled &&
+      scope === 'discover' &&
+      !feedTopic &&
+      !feedRegion &&
+      feedItemsRef.current.length > 0;
+    if (!cursor && !canUseOffsetFallback) return;
+    const requestedMode =
+      feedTab === 'latest'
+        ? showIntentModes
+          ? defaultIntentFeedTab
+          : undefined
+        : feedTab === 'trending'
+          ? showIntentModes
+            ? defaultIntentFeedTab
+            : undefined
+          : feedTab !== 'following'
+            ? feedTab
+            : undefined;
+    const resolvedMode =
+      requestedMode && String(requestedMode).toLowerCase() !== 'for_you' ? requestedMode : undefined;
+    const payload: any = { limit: maxFeedItems, scope, cursor };
+    if (!canUseOffsetFallback) {
+      if (resolvedMode) payload.mode = resolvedMode;
+      if (scope === 'discover' && showCategoriesFilter) {
+        if (feedTopic) payload.topic = feedTopic;
+        if (feedRegion) payload.region = feedRegion;
+      }
+    }
+
+    feedLoadingMoreRef.current = true;
+    setFeedLoadingMore(true);
+    try {
+      const response = canUseOffsetFallback
+        ? await CommunityService.getPosts({ limit: maxFeedItems, offset: feedItemsRef.current.length })
+        : await CommunityService.getFeed(payload);
+      const appendedItems = (Array.isArray(extractFeedItems(response)) ? extractFeedItems(response) : [])
+        .map((item) => {
+          try {
+            return normalizePost(item);
+          } catch (normalizeError) {
+            console.warn('Skipping malformed appended desktop feed post', normalizeError, item);
+            return null;
+          }
+        })
+        .filter((item): item is FeedPost => Boolean(item));
+      const { addedCount } = appendFeedItems(appendedItems);
+      const nextCursor = canUseOffsetFallback ? null : extractFeedCursor(response);
+      if (!nextCursor && addedCount === 0) {
+        setFeedNextCursor(null);
+        setFeedOffsetFallbackEnabled(false);
+      } else {
+        setFeedNextCursor(nextCursor);
+        setFeedOffsetFallbackEnabled(
+          shouldContinueOffsetFallback({
+            usedOffsetFallback: canUseOffsetFallback,
+            nextCursor,
+            pageItemCount: appendedItems.length,
+            pageSize: maxFeedItems,
+            uniqueAddedCount: addedCount
+          }) &&
+            scope === 'discover' &&
+            !feedTopic &&
+            !feedRegion
+        );
+      }
+    } catch (error) {
+      // Keep cursor/offset so IntersectionObserver can retry without full reload.
+      console.error('Failed to load more home feed', error);
+    } finally {
+      feedLoadingMoreRef.current = false;
+      setFeedLoadingMore(false);
+    }
+  }, [
+    appendFeedItems,
+    defaultIntentFeedTab,
+    extractFeedCursor,
+    extractFeedItems,
+    feedOffsetFallbackEnabled,
+    feedNextCursor,
     feedRegion,
     feedTab,
     feedTopic,
@@ -4715,14 +4835,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting) return;
-        if (renderedFeedItemCount >= feedItems.length) return;
-        setRenderedFeedItemCount((prev) => Math.min(feedItems.length, prev + desktopRenderStep));
+        if (renderedFeedItemCount < feedItems.length) {
+          setRenderedFeedItemCount((prev) => Math.min(feedItems.length, prev + desktopRenderStep));
+          return;
+        }
+        if ((feedNextCursor || feedOffsetFallbackEnabled) && !feedLoading && !feedLoadingMore) {
+          void loadMoreFeed();
+        }
       },
       { rootMargin: '900px 0px', threshold: 0.01 }
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [desktopRenderStep, feedItems.length, renderedFeedItemCount]);
+  }, [desktopRenderStep, feedItems.length, feedLoading, feedLoadingMore, feedNextCursor, feedOffsetFallbackEnabled, loadMoreFeed, renderedFeedItemCount]);
 
   useEffect(() => {
     if (!socket || !user) return;
@@ -5665,7 +5790,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           <div className="flex items-center gap-4">
             <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 shadow-sm">
               {resolvedUserAvatar ? (
-                <img src={resolvedUserAvatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
+                <OptimizedImage
+                  src={resolvedUserAvatar}
+                  alt={user.name || 'User'}
+                  width={128}
+                  height={128}
+                  sizes="64px"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
               ) : (
                 <Users className="mx-auto mt-3.5 h-5 w-5 text-slate-400" />
               )}
@@ -6028,8 +6162,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     className="relative block h-48 w-full cursor-pointer overflow-hidden"
                                   >
                                     <InlineAutoplayVideo
-                                      src={media.url}
-                                      poster={media.thumbnailUrl || undefined}
+                                      src={resolvePostAttachmentMediaUrl(media) || media.url}
+                                      poster={resolvePostAttachmentPosterUrl(media) || media.thumbnailUrl || undefined}
                                       className="h-48 w-full object-cover"
                                       controls={false}
                                       loop
@@ -6055,8 +6189,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     className="block h-48 w-full"
                                   >
                                     <OptimizedImage
-                                      src={media.thumbnailUrl || media.url}
-                                      fallbackSrc={media.url}
+                                      src={resolvePostAttachmentPosterUrl(media) || media.thumbnailUrl || media.url}
+                                      fallbackSrc={resolvePostAttachmentMediaUrl(media) || media.url}
                                       alt={media.name || 'Post media'}
                                       width={960}
                                       height={540}
@@ -6573,7 +6707,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                   <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50">
                                     <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-100">
                                       {imageSrc ? (
-                                        <img src={imageSrc} alt={result.title || result.name || section.label} className="h-full w-full object-cover" />
+                                        <OptimizedImage
+                                          src={resolveAssetUrl(imageSrc)}
+                                          alt={result.title || result.name || section.label}
+                                          width={96}
+                                          height={96}
+                                          sizes="48px"
+                                          className="h-full w-full object-cover"
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
                                       ) : typeKey === 'people' ? (
                                         <Users className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       ) : typeKey === 'pages' ? (
@@ -6644,7 +6787,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
               <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
                 {selfProfileCover && (
-                  <img src={selfProfileCover} alt="Profile cover" className="h-full w-full object-cover" />
+                  <OptimizedImage
+                    src={selfProfileCover}
+                    alt="Profile cover"
+                    width={1200}
+                    height={360}
+                    sizes="(max-width: 768px) 100vw, 320px"
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 )}
                 <div className="absolute inset-0 bg-slate-900/35" />
               </div>
@@ -6652,7 +6804,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 <div className="-mt-10 flex items-end gap-3">
                   <div className="h-16 w-16 rounded-2xl bg-slate-100 overflow-hidden ring-4 ring-white">
                     {resolvedUserAvatar ? (
-                      <img src={resolvedUserAvatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
+                      <OptimizedImage
+                        src={resolvedUserAvatar}
+                        alt={user.name || 'User'}
+                        width={144}
+                        height={144}
+                        sizes="72px"
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
                     ) : (
                       <Users className="mx-auto mt-4 h-6 w-6 text-slate-400" />
                     )}
@@ -6864,7 +7025,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             >
                               <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
                                 {image ? (
-                                  <img src={image} alt={listing.title || 'Marketplace item'} className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]" />
+                                  <OptimizedImage
+                                    src={resolveAssetUrl(image)}
+                                    alt={listing.title || 'Marketplace item'}
+                                    width={960}
+                                    height={720}
+                                    sizes="(max-width: 768px) 100vw, 320px"
+                                    className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
                                 ) : (
                                   <div className="flex h-full w-full items-center justify-center">
                                     <ShoppingBag className="h-5 w-5 text-slate-400" />
@@ -7021,10 +7191,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   {sliderItems.map((slide: any) => (
                     <div key={slide.id || slide.title} className="min-w-[200px] max-w-[200px] sm:min-w-[230px] sm:max-w-[230px] overflow-hidden rounded-2xl border border-slate-200 bg-white">
                       {slide.imageUrl && (
-                        <img src={slide.imageUrl} alt={slide.title || 'Highlight'} className="h-28 w-full object-cover" />
+                        <OptimizedImage
+                          src={resolveAssetUrl(slide.imageUrl)}
+                          alt={slide.title || 'Highlight'}
+                          width={640}
+                          height={224}
+                          sizes="(max-width: 768px) 100vw, 320px"
+                          className="h-28 w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       )}
                       {slide.videoUrl && (
-                        <video src={slide.videoUrl} controls className="h-28 w-full object-cover" />
+                        <video src={resolveAssetUrl(slide.videoUrl)} controls className="h-28 w-full object-cover" />
                       )}
                       <div className="p-3">
                         <p className="text-sm font-semibold text-slate-800 line-clamp-1">{slide.title || 'Highlight'}</p>
@@ -7317,7 +7496,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             return (
                               <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                                 {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                  <OptimizedImage
+                                    src={authorAvatar}
+                                    alt={authorName}
+                                    width={96}
+                                    height={96}
+                                    sizes="48px"
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
                                 ) : (
                                   <span>{authorInitial}</span>
                                 )}
@@ -7511,7 +7699,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     id: post.author?.id || post.authorId,
                     username: post.author?.username ?? post.authorUsername,
                     displayName: post.author?.displayName || post.authorName,
-                    avatarUrl: post.author?.avatarUrl || post.authorAvatar,
+                    avatarUrl: resolveUserAvatarUrl(post.author || post) || post.authorAvatar,
                     type: post.author?.type || (post.businessPage ? 'business' : 'user'),
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
@@ -7740,9 +7928,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                       <X className="h-4 w-4" />
                                     </button>
                                     {type === 'video' ? (
-                                      <video src={media.url} className="h-40 w-full object-cover" controls />
+                                      <video
+                                        src={resolvePostAttachmentMediaUrl(media) || media.url}
+                                        className="h-40 w-full object-cover"
+                                        controls
+                                      />
                                     ) : type === 'image' ? (
-                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                      <OptimizedImage
+                                        src={resolvePostAttachmentPosterUrl(media) || resolvePostAttachmentMediaUrl(media) || media.url}
+                                        fallbackSrc={resolvePostAttachmentMediaUrl(media) || media.url}
+                                        alt={media.name || 'Post media'}
+                                        width={960}
+                                        height={540}
+                                        sizes="(max-width: 1280px) 100vw, 420px"
+                                        className="h-40 w-full object-cover"
+                                        loading="lazy"
+                                        decoding="async"
+                                      />
                                     ) : (
                                       <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-slate-500">
                                         {media.name || 'Attachment'}
@@ -7930,11 +8132,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   );
                 })
               )}
-              <div ref={desktopFeedSentinelRef} className="h-8" />
-              {renderedFeedItemCount < feedItems.length ? (
+              <div ref={desktopFeedSentinelRef} className="h-8" aria-hidden="true" />
+              {feedLoadingMore ? (
+                <div className="pb-2 text-center text-xs font-medium text-slate-500">Loading more posts...</div>
+              ) : renderedFeedItemCount < feedItems.length ? (
                 <div className="pb-2 text-center text-xs font-medium text-slate-500">
                   Scroll to reveal more posts.
                 </div>
+              ) : feedNextCursor || feedOffsetFallbackEnabled ? (
+                <div className="pb-2 text-center text-xs font-medium text-slate-400">Scroll for more.</div>
               ) : null}
             </div>
           </main>
@@ -8028,7 +8234,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                               {primary.avatar ? (
-                                <img src={primary.avatar} alt={primary.name || 'Message'} className="h-full w-full object-cover" />
+                                <OptimizedImage
+                                  src={resolveAssetUrl(primary.avatar)}
+                                  alt={primary.name || 'Message'}
+                                  width={96}
+                                  height={96}
+                                  sizes="48px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
                               ) : (
                                 <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                               )}
@@ -8076,7 +8291,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         <div className="flex items-center gap-3 min-w-0">
                           <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                             {viewer.avatar ? (
-                              <img src={viewer.avatar} alt={viewer.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(viewer.avatar)}
+                                alt={viewer.name}
+                                width={96}
+                                height={96}
+                                sizes="40px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                             )}
@@ -8112,7 +8336,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           >
                             <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                               {viewer.avatar ? (
-                                <img src={viewer.avatar} alt={viewer.name} className="h-full w-full object-cover" />
+                                <OptimizedImage
+                                  src={resolveAssetUrl(viewer.avatar)}
+                                  alt={viewer.name}
+                                  width={96}
+                                  height={96}
+                                  sizes="40px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
                               ) : (
                                 <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                               )}
@@ -8227,7 +8460,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         <Link to={buildProfileUrl(profile)} className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                             {profile.avatar ? (
-                              <img src={profile.avatar} alt={profile.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(profile.avatar)}
+                                alt={profile.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                             )}
@@ -8315,7 +8557,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                             {employer.avatar ? (
-                              <img src={employer.avatar} alt={employer.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(employer.avatar)}
+                                alt={employer.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                             )}
@@ -8396,7 +8647,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                             {freelancer.avatar ? (
-                              <img src={freelancer.avatar} alt={freelancer.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(freelancer.avatar)}
+                                alt={freelancer.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                             )}
@@ -8652,7 +8912,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       preload="metadata"
                     />
                   ) : (
-                    <img src={url} alt="Story preview" className="h-56 w-full object-cover" />
+                    <OptimizedImage
+                      src={resolveAssetUrl(url)}
+                      alt="Story preview"
+                      width={720}
+                      height={1280}
+                      sizes="(max-width: 768px) 100vw, 420px"
+                      className="h-56 w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   );
                 })()}
               </div>
@@ -8938,7 +9207,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           showMuteToggle={false}
                         />
                       ) : (
-                        <img src={media.src} alt="Story media" className="h-44 sm:h-48 w-full object-cover" />
+                        <OptimizedImage
+                          src={media.src}
+                          alt="Story media"
+                          width={720}
+                          height={1280}
+                          sizes="(max-width: 768px) 100vw, 420px"
+                          className="h-44 sm:h-48 w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       );
                     }
                     return (

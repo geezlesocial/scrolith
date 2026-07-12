@@ -26,6 +26,21 @@ const DIRECT_MEDIA_KEYS = [
   'src'
 ];
 
+const NESTED_MEDIA_PATHS = [
+  ['file', 'url'],
+  ['file', 'path'],
+  ['file', 'downloadUrl'],
+  ['file', 'download_url'],
+  ['asset', 'url'],
+  ['asset', 'path'],
+  ['asset', 'downloadUrl'],
+  ['asset', 'download_url'],
+  ['media', 'url'],
+  ['media', 'path'],
+  ['mediaFile', 'url'],
+  ['mediaFile', 'path']
+];
+
 const POSTER_KEYS = [
   'thumbnailUrl',
   'thumbnail_url',
@@ -36,6 +51,19 @@ const POSTER_KEYS = [
   'preview_url',
   'thumbnailFileUrl',
   'thumbnail_file_url'
+];
+
+const NESTED_POSTER_PATHS = [
+  ['thumbnail', 'url'],
+  ['thumbnail', 'path'],
+  ['poster', 'url'],
+  ['poster', 'path'],
+  ['preview', 'url'],
+  ['preview', 'path'],
+  ['file', 'thumbnailUrl'],
+  ['file', 'thumbnail_url'],
+  ['asset', 'thumbnailUrl'],
+  ['asset', 'thumbnail_url']
 ];
 
 const ROOT_CONTENT_ID_KEYS = [
@@ -63,6 +91,25 @@ const readFirstString = (source: any, keys: string[]) => {
   if (!source || typeof source !== 'object') return '';
   for (const key of keys) {
     const value = String(source?.[key] || '').trim();
+    if (value) return value;
+  }
+  return '';
+};
+
+const readPathString = (source: any, path: string[]) => {
+  let current = source;
+  for (const key of path) {
+    if (!current || typeof current !== 'object') return '';
+    current = current?.[key];
+  }
+  if (current == null || typeof current === 'object') return '';
+  return String(current).trim();
+};
+
+const readFirstPathString = (source: any, paths: string[][]) => {
+  if (!source || typeof source !== 'object') return '';
+  for (const path of paths) {
+    const value = readPathString(source, path);
     if (value) return value;
   }
   return '';
@@ -160,7 +207,10 @@ export const resolveInlineMedia = (
 
   const directValue =
     readFirstString(media, DIRECT_MEDIA_KEYS) ||
-    (media !== root ? readFirstString(root, DIRECT_MEDIA_KEYS) : '');
+    readFirstPathString(media, NESTED_MEDIA_PATHS) ||
+    (media !== root
+      ? readFirstString(root, DIRECT_MEDIA_KEYS) || readFirstPathString(root, NESTED_MEDIA_PATHS)
+      : '');
   const mediaContentId =
     readFirstString(media, MEDIA_CONTENT_ID_KEYS) ||
     (media !== root ? readFirstString(root, ROOT_CONTENT_ID_KEYS) : '');
@@ -182,7 +232,10 @@ export const resolveInlineMedia = (
 
   const posterValue =
     readFirstString(media, POSTER_KEYS) ||
-    (media !== root ? readFirstString(root, POSTER_KEYS) : '');
+    readFirstPathString(media, NESTED_POSTER_PATHS) ||
+    (media !== root
+      ? readFirstString(root, POSTER_KEYS) || readFirstPathString(root, NESTED_POSTER_PATHS)
+      : '');
   const posterId =
     readFirstString(media, MEDIA_POSTER_ID_KEYS) ||
     (media !== root ? readFirstString(root, ROOT_POSTER_ID_KEYS) : '');

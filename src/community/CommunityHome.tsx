@@ -49,6 +49,12 @@ import { useNotification } from '../context/NotificationContext';
 import { FileService } from '../services/files';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from './storyStyles';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import {
+  extractFeedItemList,
+  extractNextCursor,
+  mergeUniqueFeedItems,
+  shouldContinueOffsetFallback
+} from '../utils/feedPagination';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
@@ -70,6 +76,7 @@ import AdCard from '../components/AdCard';
 import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
 import StoryAuthorAvatar from '../components/stories/StoryAuthorAvatar';
 import SearchInput from '../components/SearchInput';
+import OptimizedImage from '../components/media/OptimizedImage';
 import { pickInterestSurveyCandidateIds } from '../components/recommendation/ContentInterestSurvey';
 import { RecoService } from '../services/reco';
 import {
@@ -106,17 +113,9 @@ const toPreviewMedia = (media: any): PreviewMedia | null => {
   };
 };
 
-const extractCommunityFeedItems = (payload: any): any[] => {
-  if (Array.isArray(payload?.data?.data?.items)) return payload.data.data.items;
-  if (Array.isArray(payload?.data?.data?.posts)) return payload.data.data.posts;
-  if (Array.isArray(payload?.items)) return payload.items;
-  if (Array.isArray(payload?.posts)) return payload.posts;
-  if (Array.isArray(payload?.data?.items)) return payload.data.items;
-  if (Array.isArray(payload?.data?.posts)) return payload.data.posts;
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload)) return payload;
-  return [];
-};
+const extractCommunityFeedItems = (payload: any): any[] => extractFeedItemList(payload);
+
+const extractCommunityFeedCursor = (payload: any): string | null => extractNextCursor(payload);
 
 const GRAPHIC_WARNING_LABEL = 'Graphic warning';
 const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
@@ -448,6 +447,9 @@ const CommunityHome = () => {
     events: 0
   });
   const [posts, setPosts] = useState<any[]>([]);
+  const [postsNextCursor, setPostsNextCursor] = useState<string | null>(null);
+  const [postsOffsetFallbackEnabled, setPostsOffsetFallbackEnabled] = useState(false);
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
@@ -507,8 +509,15 @@ const CommunityHome = () => {
   const viewTracked = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
+  const postsSentinelRef = useRef<HTMLDivElement | null>(null);
+  const postsRef = useRef<any[]>([]);
+  const postsLoadingMoreRef = useRef(false);
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
 
   const findPrimaryVideoAttachment = useCallback((post: any) => {
     const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
@@ -523,18 +532,18 @@ const CommunityHome = () => {
   const openVideoPostInScroll = useCallback(
     (post: any, media: any) => {
       const postId = String(post?.id || '').trim();
-      const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || media?.url || '').trim();
       if (!postId || !mediaUrl) return;
       const sourcePayload: PendingPostVideoScrollViewerSource = {
         sourcePostId: postId,
         fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
         mediaUrl,
-        thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
+        thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
         description: String(post?.content || '').trim() || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
-        authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
+        authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || post?.authorAvatar || '').trim() || null,
         authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
         isFollowingAuthor:
           typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
@@ -608,8 +617,8 @@ const CommunityHome = () => {
       }
       const preview = toPreviewMedia({
         ...media,
-        url: media?.url || resolvePostAttachmentMediaUrl(media),
-        thumbnailUrl: media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media)
+        url: resolvePostAttachmentMediaUrl(media) || media?.url,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl
       });
       if (preview) {
         setPreviewMedia(preview);
@@ -764,7 +773,7 @@ const CommunityHome = () => {
       post.author?.userName ||
       post.author?.user_name ||
       null;
-    const authorAvatar = post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+    const authorAvatar = resolveUserAvatarUrl(post.author || post) || post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
     const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
     const authorUserId =
       post.authorUserId ||
@@ -793,7 +802,7 @@ const CommunityHome = () => {
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
         displayName: post.author?.displayName || authorName,
-        avatarUrl: post.author?.avatarUrl || authorAvatar,
+        avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
@@ -932,6 +941,71 @@ const CommunityHome = () => {
     }
   }, [sortPosts, syncCommentCount]);
 
+  const loadMorePosts = useCallback(async () => {
+    if (postsLoadingMoreRef.current) return;
+    const cursor = String(postsNextCursor || '').trim();
+    const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+    const existingCount = postsRef.current.length;
+    const canUseOffsetFallback = !cursor && postsOffsetFallbackEnabled && existingCount > 0;
+    if (!cursor && !canUseOffsetFallback) return;
+
+    postsLoadingMoreRef.current = true;
+    setPostsLoadingMore(true);
+    try {
+      const response = canUseOffsetFallback
+        ? await CommunityService.getPosts({ limit: postsLimit, offset: existingCount })
+        : await CommunityService.getFeed({ limit: postsLimit, scope: 'discover', cursor });
+      const nextPosts = sortPosts(
+        extractCommunityFeedItems(response)
+          .map((post: any) => {
+            try {
+              return normalizePost(post);
+            } catch (error) {
+              console.warn('Skipping malformed community feed post', error, post);
+              return null;
+            }
+          })
+          .filter(Boolean)
+      );
+      const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
+      if (addedCount > 0) {
+        const sorted = sortPosts(merged);
+        postsRef.current = sorted;
+        setPosts(sorted);
+        setCommentCounts((prev) => {
+          const next = { ...prev };
+          nextPosts.forEach((post: any) => {
+            if (post?.id) next[post.id] = post.interactions?.comments ?? next[post.id] ?? 0;
+          });
+          return next;
+        });
+      }
+      const nextCursor = canUseOffsetFallback ? null : extractCommunityFeedCursor(response);
+      // Terminal when no cursor and no progress (empty/duplicate page). Keep cursor on soft failures.
+      if (!nextCursor && addedCount === 0) {
+        setPostsNextCursor(null);
+        setPostsOffsetFallbackEnabled(false);
+      } else {
+        setPostsNextCursor(nextCursor);
+        setPostsOffsetFallbackEnabled(
+          shouldContinueOffsetFallback({
+            usedOffsetFallback: canUseOffsetFallback,
+            nextCursor,
+            pageItemCount: nextPosts.length,
+            pageSize: postsLimit,
+            uniqueAddedCount: addedCount
+          })
+        );
+      }
+    } catch (error) {
+      // Preserve cursor/offset so the sentinel can retry without a full remount.
+      console.error('Failed to load more community posts:', error);
+    } finally {
+      postsLoadingMoreRef.current = false;
+      setPostsLoadingMore(false);
+    }
+  }, [normalizePost, postsNextCursor, postsOffsetFallbackEnabled, profile.feedPageSize, sortPosts]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1036,7 +1110,7 @@ const CommunityHome = () => {
           pagesResult,
           peopleResult
         ] = await Promise.allSettled([
-          CommunityService.getPosts({ limit: postsLimit }),
+          CommunityService.getFeed({ limit: postsLimit, scope: 'discover' }),
           Promise.allSettled([
             CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
             CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 6 })
@@ -1081,17 +1155,19 @@ const CommunityHome = () => {
 
         if (feedPostsResult.status === 'fulfilled') {
           let rawPosts = extractCommunityFeedItems(feedPostsResult.value);
+          let nextCursor = extractCommunityFeedCursor(feedPostsResult.value);
           if (rawPosts.length === 0) {
             try {
-              rawPosts = extractCommunityFeedItems(
-                await CommunityService.getFeed({ limit: postsLimit, scope: 'discover' })
-              );
+              const fallbackResponse = await CommunityService.getPosts({ limit: postsLimit });
+              rawPosts = extractCommunityFeedItems(fallbackResponse);
             } catch (feedFallbackError) {
               console.warn('Failed to load community feed fallback:', feedFallbackError);
             }
           }
           const normalizedPosts = sortPosts(rawPosts.map(normalizePost));
           setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
+          setPostsNextCursor(nextCursor);
+          setPostsOffsetFallbackEnabled(Boolean(normalizedPosts.length) && !nextCursor);
           setCommentCounts((prev) => {
             if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
             return normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
@@ -1125,6 +1201,7 @@ const CommunityHome = () => {
           }
         } else {
           console.error('Failed to load community posts:', feedPostsResult.reason);
+          setPostsNextCursor(null);
         }
 
         if (adsResult.status === 'fulfilled') {
@@ -1177,7 +1254,7 @@ const CommunityHome = () => {
                   name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
                   slug: source?.slug || source?.pageSlug || page?.slug || page?.handle || '',
                   handle: source?.handle || source?.pageHandle || page?.handle || '',
-                  avatar: source?.avatar || page?.logo?.url || page?.logoUrl || null,
+                  avatar: resolveUserAvatarUrl(source || page) || null,
                   tagline: source?.tagline || source?.headline || page?.tagline || page?.description || '',
                   followersCount: Number(source?.followersCount || page?.followersCount || 0),
                   isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
@@ -1202,7 +1279,10 @@ const CommunityHome = () => {
                   id,
                   name: String(source?.name || account?.name || 'Community member').trim() || 'Community member',
                   username: source?.username || source?.handle || account?.username || account?.handle || '',
-                  avatar: source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar || null,
+                  avatar:
+                    resolveUserAvatarUrl(source || account) ||
+                    resolveAssetUrl(source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar) ||
+                    null,
                   headline: source?.headline || source?.bio || account?.headline || account?.reason || 'Recommended for your network',
                   isFollowing: Boolean(source?.isFollowing ?? account?.isFollowing)
                 };
@@ -2181,6 +2261,24 @@ const CommunityHome = () => {
     };
   }, [heroBackgroundImage, showHero]);
 
+  useEffect(() => {
+    if (!postsSentinelRef.current) return;
+    const node = postsSentinelRef.current;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        if (postsLoadingMore) return;
+        if (postsNextCursor || postsOffsetFallbackEnabled) {
+          void loadMorePosts();
+        }
+      },
+      { rootMargin: '900px 0px', threshold: 0.01 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [loadMorePosts, postsLoadingMore, postsNextCursor, postsOffsetFallbackEnabled]);
+
   const interestSurveyPostIds = useMemo(
     () =>
       new Set(
@@ -2408,10 +2506,19 @@ const CommunityHome = () => {
                   {visibleSliders.map((slide: any) => (
                     <div key={slide.id} className="min-w-[260px] border rounded-lg overflow-hidden">
                       {slide.imageUrl && (
-                        <img src={slide.imageUrl} alt={slide.title || 'Slide'} className="w-full h-32 object-cover" />
+                        <OptimizedImage
+                          src={resolveAssetUrl(slide.imageUrl)}
+                          alt={slide.title || 'Slide'}
+                          width={640}
+                          height={256}
+                          sizes="(max-width: 768px) 100vw, 320px"
+                          className="w-full h-32 object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       )}
                       {slide.videoUrl && (
-                        <video src={slide.videoUrl} controls className="w-full h-32 object-cover" />
+                        <video src={resolveAssetUrl(slide.videoUrl)} controls className="w-full h-32 object-cover" />
                       )}
                       <div className="p-3">
                         <div className="font-semibold text-sm">{slide.title}</div>
@@ -2596,7 +2703,16 @@ const CommunityHome = () => {
                                   showMuteToggle={false}
                                 />
                               ) : (
-                                <img src={media.src} alt="Story" className="h-full w-full object-cover" />
+                                <OptimizedImage
+                                  src={media.src}
+                                  alt="Story"
+                                  width={720}
+                                  height={1280}
+                                  sizes="(max-width: 768px) 100vw, 360px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
                               );
                             }
                             if (text) {
@@ -2700,7 +2816,16 @@ const CommunityHome = () => {
                             return (
                               <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                                 {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                  <OptimizedImage
+                                    src={authorAvatar}
+                                    alt={authorName}
+                                    width={96}
+                                    height={96}
+                                    sizes="48px"
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
                                 ) : (
                                   <span>{authorInitial}</span>
                                 )}
@@ -2733,10 +2858,19 @@ const CommunityHome = () => {
                     {section.title && <h3 className="text-lg font-semibold">{section.title}</h3>}
                     {section.body && <p className="text-sm text-gray-600 mt-2">{section.body}</p>}
                     {section.type === 'image' && section.imageUrl && (
-                      <img src={section.imageUrl} alt={section.title || 'Section'} className="mt-3 rounded-lg w-full object-cover" />
+                      <OptimizedImage
+                        src={resolveAssetUrl(section.imageUrl)}
+                        alt={section.title || 'Section'}
+                        width={960}
+                        height={540}
+                        sizes="(max-width: 1024px) 100vw, 720px"
+                        className="mt-3 rounded-lg w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
                     )}
                     {section.type === 'video' && section.videoUrl && (
-                      <video src={section.videoUrl} controls className="mt-3 rounded-lg w-full" />
+                      <video src={resolveAssetUrl(section.videoUrl)} controls className="mt-3 rounded-lg w-full" />
                     )}
                   </div>
                 ))}
@@ -2779,7 +2913,7 @@ const CommunityHome = () => {
                     id: post.author?.id || post.authorId,
                     username: post.author?.username ?? post.authorUsername,
                     displayName: post.author?.displayName || post.authorName,
-                    avatarUrl: post.author?.avatarUrl || post.authorAvatar,
+                    avatarUrl: resolveUserAvatarUrl(post.author || post) || post.authorAvatar,
                     type: post.author?.type || (post.businessPage ? 'business' : 'user'),
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
@@ -2989,6 +3123,8 @@ const CommunityHome = () => {
                             <div className="grid gap-3 md:grid-cols-2">
                               {editingDraft.media.map((media) => {
                                 const type = media.type || inferMediaType(media);
+                                const mediaUrl = resolvePostAttachmentMediaUrl(media) || media?.url;
+                                const posterUrl = resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl;
                                 return (
                                   <div key={media.localId} className="relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
                                     <button
@@ -2999,9 +3135,19 @@ const CommunityHome = () => {
                                       <X className="h-4 w-4" />
                                     </button>
                                     {type === 'video' ? (
-                                      <video src={media.url} className="h-40 w-full object-cover" controls />
+                                      <video src={mediaUrl} poster={posterUrl || undefined} className="h-40 w-full object-cover" controls />
                                     ) : type === 'image' ? (
-                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                      <OptimizedImage
+                                        src={posterUrl}
+                                        fallbackSrc={mediaUrl}
+                                        alt={media.name || 'Post media'}
+                                        width={960}
+                                        height={540}
+                                        sizes="(max-width: 1280px) 100vw, 420px"
+                                        className="h-40 w-full object-cover"
+                                        loading="lazy"
+                                        decoding="async"
+                                      />
                                     ) : (
                                       <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-gray-500">
                                         {media.name || 'Attachment'}
@@ -3118,6 +3264,8 @@ const CommunityHome = () => {
                                 {post.attachments.map((media: any) => {
                                   const type = inferMediaType(media || {});
                                   const mediaKey = String(media.id || media.url || '');
+                                  const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || media?.url || '').trim();
+                                  const posterUrl = String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl).trim();
                                   const mediaHeightClass =
                                     post.attachments.length === 1
                                       ? FEED_SINGLE_MEDIA_HEIGHT_CLASS
@@ -3146,8 +3294,8 @@ const CommunityHome = () => {
                                         className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                                       >
                                         <InlineAutoplayVideo
-                                          src={media.url}
-                                          poster={media.thumbnailUrl || undefined}
+                                          src={mediaUrl}
+                                          poster={posterUrl || undefined}
                                           className={`${mediaHeightClass} w-full object-cover`}
                                           controls={false}
                                           autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
@@ -3176,9 +3324,13 @@ const CommunityHome = () => {
                                         onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
                                         className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
                                       >
-                                        <img
-                                          src={media.thumbnailUrl || media.url}
+                                        <OptimizedImage
+                                          src={posterUrl}
+                                          fallbackSrc={mediaUrl}
                                           alt={media.name || 'Post media'}
+                                          width={960}
+                                          height={540}
+                                          sizes="(max-width: 1024px) 100vw, 50vw"
                                           className={`${mediaHeightClass} w-full object-cover`}
                                           loading="lazy"
                                           decoding="async"
@@ -3194,7 +3346,7 @@ const CommunityHome = () => {
                                       className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-sm hover:bg-slate-50"
                                     >
                                       <span className="text-blue-600 underline">
-                                        {media.name || media.url?.split('/').pop() || 'View attachment'}
+                                        {media.name || mediaUrl.split('/').pop() || 'View attachment'}
                                       </span>
                                     </button>
                                   );
@@ -3228,6 +3380,12 @@ const CommunityHome = () => {
                     </article>
                   );
                 })}
+                <div ref={postsSentinelRef} className="h-8" />
+                {postsLoadingMore ? (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm">
+                    Loading more posts...
+                  </div>
+                ) : null}
               </div>
               </div>
             )}
@@ -3297,7 +3455,16 @@ const CommunityHome = () => {
                         <Link to={buildContributorUrl(person)} className="flex min-w-0 flex-1 items-center gap-3">
                           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">
                             {avatar ? (
-                              <img src={avatar} alt={person.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={avatar}
+                                alt={person.name}
+                                width={96}
+                                height={96}
+                                sizes="56px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <span className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">
                                 {String(person.name || 'U').charAt(0)}
@@ -3333,7 +3500,16 @@ const CommunityHome = () => {
                         <Link to={buildCommunityPageUrl(page)} className="flex min-w-0 flex-1 items-center gap-3">
                           <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">
                             {avatar ? (
-                              <img src={avatar} alt={page.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={avatar}
+                                alt={page.name}
+                                width={96}
+                                height={96}
+                                sizes="56px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <span className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">
                                 {String(page.name || 'P').charAt(0)}
@@ -3600,7 +3776,16 @@ const CommunityHome = () => {
                           showMuteToggle={false}
                         />
                       ) : (
-                        <img src={media.src} alt="Story media" className="h-48 w-full object-cover" />
+                        <OptimizedImage
+                          src={media.src}
+                          alt="Story media"
+                          width={720}
+                          height={1280}
+                          sizes="(max-width: 768px) 100vw, 420px"
+                          className="h-48 w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       );
                     }
                     return (

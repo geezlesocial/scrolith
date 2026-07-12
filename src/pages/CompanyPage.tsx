@@ -37,10 +37,13 @@ import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import OpportunityStudioPanel from '../components/dashboard/OpportunityStudioPanel';
 import PostOriginPreview from '../components/post/PostOriginPreview';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { StructuredLocationFields } from '../types';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../utils/contentOffers';
 
 const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
+const BRAND_LOGO_URL = '/logo.png';
 
 type PageState = StructuredLocationFields & {
   id: string;
@@ -113,6 +116,15 @@ type BusinessFollowingEntry = {
   targetType?: 'user' | 'page';
 };
 
+const resolvePageMediaUrl = (media: any, fileId?: string | null) => {
+  const fromAttachment = resolvePostAttachmentMediaUrl(media);
+  if (fromAttachment) return fromAttachment;
+  const direct = String(media?.url || media?.path || media || '').trim();
+  if (direct) return resolveAssetUrl(direct);
+  if (fileId) return resolvePostAttachmentMediaUrl({ fileId });
+  return '';
+};
+
 type PageDetailsFormState = StructuredLocationFields & {
   name: string;
   handle: string;
@@ -174,10 +186,11 @@ const normalizePost = (post: any): PostState => ({
   attachments: Array.isArray(post?.attachments)
     ? post.attachments.map((item: any) => ({
         id: item?.id || item?.fileId,
-        url: resolveAssetUrl(item?.url || item),
+        url: resolvePostAttachmentMediaUrl(item),
         name: item?.name || item?.originalName,
         type: item?.type || inferMediaType(item),
-        mimeType: item?.mimeType || item?.mime_type
+        mimeType: item?.mimeType || item?.mime_type,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item)
       }))
     : [],
   offerTags: normalizeContentOfferTags(post?.offerTags ?? post?.offer_tags),
@@ -1233,8 +1246,8 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
     );
   }
 
-  const logoUrl = resolveAssetUrl(page.logo?.url || '');
-  const coverUrl = resolveAssetUrl(page.cover?.url || '');
+  const logoUrl = resolvePageMediaUrl(page.logo, page.logoFileId) || BRAND_LOGO_URL;
+  const coverUrl = resolvePageMediaUrl(page.cover, page.coverFileId);
 
   return (
     <div className={pageShellClassName}>
@@ -1680,15 +1693,15 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
             renderedPosts.map((post) => (
             <article key={post.id} id={`company-post-${post.id}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
-                <PostHeader
-                  author={{
-                    id: post.author?.id || page.id,
-                    username: post.author?.username || page.handle || page.slug,
-                    displayName: post.author?.displayName || page.name,
-                    avatarUrl: post.author?.avatarUrl || logoUrl,
-                    type: 'business',
-                    businessSlug: page.slug
-                  }}
+<PostHeader
+  author={{
+    id: post.author?.id || page.id,
+    username: post.author?.username || page.handle || page.slug,
+    displayName: post.author?.displayName || page.name,
+    avatarUrl: resolveUserAvatarUrl(post.author || post) || logoUrl,
+    type: 'business',
+    businessSlug: page.slug
+  }}
                   createdAt={post.createdAt}
                   currentUserId={user?.id || ''}
                   showFollow={false}
@@ -1863,7 +1876,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                         className="flex min-w-0 items-center gap-2"
                       >
                         <img
-                          src={resolveAssetUrl(follower.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(follower.name || 'User')}`)}
+                          src={resolveUserAvatarUrl(follower) || BRAND_LOGO_URL}
                           alt={follower.name || 'Follower'}
                           className="h-9 w-9 rounded-full object-cover"
                         />
@@ -2093,7 +2106,7 @@ const CompanyPage: React.FC<CompanyPageProps> = ({ slugOverride, embedded = fals
                     className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50"
                   >
                     <img
-                      src={resolveAssetUrl(follower.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(follower.name || 'User')}`)}
+                      src={resolveUserAvatarUrl(follower) || BRAND_LOGO_URL}
                       alt={follower.name || 'Follower'}
                       className="h-8 w-8 rounded-full object-cover"
                     />

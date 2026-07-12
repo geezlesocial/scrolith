@@ -10,6 +10,7 @@ import { gigsApi, type Gig } from '../services/gigs';
 import { RecoService } from '../services/reco';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { downloadToDevice } from '../utils/deviceDownload';
 
 import PostHeader from '../community/components/PostHeader';
@@ -114,7 +115,7 @@ const normalizePost = (post: any) => {
   const authorName = post.authorName || post.userName || post.user_name || post.author?.displayName || post.author?.name || 'Member';
   const authorUsername =
     post.authorUsername || post.userUsername || post.user_username || post.author?.username || post.author?.userName || post.author?.user_name || null;
-  const authorAvatar = post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+  const authorAvatar = resolveUserAvatarUrl(post.author || post);
   const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
   const authorUserId =
     post.authorUserId ||
@@ -149,7 +150,7 @@ const normalizePost = (post: any) => {
       id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
       username: post.author?.username ?? authorUsername,
       displayName: post.author?.displayName || authorName,
-      avatarUrl: post.author?.avatarUrl || authorAvatar,
+      avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
       type: authorType,
       businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
       isVerified: Boolean(post.author?.isVerified),
@@ -254,7 +255,7 @@ const normalizeSuggestedPage = (page: any): SuggestedPage | null => {
         page?.handle ||
         ''
     ).trim() || null,
-    avatarUrl: account?.avatar || page?.avatar || page?.logo?.url || page?.logoUrl || null,
+    avatarUrl: resolveUserAvatarUrl(account || page) || null,
     targetType: 'page'
   };
 };

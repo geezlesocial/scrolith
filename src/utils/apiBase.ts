@@ -1,5 +1,13 @@
 const normalizeBase = (value: string) => value.replace(/\/+$/, '');
 const ensureApiSuffix = (value: string) => (value.endsWith('/api') ? value : `${value}/api`);
+/** Safe access for Vite env under node:test / non-Vite runners. */
+const viteEnv = () => {
+  try {
+    return ((import.meta as any)?.env || {}) as Record<string, unknown>;
+  } catch {
+    return {} as Record<string, unknown>;
+  }
+};
 const parseBool = (value: unknown, fallback = false) => {
   if (value === undefined || value === null) return fallback;
   const normalized = String(value).trim().toLowerCase();
@@ -41,12 +49,13 @@ const parseHost = (value: string) => {
 };
 const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(String(value || '').trim());
 const resolveNativeProdFallbackBase = () => {
-  const explicit = String(import.meta.env.VITE_NATIVE_PROD_API_URL || '').trim();
+  const env = viteEnv();
+  const explicit = String(env.VITE_NATIVE_PROD_API_URL || '').trim();
   if (explicit) return ensureApiSuffix(normalizeBase(explicit));
 
   const appDomainRaw =
-    String(import.meta.env.VITE_PUBLIC_APP_DOMAIN || '').trim() ||
-    String(import.meta.env.VITE_APP_DOMAIN || '').trim();
+    String(env.VITE_PUBLIC_APP_DOMAIN || '').trim() ||
+    String(env.VITE_APP_DOMAIN || '').trim();
   if (appDomainRaw) {
     const host = parseHost(appDomainRaw);
     if (host) {
@@ -60,27 +69,27 @@ const resolveNativeProdFallbackBase = () => {
 };
 
 const resolveEnvBase = () => {
+  const env = viteEnv();
   const envBase =
-    import.meta.env.VITE_API_URL ||
-    import.meta.env.VITE_API_BASE_URL ||
-    (import.meta.env.VITE_BACKEND_URL ? normalizeBase(String(import.meta.env.VITE_BACKEND_URL)) : '');
+    env.VITE_API_URL ||
+    env.VITE_API_BASE_URL ||
+    (env.VITE_BACKEND_URL ? normalizeBase(String(env.VITE_BACKEND_URL)) : '');
   if (!envBase) return '';
-  const normalized = ensureApiSuffix(envBase);
+  const normalized = ensureApiSuffix(String(envBase));
   const host = parseHost(normalized);
-  if (import.meta.env.PROD && isReservedPlaceholderHost(host)) {
+  if (env.PROD && isReservedPlaceholderHost(host)) {
     return resolveNativeProdFallbackBase();
   }
   return normalized;
 };
 
 const resolveMobileBase = () => {
-  const mobileBase =
-    import.meta.env.VITE_MOBILE_API_URL ||
-    import.meta.env.VITE_MOBILE_API_BASE_URL;
+  const env = viteEnv();
+  const mobileBase = env.VITE_MOBILE_API_URL || env.VITE_MOBILE_API_BASE_URL;
   if (mobileBase) {
     const normalized = ensureApiSuffix(normalizeBase(String(mobileBase)));
     const host = parseHost(normalized);
-    if (import.meta.env.PROD && isReservedPlaceholderHost(host)) {
+    if (env.PROD && isReservedPlaceholderHost(host)) {
       return resolveNativeProdFallbackBase();
     }
     return normalized;
@@ -137,7 +146,7 @@ const isCapacitorRuntime = () => {
     const host = String(window.location?.hostname || '').toLowerCase();
     // Capacitor Android WebView commonly runs the bundle from https://localhost.
     // Treat this as native in production to avoid web-only fallbacks (/api, service worker assumptions).
-    if (import.meta.env.PROD && protocol === 'https:' && host === 'localhost') {
+    if (viteEnv().PROD && protocol === 'https:' && host === 'localhost') {
       return true;
     }
     if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'file:') {
@@ -160,15 +169,16 @@ const isCapacitorRuntime = () => {
 };
 
 export const getApiBaseUrl = () => {
+  const env = viteEnv();
   const native = isNativePlatform() || isCapacitorRuntime();
-  const allowLocalApiInProd = parseBool(import.meta.env.VITE_ALLOW_LOCAL_API_IN_PROD, false);
+  const allowLocalApiInProd = parseBool(env.VITE_ALLOW_LOCAL_API_IN_PROD, false);
   if (native) {
     // Safety: avoid accidentally shipping local/LAN mobile API overrides to production bundles.
     // Default behavior:
     // - PROD: prefer VITE_API_URL/VITE_BACKEND_URL; mobile override only when explicitly forced.
     // - DEV: allow mobile override first for on-device local testing.
-    const forceMobileOverride = parseBool(import.meta.env.VITE_FORCE_MOBILE_API_OVERRIDE, false);
-    if (!import.meta.env.PROD || forceMobileOverride) {
+    const forceMobileOverride = parseBool(env.VITE_FORCE_MOBILE_API_OVERRIDE, false);
+    if (!env.PROD || forceMobileOverride) {
       const mobile = resolveMobileBase();
       if (mobile) return mobile;
     }
@@ -176,7 +186,7 @@ export const getApiBaseUrl = () => {
 
   const envBase = resolveEnvBase();
   if (envBase) {
-    if (import.meta.env.PROD) {
+    if (env.PROD) {
       const absolute = isAbsoluteUrl(envBase);
       if (!absolute) {
         return resolveNativeProdFallbackBase();
@@ -191,7 +201,7 @@ export const getApiBaseUrl = () => {
     return envBase;
   }
 
-  if (native && import.meta.env.PROD) {
+  if (native && env.PROD) {
     const mobile = resolveMobileBase();
     if (mobile) {
       if (!allowLocalApiInProd) {
@@ -204,7 +214,7 @@ export const getApiBaseUrl = () => {
     return resolveNativeProdFallbackBase();
   }
 
-  if (import.meta.env.DEV) {
+  if (env.DEV) {
     if (native) {
       const nativeDev = resolveNativeDevBase();
       if (nativeDev) return nativeDev;
