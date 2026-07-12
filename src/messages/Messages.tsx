@@ -2,7 +2,13 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { MessagingService, MessageSearchResult, getConversationMergeKey, getMessageMergeKey } from '../services/messaging';
+import {
+  MessagingService,
+  MessageSearchResult,
+  getConversationMergeKey,
+  mergeDirectConversations,
+  messageMatchesConversation
+} from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
 import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search } from 'lucide-react';
@@ -158,69 +164,6 @@ const VoiceCallControls: React.FC<{
       />
     </>
   );
-};
-
-const mergeDirectConversations = (list: Conversation[]) => {
-  if (!Array.isArray(list) || list.length === 0) return [];
-
-  const directBuckets = new Map<string, Conversation[]>();
-  const passthrough: Conversation[] = [];
-
-  list.forEach((conversation) => {
-    const key = getConversationMergeKey(conversation);
-    if (!key) {
-      passthrough.push(conversation);
-      return;
-    }
-    if (!directBuckets.has(key)) directBuckets.set(key, []);
-    directBuckets.get(key)!.push(conversation);
-  });
-
-  const mergedDirects = Array.from(directBuckets.values()).map((bucket) => {
-    const ordered = [...bucket].sort((left, right) => {
-      const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
-      const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
-      if (leftAt !== rightAt) return rightAt - leftAt;
-      return String(right?.id || '').localeCompare(String(left?.id || ''));
-    });
-    const primary = ordered[0] || bucket[0];
-    const mergedMessages = Array.from(
-      ordered
-        .flatMap((entry) => Array.isArray(entry?.messages) ? entry.messages : [])
-        .reduce((acc, message) => {
-          const messageId = String(message?.id || '').trim();
-          if (!messageId) return acc;
-          if (!acc.has(messageId)) acc.set(messageId, message);
-          return acc;
-        }, new Map<string, any>())
-        .values()
-    ).sort((left, right) => {
-        const leftAt = new Date(left?.timestamp || left?.createdAt || 0).getTime();
-        const rightAt = new Date(right?.timestamp || right?.createdAt || 0).getTime();
-        if (leftAt !== rightAt) return leftAt - rightAt;
-        return String(left?.id || '').localeCompare(String(right?.id || ''));
-      });
-    const lastVisibleMessage = mergedMessages[mergedMessages.length - 1];
-    const unreadCount = ordered.reduce((sum, entry) => sum + Number(entry?.unreadCount ?? entry?.unread_count ?? 0), 0);
-
-    return {
-      ...primary,
-      messages: mergedMessages,
-      lastMessage: String(lastVisibleMessage?.text ?? primary?.lastMessage ?? primary?.last_message ?? ''),
-      last_message: String(lastVisibleMessage?.text ?? primary?.last_message ?? primary?.lastMessage ?? ''),
-      lastMessageAt: String(lastVisibleMessage?.timestamp ?? primary?.lastMessageAt ?? primary?.last_message_at ?? ''),
-      last_message_at: String(lastVisibleMessage?.timestamp ?? primary?.last_message_at ?? primary?.lastMessageAt ?? ''),
-      unreadCount,
-      unread_count: unreadCount
-    } as Conversation;
-  });
-
-  return [...passthrough, ...mergedDirects].sort((left, right) => {
-    const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
-    const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
-    if (leftAt !== rightAt) return rightAt - leftAt;
-    return String(right?.id || '').localeCompare(String(left?.id || ''));
-  });
 };
 
 const Messages = () => {
@@ -1536,7 +1479,6 @@ const Messages = () => {
           const message = normalizeIncomingMessage(payload);
           const convoId = message.conversation_id || message.conversationId;
           if (!convoId) return;
-          const messageMergeKey = getMessageMergeKey(message);
           traceClient('socket.messages_incoming', {
               socketEvent: payload?.sender_id === userIdRef.current ? 'messages:sent' : 'messages:new',
               conversationId: convoId,
@@ -1547,8 +1489,7 @@ const Messages = () => {
           setConversations(prev => {
               let found = false;
               const updated = prev.map(c => {
-                  const conversationMergeKey = getConversationMergeKey(c);
-                  const matchesThread = c.id === convoId || Boolean(messageMergeKey && conversationMergeKey === messageMergeKey);
+                  const matchesThread = messageMatchesConversation(message, c);
                   if (!matchesThread) return c;
                   found = true;
                   const exists = c.messages.some(m => m.id === message.id);
