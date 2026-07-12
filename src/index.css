@@ -193,6 +193,33 @@ svg {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* Desktop navigation header (Navbar) */
+@keyframes scrolithNavBadgePop {
+  0% { transform: scale(0.72); opacity: 0.55; }
+  55% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.scrolith-nav-badge {
+  animation: scrolithNavBadgePop 0.28s ease-out;
+}
+
+.scrolith-desktop-nav-item {
+  min-height: 52px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrolith-nav-badge {
+    animation: none !important;
+  }
+
+  .scrolith-desktop-nav-item,
+  .scrolith-desktop-nav-item * {
+    transition: none !important;
+    transform: none !important;
+  }
+}
+
 /* RESPONSIVE CLASSES */
 @media (max-width: 640px) {
   .container {
