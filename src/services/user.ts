@@ -8,6 +8,7 @@ import {
   UserSettings
 } from '../types';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { normalizeStorefrontSettings } from '../utils/storefront';
 
@@ -248,10 +249,19 @@ const mapProfile = (p: any): UserProfile => {
   const hourlyRate = Number(p.hourly_rate ?? p.hourlyRate ?? 0);
   const introVideoUrl = p.intro_video_url ?? p.introVideoUrl ?? '';
   const coverPhotoUrl = p.cover_photo_url ?? p.coverPhotoUrl ?? '';
+  const coverFileId = p.cover_file_id ?? p.coverFileId ?? p.cover_photo_file_id ?? p.coverPhotoFileId;
   const profilePhotoFileId = p.profile_photo_file_id ?? p.profilePhotoFileId;
   const resolvedAvatar =
     resolveUserAvatarUrl({ ...p, profilePhotoFileId, profile_photo_file_id: profilePhotoFileId }) || undefined;
-  const resolvedCover = coverPhotoUrl ? resolveAssetUrl(String(coverPhotoUrl)) : undefined;
+  const resolvedCover =
+    resolvePostAttachmentMediaUrl({
+      url: coverPhotoUrl,
+      fileId: coverFileId,
+      path: p.cover?.path || p.cover?.url
+    }) ||
+    resolvePostAttachmentMediaUrl(p.cover) ||
+    (coverPhotoUrl ? resolveAssetUrl(String(coverPhotoUrl)) : undefined) ||
+    undefined;
   const professionalIdentity = normalizeProfessionalIdentity(p.professional_identity ?? p.professionalIdentity);
   return {
     user_id: p.user_id ?? p.userId,

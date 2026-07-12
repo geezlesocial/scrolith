@@ -821,7 +821,19 @@ const isStoryActive = (story: any) => {
   return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
 };
 
-const resolveReelMedia = (scroll: ScrollVideo) => resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
+const resolveReelMedia = (scroll: ScrollVideo) => {
+  const media = scroll?.media || scroll;
+  const inline = resolveInlineMedia(media, { typeHint: 'video' });
+  if (inline.src) return inline;
+  // Fall back through attachment resolver for nested file/asset payloads.
+  const src = resolvePostAttachmentMediaUrl(media);
+  const poster = resolvePostAttachmentPosterUrl(media);
+  return {
+    kind: (src ? 'video' : 'unknown') as 'video' | 'image' | 'document' | 'unknown',
+    src: src || '',
+    poster: poster || undefined
+  };
+};
 
 const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
   const normalized = String(scroll?.author?.name || '').trim();
@@ -829,8 +841,12 @@ const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
 };
 
 const resolveReelAuthorAvatar = (scroll: ScrollVideo) => {
-  const normalized = String(scroll?.author?.avatar || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+  return (
+    resolveUserAvatarUrl(scroll?.author) ||
+    resolvePostAttachmentMediaUrl(scroll?.author?.avatar) ||
+    resolveAssetUrl(String(scroll?.author?.avatar || '').trim()) ||
+    ''
+  );
 };
 
 const resolveReelAuthorInitial = (scroll: ScrollVideo) => {
@@ -3531,14 +3547,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       return;
     }
     let active = true;
-    const fallbackCoverRaw = (user as any)?.coverPhotoUrl || (user as any)?.cover_photo_url || '';
-    const fallbackCover = fallbackCoverRaw ? resolveAssetUrl(String(fallbackCoverRaw)) : '';
+    const resolveCoverCandidate = (source: any) => {
+      if (!source) return '';
+      return (
+        resolvePostAttachmentMediaUrl({
+          url: source?.coverPhotoUrl || source?.cover_photo_url || source?.coverUrl || source?.cover_url,
+          fileId:
+            source?.coverFileId ||
+            source?.cover_file_id ||
+            source?.coverPhotoFileId ||
+            source?.cover_photo_file_id,
+          path: source?.cover?.path || source?.cover?.url
+        }) ||
+        resolvePostAttachmentMediaUrl(source?.cover) ||
+        resolvePostAttachmentMediaUrl(source?.coverPhotoUrl || source?.cover_photo_url) ||
+        resolveUserAvatarUrl({
+          coverUrl: source?.coverPhotoUrl || source?.cover_photo_url || source?.coverUrl,
+          coverFileId: source?.coverFileId || source?.cover_file_id || source?.coverPhotoFileId,
+          cover: source?.cover
+        }) ||
+        ''
+      );
+    };
+    const fallbackCover = resolveCoverCandidate(user);
     const loadSelfCover = async () => {
       try {
         const profile = await UserService.getProfile(currentUserId);
         if (!active) return;
-        const coverRaw = profile?.coverPhotoUrl || (profile as any)?.cover_photo_url || '';
-        setSelfProfileCover(coverRaw ? resolveAssetUrl(String(coverRaw)) : fallbackCover);
+        const resolved = resolveCoverCandidate(profile) || fallbackCover;
+        setSelfProfileCover(resolved);
       } catch {
         if (active) setSelfProfileCover(fallbackCover);
       }
@@ -6786,19 +6823,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           <aside className="order-2 space-y-4 lg:order-1">
             <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
               <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
-                {selfProfileCover && (
+                {selfProfileCover ? (
                   <OptimizedImage
                     src={selfProfileCover}
-                    alt="Profile cover"
+                    alt=""
                     width={1200}
                     height={360}
                     sizes="(max-width: 768px) 100vw, 320px"
                     className="h-full w-full object-cover"
-                    loading="lazy"
+                    loading="eager"
                     decoding="async"
+                    onError={() => setSelfProfileCover('')}
                   />
-                )}
-                <div className="absolute inset-0 bg-slate-900/35" />
+                ) : null}
+                <div className="pointer-events-none absolute inset-0 bg-slate-900/35" />
               </div>
               <div className="p-4 sm:p-5">
                 <div className="-mt-10 flex items-end gap-3">

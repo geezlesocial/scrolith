@@ -15,6 +15,7 @@ import { MessagingService } from '../services/messaging';
 import { ReviewsService, Review } from '../services/reviews';
 import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
 import { getPublicAppOrigin } from '../utils/siteUrl';
 
@@ -172,7 +173,17 @@ const FreelancerProfile = () => {
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
   const coverUrl = useMemo(() => {
     const raw = profile?.coverPhotoUrl || (profile as any)?.cover_photo_url;
-    return raw ? resolveAssetUrl(String(raw)) : undefined;
+    const fileId =
+      (profile as any)?.coverFileId ||
+      (profile as any)?.cover_file_id ||
+      (profile as any)?.coverPhotoFileId ||
+      (profile as any)?.cover_photo_file_id;
+    return (
+      resolvePostAttachmentMediaUrl({ url: raw, fileId }) ||
+      resolvePostAttachmentMediaUrl((profile as any)?.cover) ||
+      (raw ? resolveAssetUrl(String(raw)) : undefined) ||
+      undefined
+    );
   }, [profile]);
   const isOwner = useMemo(
     () => Boolean(user?.id && publicUser?.id && String(user.id) === String(publicUser.id)),

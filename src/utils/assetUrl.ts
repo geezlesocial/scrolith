@@ -92,6 +92,29 @@ const isPlatformAssetHost = (hostname: string) => {
   return false;
 };
 
+const isLikelyBareFileId = (value: string) => {
+  const normalized = String(value || '').trim();
+  if (!normalized) return false;
+  if (normalized.toLowerCase().startsWith('disk:')) return true;
+  if (
+    /^https?:\/\//i.test(normalized) ||
+    normalized.startsWith('/') ||
+    normalized.startsWith('data:') ||
+    normalized.startsWith('blob:')
+  ) {
+    return false;
+  }
+  if (/\s/.test(normalized)) return false;
+  if (normalized.includes('://')) return false;
+  // cuid / opaque ids
+  if (/^[a-z0-9_-]{12,}$/i.test(normalized)) return true;
+  // uuid
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+    return true;
+  }
+  return false;
+};
+
 export const resolveAssetUrl = (value?: string | null) => {
   if (!value) return value ?? '';
   const trimmed = String(value).trim();
@@ -141,6 +164,13 @@ export const resolveAssetUrl = (value?: string | null) => {
     if (lower.startsWith('api/files/')) return `${origin}/${trimmed}`;
     if (lower.startsWith('files/content/')) return `${origin}/${trimmed}`;
     return `${origin}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
+  }
+
+  // Bare storage/file IDs (cuid/uuid/disk:) are commonly stored in cover/avatar fields.
+  // Convert them to the public content endpoint instead of using the raw id as an <img src>.
+  if (isLikelyBareFileId(trimmed)) {
+    const origin = backendOrigin || DEFAULT_PRODUCTION_API_ORIGIN;
+    return `${origin}/api/files/content/${encodeURIComponent(trimmed)}`;
   }
 
   return trimmed;
