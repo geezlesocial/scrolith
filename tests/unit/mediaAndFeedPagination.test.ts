@@ -2,10 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 // node:test does not inject Vite's import.meta.env; polyfill before loading app utils.
+// Must assign real properties on import.meta.env so static reads in apiBase work.
 const ensureViteEnv = () => {
   const meta = import.meta as ImportMeta & { env?: Record<string, unknown> };
   if (!meta.env || typeof meta.env !== 'object') {
-    (meta as any).env = {};
+    try {
+      Object.defineProperty(meta, 'env', {
+        value: {},
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
+    } catch {
+      (meta as any).env = {};
+    }
   }
   Object.assign(meta.env as Record<string, unknown>, {
     PROD: false,
@@ -14,8 +24,10 @@ const ensureViteEnv = () => {
     BASE_URL: '/',
     VITE_ALLOW_LOCAL_API_IN_PROD: 'false',
     VITE_API_URL: 'https://api.scrolith.com/api',
+    VITE_API_BASE_URL: 'https://api.scrolith.com/api',
     VITE_BACKEND_URL: 'https://api.scrolith.com',
-    VITE_FORCE_MOBILE_API_OVERRIDE: 'false'
+    VITE_FORCE_MOBILE_API_OVERRIDE: 'false',
+    VITE_PUBLIC_APP_DOMAIN: 'scrolith.com'
   });
 };
 

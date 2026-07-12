@@ -1846,8 +1846,8 @@ export default function InsightsQuickPanel({
                                 <div className="min-w-0">
                                   <p className="line-clamp-1 text-sm font-semibold text-slate-900">{entry.title}</p>
                                   <p className="mt-1 text-[11px] text-slate-500">
-                                    {entry.author.name}
-                                    {entry.author.username ? ` (@${entry.author.username})` : ''}
+                                    {entry.author?.name || 'Member'}
+                                    {entry.author?.username ? ` (@${entry.author.username})` : ''}
                                     {' • '}
                                     {entry.contentType === 'scroll_video' ? 'Scroll' : 'Post'}
                                   </p>
@@ -1992,7 +1992,7 @@ export default function InsightsQuickPanel({
                         <div className="min-w-0">
                           <p className="line-clamp-1 text-sm font-semibold text-slate-900">{series.title}</p>
                           <p className="mt-1 text-[11px] text-slate-500">
-                            {series.creator.name}
+                            {series.creator?.name || 'Creator'}
                             {series.creator.username ? ` (@${series.creator.username})` : ''}
                             {' · '}
                             {series.itemCount} items
@@ -2056,9 +2056,9 @@ export default function InsightsQuickPanel({
                   <div key={channel.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">{channel.name}</p>
+                        <p className="line-clamp-1 text-sm font-semibold text-slate-900">{channel.name || 'Channel'}</p>
                         <p className="mt-1 text-[11px] text-slate-500">
-                          {channel.source.name}
+                          {channel.source?.name || (channel.sourceType === 'page' ? 'Company' : 'Creator')}
                           {' · '}
                           {channel.memberCount} followers
                           {' · '}
@@ -2889,7 +2889,7 @@ export default function InsightsQuickPanel({
                       <div key={invite.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
-                            <p className="line-clamp-1 text-sm font-semibold text-slate-900">{invite.partner.name}</p>
+                            <p className="line-clamp-1 text-sm font-semibold text-slate-900">{invite.partner?.name || 'Member'}</p>
                             <p className="text-[11px] text-slate-500">
                               Waiting for {invite.partner.username ? `@${invite.partner.username}` : 'your partner'} to accept.
                             </p>
@@ -2918,7 +2918,7 @@ export default function InsightsQuickPanel({
                         <div key={invite.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="line-clamp-1 text-sm font-semibold text-slate-900">{invite.partner.name}</p>
+                              <p className="line-clamp-1 text-sm font-semibold text-slate-900">{invite.partner?.name || 'Member'}</p>
                               <p className="text-[11px] text-slate-500">
                                 {invite.partner.username ? `@${invite.partner.username}` : 'Your mutual'} wants to share a daily streak.
                               </p>
@@ -2965,13 +2965,13 @@ export default function InsightsQuickPanel({
                               <div className="flex min-w-0 items-center gap-3">
                                 <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-800 text-sm font-semibold text-white">
                                   {entry.partner.avatarUrl ? (
-                                    <img src={entry.partner.avatarUrl} alt={entry.partner.name} className="h-full w-full object-cover" />
+                                    <img src={entry.partner?.avatarUrl || ''} alt={entry.partner?.name || 'Member'} className="h-full w-full object-cover" />
                                   ) : (
                                     <span>{partnerInitial}</span>
                                   )}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="line-clamp-1 text-sm font-semibold text-slate-900">{entry.partner.name}</p>
+                                  <p className="line-clamp-1 text-sm font-semibold text-slate-900">{entry.partner?.name || 'Member'}</p>
                                   <p className="text-[11px] text-slate-500">
                                     {entry.partner.username ? `@${entry.partner.username}` : 'Mutual follow'} · Shared streak {entry.sharedCurrentStreakDays}d
                                   </p>
@@ -3254,7 +3254,7 @@ export default function InsightsQuickPanel({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Identity and trust</p>
-                    <h4 className="mt-1 line-clamp-1 text-sm font-semibold text-slate-900">{hub.identity.name}</h4>
+                    <h4 className="mt-1 line-clamp-1 text-sm font-semibold text-slate-900">{hub.identity?.name || 'Hub'}</h4>
                     <p className="mt-1 line-clamp-2 text-xs text-slate-500">
                       {hub.identity.title || hub.identity.role}
                       {hub.identity.location ? ` | ${hub.identity.location}` : ''}

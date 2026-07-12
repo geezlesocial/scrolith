@@ -1,13 +1,5 @@
 const normalizeBase = (value: string) => value.replace(/\/+$/, '');
 const ensureApiSuffix = (value: string) => (value.endsWith('/api') ? value : `${value}/api`);
-/** Safe access for Vite env under node:test / non-Vite runners. */
-const viteEnv = () => {
-  try {
-    return ((import.meta as any)?.env || {}) as Record<string, unknown>;
-  } catch {
-    return {} as Record<string, unknown>;
-  }
-};
 const parseBool = (value: unknown, fallback = false) => {
   if (value === undefined || value === null) return fallback;
   const normalized = String(value).trim().toLowerCase();
@@ -16,6 +8,103 @@ const parseBool = (value: unknown, fallback = false) => {
   if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
   return fallback;
 };
+
+/**
+ * Read Vite env values with STATIC property access so production builds still
+ * replace `import.meta.env.VITE_*` at compile time.
+ *
+ * Dynamic helpers like `const env = import.meta.env; env.VITE_API_URL` break
+ * Vite replacement and fall back to `/api` on scrolith.com (HTML instead of JSON).
+ *
+ * try/catch keeps node:test runners (no import.meta.env) from crashing.
+ */
+const vite = {
+  get PROD() {
+    try {
+      return Boolean(import.meta.env.PROD);
+    } catch {
+      return false;
+    }
+  },
+  get DEV() {
+    try {
+      return Boolean(import.meta.env.DEV);
+    } catch {
+      return false;
+    }
+  },
+  get VITE_API_URL() {
+    try {
+      return import.meta.env.VITE_API_URL as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_API_BASE_URL() {
+    try {
+      return import.meta.env.VITE_API_BASE_URL as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_BACKEND_URL() {
+    try {
+      return import.meta.env.VITE_BACKEND_URL as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_MOBILE_API_URL() {
+    try {
+      return import.meta.env.VITE_MOBILE_API_URL as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_MOBILE_API_BASE_URL() {
+    try {
+      return import.meta.env.VITE_MOBILE_API_BASE_URL as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_NATIVE_PROD_API_URL() {
+    try {
+      return import.meta.env.VITE_NATIVE_PROD_API_URL as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_PUBLIC_APP_DOMAIN() {
+    try {
+      return import.meta.env.VITE_PUBLIC_APP_DOMAIN as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_APP_DOMAIN() {
+    try {
+      return import.meta.env.VITE_APP_DOMAIN as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_ALLOW_LOCAL_API_IN_PROD() {
+    try {
+      return import.meta.env.VITE_ALLOW_LOCAL_API_IN_PROD as string | undefined;
+    } catch {
+      return undefined;
+    }
+  },
+  get VITE_FORCE_MOBILE_API_OVERRIDE() {
+    try {
+      return import.meta.env.VITE_FORCE_MOBILE_API_OVERRIDE as string | undefined;
+    } catch {
+      return undefined;
+    }
+  }
+};
+
 const isLocalHostLike = (host: string) => {
   const normalized = String(host || '').trim().toLowerCase();
   if (!normalized) return false;
@@ -49,13 +138,12 @@ const parseHost = (value: string) => {
 };
 const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(String(value || '').trim());
 const resolveNativeProdFallbackBase = () => {
-  const env = viteEnv();
-  const explicit = String(env.VITE_NATIVE_PROD_API_URL || '').trim();
+  const explicit = String(vite.VITE_NATIVE_PROD_API_URL || '').trim();
   if (explicit) return ensureApiSuffix(normalizeBase(explicit));
 
   const appDomainRaw =
-    String(env.VITE_PUBLIC_APP_DOMAIN || '').trim() ||
-    String(env.VITE_APP_DOMAIN || '').trim();
+    String(vite.VITE_PUBLIC_APP_DOMAIN || '').trim() ||
+    String(vite.VITE_APP_DOMAIN || '').trim();
   if (appDomainRaw) {
     const host = parseHost(appDomainRaw);
     if (host) {
@@ -69,27 +157,25 @@ const resolveNativeProdFallbackBase = () => {
 };
 
 const resolveEnvBase = () => {
-  const env = viteEnv();
   const envBase =
-    env.VITE_API_URL ||
-    env.VITE_API_BASE_URL ||
-    (env.VITE_BACKEND_URL ? normalizeBase(String(env.VITE_BACKEND_URL)) : '');
+    vite.VITE_API_URL ||
+    vite.VITE_API_BASE_URL ||
+    (vite.VITE_BACKEND_URL ? normalizeBase(String(vite.VITE_BACKEND_URL)) : '');
   if (!envBase) return '';
   const normalized = ensureApiSuffix(String(envBase));
   const host = parseHost(normalized);
-  if (env.PROD && isReservedPlaceholderHost(host)) {
+  if (vite.PROD && isReservedPlaceholderHost(host)) {
     return resolveNativeProdFallbackBase();
   }
   return normalized;
 };
 
 const resolveMobileBase = () => {
-  const env = viteEnv();
-  const mobileBase = env.VITE_MOBILE_API_URL || env.VITE_MOBILE_API_BASE_URL;
+  const mobileBase = vite.VITE_MOBILE_API_URL || vite.VITE_MOBILE_API_BASE_URL;
   if (mobileBase) {
     const normalized = ensureApiSuffix(normalizeBase(String(mobileBase)));
     const host = parseHost(normalized);
-    if (env.PROD && isReservedPlaceholderHost(host)) {
+    if (vite.PROD && isReservedPlaceholderHost(host)) {
       return resolveNativeProdFallbackBase();
     }
     return normalized;
@@ -146,7 +232,7 @@ const isCapacitorRuntime = () => {
     const host = String(window.location?.hostname || '').toLowerCase();
     // Capacitor Android WebView commonly runs the bundle from https://localhost.
     // Treat this as native in production to avoid web-only fallbacks (/api, service worker assumptions).
-    if (viteEnv().PROD && protocol === 'https:' && host === 'localhost') {
+    if (vite.PROD && protocol === 'https:' && host === 'localhost') {
       return true;
     }
     if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'file:') {
@@ -169,16 +255,15 @@ const isCapacitorRuntime = () => {
 };
 
 export const getApiBaseUrl = () => {
-  const env = viteEnv();
   const native = isNativePlatform() || isCapacitorRuntime();
-  const allowLocalApiInProd = parseBool(env.VITE_ALLOW_LOCAL_API_IN_PROD, false);
+  const allowLocalApiInProd = parseBool(vite.VITE_ALLOW_LOCAL_API_IN_PROD, false);
   if (native) {
     // Safety: avoid accidentally shipping local/LAN mobile API overrides to production bundles.
     // Default behavior:
     // - PROD: prefer VITE_API_URL/VITE_BACKEND_URL; mobile override only when explicitly forced.
     // - DEV: allow mobile override first for on-device local testing.
-    const forceMobileOverride = parseBool(env.VITE_FORCE_MOBILE_API_OVERRIDE, false);
-    if (!env.PROD || forceMobileOverride) {
+    const forceMobileOverride = parseBool(vite.VITE_FORCE_MOBILE_API_OVERRIDE, false);
+    if (!vite.PROD || forceMobileOverride) {
       const mobile = resolveMobileBase();
       if (mobile) return mobile;
     }
@@ -186,7 +271,7 @@ export const getApiBaseUrl = () => {
 
   const envBase = resolveEnvBase();
   if (envBase) {
-    if (env.PROD) {
+    if (vite.PROD) {
       const absolute = isAbsoluteUrl(envBase);
       if (!absolute) {
         return resolveNativeProdFallbackBase();
@@ -201,7 +286,7 @@ export const getApiBaseUrl = () => {
     return envBase;
   }
 
-  if (native && env.PROD) {
+  if (native && vite.PROD) {
     const mobile = resolveMobileBase();
     if (mobile) {
       if (!allowLocalApiInProd) {
@@ -214,12 +299,18 @@ export const getApiBaseUrl = () => {
     return resolveNativeProdFallbackBase();
   }
 
-  if (env.DEV) {
+  if (vite.DEV) {
     if (native) {
       const nativeDev = resolveNativeDevBase();
       if (nativeDev) return nativeDev;
     }
     return '/api';
+  }
+
+  // Production web without injected env should never silently use same-origin /api
+  // (scrolith.com SPA would return HTML). Prefer the known API origin.
+  if (vite.PROD) {
+    return resolveNativeProdFallbackBase();
   }
 
   return '/api';
@@ -229,8 +320,7 @@ export const getBackendOrigin = () => {
   const base = getApiBaseUrl();
   if (base.startsWith('/')) return '';
   try {
-    const url = new URL(base);
-    return url.origin;
+    return new URL(base).origin;
   } catch {
     return '';
   }
