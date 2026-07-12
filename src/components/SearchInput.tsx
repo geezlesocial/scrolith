@@ -23,7 +23,7 @@ import { CompassIcon as Compass, ShoppingCartIcon as ShoppingCart, UserIcon as U
 interface SearchInputProps {
     placeholder?: string;
     className?: string;
-    size?: 'normal' | 'large' | 'xl';
+    size?: 'normal' | 'large' | 'xl' | 'header';
     showButton?: boolean;
     buttonLabel?: string;
     buttonAriaLabel?: string;
@@ -33,6 +33,9 @@ interface SearchInputProps {
     onSearch?: (term: string) => void;
     disableNavigation?: boolean;
 }
+
+const DEFAULT_HEADER_PLACEHOLDER =
+    'Search for jobs, gigs, freelancers, businesses, communities...';
 
 const DEFAULT_SEARCH_RECOMMENDATIONS: SearchSuggestion[] = [
     { text: 'interview tips', type: 'keyword', category: 'Careers' },
@@ -144,6 +147,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
     onSearch,
     disableNavigation = false
 }) => {
+    const resolvedPlaceholder =
+        placeholder ||
+        (size === 'header' ? DEFAULT_HEADER_PLACEHOLDER : '');
     const [query, setQuery] = useState(initialQuery);
     const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
     const [recommendedSuggestions, setRecommendedSuggestions] = useState<SearchSuggestion[]>(DEFAULT_SEARCH_RECOMMENDATIONS);
@@ -329,40 +335,50 @@ const SearchInput: React.FC<SearchInputProps> = ({
     const sizeClasses = {
         normal: "py-3 text-sm rounded-full",
         large: "py-5 text-base rounded-2xl",
-        xl: "py-6 text-lg rounded-2xl"
+        xl: "py-6 text-lg rounded-2xl",
+        header:
+            "py-2.5 text-sm rounded-full bg-slate-100 border-slate-200/80 shadow-none " +
+            "placeholder:text-slate-500 focus:bg-white focus:border-blue-400 focus:ring-2 " +
+            "focus:ring-blue-500/25 focus:shadow-md motion-safe:transition-all motion-safe:duration-200"
     };
 
     const iconSizes = {
         normal: "h-5 w-5",
         large: "h-7 w-7",
-        xl: "h-8 w-8"
+        xl: "h-8 w-8",
+        header: "h-4 w-4"
     };
 
     const inputPaddingLeft = {
         normal: "pl-12",
         large: "pl-14",
-        xl: "pl-16"
+        xl: "pl-16",
+        header: "pl-10"
     };
 
     const inputPaddingRight = {
         normal: "pr-28",
         large: "pr-32",
-        xl: "pr-36"
+        xl: "pr-36",
+        header: "pr-10"
     };
 
     const buttonSizing = {
         normal: "text-sm px-4",
         large: "text-base px-5",
-        xl: "text-base px-6"
+        xl: "text-base px-6",
+        header: "text-xs px-3"
     };
 
     const buttonInset = {
         normal: "my-2",
         large: "my-2.5",
-        xl: "my-3"
+        xl: "my-3",
+        header: "my-1.5"
     };
 
-    const effectiveAriaLabel = buttonAriaLabel || buttonLabel || placeholder || '';
+    const iconLeftPadding = size === 'header' ? 'pl-3.5' : 'pl-4';
+    const effectiveAriaLabel = buttonAriaLabel || buttonLabel || resolvedPlaceholder || '';
     const cleanQuery = query.trim();
     const activeSuggestions = useMemo(() => {
         const source =
@@ -393,34 +409,48 @@ const SearchInput: React.FC<SearchInputProps> = ({
         (cleanQuery.length >= 2 || isThinking || activeSuggestions.length > 0 || recommendedSuggestions.length > 0);
     const dropdownTitle = cleanQuery.length >= 2 ? 'Scrolith suggestions' : 'Try searching for';
 
+    const isHeaderSize = size === 'header';
+    const inputBaseClass = isHeaderSize
+        ? `block w-full ${inputPaddingLeft[size]} ${showButton ? inputPaddingRight[size] : 'pr-10'} border leading-5 focus:outline-none ${sizeClasses[size]}`
+        : `block w-full ${inputPaddingLeft[size]} ${showButton ? inputPaddingRight[size] : 'pr-12'} border border-gray-300 leading-5 bg-white shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-slate-900/80 focus:border-slate-900 transition-colors duration-150 ${sizeClasses[size]}`;
+
     return (
-        <div className={`relative w-full ${className}`} ref={containerRef}>
+        <div className={`relative w-full ${className}`} ref={containerRef} role="search">
             <div className="relative group flex items-center">
-                <div className={`absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none`}>
-                    <Search className={`${iconSizes[size]} text-gray-400 group-focus-within:text-blue-500 transition-colors`} />
+                <div className={`absolute inset-y-0 left-0 ${iconLeftPadding} flex items-center pointer-events-none`}>
+                    <Search
+                        className={`${iconSizes[size]} text-gray-400 group-focus-within:text-blue-600 motion-safe:transition-colors motion-safe:duration-200`}
+                        aria-hidden="true"
+                    />
                 </div>
                 <input
-                    type="text"
-                    className={`block w-full ${inputPaddingLeft[size]} ${showButton ? inputPaddingRight[size] : 'pr-12'} border border-gray-300 leading-5 bg-white shadow-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-slate-900/80 focus:border-slate-900 transition-colors duration-150 ${sizeClasses[size]}`}
-                    placeholder={placeholder}
+                    type="search"
+                    name="q"
+                    autoComplete="off"
+                    enterKeyHint="search"
+                    className={inputBaseClass}
+                    placeholder={resolvedPlaceholder}
                     value={query}
                     onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
                     onFocus={handleFocus}
                     onKeyDown={handleKeyDown}
+                    aria-label={resolvedPlaceholder || 'Search'}
                 />
                 {!showButton && query && (
                     <button 
+                        type="button"
                         onClick={clearSearch}
-                        className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600"
-                        aria-label={effectiveAriaLabel}
+                        className="absolute inset-y-0 right-3 flex items-center text-gray-400 hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-full"
+                        aria-label="Clear search"
                     >
-                        <X className="h-5 w-5" />
+                        <X className={isHeaderSize ? 'h-4 w-4' : 'h-5 w-5'} />
                     </button>
                 )}
                 {showButton && (
                     <button
+                        type="button"
                         onClick={() => handleSearch(query)}
-                        className={`absolute right-2 inset-y-0 ${buttonInset[size]} ${buttonSizing[size]} rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition`}
+                        className={`absolute right-2 inset-y-0 ${buttonInset[size]} ${buttonSizing[size]} rounded-xl font-semibold bg-blue-600 text-white hover:bg-blue-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1`}
                         aria-label={effectiveAriaLabel}
                     >
                         {buttonLabel ? buttonLabel : <Search className="h-4 w-4" />}
