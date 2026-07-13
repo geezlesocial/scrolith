@@ -16,7 +16,7 @@ import FilePickerModal from './FilePickerModal';
 import { UploadedFile } from '../../types';
 import { FileService } from '../../services/files';
 import MediaPreviewModal from '../../components/media/MediaPreviewModal';
-import { resolveAssetUrl } from '../../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 
 type Props = {
   role: 'freelancer' | 'employer';
@@ -205,8 +205,18 @@ export default function UploadedFilesManager({ role }: Props) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {filtered.map((f) => {
-            const assetUrl = resolveAssetUrl(f.url);
-            const thumbnailUrl = resolveAssetUrl(f.thumbnailUrl || f.thumbnail_url || '');
+            const assetUrl =
+              resolvePostAttachmentMediaUrl({
+                url: f.url,
+                fileId: f.id || (f as any).fileId,
+                storageKey: (f as any).storageKey || (f as any).storage_key,
+                path: (f as any).storageKey || (f as any).storage_key
+              }) || String(f.url || '').trim();
+            const thumbnailUrl =
+              resolvePostAttachmentMediaUrl({
+                url: f.thumbnailUrl || f.thumbnail_url,
+                fileId: (f as any).thumbnailFileId || (f as any).thumbnail_file_id
+              }) || String(f.thumbnailUrl || f.thumbnail_url || '').trim();
             const previewBroken = Boolean(brokenPreviews[f.id]);
             return (
             <div key={f.id} className="bg-white border border-gray-200 rounded-2xl p-3 hover:shadow-sm transition">

@@ -5,6 +5,7 @@ import {
   createOfflineRecoveryError,
   isRetryableWriteError
 } from '../mobile/runtime/requestRecovery';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 
 type VisibilityOption = 'public' | 'private';
 
@@ -83,9 +84,35 @@ const normalizeUploadedFile = (payload: any): UploadedFile => {
   const height = payload.height !== undefined && payload.height !== null ? Number(payload.height) : null;
   const duration = payload.duration !== undefined && payload.duration !== null ? Number(payload.duration) : null;
 
+  const fileId = payload.id || payload.fileId || payload.file_id || '';
+  const storageKey = payload.storage_key || payload.storageKey || '';
+  // Resolve every known shape so list/picker previews never get a bare id or SPA-relative path.
+  const resolvedUrl =
+    resolvePostAttachmentMediaUrl({
+      url: payload.url,
+      fileId,
+      id: fileId,
+      path: storageKey || payload.path,
+      storageKey,
+      storage_key: storageKey,
+      downloadUrl: payload.downloadUrl || payload.download_url,
+      file: payload.file,
+      asset: payload.asset,
+      media: payload.media
+    }) ||
+    String(payload.url || '').trim() ||
+    '';
+  const resolvedThumbnail =
+    resolvePostAttachmentMediaUrl({
+      url: thumbnailUrl,
+      fileId: payload.thumbnailFileId || payload.thumbnail_file_id,
+      path: payload.thumbnailPath || payload.thumbnail_path
+    }) ||
+    (thumbnailUrl ? String(thumbnailUrl) : null);
+
   return {
     id: payload.id,
-    fileId: payload.id,
+    fileId: fileId || payload.id,
     user_id: ownerId,
     owner_id: ownerId,
     ownerId,
@@ -94,18 +121,18 @@ const normalizeUploadedFile = (payload: any): UploadedFile => {
     name: payload.name || payload.original_name || payload.filename || 'file',
     type: mediaType,
     size: typeof fileSize === 'bigint' ? Number(fileSize) : Number(fileSize ?? 0),
-    url: payload.url || '',
+    url: resolvedUrl,
     category: payload.category || (mediaType === 'document' ? 'document' : 'portfolio'),
     created_at: createdAt,
-    storage_key: payload.storage_key || payload.storageKey,
-    storageKey: payload.storage_key || payload.storageKey,
+    storage_key: storageKey,
+    storageKey,
     storage_provider: storageProvider,
     storageProvider,
     visibility,
     mime_type: mime || undefined,
     mimeType: mime || undefined,
-    thumbnail_url: thumbnailUrl,
-    thumbnailUrl,
+    thumbnail_url: resolvedThumbnail,
+    thumbnailUrl: resolvedThumbnail,
     width,
     height,
     duration,

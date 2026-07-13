@@ -82,13 +82,63 @@ const resolveBackendOrigin = () => {
   return '';
 };
 
-const isPlatformAssetHost = (hostname: string) => {
+/**
+ * Hosts that return the SPA HTML shell for /api/* or /uploads/* paths.
+ * Only these should be rewritten to the API origin.
+ * Never treat api.*, cdn.*, media.*, or storage hosts as SPA hosts.
+ */
+const isSpaAssetHost = (hostname: string) => {
   const host = String(hostname || '').toLowerCase();
   if (!host) return false;
   if (localAssetHosts.has(host)) return true;
-  if (host.includes('scrolith.com')) return true;
-  // Historical Cloud Run backend host used in stored absolute media URLs.
+  if (host === 'scrolith.com' || host === 'www.scrolith.com') return true;
+  // Historical frontend Cloud Run hosts that also serve the SPA shell.
+  if (host.includes('scrolith-frontend') && host.endsWith('.run.app')) return true;
+  return false;
+};
+
+/** Canonical API hosts whose file-content URLs must never be rewritten. */
+const isCanonicalApiAssetHost = (hostname: string) => {
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return false;
+  if (host === 'api.scrolith.com') return true;
+  if (host.endsWith('.api.scrolith.com')) return true;
+  try {
+    const backend = resolveBackendOrigin();
+    if (backend) {
+      const backendHost = new URL(backend).hostname.toLowerCase();
+      if (backendHost && host === backendHost) return true;
+    }
+  } catch {
+    // ignore
+  }
+  // Historical backend Cloud Run host — keep absolute content URLs as-is.
   if (host.includes('scrolith-backend') && host.endsWith('.run.app')) return true;
+  return false;
+};
+
+/** Pre-signed / tokenized object URLs must never be rewritten (signatures are host-bound). */
+const isSignedOrTokenizedUrl = (url: URL) => {
+  for (const key of url.searchParams.keys()) {
+    const k = String(key || '').toLowerCase();
+    if (
+      k.includes('signature') ||
+      k.includes('x-amz-') ||
+      k.startsWith('x-goog-') ||
+      k.startsWith('x-oss-') ||
+      k === 'token' ||
+      k === 'sig' ||
+      k === 'expires' ||
+      k === 'expire' ||
+      k === 'expiry' ||
+      k === 'key-pair-id' ||
+      k === 'policy' ||
+      k === 'credential' ||
+      k.includes('credential')
+    ) {
+      return true;
+    }
+  }
   return false;
 };
 
@@ -144,13 +194,22 @@ export const resolveAssetUrl = (value?: string | null) => {
   let backendOrigin = resolveBackendOrigin();
 
   if (lower.startsWith('http://') || lower.startsWith('https://')) {
+    // Non-platform absolute URLs (CDN, GCS, external) — never rewrite.
     if (!isAssetPath(lower)) return trimmed;
     try {
       const url = new URL(trimmed);
       const hostname = url.hostname.toLowerCase();
-      if (!isPlatformAssetHost(hostname)) return trimmed;
-      // Rewrite platform asset hosts to the active API origin so media is not
-      // requested from the frontend SPA host (which returns HTML).
+
+      // Never rewrite signed URLs (signature is bound to host + path + query).
+      if (isSignedOrTokenizedUrl(url)) return trimmed;
+
+      // Never rewrite already-valid API/backend file-content (or upload) URLs.
+      // Example: https://api.scrolith.com/api/files/content/<id>
+      if (isCanonicalApiAssetHost(hostname)) return trimmed;
+
+      // Only rewrite SPA hosts that would otherwise return HTML for /api or /uploads.
+      if (!isSpaAssetHost(hostname)) return trimmed;
+
       const origin = backendOrigin || DEFAULT_PRODUCTION_API_ORIGIN;
       return `${origin}${url.pathname}${url.search}${url.hash}`;
     } catch {
@@ -192,6 +251,16 @@ export const resolveResponsiveAssetUrl = (
   const width = normalizePositiveInt(options.width);
   const height = normalizePositiveInt(options.height);
   if (!width && !height) return resolved;
+
+  // Never attach transform params to signed URLs — they invalidate the signature.
+  try {
+    if (/^https?:\/\//i.test(resolved)) {
+      const absolute = new URL(resolved);
+      if (isSignedOrTokenizedUrl(absolute)) return resolved;
+    }
+  } catch {
+    // ignore
+  }
 
   const fit: AssetTransformFit =
     options.fit === 'cover' || options.fit === 'contain' ? options.fit : 'inside';

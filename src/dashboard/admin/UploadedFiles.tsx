@@ -5,7 +5,7 @@ import { FileService } from '../../services/files';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import { Upload, Eye, Trash2, Copy, Download, Shield } from 'lucide-react';
-import { resolveAssetUrl } from '../../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 
 type TabKey = 'all' | 'images' | 'videos' | 'documents';
 
@@ -188,10 +188,22 @@ const UploadedFilesTab = () => {
             const normalizedType = normalizeType(file);
             const isImage = normalizedType === 'image';
             const isVideo = normalizedType === 'video';
-            const previewUrl = resolveAssetUrl(
-              isVideo ? file.thumbnailUrl || file.thumbnail_url || file.url : file.url
-            );
-            const fileUrl = resolveAssetUrl(file.url);
+            const fileUrl =
+              resolvePostAttachmentMediaUrl({
+                url: file.url,
+                fileId: file.id || (file as any).fileId,
+                storageKey: (file as any).storageKey || (file as any).storage_key
+              }) || String(file.url || '').trim();
+            const previewUrl =
+              resolvePostAttachmentMediaUrl({
+                url: isVideo
+                  ? file.thumbnailUrl || file.thumbnail_url || file.url
+                  : file.url,
+                fileId: isVideo
+                  ? (file as any).thumbnailFileId || file.id || (file as any).fileId
+                  : file.id || (file as any).fileId,
+                storageKey: (file as any).storageKey || (file as any).storage_key
+              }) || fileUrl;
             const isPreviewBroken = Boolean(brokenPreviews[file.id]);
             return (
               <div key={file.id} className="group relative rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition-all">

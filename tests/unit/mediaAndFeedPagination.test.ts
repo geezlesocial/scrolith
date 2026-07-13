@@ -35,17 +35,26 @@ ensureViteEnv();
 
 const loadMediaUtils = async () => {
   ensureViteEnv();
-  const [{ resolveInlineMedia }, postAttachment, { resolveUserAvatarUrl }, feedPagination] = await Promise.all([
+  const [
+    { resolveInlineMedia },
+    postAttachment,
+    { resolveUserAvatarUrl },
+    feedPagination,
+    { resolveAssetUrl, resolveResponsiveAssetUrl }
+  ] = await Promise.all([
     import('../../src/utils/inlineMedia.ts'),
     import('../../src/utils/postAttachmentMedia.ts'),
     import('../../src/utils/userAvatar.ts'),
-    import('../../src/utils/feedPagination.ts')
+    import('../../src/utils/feedPagination.ts'),
+    import('../../src/utils/assetUrl.ts')
   ]);
   return {
     resolveInlineMedia,
     resolvePostAttachmentMediaUrl: postAttachment.resolvePostAttachmentMediaUrl,
     resolvePostAttachmentPosterUrl: postAttachment.resolvePostAttachmentPosterUrl,
     resolveUserAvatarUrl,
+    resolveAssetUrl,
+    resolveResponsiveAssetUrl,
     ...feedPagination
   };
 };
@@ -94,6 +103,50 @@ test('resolvePostAttachmentMediaUrl resolves file IDs to content endpoint', asyn
   });
   assert.ok(scrolithHost.includes('api.scrolith.com'));
   assert.ok(!scrolithHost.startsWith('https://scrolith.com/api/files'));
+});
+
+test('resolveAssetUrl never rewrites canonical API content or signed URLs', async () => {
+  const { resolveAssetUrl, resolveResponsiveAssetUrl } = await loadMediaUtils();
+  const apiContent = 'https://api.scrolith.com/api/files/content/file_abc123456789';
+  assert.equal(resolveAssetUrl(apiContent), apiContent);
+
+  const signedGcs =
+    'https://storage.googleapis.com/bucket/key.jpg?X-Goog-Algorithm=GOOG4&X-Goog-Signature=abc123&X-Goog-Credential=x';
+  assert.equal(resolveAssetUrl(signedGcs), signedGcs);
+  assert.equal(resolveResponsiveAssetUrl(signedGcs, { width: 200, height: 200 }), signedGcs);
+
+  const externalCdn = 'https://cdn.example.com/media/photo.jpg';
+  assert.equal(resolveAssetUrl(externalCdn), externalCdn);
+
+  // SPA host asset paths must still be rewritten off the frontend shell.
+  const spaHost = resolveAssetUrl('https://scrolith.com/api/files/content/file_abc123456789');
+  assert.ok(spaHost.includes('api.scrolith.com'));
+  assert.ok(!spaHost.startsWith('https://scrolith.com/api/files'));
+});
+
+test('resolvePostAttachmentMediaUrl prefers valid absolute URL over fileId', async () => {
+  const { resolvePostAttachmentMediaUrl } = await loadMediaUtils();
+  const absolute = 'https://api.scrolith.com/api/files/content/real_file_id_123456';
+  assert.equal(
+    resolvePostAttachmentMediaUrl({
+      url: absolute,
+      fileId: 'some_other_id_should_not_win'
+    }),
+    absolute
+  );
+  // Absolute content URL passed as fileId must not be double-wrapped.
+  assert.equal(resolvePostAttachmentMediaUrl({ fileId: absolute }), absolute);
+  // Nested logo/cover shapes
+  assert.equal(
+    resolvePostAttachmentMediaUrl({ logo: { url: 'https://cdn.example.com/logo.png' } }),
+    'https://cdn.example.com/logo.png'
+  );
+  assert.equal(
+    resolvePostAttachmentMediaUrl({ cover: { fileId: 'cover_file_id_12345' } }).includes(
+      '/api/files/content/cover_file_id_12345'
+    ),
+    true
+  );
 });
 
 test('resolvePostAttachmentMediaUrl returns empty for malformed/empty media', async () => {

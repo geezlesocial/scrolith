@@ -12,7 +12,38 @@ const pickFirstString = (...values: unknown[]) => {
 export const resolveUserAvatarUrl = (userLike: any): string => {
   if (!userLike) return '';
 
-  // Prefer explicit file IDs first — more durable than legacy /uploads or SPA-relative paths.
+  // Prefer durable absolute / content URLs when already present (CDN, API content, signed).
+  // Only fall back to fileId reconstruction when URL is missing or a stale /uploads path.
+  const attachmentResolved = [
+    userLike.avatarUrl,
+    userLike.avatar_url,
+    userLike.avatar,
+    userLike.logo,
+    userLike.logoUrl,
+    userLike.logo_url,
+    userLike.image,
+    userLike.imageUrl,
+    userLike.profileImage,
+    userLike.profile_image,
+    userLike.photo,
+    userLike.photoUrl,
+    userLike.photo_url,
+    userLike.authorAvatar,
+    userLike.userAvatar,
+    userLike.user_avatar,
+    userLike.cover,
+    userLike.coverUrl,
+    userLike.cover_url,
+    // Nested objects with url/fileId
+    userLike.logo && typeof userLike.logo === 'object' ? userLike.logo : null,
+    userLike.cover && typeof userLike.cover === 'object' ? userLike.cover : null,
+    userLike.avatar && typeof userLike.avatar === 'object' ? userLike.avatar : null
+  ]
+    .map((candidate) => resolvePostAttachmentMediaUrl(candidate))
+    .find(Boolean);
+  if (attachmentResolved) return attachmentResolved;
+
+  // Explicit file IDs — more durable than legacy /uploads paths.
   const fileId = pickFirstString(
     userLike.profilePhotoFileId,
     userLike.profile_photo_file_id,
@@ -47,30 +78,6 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
     const fromFileId = resolvePostAttachmentMediaUrl({ fileId });
     if (fromFileId) return fromFileId;
   }
-
-  const attachmentResolved = [
-    userLike.avatarUrl,
-    userLike.avatar_url,
-    userLike.avatar,
-    userLike.logo,
-    userLike.logoUrl,
-    userLike.image,
-    userLike.imageUrl,
-    userLike.profileImage,
-    userLike.profile_image,
-    userLike.photo,
-    userLike.photoUrl,
-    userLike.photo_url,
-    userLike.authorAvatar,
-    userLike.userAvatar,
-    userLike.user_avatar,
-    userLike.cover,
-    userLike.coverUrl,
-    userLike.cover_url
-  ]
-    .map((candidate) => resolvePostAttachmentMediaUrl(candidate))
-    .find(Boolean);
-  if (attachmentResolved) return attachmentResolved;
 
   const directUrl = pickFirstString(
     userLike.avatarUrl,

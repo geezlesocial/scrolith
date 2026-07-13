@@ -1,4 +1,5 @@
 import { resolveAssetUrl } from './assetUrl';
+import { looksLikeFileId, resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from './postAttachmentMedia';
 
 export type InlineMediaKind = 'video' | 'image' | 'document' | 'unknown';
 
@@ -10,145 +11,11 @@ export type ResolvedInlineMedia = {
 
 export const INLINE_VIDEO_PREVIEW_AUTOPLAY = true;
 
-const DIRECT_MEDIA_KEYS = [
-  'url',
-  'path',
-  'downloadUrl',
-  'download_url',
-  'fileUrl',
-  'file_url',
-  'mediaUrl',
-  'media_url',
-  'videoUrl',
-  'video_url',
-  'recordingUrl',
-  'recording_url',
-  'src'
-];
-
-const NESTED_MEDIA_PATHS = [
-  ['file', 'url'],
-  ['file', 'path'],
-  ['file', 'downloadUrl'],
-  ['file', 'download_url'],
-  ['asset', 'url'],
-  ['asset', 'path'],
-  ['asset', 'downloadUrl'],
-  ['asset', 'download_url'],
-  ['media', 'url'],
-  ['media', 'path'],
-  ['mediaFile', 'url'],
-  ['mediaFile', 'path']
-];
-
-const POSTER_KEYS = [
-  'thumbnailUrl',
-  'thumbnail_url',
-  'poster',
-  'posterUrl',
-  'poster_url',
-  'previewUrl',
-  'preview_url',
-  'thumbnailFileUrl',
-  'thumbnail_file_url'
-];
-
-const NESTED_POSTER_PATHS = [
-  ['thumbnail', 'url'],
-  ['thumbnail', 'path'],
-  ['poster', 'url'],
-  ['poster', 'path'],
-  ['preview', 'url'],
-  ['preview', 'path'],
-  ['file', 'thumbnailUrl'],
-  ['file', 'thumbnail_url'],
-  ['asset', 'thumbnailUrl'],
-  ['asset', 'thumbnail_url']
-];
-
-const ROOT_CONTENT_ID_KEYS = [
-  'mediaFileId',
-  'media_file_id',
-  'fileId',
-  'file_id',
-  'recordingFileId',
-  'recording_file_id'
-];
-
-const ROOT_POSTER_ID_KEYS = ['thumbnailFileId', 'thumbnail_file_id'];
-const MEDIA_CONTENT_ID_KEYS = ['fileId', 'file_id', 'id'];
-const MEDIA_POSTER_ID_KEYS = ['thumbnailFileId', 'thumbnail_file_id'];
-
 const VIDEO_EXTENSION_PATTERN = /\.(mp4|webm|mov|m4v|mkv|avi|wmv|flv|m3u8)(?:$|[?#])/i;
 const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg|avif)(?:$|[?#])/i;
 const DOCUMENT_EXTENSION_PATTERN = /\.(pdf|docx?|xlsx?|pptx?|csv|txt|zip|rar|7z)(?:$|[?#])/i;
 
 const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(String(value || '').trim());
-
-const buildFileContentUrl = (value: string) => `/api/files/content/${encodeURIComponent(String(value || '').trim())}`;
-
-const readFirstString = (source: any, keys: string[]) => {
-  if (!source || typeof source !== 'object') return '';
-  for (const key of keys) {
-    const value = String(source?.[key] || '').trim();
-    if (value) return value;
-  }
-  return '';
-};
-
-const readPathString = (source: any, path: string[]) => {
-  let current = source;
-  for (const key of path) {
-    if (!current || typeof current !== 'object') return '';
-    current = current?.[key];
-  }
-  if (current == null || typeof current === 'object') return '';
-  return String(current).trim();
-};
-
-const readFirstPathString = (source: any, paths: string[][]) => {
-  if (!source || typeof source !== 'object') return '';
-  for (const path of paths) {
-    const value = readPathString(source, path);
-    if (value) return value;
-  }
-  return '';
-};
-
-const looksLikeDirectUrl = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.startsWith('http://') ||
-    normalized.startsWith('https://') ||
-    normalized.startsWith('/') ||
-    normalized.startsWith('uploads/') ||
-    normalized.startsWith('api/files/') ||
-    normalized.startsWith('files/content/') ||
-    normalized.startsWith('blob:') ||
-    normalized.startsWith('data:') ||
-    normalized.includes('/') ||
-    normalized.includes('.') ||
-    normalized.includes('?')
-  );
-};
-
-const isLegacyUploadPath = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.startsWith('/uploads/') ||
-    normalized.startsWith('uploads/') ||
-    normalized.includes('/uploads/')
-  );
-};
-
-const resolveContentUrl = (value: string) => {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '';
-  if (isAbsoluteUrl(normalized)) return resolveAssetUrl(normalized);
-  return resolveAssetUrl(buildFileContentUrl(normalized));
-};
 
 const inferMediaKind = (
   typeHint: unknown,
@@ -190,6 +57,10 @@ const inferMediaKind = (
   return 'unknown';
 };
 
+/**
+ * Resolve inline media using the shared attachment resolver so posts, stories,
+ * comments, and uploads all honor the same URL shapes.
+ */
 export const resolveInlineMedia = (
   input: any,
   options?: {
@@ -205,58 +76,34 @@ export const resolveInlineMedia = (
     root;
   const media = Array.isArray(mediaCandidate) ? mediaCandidate[0] || {} : mediaCandidate;
 
-  const directValue =
-    readFirstString(media, DIRECT_MEDIA_KEYS) ||
-    readFirstPathString(media, NESTED_MEDIA_PATHS) ||
-    (media !== root
-      ? readFirstString(root, DIRECT_MEDIA_KEYS) || readFirstPathString(root, NESTED_MEDIA_PATHS)
-      : '');
-  const mediaContentId =
-    readFirstString(media, MEDIA_CONTENT_ID_KEYS) ||
-    (media !== root ? readFirstString(root, ROOT_CONTENT_ID_KEYS) : '');
+  // Prefer shared attachment resolver (nested file/asset/media + fileId + content URLs).
+  let src =
+    resolvePostAttachmentMediaUrl(media) ||
+    (media !== root ? resolvePostAttachmentMediaUrl(root) : '') ||
+    '';
 
-  const shouldPreferContentSrc = Boolean(mediaContentId) && isLegacyUploadPath(directValue);
-  const src = shouldPreferContentSrc
-    ? resolveContentUrl(mediaContentId)
-    : directValue
-      ? looksLikeDirectUrl(directValue)
-        ? resolveAssetUrl(directValue)
-        : resolveContentUrl(directValue)
-      : mediaContentId
-        ? isAbsoluteUrl(mediaContentId)
-          ? resolveAssetUrl(mediaContentId)
-          : looksLikeDirectUrl(mediaContentId)
-            ? resolveAssetUrl(mediaContentId)
-            : resolveContentUrl(mediaContentId)
-        : '';
+  // Fallback: bare absolute string / file id on the root itself.
+  if (!src && typeof input === 'string') {
+    const raw = String(input).trim();
+    if (raw) {
+      src = isAbsoluteUrl(raw) || raw.startsWith('/') || raw.startsWith('data:') || raw.startsWith('blob:')
+        ? resolveAssetUrl(raw)
+        : looksLikeFileId(raw)
+          ? resolvePostAttachmentMediaUrl({ fileId: raw })
+          : resolveAssetUrl(raw);
+    }
+  }
 
-  const posterValue =
-    readFirstString(media, POSTER_KEYS) ||
-    readFirstPathString(media, NESTED_POSTER_PATHS) ||
-    (media !== root
-      ? readFirstString(root, POSTER_KEYS) || readFirstPathString(root, NESTED_POSTER_PATHS)
-      : '');
-  const posterId =
-    readFirstString(media, MEDIA_POSTER_ID_KEYS) ||
-    (media !== root ? readFirstString(root, ROOT_POSTER_ID_KEYS) : '');
-  const shouldPreferPosterId = Boolean(posterId) && isLegacyUploadPath(posterValue);
-  const poster = shouldPreferPosterId
-    ? resolveContentUrl(posterId)
-    : posterValue
-      ? looksLikeDirectUrl(posterValue)
-        ? resolveAssetUrl(posterValue)
-        : resolveContentUrl(posterValue)
-      : posterId
-        ? isAbsoluteUrl(posterId)
-          ? resolveAssetUrl(posterId)
-          : resolveContentUrl(posterId)
-        : '';
+  const poster =
+    resolvePostAttachmentPosterUrl(media) ||
+    (media !== root ? resolvePostAttachmentPosterUrl(root) : undefined) ||
+    undefined;
 
   const kind = inferMediaKind(
     options?.typeHint ?? media?.type ?? root?.type,
     media?.mimeType ?? media?.mime_type ?? root?.mimeType ?? root?.mime_type,
     src,
-    poster,
+    poster || '',
     media?.name ?? media?.originalName ?? root?.name ?? root?.originalName
   );
 

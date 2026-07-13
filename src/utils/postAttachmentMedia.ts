@@ -56,7 +56,21 @@ const MEDIA_VALUE_PATHS = [
   ['media', 'storageKey'],
   ['mediaFile', 'url'],
   ['mediaFile', 'path'],
-  ['mediaFile', 'storageKey']
+  ['mediaFile', 'storageKey'],
+  // Logo / cover / avatar nested objects used by pages and profiles
+  ['logo', 'url'],
+  ['logo', 'path'],
+  ['logo', 'storageKey'],
+  ['cover', 'url'],
+  ['cover', 'path'],
+  ['cover', 'storageKey'],
+  ['avatar', 'url'],
+  ['avatar', 'path'],
+  ['avatar', 'storageKey'],
+  ['image', 'url'],
+  ['image', 'path'],
+  ['thumbnail', 'url'],
+  ['thumbnail', 'path']
 ];
 
 const MEDIA_ID_PATHS = [
@@ -75,9 +89,19 @@ const MEDIA_ID_PATHS = [
   ['avatarFileId'],
   ['avatar_file_id'],
   ['file', 'id'],
+  ['file', 'fileId'],
+  ['file', 'file_id'],
   ['asset', 'id'],
+  ['asset', 'fileId'],
   ['media', 'id'],
+  ['media', 'fileId'],
   ['mediaFile', 'id'],
+  ['logo', 'id'],
+  ['logo', 'fileId'],
+  ['cover', 'id'],
+  ['cover', 'fileId'],
+  ['avatar', 'id'],
+  ['avatar', 'fileId'],
   // Attachment/entity id last — only used when it looks like a storage file id.
   ['id']
 ];
@@ -182,24 +206,50 @@ const isLegacyUploadPath = (value: string) => {
   );
 };
 
+const isAlreadyFileContentRef = (value: string) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized.includes('/api/files/content/') ||
+    normalized.startsWith('api/files/content/') ||
+    normalized.includes('/files/content/') ||
+    normalized.startsWith('files/content/')
+  );
+};
+
+/**
+ * Build a relative content path for a file id. Never double-wrap absolute URLs
+ * or existing content paths.
+ */
 const buildFileContentUrl = (value: string) => {
   const contentId = String(value || '').trim();
   if (!contentId) return '';
-  // Avoid double-wrapping already content URLs.
-  if (isAssetLikePath(contentId) && contentId.toLowerCase().includes('/api/files/content/')) {
+
+  // Absolute URL — leave as-is for resolveAssetUrl.
+  if (isAbsoluteUrl(contentId)) return contentId;
+
+  // Already a content path (relative or host-less).
+  if (isAlreadyFileContentRef(contentId)) {
+    if (contentId.startsWith('/')) return contentId;
+    if (contentId.toLowerCase().startsWith('api/files/') || contentId.toLowerCase().startsWith('files/content/')) {
+      return `/${contentId.replace(/^\/+/, '')}`;
+    }
+    // Unexpected shape that still contains the marker — do not wrap again.
     return contentId.startsWith('/') ? contentId : `/${contentId.replace(/^\/+/, '')}`;
   }
+
   return `/api/files/content/${encodeURIComponent(contentId)}`;
 };
 
 const resolveMediaCandidate = (value: string) => {
   const normalized = String(value || '').trim();
   if (!normalized) return '';
+  // Absolute / direct paths first — never wrap a full URL as a file id.
+  if (isAbsoluteUrl(normalized) || isAssetLikePath(normalized) || looksLikeDirectUrl(normalized)) {
+    return resolveAssetUrl(normalized);
+  }
   if (isDiskFileId(normalized) || looksLikeFileId(normalized)) {
     return resolveAssetUrl(buildFileContentUrl(normalized));
-  }
-  if (looksLikeDirectUrl(normalized) || isAssetLikePath(normalized) || isAbsoluteUrl(normalized)) {
-    return resolveAssetUrl(normalized);
   }
   return '';
 };
@@ -218,6 +268,17 @@ export const resolvePostAttachmentMediaUrl = (attachment: any) => {
     rawContentId && (isAbsoluteUrl(rawContentId) || looksLikeFileId(rawContentId) || isDiskFileId(rawContentId))
       ? rawContentId
       : '';
+
+  // Prefer already-valid absolute / content URLs over reconstructing from fileId.
+  // Only override with fileId when the direct URL is missing or a stale /uploads path.
+  const directIsUsable =
+    Boolean(normalizedDirect) &&
+    (isAbsoluteUrl(normalizedDirect) || isAlreadyFileContentRef(normalizedDirect) || looksLikeDirectUrl(normalizedDirect)) &&
+    !isLegacyUploadPath(normalizedDirect);
+
+  if (directIsUsable) {
+    return resolveAssetUrl(normalizedDirect);
+  }
 
   // Prefer durable file-content URL over stale legacy /uploads paths.
   if (contentId && (!normalizedDirect || isLegacyUploadPath(normalizedDirect))) {
@@ -248,6 +309,16 @@ export const resolvePostAttachmentPosterUrl = (attachment: any) => {
   const posterValue = readFirstPathValue(attachment, POSTER_VALUE_PATHS);
   const normalizedPoster = String(posterValue || '').trim();
   const posterId = readFirstPathValue(attachment, POSTER_ID_PATHS);
+
+  const posterIsUsable =
+    Boolean(normalizedPoster) &&
+    (isAbsoluteUrl(normalizedPoster) || isAlreadyFileContentRef(normalizedPoster) || looksLikeDirectUrl(normalizedPoster)) &&
+    !isLegacyUploadPath(normalizedPoster);
+
+  if (posterIsUsable) {
+    return resolveAssetUrl(normalizedPoster);
+  }
+
   if (posterId && (isDiskFileId(posterId) || looksLikeFileId(posterId)) && (!normalizedPoster || isLegacyUploadPath(normalizedPoster))) {
     return resolveAssetUrl(buildFileContentUrl(posterId));
   }
