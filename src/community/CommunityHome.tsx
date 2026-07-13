@@ -51,10 +51,13 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import { resolveAssetUrl } from '../utils/assetUrl';
 import {
   extractFeedItemList,
+  extractHasMore,
   extractNextCursor,
   mergeUniqueFeedItems,
   shouldContinueOffsetFallback
 } from '../utils/feedPagination';
+import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../utils/continuousFeed';
+import { Phase2Service } from '../services/phase2';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
@@ -450,6 +453,9 @@ const CommunityHome = () => {
   const [postsNextCursor, setPostsNextCursor] = useState<string | null>(null);
   const [postsOffsetFallbackEnabled, setPostsOffsetFallbackEnabled] = useState(false);
   const [postsLoadingMore, setPostsLoadingMore] = useState(false);
+  const [postsFeedTerminal, setPostsFeedTerminal] = useState(false);
+  const postsEmptyPageStreakRef = useRef(0);
+  const discoverySupplementUsedRef = useRef(false);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
@@ -858,14 +864,38 @@ const CommunityHome = () => {
       sharesCount: post.sharesCount ?? post.shares_count ?? interactions.shares,
       repostsCount: post.repostsCount ?? post.reposts_count ?? interactions.reposts,
       interactions,
-      userState: post.userState || post.user_state || {}
+      userState: post.userState || post.user_state || {},
+      ranking: post.ranking
+        ? {
+            mode: post.ranking.mode,
+            recipeKey: post.ranking.recipeKey ?? post.ranking.recipe_key ?? null,
+            score: Number(post.ranking.score ?? 0),
+            primaryReason: post.ranking.primaryReason || post.ranking.primary_reason || null,
+            reasons: Array.isArray(post.ranking.reasons) ? post.ranking.reasons : []
+          }
+        : post.rankingScore != null
+          ? { score: Number(post.rankingScore), primaryReason: null, reasons: [] }
+          : undefined
     };
   }, []);
 
   const sortPosts = useCallback((items: any[]) => {
+    // Preserve server personalization when ranking scores are present.
+    // Fall back to recency so unranked/offset pages remain stable.
     return [...items].sort((a, b) => {
       if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
         return a.isPinned ? -1 : 1;
+      }
+      if (Boolean(a.isHighlighted) !== Boolean(b.isHighlighted)) {
+        return a.isHighlighted ? -1 : 1;
+      }
+      const scoreA = Number(a?.ranking?.score ?? a?.rankingScore ?? Number.NaN);
+      const scoreB = Number(b?.ranking?.score ?? b?.rankingScore ?? Number.NaN);
+      const hasScoreA = Number.isFinite(scoreA);
+      const hasScoreB = Number.isFinite(scoreB);
+      if (hasScoreA || hasScoreB) {
+        if (hasScoreA && hasScoreB && scoreB !== scoreA) return scoreB - scoreA;
+        if (hasScoreA !== hasScoreB) return hasScoreA ? -1 : 1;
       }
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -942,33 +972,65 @@ const CommunityHome = () => {
   }, [sortPosts, syncCommentCount]);
 
   const loadMorePosts = useCallback(async () => {
-    if (postsLoadingMoreRef.current) return;
+    if (postsLoadingMoreRef.current || postsFeedTerminal) return;
     const cursor = String(postsNextCursor || '').trim();
     const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
     const existingCount = postsRef.current.length;
     const canUseOffsetFallback = !cursor && postsOffsetFallbackEnabled && existingCount > 0;
-    if (!cursor && !canUseOffsetFallback) return;
+    const canUseDiscoverySupplement = !cursor && !canUseOffsetFallback && !discoverySupplementUsedRef.current;
+    if (!cursor && !canUseOffsetFallback && !canUseDiscoverySupplement) {
+      setPostsFeedTerminal(true);
+      return;
+    }
 
     postsLoadingMoreRef.current = true;
     setPostsLoadingMore(true);
     try {
-      const response = canUseOffsetFallback
-        ? await CommunityService.getPosts({ limit: postsLimit, offset: existingCount })
-        : await CommunityService.getFeed({ limit: postsLimit, scope: 'discover', cursor });
-      const nextPosts = sortPosts(
-        extractCommunityFeedItems(response)
-          .map((post: any) => {
-            try {
-              return normalizePost(post);
-            } catch (error) {
-              console.warn('Skipping malformed community feed post', error, post);
-              return null;
-            }
-          })
-          .filter(Boolean)
-      );
+      let response: any = null;
+      let nextPosts: any[] = [];
+
+      if (canUseDiscoverySupplement && !cursor && !canUseOffsetFallback) {
+        discoverySupplementUsedRef.current = true;
+        try {
+          const discovery = await Phase2Service.getDiscoveryFeed({ mode: 'for_you', limit: postsLimit });
+          const discoveryPosts = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'post' && item?.id)
+            .map((item: any) =>
+              normalizePost({
+                id: item.id,
+                title: item.title,
+                content: item.description || item.title,
+                author: item.author,
+                ranking: { score: Number(item.score || 0), primaryReason: Array.isArray(item.why) ? item.why[0] : 'Recommended for you', reasons: item.why || [] },
+                createdAt: item.createdAt || item.created_at || new Date().toISOString()
+              })
+            );
+          nextPosts = sortPosts(discoveryPosts);
+        } catch (discoveryError) {
+          console.warn('Community discovery supplement failed', discoveryError);
+          nextPosts = [];
+        }
+      } else {
+        response = canUseOffsetFallback
+          ? await CommunityService.getPosts({ limit: postsLimit, offset: existingCount })
+          : await CommunityService.getFeed({ limit: postsLimit, scope: 'discover', cursor });
+        nextPosts = sortPosts(
+          extractCommunityFeedItems(response)
+            .map((post: any) => {
+              try {
+                return normalizePost(post);
+              } catch (error) {
+                console.warn('Skipping malformed community feed post', error, post);
+                return null;
+              }
+            })
+            .filter(Boolean)
+        );
+      }
+
       const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
       if (addedCount > 0) {
+        postsEmptyPageStreakRef.current = 0;
         const sorted = sortPosts(merged);
         postsRef.current = sorted;
         setPosts(sorted);
@@ -979,23 +1041,35 @@ const CommunityHome = () => {
           });
           return next;
         });
+      } else {
+        postsEmptyPageStreakRef.current += 1;
       }
-      const nextCursor = canUseOffsetFallback ? null : extractCommunityFeedCursor(response);
-      // Terminal when no cursor and no progress (empty/duplicate page). Keep cursor on soft failures.
-      if (!nextCursor && addedCount === 0) {
+
+      const nextCursor = canUseOffsetFallback || canUseDiscoverySupplement ? null : extractCommunityFeedCursor(response);
+      const hasMoreFlag = canUseOffsetFallback || canUseDiscoverySupplement ? null : extractHasMore(response);
+      const offsetEnabled = shouldContinueOffsetFallback({
+        usedOffsetFallback: canUseOffsetFallback,
+        nextCursor,
+        pageItemCount: nextPosts.length,
+        pageSize: postsLimit,
+        uniqueAddedCount: addedCount
+      });
+      const terminal = resolveFeedTerminalState({
+        nextCursor,
+        hasMoreFlag,
+        uniqueAddedCount: addedCount,
+        offsetFallbackEnabled: offsetEnabled,
+        secondarySourcesRemaining: !discoverySupplementUsedRef.current
+      });
+
+      if (shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2) || terminal.isTerminal) {
         setPostsNextCursor(null);
         setPostsOffsetFallbackEnabled(false);
+        setPostsFeedTerminal(true);
       } else {
         setPostsNextCursor(nextCursor);
-        setPostsOffsetFallbackEnabled(
-          shouldContinueOffsetFallback({
-            usedOffsetFallback: canUseOffsetFallback,
-            nextCursor,
-            pageItemCount: nextPosts.length,
-            pageSize: postsLimit,
-            uniqueAddedCount: addedCount
-          })
-        );
+        setPostsOffsetFallbackEnabled(offsetEnabled);
+        setPostsFeedTerminal(false);
       }
     } catch (error) {
       // Preserve cursor/offset so the sentinel can retry without a full remount.
@@ -1004,7 +1078,7 @@ const CommunityHome = () => {
       postsLoadingMoreRef.current = false;
       setPostsLoadingMore(false);
     }
-  }, [normalizePost, postsNextCursor, postsOffsetFallbackEnabled, profile.feedPageSize, sortPosts]);
+  }, [normalizePost, postsFeedTerminal, postsNextCursor, postsOffsetFallbackEnabled, profile.feedPageSize, sortPosts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1165,6 +1239,9 @@ const CommunityHome = () => {
             }
           }
           const normalizedPosts = sortPosts(rawPosts.map(normalizePost));
+          postsEmptyPageStreakRef.current = 0;
+          discoverySupplementUsedRef.current = false;
+          setPostsFeedTerminal(false);
           setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
           setPostsNextCursor(nextCursor);
           setPostsOffsetFallbackEnabled(Boolean(normalizedPosts.length) && !nextCursor);
@@ -2268,8 +2345,8 @@ const CommunityHome = () => {
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting) return;
-        if (postsLoadingMore) return;
-        if (postsNextCursor || postsOffsetFallbackEnabled) {
+        if (postsLoadingMore || postsFeedTerminal) return;
+        if (postsNextCursor || postsOffsetFallbackEnabled || !discoverySupplementUsedRef.current) {
           void loadMorePosts();
         }
       },
@@ -2277,7 +2354,7 @@ const CommunityHome = () => {
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [loadMorePosts, postsLoadingMore, postsNextCursor, postsOffsetFallbackEnabled]);
+  }, [loadMorePosts, postsFeedTerminal, postsLoadingMore, postsNextCursor, postsOffsetFallbackEnabled]);
 
   const interestSurveyPostIds = useMemo(
     () =>
@@ -3380,10 +3457,28 @@ const CommunityHome = () => {
                     </article>
                   );
                 })}
-                <div ref={postsSentinelRef} className="h-8" />
+                <div ref={postsSentinelRef} className="h-8" aria-hidden="true" />
                 {postsLoadingMore ? (
-                  <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm">
+                  <div
+                    className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm"
+                    role="status"
+                    aria-live="polite"
+                  >
                     Loading more posts...
+                  </div>
+                ) : postsFeedTerminal ? (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
+                    You&apos;re all caught up. No more unique community posts right now.
+                  </div>
+                ) : postsNextCursor || postsOffsetFallbackEnabled || !discoverySupplementUsedRef.current ? (
+                  <div className="flex justify-center pb-2">
+                    <button
+                      type="button"
+                      onClick={() => void loadMorePosts()}
+                      className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                    >
+                      Load more
+                    </button>
                   </div>
                 ) : null}
               </div>

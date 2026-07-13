@@ -3,6 +3,8 @@
  * Pure utilities only — no network or React state.
  */
 
+export { extractHasMore, mergeContinuousFeedItems, buildFeedEntityKey, resolveFeedTerminalState } from './continuousFeed';
+
 export const extractNextCursor = (payload: any): string | null => {
   const candidates = [
     payload?.data?.data?.nextCursor,

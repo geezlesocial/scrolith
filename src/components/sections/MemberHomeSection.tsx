@@ -60,10 +60,13 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import {
   extractFeedItemList,
+  extractHasMore,
   extractNextCursor,
   mergeUniqueFeedItems,
   shouldContinueOffsetFallback
 } from '../../utils/feedPagination';
+import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../../utils/continuousFeed';
+import { Phase2Service } from '../../services/phase2';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
@@ -1349,6 +1352,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
   const [feedOffsetFallbackEnabled, setFeedOffsetFallbackEnabled] = useState(false);
+  const [feedTerminal, setFeedTerminal] = useState(false);
+  const feedEmptyPageStreakRef = useRef(0);
+  const feedDiscoveryUsedRef = useRef(false);
   const desktopConstrainedFeed = profile.lowBandwidth || profile.dataSaver;
   const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
   const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
@@ -2630,6 +2636,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         !feedTopic &&
         !feedRegion;
       const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
+      feedEmptyPageStreakRef.current = 0;
+      feedDiscoveryUsedRef.current = false;
+      setFeedTerminal(false);
       commitFeedItems(effectiveFeedItems);
       setFeedNextCursor(shouldPreserveExistingFeed ? feedNextCursor : nextCursor);
       setFeedOffsetFallbackEnabled(
@@ -2729,7 +2738,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   ]);
 
   const loadMoreFeed = useCallback(async () => {
-    if (!user || feedLoadingMoreRef.current) return;
+    if (!user || feedLoadingMoreRef.current || feedTerminal) return;
     const cursor = String(feedNextCursor || '').trim();
 
     const scope = feedTab === 'following' ? 'following' : 'discover';
@@ -2740,7 +2749,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       !feedTopic &&
       !feedRegion &&
       feedItemsRef.current.length > 0;
-    if (!cursor && !canUseOffsetFallback) return;
+    const canUseDiscoverySupplement =
+      !cursor &&
+      !canUseOffsetFallback &&
+      !feedDiscoveryUsedRef.current &&
+      scope === 'discover' &&
+      !feedTopic &&
+      !feedRegion;
+    if (!cursor && !canUseOffsetFallback && !canUseDiscoverySupplement) {
+      setFeedTerminal(true);
+      return;
+    }
     const requestedMode =
       feedTab === 'latest'
         ? showIntentModes
@@ -2756,7 +2775,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     const resolvedMode =
       requestedMode && String(requestedMode).toLowerCase() !== 'for_you' ? requestedMode : undefined;
     const payload: any = { limit: maxFeedItems, scope, cursor };
-    if (!canUseOffsetFallback) {
+    if (!canUseOffsetFallback && !canUseDiscoverySupplement) {
       if (resolvedMode) payload.mode = resolvedMode;
       if (scope === 'discover' && showCategoriesFilter) {
         if (feedTopic) payload.topic = feedTopic;
@@ -2767,38 +2786,123 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     feedLoadingMoreRef.current = true;
     setFeedLoadingMore(true);
     try {
-      const response = canUseOffsetFallback
-        ? await CommunityService.getPosts({ limit: maxFeedItems, offset: feedItemsRef.current.length })
-        : await CommunityService.getFeed(payload);
-      const appendedItems = (Array.isArray(extractFeedItems(response)) ? extractFeedItems(response) : [])
-        .map((item) => {
-          try {
-            return normalizePost(item);
-          } catch (normalizeError) {
-            console.warn('Skipping malformed appended desktop feed post', normalizeError, item);
-            return null;
+      let response: any = null;
+      let appendedItems: FeedPost[] = [];
+
+      if (canUseDiscoverySupplement) {
+        feedDiscoveryUsedRef.current = true;
+        try {
+          const discoveryMode =
+            (resolvedMode as any) ||
+            (showIntentModes ? defaultIntentFeedTab : 'for_you') ||
+            'for_you';
+          const discovery = await Phase2Service.getDiscoveryFeed({
+            mode: String(discoveryMode).toLowerCase() === 'latest' ? 'for_you' : (discoveryMode as any),
+            limit: maxFeedItems
+          });
+          const discoveryPosts = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'post' && item?.id)
+            .map((item: any) => {
+              try {
+                return normalizePost({
+                  id: item.id,
+                  title: item.title,
+                  content: item.description || item.title,
+                  author: item.author,
+                  ranking: {
+                    score: Number(item.score || 0),
+                    primaryReason: Array.isArray(item.why) ? item.why[0] : 'Recommended for you',
+                    reasons: item.why || []
+                  },
+                  createdAt: item.createdAt || item.created_at || new Date().toISOString()
+                });
+              } catch {
+                return null;
+              }
+            })
+            .filter((item): item is FeedPost => Boolean(item));
+          appendedItems = discoveryPosts;
+          // Refresh job/gig inject pools from discovery so mixed cards keep flowing.
+          const discoveryJobs = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'job' && item?.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              budget: item.metrics?.budget || item.budget,
+              ...item
+            }));
+          const discoveryGigs = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'gig' && item?.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              price: item.metrics?.price || item.price,
+              ...item
+            }));
+          if (discoveryJobs.length) {
+            setListingJobsPool((prev) => dedupeById([...(prev || []), ...discoveryJobs] as any));
           }
-        })
-        .filter((item): item is FeedPost => Boolean(item));
+          if (discoveryGigs.length) {
+            setListingGigsPool((prev) => dedupeById([...(prev || []), ...discoveryGigs] as any));
+          }
+        } catch (discoveryError) {
+          console.warn('Member-home discovery supplement failed', discoveryError);
+          appendedItems = [];
+        }
+      } else {
+        response = canUseOffsetFallback
+          ? await CommunityService.getPosts({ limit: maxFeedItems, offset: feedItemsRef.current.length })
+          : await CommunityService.getFeed(payload);
+        appendedItems = (Array.isArray(extractFeedItems(response)) ? extractFeedItems(response) : [])
+          .map((item) => {
+            try {
+              return normalizePost(item);
+            } catch (normalizeError) {
+              console.warn('Skipping malformed appended desktop feed post', normalizeError, item);
+              return null;
+            }
+          })
+          .filter((item): item is FeedPost => Boolean(item));
+      }
+
       const { addedCount } = appendFeedItems(appendedItems);
-      const nextCursor = canUseOffsetFallback ? null : extractFeedCursor(response);
-      if (!nextCursor && addedCount === 0) {
+      if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
+      else feedEmptyPageStreakRef.current += 1;
+
+      const nextCursor =
+        canUseOffsetFallback || canUseDiscoverySupplement ? null : extractFeedCursor(response);
+      const hasMoreFlag =
+        canUseOffsetFallback || canUseDiscoverySupplement ? null : extractHasMore(response);
+      const offsetEnabled =
+        shouldContinueOffsetFallback({
+          usedOffsetFallback: canUseOffsetFallback,
+          nextCursor,
+          pageItemCount: appendedItems.length,
+          pageSize: maxFeedItems,
+          uniqueAddedCount: addedCount
+        }) &&
+        scope === 'discover' &&
+        !feedTopic &&
+        !feedRegion;
+
+      const terminal = resolveFeedTerminalState({
+        nextCursor,
+        hasMoreFlag,
+        uniqueAddedCount: addedCount,
+        offsetFallbackEnabled: offsetEnabled,
+        secondarySourcesRemaining: !feedDiscoveryUsedRef.current && scope === 'discover'
+      });
+
+      if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2) || terminal.isTerminal) {
         setFeedNextCursor(null);
         setFeedOffsetFallbackEnabled(false);
+        setFeedTerminal(true);
       } else {
         setFeedNextCursor(nextCursor);
-        setFeedOffsetFallbackEnabled(
-          shouldContinueOffsetFallback({
-            usedOffsetFallback: canUseOffsetFallback,
-            nextCursor,
-            pageItemCount: appendedItems.length,
-            pageSize: maxFeedItems,
-            uniqueAddedCount: addedCount
-          }) &&
-            scope === 'discover' &&
-            !feedTopic &&
-            !feedRegion
-        );
+        setFeedOffsetFallbackEnabled(offsetEnabled);
+        setFeedTerminal(false);
       }
     } catch (error) {
       // Keep cursor/offset so IntersectionObserver can retry without full reload.
@@ -2816,6 +2920,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     feedNextCursor,
     feedRegion,
     feedTab,
+    feedTerminal,
     feedTopic,
     maxFeedItems,
     normalizePost,
@@ -4887,7 +4992,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           setRenderedFeedItemCount((prev) => Math.min(feedItems.length, prev + desktopRenderStep));
           return;
         }
-        if ((feedNextCursor || feedOffsetFallbackEnabled) && !feedLoading && !feedLoadingMore) {
+        if (
+          !feedTerminal &&
+          (feedNextCursor || feedOffsetFallbackEnabled || !feedDiscoveryUsedRef.current) &&
+          !feedLoading &&
+          !feedLoadingMore
+        ) {
           void loadMoreFeed();
         }
       },
@@ -4895,7 +5005,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [desktopRenderStep, feedItems.length, feedLoading, feedLoadingMore, feedNextCursor, feedOffsetFallbackEnabled, loadMoreFeed, renderedFeedItemCount]);
+  }, [
+    desktopRenderStep,
+    feedItems.length,
+    feedLoading,
+    feedLoadingMore,
+    feedNextCursor,
+    feedOffsetFallbackEnabled,
+    feedTerminal,
+    loadMoreFeed,
+    renderedFeedItemCount
+  ]);
 
   useEffect(() => {
     if (!socket || !user) return;
@@ -8182,13 +8302,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               )}
               <div ref={desktopFeedSentinelRef} className="h-8" aria-hidden="true" />
               {feedLoadingMore ? (
-                <div className="pb-2 text-center text-xs font-medium text-slate-500">Loading more posts...</div>
-              ) : renderedFeedItemCount < feedItems.length ? (
-                <div className="pb-2 text-center text-xs font-medium text-slate-500">
-                  Scroll to reveal more posts.
+                <div className="pb-2 text-center text-xs font-medium text-slate-500" role="status" aria-live="polite">
+                  Loading more posts...
                 </div>
-              ) : feedNextCursor || feedOffsetFallbackEnabled ? (
-                <div className="pb-2 text-center text-xs font-medium text-slate-400">Scroll for more.</div>
+              ) : renderedFeedItemCount < feedItems.length ? (
+                <div className="flex flex-col items-center gap-2 pb-2">
+                  <div className="text-center text-xs font-medium text-slate-500">
+                    Scroll to reveal more posts.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRenderedFeedItemCount((prev) =>
+                        Math.min(feedItems.length, prev + desktopRenderStep)
+                      )
+                    }
+                    className="rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                  >
+                    Show more
+                  </button>
+                </div>
+              ) : feedTerminal ? (
+                <div className="pb-3 text-center text-xs font-medium text-slate-500">
+                  You&apos;re all caught up. No more unique posts from available sources.
+                </div>
+              ) : feedNextCursor || feedOffsetFallbackEnabled || !feedDiscoveryUsedRef.current ? (
+                <div className="flex justify-center pb-3">
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreFeed()}
+                    className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                  >
+                    Load more
+                  </button>
+                </div>
               ) : null}
             </div>
           </main>

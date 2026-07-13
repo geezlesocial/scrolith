@@ -40,13 +40,15 @@ const loadMediaUtils = async () => {
     postAttachment,
     { resolveUserAvatarUrl },
     feedPagination,
-    { resolveAssetUrl, resolveResponsiveAssetUrl }
+    { resolveAssetUrl, resolveResponsiveAssetUrl },
+    continuousFeed
   ] = await Promise.all([
     import('../../src/utils/inlineMedia.ts'),
     import('../../src/utils/postAttachmentMedia.ts'),
     import('../../src/utils/userAvatar.ts'),
     import('../../src/utils/feedPagination.ts'),
-    import('../../src/utils/assetUrl.ts')
+    import('../../src/utils/assetUrl.ts'),
+    import('../../src/utils/continuousFeed.ts')
   ]);
   return {
     resolveInlineMedia,
@@ -55,7 +57,8 @@ const loadMediaUtils = async () => {
     resolveUserAvatarUrl,
     resolveAssetUrl,
     resolveResponsiveAssetUrl,
-    ...feedPagination
+    ...feedPagination,
+    ...continuousFeed
   };
 };
 
@@ -276,4 +279,78 @@ test('shouldContinueOffsetFallback only when full unique progress exists', async
     }),
     false
   );
+});
+
+test('continuous feed keys dedupe by sourceType + sourceId across sources', async () => {
+  const { buildFeedEntityKey, mergeContinuousFeedItems, extractHasMore, resolveFeedTerminalState, shouldHaltEmptyPageLoop, interleaveForDiversity } =
+    await loadMediaUtils();
+
+  assert.equal(buildFeedEntityKey('post', 'abc'), 'post:abc');
+  assert.equal(buildFeedEntityKey('job', 'abc'), 'job:abc');
+
+  const first = mergeContinuousFeedItems(
+    [{ id: 'p1', type: 'post' }],
+    [
+      { id: 'p1', type: 'post' },
+      { id: 'j1', type: 'job' },
+      { id: 'p1', type: 'recommendation' }
+    ]
+  );
+  // same plain id still blocked once; job is unique
+  assert.equal(first.addedCount, 1);
+  assert.equal(first.merged.length, 2);
+
+  assert.equal(extractHasMore({ data: { hasMore: true } }), true);
+  assert.equal(extractHasMore({ has_more: false }), false);
+  assert.equal(extractHasMore({}), null);
+
+  assert.equal(
+    resolveFeedTerminalState({
+      nextCursor: 'c1',
+      uniqueAddedCount: 0
+    }).canContinue,
+    true
+  );
+  assert.equal(
+    resolveFeedTerminalState({
+      nextCursor: null,
+      hasMoreFlag: false,
+      uniqueAddedCount: 0,
+      secondarySourcesRemaining: false
+    }).isTerminal,
+    true
+  );
+  assert.equal(
+    resolveFeedTerminalState({
+      nextCursor: null,
+      uniqueAddedCount: 0,
+      secondarySourcesRemaining: true
+    }).canContinue,
+    true
+  );
+
+  assert.equal(shouldHaltEmptyPageLoop(2, 2), true);
+  assert.equal(shouldHaltEmptyPageLoop(1, 2), false);
+
+  const interleaved = interleaveForDiversity(
+    [
+      { type: 'ad', authorId: 'a' },
+      { type: 'ad', authorId: 'b' },
+      { type: 'post', authorId: 'c' }
+    ],
+    { maxConsecutiveSameType: 1 }
+  );
+  assert.equal(interleaved.length, 3);
+  // Should not keep two ads consecutive when a post is available
+  assert.notEqual(interleaved[0].type === 'ad' && interleaved[1].type === 'ad', true);
+});
+
+test('media resolvers remain stable for continuous-feed attachment payloads', async () => {
+  const { resolvePostAttachmentMediaUrl, resolveAssetUrl } = await loadMediaUtils();
+  const content = 'https://api.scrolith.com/api/files/content/file_feed_media_123456';
+  assert.equal(resolvePostAttachmentMediaUrl({ url: content, fileId: 'other_id_should_not_win' }), content);
+  assert.equal(resolveAssetUrl(content), content);
+  const signed =
+    'https://storage.googleapis.com/bucket/key.jpg?X-Goog-Algorithm=GOOG4&X-Goog-Signature=abc';
+  assert.equal(resolveAssetUrl(signed), signed);
 });
