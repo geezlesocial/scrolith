@@ -518,11 +518,19 @@ const resolveOptionalUserFromRequest = async (req: Request): Promise<{ id: strin
 
 const resolveBusinessAvatarUrl = (logoFileId?: string | null, displayName?: string | null) => {
   const raw = String(logoFileId || '').trim();
+  if (!raw) {
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'Business')}`;
+  }
   if (raw.startsWith('http://') || raw.startsWith('https://') || raw.startsWith('/')) {
     return raw;
   }
   if (raw.startsWith('disk:')) {
     return `/uploads/${raw.slice('disk:'.length).replace(/^\/+/, '')}`;
+  }
+  // Bare File ids must resolve to the public content endpoint (not ui-avatars).
+  // ui-avatars is reserved for true missing logos only.
+  if (/^[a-z0-9_-]{12,}$/i.test(raw) || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw)) {
+    return `/api/files/content/${encodeURIComponent(raw)}`;
   }
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'Business')}`;
 };

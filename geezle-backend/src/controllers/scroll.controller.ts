@@ -75,6 +75,48 @@ const resolveStoredFileUrl = (
   return absolutizeMediaUrl(file.url || null, baseUrl);
 };
 
+/** Dual-path media object for Scroll responses (url + optional uploads fallback). */
+const resolveStoredFileMedia = (
+  file: {
+    id?: string;
+    url?: string | null;
+    storageKey?: string | null;
+    storageProvider?: string | null;
+    thumbnailUrl?: string | null;
+    mimeType?: string | null;
+    width?: number | null;
+    height?: number | null;
+    duration?: number | null;
+  },
+  baseUrl: string
+) => {
+  const preferred = resolveStoredFileUrl(file, baseUrl);
+  const uploads =
+    file.storageKey
+      ? `${baseUrl}/uploads/${String(file.storageKey).replace(/^\/+/, '')}`
+      : null;
+  const content = file.id ? buildFileContentUrl(file.id, baseUrl) : null;
+  const fallback =
+    preferred && uploads && preferred !== uploads
+      ? uploads
+      : preferred && content && preferred !== content
+        ? content
+        : null;
+  return {
+    url: preferred,
+    fallbackUrl: fallback,
+    storagePath: file.storageKey || null,
+    thumbnailUrl: absolutizeMediaUrl(
+      resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null,
+      baseUrl
+    ),
+    mimeType: file.mimeType || null,
+    width: file.width ?? null,
+    height: file.height ?? null,
+    duration: file.duration ?? null
+  };
+};
+
 const toInt = (value: any, fallback: number) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -464,14 +506,17 @@ const resolveScrollMedia = async (fileId: string, req: Request) => {
   });
   if (!file) return null;
   const baseUrl = getBaseFileUrl(req);
+  const media = resolveStoredFileMedia(file, baseUrl);
   return {
     id: file.id,
     ownerId: file.ownerId,
     name: file.originalName,
     mimeType: file.mimeType,
     duration: file.duration ?? null,
-    url: resolveStoredFileUrl(file, baseUrl),
-    thumbnailUrl: absolutizeMediaUrl(resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null, baseUrl),
+    url: media.url,
+    fallbackUrl: media.fallbackUrl,
+    storagePath: media.storagePath,
+    thumbnailUrl: media.thumbnailUrl,
     width: file.width ?? null,
     height: file.height ?? null
   };
@@ -498,20 +543,25 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
   });
   const baseUrl = getBaseFileUrl(req);
   return new Map(
-    files.map((file) => [
-      file.id,
-      {
-        id: file.id,
-        ownerId: file.ownerId,
-        name: file.originalName,
-        mimeType: file.mimeType,
-        duration: file.duration ?? null,
-        url: resolveStoredFileUrl(file, baseUrl),
-        thumbnailUrl: absolutizeMediaUrl(resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null, baseUrl),
-        width: file.width ?? null,
-        height: file.height ?? null
-      }
-    ])
+    files.map((file) => {
+      const media = resolveStoredFileMedia(file, baseUrl);
+      return [
+        file.id,
+        {
+          id: file.id,
+          ownerId: file.ownerId,
+          name: file.originalName,
+          mimeType: file.mimeType,
+          duration: file.duration ?? null,
+          url: media.url,
+          fallbackUrl: media.fallbackUrl,
+          storagePath: media.storagePath,
+          thumbnailUrl: media.thumbnailUrl,
+          width: file.width ?? null,
+          height: file.height ?? null
+        }
+      ];
+    })
   );
 };
 
