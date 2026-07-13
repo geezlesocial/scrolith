@@ -157,120 +157,475 @@ const mapAuthor = (userLike: any, pageLike?: any) => {
 const authorKeyOf = (author: OrchestratedFeedItem['author']) =>
   clean(author?.id || author?.username || '');
 
+export type FeedDiversifyOptions = {
+  maxConsecutiveType?: number;
+  /** @deprecated Prefer maxPostsPerAuthor; still used as consecutive non-post author run cap. */
+  maxConsecutiveAuthor?: number;
+  maxAdsPerPage?: number;
+  minItemsBetweenAds?: number;
+  /** Max POST/COMMUNITY_POST items per author per page when alternatives exist (default 1). */
+  maxPostsPerAuthor?: number;
+  /** Min slots between posts from the same author when a second is allowed (default 4). */
+  minAuthorPostGap?: number;
+  maxPersonRecommendations?: number;
+  maxPageRecommendations?: number;
+  maxCommunityRecommendations?: number;
+  maxMarketplaceListings?: number;
+  maxScrollVideos?: number;
+  /** Soft content mix (fractions of pageSize). */
+  postShareMin?: number;
+  postShareMax?: number;
+  recommendationShareMax?: number;
+  marketplaceShareMax?: number;
+  opportunityShareMax?: number;
+  nearDuplicateJaccardThreshold?: number;
+};
+
+const isPostLikeType = (type: string) => type === 'POST' || type === 'COMMUNITY_POST';
+
+const isRecommendationType = (type: string) =>
+  type === 'PERSON_RECOMMENDATION' ||
+  type === 'PAGE_RECOMMENDATION' ||
+  type === 'COMMUNITY_RECOMMENDATION';
+
+const isOpportunityType = (type: string) =>
+  type === 'JOB' || type === 'GIG' || type === 'EVENT' || type === 'SCROLL_VIDEO' || type === 'STORY';
+
+const isContentAuthorType = (type: string) =>
+  isPostLikeType(type) ||
+  type === 'JOB' ||
+  type === 'GIG' ||
+  type === 'MARKETPLACE_LISTING' ||
+  type === 'SCROLL_VIDEO' ||
+  type === 'STORY' ||
+  type === 'EVENT' ||
+  type === 'FEATURED' ||
+  type === 'TRENDING';
+
+/** Extract primary text for near-duplicate detection (deterministic, no AI). */
+export const extractCandidateText = (item: {
+  type?: string;
+  payload?: any;
+  why?: string | null;
+}): string => {
+  const payload = item?.payload || {};
+  const parts = [
+    payload.content,
+    payload.body,
+    payload.text,
+    payload.title,
+    payload.description,
+    payload.caption,
+    payload.summary
+  ]
+    .map((value) => clean(value))
+    .filter(Boolean);
+  return parts[0] || '';
+};
+
+/** Basic normalize without template slot collapse (conservative path). */
+export const normalizeFeedTextBasic = (raw: string): string => {
+  let text = clean(raw).toLowerCase();
+  if (!text) return '';
+  text = text.replace(/https?:\/\/\S+/gi, ' ');
+  text = text.replace(/\b[\w.+-]+@[\w.-]+\.\w+\b/gi, ' ');
+  text = text.replace(/[^a-z0-9\s]/g, ' ');
+  text = text.replace(/\d+/g, ' ');
+  return text.replace(/\s+/g, ' ').trim();
+};
+
 /**
- * Diversity-aware page assembly: caps consecutive same type/author and ad density.
+ * Detect high-confidence spam/template skeletons only.
+ * Distinct professional posts that merely share common phrases must not match.
+ */
+export const looksLikeFeedTemplateSkeleton = (normalizedBasic: string): boolean => {
+  const text = clean(normalizedBasic).toLowerCase();
+  if (!text) return false;
+  const hasUpdateFrom = /\bupdate from\b/.test(text);
+  const hasImprovingDelivery = /\bimproving delivery quality\b/.test(text);
+  const hasWhileKeeping = /\bwhile keeping\b/.test(text);
+  return hasUpdateFrom && hasImprovingDelivery && hasWhileKeeping;
+};
+
+/**
+ * Normalize text for fingerprints: lowercase, strip URLs/punctuation/digits,
+ * collapse whitespace. Template role/geo/skill collapse only for known skeletons.
+ */
+export const normalizeFeedTextForFingerprint = (raw: string): string => {
+  let text = normalizeFeedTextBasic(raw);
+  if (!text) return '';
+  if (looksLikeFeedTemplateSkeleton(text)) {
+    text = text.replace(/\bupdate from [a-z\s]{1,60}? improving\b/g, 'update from place improving');
+    text = text.replace(/\bupdate from [a-z\s]{1,60}? with\b/g, 'update from place with');
+    text = text.replace(/\bwith [a-z\s]{1,100}? while\b/g, 'with skills while');
+    text = text.replace(/^[a-z\s]{1,80}? update from/, 'role update from');
+    text = text.replace(/\s+/g, ' ').trim();
+  }
+  return text;
+};
+
+/** Lightweight deterministic 32-bit hash (FNV-1a style) → hex fingerprint. */
+export const buildNearDuplicateFingerprint = (raw: string): string => {
+  const normalized = normalizeFeedTextForFingerprint(raw);
+  if (!normalized) return '';
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i += 1) {
+    hash ^= normalized.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `f${(hash >>> 0).toString(16).padStart(8, '0')}`;
+};
+
+export const tokenizeForNearDuplicate = (raw: string): string[] => {
+  const normalized = normalizeFeedTextForFingerprint(raw);
+  if (!normalized) return [];
+  return normalized.split(' ').filter((token) => token.length > 2);
+};
+
+export const jaccardSimilarity = (a: string[], b: string[]): number => {
+  if (!a.length || !b.length) return 0;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  let inter = 0;
+  setA.forEach((token) => {
+    if (setB.has(token)) inter += 1;
+  });
+  const union = setA.size + setB.size - inter;
+  return union > 0 ? inter / union : 0;
+};
+
+/**
+ * Near-duplicate detector (no AI).
+ * - Short posts: exact basic-normalized equality only (stricter).
+ * - Long posts: template fingerprint equality or high Jaccard on normalized tokens.
+ */
+export const isNearDuplicateText = (
+  left: string,
+  right: string,
+  jaccardThreshold = 0.72
+): boolean => {
+  const a = clean(left);
+  const b = clean(right);
+  if (!a || !b) return false;
+
+  const basicA = normalizeFeedTextBasic(a);
+  const basicB = normalizeFeedTextBasic(b);
+  if (!basicA || !basicB) return false;
+
+  const tokensBasicA = basicA.split(' ').filter((t) => t.length > 2);
+  const tokensBasicB = basicB.split(' ').filter((t) => t.length > 2);
+  const short =
+    Math.min(basicA.length, basicB.length) < 80 ||
+    Math.min(tokensBasicA.length, tokensBasicB.length) < 12;
+
+  // Short posts require exact equality after basic normalize (no soft Jaccard).
+  if (short) {
+    return basicA === basicB;
+  }
+
+  const fpA = buildNearDuplicateFingerprint(a);
+  const fpB = buildNearDuplicateFingerprint(b);
+  if (fpA && fpB && fpA === fpB) return true;
+
+  // Soft Jaccard only when both sides look like the same template family,
+  // or when similarity is extremely high on long distinct text.
+  const j = jaccardSimilarity(tokenizeForNearDuplicate(a), tokenizeForNearDuplicate(b));
+  if (looksLikeFeedTemplateSkeleton(basicA) && looksLikeFeedTemplateSkeleton(basicB)) {
+    return j >= Math.min(jaccardThreshold, 0.72);
+  }
+  // Distinct long professional posts: require near-identity (>= 0.92).
+  return j >= Math.max(jaccardThreshold, 0.92);
+};
+
+/**
+ * Cursor v1 watermark derivation.
+ * Only post-like items advance `w`. Marketplace/jobs/gigs/recs must never pull
+ * the watermark so far back that newer deferred posts become uncollectable.
+ */
+export const deriveMemberFeedWatermark = (
+  selected: Array<{ type: string; createdAt?: string | null }>,
+  previousW: string | null
+): string | null => {
+  const postDates = (selected || [])
+    .filter((item) => isPostLikeType(String(item?.type || '')))
+    .map((item) => Date.parse(String(item?.createdAt || '')))
+    .filter((ms) => Number.isFinite(ms));
+  if (!postDates.length) {
+    // Preserve prior post watermark; do not invent one from non-post rows.
+    return previousW || null;
+  }
+  return new Date(Math.min(...postDates)).toISOString();
+};
+
+/**
+ * Soft eligibility under cursor v1.
+ * - feedKey in `k` → excluded (already delivered)
+ * - watermark `w` never excludes unseen post-like items (deferred author/near-dup safety)
+ * Hard mode retained only for tests proving the previous failure mode.
+ */
+export const isEligibleUnderMemberFeedCursor = (
+  item: { type: string; feedKey: string; createdAt?: string | null },
+  cursor: { k?: string[]; w?: string | null },
+  mode: 'soft' | 'hard' = 'soft'
+): boolean => {
+  const key = clean(item?.feedKey);
+  if (!key) return false;
+  const seen = new Set((cursor?.k || []).map((entry) => clean(entry)).filter(Boolean));
+  if (seen.has(key)) return false;
+
+  if (mode === 'hard' && cursor?.w && isPostLikeType(String(item.type || ''))) {
+    const created = Date.parse(String(item.createdAt || ''));
+    const water = Date.parse(String(cursor.w));
+    if (Number.isFinite(created) && Number.isFinite(water) && created > water) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const countTypes = (items: Candidate[], type: string) => items.filter((item) => item.type === type).length;
+
+const countGroup = (items: Candidate[], predicate: (type: string) => boolean) =>
+  items.filter((item) => predicate(item.type)).length;
+
+const lastIndexWhere = (items: Candidate[], predicate: (item: Candidate) => boolean) => {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (predicate(items[i])) return i;
+  }
+  return -1;
+};
+
+const consecutiveRun = (items: Candidate[], field: 'type' | '_authorKey', value: string) => {
+  let run = 0;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (String(items[i][field] || '') === value) run += 1;
+    else break;
+  }
+  return run;
+};
+
+/**
+ * Diversity-aware page assembly:
+ * - author spacing for posts
+ * - near-duplicate template suppression (keep highest score)
+ * - recommendation / marketplace / scroll / ad hard caps
+ * - soft content-type balance; remaining slots by score
+ * Deferred items stay out of the page (eligible on later pages via cursor seen-keys).
  * Pure function — unit tested.
  */
 export const diversifyFeedCandidates = (
   items: Candidate[],
   pageSize: number,
-  options?: { maxConsecutiveType?: number; maxConsecutiveAuthor?: number; maxAdsPerPage?: number; minItemsBetweenAds?: number }
+  options?: FeedDiversifyOptions
 ): Candidate[] => {
-  if (!items.length) return [];
-  const maxType = Math.max(1, options?.maxConsecutiveType ?? 2);
-  const maxAuthor = Math.max(1, options?.maxConsecutiveAuthor ?? 2);
+  if (!items.length || pageSize <= 0) return [];
+
+  const maxTypeRun = Math.max(1, options?.maxConsecutiveType ?? 2);
+  const maxConsecutiveAuthor = Math.max(1, options?.maxConsecutiveAuthor ?? 2);
   const maxAds = Math.max(0, options?.maxAdsPerPage ?? 1);
   const minBetweenAds = Math.max(1, options?.minItemsBetweenAds ?? 7);
+  const maxPostsPerAuthor = Math.max(1, options?.maxPostsPerAuthor ?? 1);
+  const minAuthorPostGap = Math.max(1, options?.minAuthorPostGap ?? 4);
+  const maxPerson = Math.max(0, options?.maxPersonRecommendations ?? 2);
+  const maxPageRec = Math.max(0, options?.maxPageRecommendations ?? 1);
+  const maxCommunityRec = Math.max(0, options?.maxCommunityRecommendations ?? 1);
+  const maxMarketplace = Math.max(0, options?.maxMarketplaceListings ?? 2);
+  const maxScroll = Math.max(0, options?.maxScrollVideos ?? 2);
+  const postShareMin = options?.postShareMin ?? 0.5;
+  const postShareMax = options?.postShareMax ?? 0.65;
+  const recommendationShareMax = options?.recommendationShareMax ?? 0.2;
+  const marketplaceShareMax = options?.marketplaceShareMax ?? 0.15;
+  const opportunityShareMax = options?.opportunityShareMax ?? 0.15;
+  const jaccardThreshold = options?.nearDuplicateJaccardThreshold ?? 0.72;
 
-  const byType = new Map<string, Candidate[]>();
-  const order: string[] = [];
-  const sorted = [...items].sort((a, b) => b.score - a.score);
-  sorted.forEach((item) => {
-    if (!byType.has(item.type)) {
-      byType.set(item.type, []);
-      order.push(item.type);
-    }
-    byType.get(item.type)!.push(item);
+  const hardCapFor = (type: string): number | null => {
+    if (type === 'PERSON_RECOMMENDATION') return maxPerson;
+    if (type === 'PAGE_RECOMMENDATION') return maxPageRec;
+    if (type === 'COMMUNITY_RECOMMENDATION') return maxCommunityRec;
+    if (type === 'MARKETPLACE_LISTING') return maxMarketplace;
+    if (type === 'SCROLL_VIDEO') return maxScroll;
+    if (type === 'AD') return maxAds;
+    return null;
+  };
+
+  // Deterministic: score desc, then feedKey asc.
+  const sorted = [...items].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return String(a.feedKey).localeCompare(String(b.feedKey));
   });
 
+  const selectedKeys = new Set<string>();
   const result: Candidate[] = [];
+
+  const textOf = (item: Candidate) => extractCandidateText(item);
+
+  const contentAuthorIds = () => {
+    const ids = new Set<string>();
+    result.forEach((item) => {
+      if (isContentAuthorType(item.type) && item._authorKey) ids.add(item._authorKey);
+    });
+    return ids;
+  };
+
+  const remaining = () => sorted.filter((item) => item.feedKey && !selectedKeys.has(item.feedKey));
+
+  const passesNearDuplicateForPair = (item: Candidate, page: Candidate[]): boolean => {
+    if (!isPostLikeType(item.type)) return true;
+    const text = textOf(item);
+    if (!text) return true;
+    for (const existing of page) {
+      if (!isPostLikeType(existing.type)) continue;
+      const existingText = textOf(existing);
+      if (existingText && isNearDuplicateText(text, existingText, jaccardThreshold)) return false;
+    }
+    return true;
+  };
+
+  const passesNearDuplicate = (item: Candidate): boolean => passesNearDuplicateForPair(item, result);
+
+  const passesAuthorRules = (item: Candidate, relaxWhenNoAlt: boolean): boolean => {
+    if (!isPostLikeType(item.type) || !item._authorKey) {
+      // Non-post: keep light consecutive-author run cap when alternatives exist.
+      if (!item._authorKey) return true;
+      const run = consecutiveRun(result, '_authorKey', item._authorKey);
+      if (run < maxConsecutiveAuthor) return true;
+      const alt = remaining().some(
+        (other) =>
+          other.feedKey !== item.feedKey &&
+          other._authorKey !== item._authorKey &&
+          !selectedKeys.has(other.feedKey)
+      );
+      return !alt;
+    }
+
+    const authorPosts = result.filter(
+      (entry) => isPostLikeType(entry.type) && entry._authorKey === item._authorKey
+    );
+    if (authorPosts.length < maxPostsPerAuthor) return true;
+
+    const lastIdx = lastIndexWhere(
+      result,
+      (entry) => isPostLikeType(entry.type) && entry._authorKey === item._authorKey
+    );
+    const gapOk = lastIdx < 0 || result.length - lastIdx >= minAuthorPostGap;
+
+    const hasAlt = remaining().some((other) => {
+      if (selectedKeys.has(other.feedKey) || other.feedKey === item.feedKey) return false;
+      if (isPostLikeType(other.type)) {
+        if (other._authorKey === item._authorKey) return false;
+        return passesNearDuplicateForPair(other, result);
+      }
+      return true;
+    });
+
+    // Defer excess posts from this author when alternatives exist.
+    if (hasAlt) return false;
+    if (!relaxWhenNoAlt) return false;
+    return gapOk;
+  };
+
+  const passesHardCaps = (item: Candidate): boolean => {
+    const cap = hardCapFor(item.type);
+    if (cap != null && countTypes(result, item.type) >= cap) return false;
+
+    if (item.type === 'AD') {
+      if (result.length === 0) return false;
+      if (result[result.length - 1]?.type === 'AD') return false;
+      const lastAdIndex = lastIndexWhere(result, (entry) => entry.type === 'AD');
+      if (lastAdIndex >= 0 && result.length - 1 - lastAdIndex < minBetweenAds) return false;
+    }
+
+    if (item.type === 'PERSON_RECOMMENDATION' && item._authorKey) {
+      if (contentAuthorIds().has(item._authorKey)) return false;
+    }
+
+    const typeRun = consecutiveRun(result, 'type', item.type);
+    if (typeRun >= maxTypeRun) {
+      const hasOtherType = remaining().some(
+        (other) => other.type !== item.type && !selectedKeys.has(other.feedKey)
+      );
+      if (hasOtherType) return false;
+    }
+
+    return true;
+  };
+
+  const softOverrepresented = (item: Candidate): boolean => {
+    const n = result.length + 1; // after hypothetical add
+    const size = Math.max(pageSize, n);
+    const posts = countGroup(result, isPostLikeType) + (isPostLikeType(item.type) ? 1 : 0);
+    const recs = countGroup(result, isRecommendationType) + (isRecommendationType(item.type) ? 1 : 0);
+    const market =
+      countTypes(result, 'MARKETPLACE_LISTING') + (item.type === 'MARKETPLACE_LISTING' ? 1 : 0);
+    const opps = countGroup(result, isOpportunityType) + (isOpportunityType(item.type) ? 1 : 0);
+
+    if (isPostLikeType(item.type) && posts / size > postShareMax + 0.001) return true;
+    if (isRecommendationType(item.type) && recs / size > recommendationShareMax + 0.001) return true;
+    if (item.type === 'MARKETPLACE_LISTING' && market / size > marketplaceShareMax + 0.001) return true;
+    if (isOpportunityType(item.type) && opps / size > opportunityShareMax + 0.001) return true;
+    return false;
+  };
+
+  const softUnderrepresentedExists = (excludeFeedKey: string): boolean => {
+    const n = Math.max(result.length, 1);
+    const size = pageSize;
+    const posts = countGroup(result, isPostLikeType);
+    const recs = countGroup(result, isRecommendationType);
+    const market = countTypes(result, 'MARKETPLACE_LISTING');
+    const opps = countGroup(result, isOpportunityType);
+
+    const needPosts = posts / size < postShareMin;
+    const needRecs = recs / size < Math.min(0.15, recommendationShareMax);
+    const needMarket = market / size < 0.1;
+    const needOpps = opps / size < 0.1;
+
+    return remaining().some((other) => {
+      if (other.feedKey === excludeFeedKey || selectedKeys.has(other.feedKey)) return false;
+      if (needPosts && isPostLikeType(other.type)) return true;
+      if (needRecs && isRecommendationType(other.type)) return true;
+      if (needMarket && other.type === 'MARKETPLACE_LISTING') return true;
+      if (needOpps && isOpportunityType(other.type)) return true;
+      return false;
+    });
+  };
+
+  const canSelect = (
+    item: Candidate,
+    mode: 'strict' | 'hard' | 'fallback'
+  ): boolean => {
+    if (!item.feedKey || selectedKeys.has(item.feedKey)) return false;
+    if (!passesHardCaps(item)) return false;
+    if (!passesNearDuplicate(item)) return false;
+    if (!passesAuthorRules(item, mode === 'fallback')) return false;
+
+    if (mode === 'strict') {
+      if (softOverrepresented(item) && softUnderrepresentedExists(item.feedKey)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
   let guard = 0;
-  while (result.length < pageSize && guard < pageSize * 12) {
+  while (result.length < pageSize && guard < pageSize * 20) {
     guard += 1;
-    let progressed = false;
-    for (const type of order) {
-      const bucket = byType.get(type) || [];
-      if (!bucket.length) continue;
+    let picked: Candidate | null = null;
 
-      let sameTypeRun = 0;
-      for (let i = result.length - 1; i >= 0; i -= 1) {
-        if (result[i].type === type) sameTypeRun += 1;
-        else break;
-      }
-      const head = bucket[0];
-      let sameAuthorRun = 0;
-      const aKey = head._authorKey;
-      if (aKey) {
-        for (let i = result.length - 1; i >= 0; i -= 1) {
-          if (result[i]._authorKey === aKey) sameAuthorRun += 1;
-          else break;
+    for (const mode of ['strict', 'hard', 'fallback'] as const) {
+      for (const item of sorted) {
+        if (canSelect(item, mode)) {
+          picked = item;
+          break;
         }
       }
-
-      if (type === 'AD') {
-        if (result.length === 0) continue;
-        const adCount = result.filter((entry) => entry.type === 'AD').length;
-        if (adCount >= maxAds) continue;
-        if (result[result.length - 1]?.type === 'AD') continue;
-        const lastAdIndex = [...result].map((e, i) => (e.type === 'AD' ? i : -1)).filter((i) => i >= 0).pop();
-        if (lastAdIndex != null && result.length - 1 - lastAdIndex < minBetweenAds) continue;
-      }
-
-      const hasAlternative = order.some((other) => other !== type && (byType.get(other) || []).length > 0);
-      if (sameTypeRun >= maxType && hasAlternative) continue;
-      if (aKey && sameAuthorRun >= maxAuthor && hasAlternative) {
-        // Try next type first; fall through if nothing else works.
-        const otherHead = order
-          .filter((other) => other !== type)
-          .map((other) => (byType.get(other) || [])[0])
-          .filter(Boolean)
-          .find((c) => c && c._authorKey !== aKey);
-        if (otherHead) continue;
-      }
-
-      result.push(bucket.shift()!);
-      progressed = true;
-      if (result.length >= pageSize) break;
+      if (picked) break;
     }
-    if (!progressed) {
-      // Fallback: highest score that does not violate hard consecutive-type/ad rules when possible.
-      let best: Candidate | null = null;
-      let bestType = '';
-      for (const type of order) {
-        const head = (byType.get(type) || [])[0];
-        if (!head) continue;
-        let sameTypeRun = 0;
-        for (let i = result.length - 1; i >= 0; i -= 1) {
-          if (result[i].type === type) sameTypeRun += 1;
-          else break;
-        }
-        const hasAlt = order.some((other) => other !== type && (byType.get(other) || []).length > 0);
-        if (sameTypeRun >= maxType && hasAlt) continue;
-        if (type === 'AD') {
-          const adCount = result.filter((entry) => entry.type === 'AD').length;
-          if (result.length === 0 || adCount >= maxAds || result[result.length - 1]?.type === 'AD') continue;
-        }
-        if (!best || head.score > best.score) {
-          best = head;
-          bestType = type;
-        }
-      }
-      if (!best) {
-        // Absolute last resort — take highest remaining score.
-        for (const type of order) {
-          const head = (byType.get(type) || [])[0];
-          if (!head) continue;
-          if (!best || head.score > best.score) {
-            best = head;
-            bestType = type;
-          }
-        }
-      }
-      if (!best) break;
-      byType.get(bestType)!.shift();
-      result.push(best);
-    }
+
+    if (!picked) break;
+    selectedKeys.add(picked.feedKey);
+    result.push(picked);
   }
+
   return result;
 };
 
@@ -352,51 +707,75 @@ async function collectPosts(input: {
     if (input.region) {
       where.AND = [...(where.AND || []), { location: { contains: input.region, mode: 'insensitive' } }];
     }
-    if (input.watermark) {
-      where.createdAt = { lte: new Date(input.watermark) };
-    }
 
-    const posts = await prisma.communityPost.findMany({
-      where,
-      orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
-      take: input.take,
-      select: {
-        id: true,
-        authorId: true,
-        businessPageId: true,
-        title: true,
-        content: true,
-        attachments: true,
-        tags: true,
-        mentions: true,
-        topic: true,
-        location: true,
-        visibility: true,
-        graphicWarning: true,
-        commentPolicy: true,
-        repostsEnabled: true,
-        viewsCount: true,
-        likesCount: true,
-        sharesCount: true,
-        repostsCount: true,
-        isPinned: true,
-        isHighlighted: true,
-        isAIEnhanced: true,
-        aiInsightEnabled: true,
-        aiInsightGenerated: true,
-        aiInsightText: true,
-        aiScore: true,
-        offerTags: true,
-        createdAt: true,
-        updatedAt: true,
-        author: {
-          select: { id: true, name: true, username: true, avatar: true, role: true, isVerified: true }
-        },
-        businessPage: {
-          select: { id: true, name: true, slug: true, handle: true, tagline: true }
-        }
+    // Soft watermark (cursor v1 field preserved):
+    // - Primary query NEVER applies createdAt lte watermark, so deferred newer posts
+    //   (author/near-dup deferred, not in cursor.k) remain collectable on later pages.
+    // - Optional secondary query uses watermark only to pull additional older posts.
+    const postSelect = {
+      id: true,
+      authorId: true,
+      businessPageId: true,
+      title: true,
+      content: true,
+      attachments: true,
+      tags: true,
+      mentions: true,
+      topic: true,
+      location: true,
+      visibility: true,
+      graphicWarning: true,
+      commentPolicy: true,
+      repostsEnabled: true,
+      viewsCount: true,
+      likesCount: true,
+      sharesCount: true,
+      repostsCount: true,
+      isPinned: true,
+      isHighlighted: true,
+      isAIEnhanced: true,
+      aiInsightEnabled: true,
+      aiInsightGenerated: true,
+      aiInsightText: true,
+      aiScore: true,
+      offerTags: true,
+      createdAt: true,
+      updatedAt: true,
+      author: {
+        select: { id: true, name: true, username: true, avatar: true, role: true, isVerified: true }
+      },
+      businessPage: {
+        select: { id: true, name: true, slug: true, handle: true, tagline: true }
       }
-    });
+    } as const;
+
+    const [primaryPosts, olderPosts] = await Promise.all([
+      prisma.communityPost.findMany({
+        where,
+        orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+        take: input.take,
+        select: postSelect
+      }),
+      input.watermark
+        ? prisma.communityPost.findMany({
+            where: {
+              ...where,
+              createdAt: { lte: new Date(input.watermark) }
+            },
+            orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
+            take: input.take,
+            select: postSelect
+          })
+        : Promise.resolve([])
+    ]);
+
+    const mergedById = new Map<string, (typeof primaryPosts)[number]>();
+    // Prefer primary (newest) order; older window fills gaps without dropping newer rows.
+    for (const post of primaryPosts) mergedById.set(post.id, post);
+    for (const post of olderPosts) {
+      if (!mergedById.has(post.id)) mergedById.set(post.id, post);
+    }
+    const posts = Array.from(mergedById.values());
 
     return posts
       .map((post) => {
@@ -1079,15 +1458,24 @@ export const getOrchestratedMemberFeed = async (input: {
     maxConsecutiveType: 2,
     maxConsecutiveAuthor: 2,
     maxAdsPerPage: 1,
-    minItemsBetweenAds: 7
+    minItemsBetweenAds: 7,
+    maxPostsPerAuthor: 1,
+    minAuthorPostGap: 4,
+    maxPersonRecommendations: 2,
+    maxPageRecommendations: 1,
+    maxCommunityRecommendations: 1,
+    maxMarketplaceListings: 2,
+    maxScrollVideos: 2,
+    postShareMin: 0.5,
+    postShareMax: 0.65,
+    recommendationShareMax: 0.2,
+    marketplaceShareMax: 0.15,
+    opportunityShareMax: 0.15
   });
 
   const nextSeen = [...cursorState.k, ...diversified.map((item) => item.feedKey)].slice(-120);
-  const oldestReturned = diversified
-    .map((item) => Date.parse(item.createdAt))
-    .filter((ms) => Number.isFinite(ms));
-  const watermark =
-    oldestReturned.length > 0 ? new Date(Math.min(...oldestReturned)).toISOString() : cursorState.w;
+  // Post-like only: never let marketplace/job/gig set a watermark that drops newer deferred posts.
+  const watermark = deriveMemberFeedWatermark(diversified, cursorState.w);
 
   // More content exists if pool exceeded page size after filters, or we filled a full page.
   const remainingAfterPage = unique.length - diversified.length;
@@ -1132,5 +1520,15 @@ export const __feedOrchestratorTestUtils = {
   diversifyFeedCandidates,
   dedupeCandidatesByFeedKey,
   buildFeedKey,
-  shouldIncludeFeedDiagnostics
+  shouldIncludeFeedDiagnostics,
+  extractCandidateText,
+  normalizeFeedTextForFingerprint,
+  normalizeFeedTextBasic,
+  looksLikeFeedTemplateSkeleton,
+  buildNearDuplicateFingerprint,
+  isNearDuplicateText,
+  jaccardSimilarity,
+  tokenizeForNearDuplicate,
+  deriveMemberFeedWatermark,
+  isEligibleUnderMemberFeedCursor
 };
