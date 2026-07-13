@@ -67,6 +67,7 @@ import {
 } from '../../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../../utils/continuousFeed';
 import { Phase2Service } from '../../services/phase2';
+import { MemberFeedService } from '../../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
@@ -1355,6 +1356,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [feedTerminal, setFeedTerminal] = useState(false);
   const feedEmptyPageStreakRef = useRef(0);
   const feedDiscoveryUsedRef = useRef(false);
+  /** Phase 3: prefer enterprise orchestrator; fall back to Phase 1 continuous loaders. */
+  const feedTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
+  const feedAbortRef = useRef<AbortController | null>(null);
   const desktopConstrainedFeed = profile.lowBandwidth || profile.dataSaver;
   const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
   const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
@@ -2447,6 +2451,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         dedupeById(
           [...preferred, ...fallback].filter(Boolean) as Array<FeedPost & { id?: string | null }>
         ) as FeedPost[];
+
+      // Phase 3: try enterprise orchestrator first (cursor-only). Soft-fail → Phase 1 loaders.
+      try {
+        feedAbortRef.current?.abort();
+        const controller = new AbortController();
+        feedAbortRef.current = controller;
+        const orchestratedMode =
+          scope === 'following'
+            ? 'following'
+            : resolvedMode || (showIntentModes ? defaultIntentFeedTab : 'for_you') || 'for_you';
+        const orchestrated = await MemberFeedService.tryFetchPage({
+          surface: 'member_home',
+          mode: String(orchestratedMode),
+          limit: maxFeedItems,
+          topic: scope === 'discover' && showCategoriesFilter ? feedTopic || undefined : undefined,
+          region: scope === 'discover' && showCategoriesFilter ? feedRegion || undefined : undefined,
+          signal: controller.signal,
+          timeoutMs: desktopConstrainedFeed ? 12000 : 18000
+        });
+        if (requestId !== feedLoadRequestIdRef.current) return;
+        if (orchestrated && Array.isArray(orchestrated.posts)) {
+          const normalized = normalizeFeedItems(orchestrated.posts);
+          if (normalized.length > 0 || orchestrated.hasMore) {
+            feedTransportRef.current = 'orchestrated';
+            feedEmptyPageStreakRef.current = 0;
+            feedDiscoveryUsedRef.current = true; // skip Phase 1 discovery supplement while orchestrated
+            setFeedTerminal(!orchestrated.hasMore && normalized.length === 0);
+            commitFeedItems(normalized);
+            setFeedNextCursor(orchestrated.nextCursor);
+            setFeedOffsetFallbackEnabled(false);
+            if (orchestrated.jobs.length) {
+              setListingJobsPool((prev) =>
+                dedupeById([...(orchestrated.jobs as any[]), ...((prev || []) as any[])]) as any
+              );
+            }
+            if (orchestrated.gigs.length) {
+              setListingGigsPool((prev) =>
+                dedupeById([...(orchestrated.gigs as any[]), ...((prev || []) as any[])]) as any
+              );
+            }
+            return;
+          }
+        }
+      } catch (orchestratorError) {
+        console.warn('Member-home orchestrated feed unavailable; using Phase 1 continuous feed', orchestratorError);
+      }
+      feedTransportRef.current = 'legacy';
       const shouldFetchCommunityBaseline = scope === 'discover' && !feedTopic && !feedRegion;
       const applyImmediateFeedSeed = (itemsToSeed: FeedPost[]) => {
         if (!itemsToSeed.length) return;
@@ -2786,6 +2837,67 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     feedLoadingMoreRef.current = true;
     setFeedLoadingMore(true);
     try {
+      // Phase 3: continue on orchestrator cursor when transport is orchestrated.
+      if (feedTransportRef.current === 'orchestrated' && cursor) {
+        try {
+          const orchestratedMode =
+            scope === 'following'
+              ? 'following'
+              : resolvedMode || (showIntentModes ? defaultIntentFeedTab : 'for_you') || 'for_you';
+          const page = await MemberFeedService.tryFetchPage({
+            surface: 'member_home',
+            mode: String(orchestratedMode),
+            limit: maxFeedItems,
+            cursor,
+            topic: scope === 'discover' && showCategoriesFilter ? feedTopic || undefined : undefined,
+            region: scope === 'discover' && showCategoriesFilter ? feedRegion || undefined : undefined,
+            timeoutMs: desktopConstrainedFeed ? 12000 : 18000
+          });
+          if (page) {
+            const appendedItems = (page.posts || [])
+              .map((item) => {
+                try {
+                  return normalizePost(item);
+                } catch {
+                  return null;
+                }
+              })
+              .filter((item): item is FeedPost => Boolean(item));
+            const { addedCount } = appendFeedItems(appendedItems);
+            if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
+            else feedEmptyPageStreakRef.current += 1;
+            if (page.jobs.length) {
+              setListingJobsPool((prev) =>
+                dedupeById([...((prev || []) as any[]), ...(page.jobs as any[])]) as any
+              );
+            }
+            if (page.gigs.length) {
+              setListingGigsPool((prev) =>
+                dedupeById([...((prev || []) as any[]), ...(page.gigs as any[])]) as any
+              );
+            }
+            if (!page.hasMore || (!page.nextCursor && addedCount === 0)) {
+              setFeedNextCursor(null);
+              setFeedOffsetFallbackEnabled(false);
+              setFeedTerminal(true);
+            } else if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2)) {
+              setFeedNextCursor(null);
+              setFeedTerminal(true);
+            } else {
+              setFeedNextCursor(page.nextCursor);
+              setFeedOffsetFallbackEnabled(false);
+              setFeedTerminal(false);
+            }
+            return;
+          }
+          // Soft-fail → drop to Phase 1 for remaining pages.
+          feedTransportRef.current = 'legacy';
+        } catch (orchestratedMoreError) {
+          console.warn('Orchestrated load-more failed; falling back to Phase 1', orchestratedMoreError);
+          feedTransportRef.current = 'legacy';
+        }
+      }
+
       let response: any = null;
       let appendedItems: FeedPost[] = [];
 

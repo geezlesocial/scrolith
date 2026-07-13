@@ -58,6 +58,7 @@ import {
 } from '../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../utils/continuousFeed';
 import { Phase2Service } from '../services/phase2';
+import { MemberFeedService } from '../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
@@ -456,6 +457,8 @@ const CommunityHome = () => {
   const [postsFeedTerminal, setPostsFeedTerminal] = useState(false);
   const postsEmptyPageStreakRef = useRef(0);
   const discoverySupplementUsedRef = useRef(false);
+  /** Phase 3: orchestrated member-feed with Phase 1 continuous-feed fallback. */
+  const postsTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
@@ -986,6 +989,61 @@ const CommunityHome = () => {
     postsLoadingMoreRef.current = true;
     setPostsLoadingMore(true);
     try {
+      if (postsTransportRef.current === 'orchestrated' && cursor) {
+        try {
+          const page = await MemberFeedService.tryFetchPage({
+            surface: 'community',
+            mode: 'for_you',
+            limit: postsLimit,
+            cursor,
+            timeoutMs: 18000
+          });
+          if (page) {
+            const nextPosts = sortPosts(
+              (page.posts || [])
+                .map((post: any) => {
+                  try {
+                    return normalizePost(post);
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+            );
+            const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
+            if (addedCount > 0) {
+              postsEmptyPageStreakRef.current = 0;
+              const sorted = sortPosts(merged);
+              postsRef.current = sorted;
+              setPosts(sorted);
+              setCommentCounts((prev) => {
+                const next = { ...prev };
+                nextPosts.forEach((post: any) => {
+                  if (post?.id) next[post.id] = post.interactions?.comments ?? next[post.id] ?? 0;
+                });
+                return next;
+              });
+            } else {
+              postsEmptyPageStreakRef.current += 1;
+            }
+            if (!page.hasMore || (!page.nextCursor && addedCount === 0) || shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2)) {
+              setPostsNextCursor(null);
+              setPostsOffsetFallbackEnabled(false);
+              setPostsFeedTerminal(true);
+            } else {
+              setPostsNextCursor(page.nextCursor);
+              setPostsOffsetFallbackEnabled(false);
+              setPostsFeedTerminal(false);
+            }
+            return;
+          }
+          postsTransportRef.current = 'legacy';
+        } catch (orchestratedError) {
+          console.warn('Community orchestrated load-more failed; using Phase 1', orchestratedError);
+          postsTransportRef.current = 'legacy';
+        }
+      }
+
       let response: any = null;
       let nextPosts: any[] = [];
 
@@ -1227,7 +1285,68 @@ const CommunityHome = () => {
         ]);
         if (cancelled) return;
 
-        if (feedPostsResult.status === 'fulfilled') {
+        // Phase 3: prefer orchestrated member-feed for initial community posts stream.
+        let usedOrchestrated = false;
+        try {
+          const orchestrated = await MemberFeedService.tryFetchPage({
+            surface: 'community',
+            mode: 'for_you',
+            limit: postsLimit,
+            timeoutMs: 15000
+          });
+          if (orchestrated && (orchestrated.posts.length > 0 || orchestrated.hasMore)) {
+            usedOrchestrated = true;
+            postsTransportRef.current = 'orchestrated';
+            const normalizedPosts = sortPosts(
+              orchestrated.posts.map((post: any) => {
+                try {
+                  return normalizePost(post);
+                } catch {
+                  return null;
+                }
+              }).filter(Boolean)
+            );
+            postsEmptyPageStreakRef.current = 0;
+            discoverySupplementUsedRef.current = true;
+            setPostsFeedTerminal(!orchestrated.hasMore && normalizedPosts.length === 0);
+            setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
+            postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+            setPostsNextCursor(orchestrated.nextCursor);
+            setPostsOffsetFallbackEnabled(false);
+            setCommentCounts((prev) => {
+              if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
+              return normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
+                acc[post.id] = post.interactions?.comments ?? 0;
+                return acc;
+              }, {});
+            });
+            if (orchestrated.people.length) {
+              setRecommendedCommunityPeople((prev) => (prev.length ? prev : orchestrated.people.slice(0, 6)));
+            }
+            if (orchestrated.pages.length) {
+              setRecommendedCommunityPages((prev) => (prev.length ? prev : orchestrated.pages.slice(0, 4)));
+            }
+            const followSeed: Record<string, boolean> = {};
+            const authorIds = new Set<string>();
+            normalizedPosts.forEach((post: any) => {
+              const authorType = String(post.author?.type || 'user').toLowerCase();
+              const authorId = String(post.author?.id || post.authorId || '').trim();
+              if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
+              authorIds.add(authorId);
+              if (post.viewer?.isFollowingAuthor !== undefined) {
+                followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+              }
+            });
+            if (Object.keys(followSeed).length) {
+              setFollowStatuses((prev) => ({ ...prev, ...followSeed }));
+            }
+          }
+        } catch (orchestratedInitError) {
+          console.warn('Community orchestrated feed unavailable; using Phase 1', orchestratedInitError);
+        }
+
+        if (!usedOrchestrated && feedPostsResult.status === 'fulfilled') {
+          postsTransportRef.current = 'legacy';
           let rawPosts = extractCommunityFeedItems(feedPostsResult.value);
           let nextCursor = extractCommunityFeedCursor(feedPostsResult.value);
           if (rawPosts.length === 0) {
@@ -1243,6 +1362,7 @@ const CommunityHome = () => {
           discoverySupplementUsedRef.current = false;
           setPostsFeedTerminal(false);
           setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
+          postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
           setPostsNextCursor(nextCursor);
           setPostsOffsetFallbackEnabled(Boolean(normalizedPosts.length) && !nextCursor);
           setCommentCounts((prev) => {

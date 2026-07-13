@@ -354,3 +354,17 @@ test('media resolvers remain stable for continuous-feed attachment payloads', as
     'https://storage.googleapis.com/bucket/key.jpg?X-Goog-Algorithm=GOOG4&X-Goog-Signature=abc';
   assert.equal(resolveAssetUrl(signed), signed);
 });
+
+test('member feed adapter partitions mixed orchestrated items for UI reuse', async () => {
+  const { partitionUnifiedFeedItems, toPostLikePayload } = await import('../../src/services/memberFeed.ts');
+  const pageItems = partitionUnifiedFeedItems([
+    { type: 'POST', id: 'a', payload: { id: 'a', content: 'x' }, score: 1 },
+    { type: 'POST', id: 'a', payload: { id: 'a', content: 'dup' }, score: 1 },
+    { type: 'JOB', id: 'j', payload: { id: 'j' } }
+  ] as any);
+  // Adapter does not dedupe posts — caller mergeUniqueFeedItems owns dedupe.
+  assert.equal(pageItems.posts.length, 2);
+  assert.equal(pageItems.jobs.length, 1);
+  assert.equal(toPostLikePayload({ type: 'GIG', id: 'g' } as any), null);
+  assert.ok(toPostLikePayload({ type: 'POST', id: 'z', payload: { id: 'z', content: 'ok' } } as any));
+});
