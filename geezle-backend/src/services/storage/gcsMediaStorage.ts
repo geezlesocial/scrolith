@@ -226,6 +226,31 @@ export const generateGcsSignedUrl = async (
   return url;
 };
 
+/**
+ * List object keys under a prefix (read-only). Used by Phase 2 orphan detection.
+ * Never deletes. Caps results via maxResults.
+ */
+export const listGcsMediaObjectKeys = async (opts?: {
+  prefix?: string;
+  maxResults?: number;
+  pageToken?: string;
+}): Promise<{ keys: string[]; nextPageToken?: string | null }> => {
+  const prefix = normalizeObjectKey(String(opts?.prefix || 'media/'));
+  const maxResults = Math.max(1, Math.min(5000, Number(opts?.maxResults || 1000)));
+  const [files, , apiResponse] = await getBucket().getFiles({
+    prefix: prefix || undefined,
+    maxResults,
+    autoPaginate: false,
+    pageToken: opts?.pageToken || undefined
+  });
+  const keys = (files || [])
+    .map((file) => normalizeObjectKey(String(file?.name || '')))
+    .filter(Boolean);
+  const nextPageToken =
+    (apiResponse as { nextPageToken?: string } | undefined)?.nextPageToken || null;
+  return { keys, nextPageToken };
+};
+
 /** Test-only: reset module caches */
 export const __resetGcsMediaCachesForTests = () => {
   cachedStorage = null;
