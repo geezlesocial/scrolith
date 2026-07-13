@@ -2045,6 +2045,8 @@ export const serveFileContent = async (req: Request, res: Response) => {
     const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
 
     // Phase 1 durable GCS media (native @google-cloud/storage).
+    // Phase 3B.1: HTTP Range via GCS createReadStream({ start, end }) — no full buffering.
+    // Authorization has already been enforced above.
     if (storedProvider === GCS_MEDIA_STORAGE_PROVIDER || storedProvider === 'gcs') {
       if (!file.storageKey) {
         res.status(404).json({ success: false, error: 'File storage key missing' });
@@ -2056,31 +2058,16 @@ export const serveFileContent = async (req: Request, res: Response) => {
           String(metadata?.contentType || '').trim() ||
           file.mimeType ||
           'application/octet-stream';
-        const contentLength = Number(metadata?.size || 0) || undefined;
-        applyFileResponseHeaders(res, {
+        const size = Number(metadata?.size || 0) || 0;
+        const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+        serveRangedObject({
+          req,
+          res,
+          size,
           contentType,
-          contentLength,
-          cacheControl
+          cacheControl,
+          openStream: (start, end) => createGcsMediaReadStream(file.storageKey!, { start, end })
         });
-        const stream = createGcsMediaReadStream(file.storageKey);
-        stream.on('error', (streamError: any) => {
-          const code = Number(streamError?.code || 0);
-          if (code === 404 || String(streamError?.code || '').toLowerCase() === 'notfound') {
-            if (!res.headersSent) {
-              res.status(404).json({ success: false, error: 'File not found in storage' });
-            } else {
-              res.end();
-            }
-            return;
-          }
-          console.error('GCS media stream error:', streamError);
-          if (!res.headersSent) {
-            res.status(500).end();
-          } else {
-            res.end();
-          }
-        });
-        stream.pipe(res);
         return;
       } catch (error: any) {
         if (String(error?.code || '') === 'NOT_FOUND' || Number(error?.code || 0) === 404) {
