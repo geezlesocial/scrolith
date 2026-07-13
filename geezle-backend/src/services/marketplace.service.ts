@@ -2,7 +2,12 @@ import prisma from '../utils/prismaClient';
 import { notifyAdmins, notifyUser } from '../utils/notify';
 import { DEFAULT_MARKETPLACE_CATEGORIES } from '../config/marketplaceCategories';
 import { publishIntegrationEvent } from './talentCloud.service';
-import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
+import {
+  normalizePublicMedia,
+  resolveDirectMediaUrl,
+  resolveFileBaseUrl,
+  resolveMediaDescriptor
+} from '../utils/mediaUrl';
 
 type User = any;
 type JsonValue = any;
@@ -284,43 +289,65 @@ const normalizeListingInclude = {
 const normalizeListing = (listing: any, viewerId?: string | null) => {
   if (!listing) return null;
   const baseUrl = resolveFileBaseUrl();
-  const resolveMarketplaceMediaUrl = (media: any) => {
-    const storagePath = String(
-      media?.storagePath ||
-      media?.storage_path ||
-      media?.storageKey ||
-      media?.storage_key ||
-      ''
-    ).trim();
-    if (storagePath) {
-      return `${baseUrl.replace(/\/+$/, '')}/uploads/${storagePath.replace(/^\/+/, '')}`;
-    }
-
-    const directUrl = String(media?.url || media?.downloadUrl || media?.download_url || '').trim();
-    if (!directUrl) return null;
-    if (directUrl.toLowerCase().includes('/api/files/content/')) return null;
-
-    const resolved = resolveDirectMediaUrl(directUrl, baseUrl);
-    return resolved || directUrl;
+  /**
+   * Marketplace dual-path policy:
+   * - Prefer working /uploads storagePath when present (many legacy fileIds 404 on content route).
+   * - Attach content URL as fallbackUrl only; never replace a working uploads URL with a broken content URL.
+   * - fileServable is left false here (no per-request File existence probe) so uploads stay primary.
+   */
+  const resolveMarketplaceMedia = (media: any) => {
+    const normalized = normalizePublicMedia(
+      {
+        fileId: media?.fileId || null,
+        url: media?.url || media?.downloadUrl || media?.download_url || null,
+        storagePath:
+          media?.storagePath ||
+          media?.storage_path ||
+          media?.storageKey ||
+          media?.storage_key ||
+          null,
+        mimeType: media?.mimeType || null,
+        width: media?.width ?? null,
+        height: media?.height ?? null,
+        durationSeconds: media?.durationSeconds ?? null,
+        thumbnailUrl: media?.thumbnailUrl || null
+      },
+      { baseUrl, fileServable: false }
+    );
+    const descriptor = resolveMediaDescriptor(media, { baseUrl, fileServable: false });
+    return {
+      url: normalized?.url || descriptor.url || null,
+      fallbackUrl: normalized?.fallbackUrl || descriptor.fallbackUrl || null,
+      storagePath:
+        normalized?.storagePath ||
+        media?.storagePath ||
+        media?.storage_path ||
+        media?.storageKey ||
+        null
+    };
   };
 
   const media = Array.isArray(listing.media)
-    ? listing.media.map((entry: any) => ({
-        id: entry.id,
-        listingId: entry.listingId,
-        fileId: entry.fileId || null,
-        type: entry.type,
-        url: resolveMarketplaceMediaUrl(entry) || entry.url,
-        storagePath: entry.storagePath || entry.storage_key || null,
-        thumbnailUrl: entry.thumbnailUrl || null,
-        sortOrder: entry.sortOrder,
-        mimeType: entry.mimeType,
-        sizeBytes: Number(entry.sizeBytes || 0),
-        width: entry.width || null,
-        height: entry.height || null,
-        durationSeconds: entry.durationSeconds || null,
-        createdAt: entry.createdAt
-      }))
+    ? listing.media.map((entry: any) => {
+        const resolved = resolveMarketplaceMedia(entry);
+        return {
+          id: entry.id,
+          listingId: entry.listingId,
+          fileId: entry.fileId || null,
+          type: entry.type,
+          url: resolved.url || entry.url,
+          fallbackUrl: resolved.fallbackUrl || null,
+          storagePath: resolved.storagePath || entry.storagePath || entry.storage_key || null,
+          thumbnailUrl: entry.thumbnailUrl || null,
+          sortOrder: entry.sortOrder,
+          mimeType: entry.mimeType,
+          sizeBytes: Number(entry.sizeBytes || 0),
+          width: entry.width || null,
+          height: entry.height || null,
+          durationSeconds: entry.durationSeconds || null,
+          createdAt: entry.createdAt
+        };
+      })
     : [];
 
   return {
@@ -1840,6 +1867,21 @@ export const attachMarketplaceMedia = async (listingId: string, user: User, inpu
   }
 
   const created = await prisma.marketplaceListingMedia.createMany({ data: mediaPayloads });
+
+  // Link attached File rows as marketplace media so public content serving can
+  // recognize them. Does not mutate legacy storage paths.
+  try {
+    const { syncFileUsages } = await import('../utils/fileUsage');
+    const linkedFileIds = mediaPayloads
+      .map((entry) => String(entry?.fileId || '').trim())
+      .filter(Boolean);
+    if (linkedFileIds.length) {
+      await syncFileUsages('marketplace_listing_media', listingId, linkedFileIds, 'Marketplace Listing Media');
+    }
+  } catch (usageError) {
+    console.warn('marketplace media file usage sync failed:', (usageError as any)?.message || usageError);
+  }
+
   const refreshed = await prisma.marketplaceListing.findUnique({
     where: { id: listingId },
     include: normalizeListingInclude

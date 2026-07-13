@@ -13,6 +13,12 @@ import {
 import { getActiveFeedRecipe } from './discovery.service';
 import { selectAdsForPlacement } from './adService';
 import { listMarketplaceListings } from './marketplace.service';
+import {
+  buildFileContentUrl,
+  buildUploadsUrl,
+  resolveDirectMediaUrl,
+  resolveFileBaseUrl
+} from '../utils/mediaUrl';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -1233,6 +1239,77 @@ async function collectPeoplePages(
   }
 }
 
+/**
+ * Batch-resolve File ids into dual-path media descriptors.
+ * Prefer content URL when File exists; always attach uploads fallback from storageKey.
+ */
+async function resolveFileMediaMap(fileIds: string[]) {
+  const ids = Array.from(new Set((fileIds || []).map((value) => String(value || '').trim()).filter(Boolean)));
+  const map = new Map<string, Record<string, any>>();
+  if (!ids.length) return map;
+
+  const baseUrl = resolveFileBaseUrl();
+  const files = await prisma.file
+    .findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        url: true,
+        storageKey: true,
+        storageProvider: true,
+        mimeType: true,
+        thumbnailUrl: true,
+        width: true,
+        height: true,
+        duration: true
+      }
+    })
+    .catch(() => []);
+
+  for (const file of files) {
+    const contentUrl = buildFileContentUrl(file.id, baseUrl);
+    const uploadsUrl = file.storageKey ? buildUploadsUrl(String(file.storageKey), baseUrl) : null;
+    const directUrl = resolveDirectMediaUrl(file.url, baseUrl);
+    const provider = String(file.storageProvider || '').toLowerCase();
+    const managed = ['database_storage', 'firebase_storage', 'azure_blob'].includes(provider);
+    const preferred = managed
+      ? contentUrl
+      : directUrl || uploadsUrl || contentUrl;
+    const fallback =
+      preferred === contentUrl
+        ? uploadsUrl || directUrl || null
+        : preferred === uploadsUrl
+          ? contentUrl
+          : contentUrl !== preferred
+            ? contentUrl
+            : null;
+    map.set(file.id, {
+      fileId: file.id,
+      url: preferred,
+      fallbackUrl: fallback && fallback !== preferred ? fallback : null,
+      storagePath: file.storageKey || null,
+      mimeType: file.mimeType || null,
+      thumbnailUrl: resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null,
+      width: file.width ?? null,
+      height: file.height ?? null,
+      durationSeconds: file.duration ?? null
+    });
+  }
+
+  // Orphaned ids still emit content URL so clients can attempt load / show placeholder.
+  for (const id of ids) {
+    if (map.has(id)) continue;
+    map.set(id, {
+      fileId: id,
+      url: buildFileContentUrl(id, baseUrl),
+      fallbackUrl: null,
+      storagePath: null
+    });
+  }
+
+  return map;
+}
+
 async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Candidate[]> {
   try {
     const now = new Date();
@@ -1287,11 +1364,19 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
       : [];
     const authorMap = new Map(authors.map((row) => [row.id, row]));
 
+    const mediaIds = [
+      ...(stories as any[]).map((row) => clean(row?.mediaFileId)),
+      ...(scrolls as any[]).map((row) => clean(row?.fileId))
+    ].filter(Boolean);
+    const mediaMap = await resolveFileMediaMap(mediaIds);
+
     const storyItems = (stories as any[])
       .map((story) => {
         const key = buildFeedKey('STORY', story.id);
         if (seen.has(key)) return null;
         const author = mapAuthor(story.author);
+        const mediaFileId = clean(story.mediaFileId);
+        const resolved = mediaFileId ? mediaMap.get(mediaFileId) : null;
         return {
           type: 'STORY' as const,
           id: story.id,
@@ -1301,7 +1386,9 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
           score: 34,
           rankingScore: 34,
           author,
-          media: { fileId: story.mediaFileId, type: story.type },
+          media: resolved
+            ? { ...resolved, type: story.type }
+            : { fileId: story.mediaFileId, type: story.type },
           visibility: 'public',
           why: 'Active story',
           payload: story,
@@ -1316,6 +1403,8 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
         const key = buildFeedKey('SCROLL_VIDEO', scroll.id);
         if (seen.has(key)) return null;
         const author = mapAuthor(authorMap.get(String(scroll.authorId || '')));
+        const fileId = clean(scroll.fileId);
+        const resolved = fileId ? mediaMap.get(fileId) : null;
         return {
           type: 'SCROLL_VIDEO' as const,
           id: scroll.id,
@@ -1325,7 +1414,7 @@ async function collectStoriesScroll(take: number, seen: Set<string>): Promise<Ca
           score: 33,
           rankingScore: 33,
           author,
-          media: { fileId: scroll.fileId },
+          media: resolved || { fileId: scroll.fileId },
           visibility: 'public',
           why: 'Scroll video',
           payload: scroll,

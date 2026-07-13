@@ -1828,11 +1828,67 @@ export const serveFileContent = async (req: Request, res: Response) => {
         })
         .then((count) => count > 0)
         .catch(() => false));
+
+    // Public identity / feed media referenced via FileUsage or entity FKs.
+    // <img>/<video> cannot send bearer tokens, so allow unauthenticated read
+    // only for intentionally public surfaces (not messenger/private files).
+    const PUBLIC_MEDIA_USAGE_TYPES = [
+      'profile_cover',
+      'business_page_logo',
+      'business_page_cover',
+      'community_post',
+      'community_post_comment',
+      'community_story',
+      'scroll_video',
+      'community_ad',
+      'marketplace_listing_media'
+    ] as const;
+    const hasPublicMediaUsage = await prisma.fileUsage
+      .count({
+        where: {
+          fileId: file.id,
+          usageType: { in: [...PUBLIC_MEDIA_USAGE_TYPES] }
+        }
+      })
+      .then((count) => count > 0)
+      .catch(() => false);
+
+    const isBusinessPageMedia =
+      isImageMime &&
+      (await prisma.communityBusinessPage
+        .count({
+          where: {
+            OR: [{ logoFileId: file.id }, { coverFileId: file.id }]
+          }
+        })
+        .then((count) => count > 0)
+        .catch(() => false));
+
+    const isMarketplaceListingMedia = await prisma.marketplaceListingMedia
+      .count({
+        where: {
+          fileId: file.id,
+          listing: {
+            removedAt: null,
+            status: { in: ['active', 'reserved'] },
+            reviewStatus: 'approved'
+          }
+        }
+      })
+      .then((count) => count > 0)
+      .catch(() => false);
+
     const isPrivate = String(file.visibility || DEFAULT_VISIBILITY).toUpperCase() === FileVisibility.PRIVATE;
     // Profile photos are intentionally public identity assets. They may have
     // been uploaded through private file flows, but browsers cannot attach app
     // bearer tokens to <img> requests, so allow read-only avatar delivery here.
-    const canServeAsPublicIdentityPhoto = isPrivate && (isProfilePhotoFile || isCoverPhotoFile);
+    const canServeAsPublicMedia =
+      isProfilePhotoFile ||
+      isCoverPhotoFile ||
+      isBusinessPageMedia ||
+      isMarketplaceListingMedia ||
+      hasPublicMediaUsage;
+    const canServeAsPublicIdentityPhoto = isPrivate && canServeAsPublicMedia;
     const canAccessPrivate =
       Boolean(requester?.id) &&
       (isAdmin ||
@@ -1843,9 +1899,14 @@ export const serveFileContent = async (req: Request, res: Response) => {
       return;
     }
 
-    const cacheControl = isPrivate && !canServeAsPublicIdentityPhoto
-      ? 'private, no-store, max-age=0'
-      : 'public, max-age=31536000, immutable';
+    // PUBLIC visibility always allows unauthenticated content delivery.
+    // PRIVATE public-identity media uses public cache; other private uses no-store.
+    const cacheControl =
+      isPrivate && !canServeAsPublicIdentityPhoto
+        ? 'private, no-store, max-age=0'
+        : isPrivate
+          ? 'public, max-age=86400'
+          : 'public, max-age=31536000, immutable';
     const imageVariant = parseImageVariantRequest(req);
 
     if (imageVariant && isResizableImageMimeType(file.mimeType)) {
@@ -2034,13 +2095,18 @@ export const serveFileContent = async (req: Request, res: Response) => {
             file.storageKey,
             storageKeyPath,
             stripUploadsPrefix(file.url),
-            file.filename
+            file.filename,
+            // basename variants — marketplace objects often live at uploads/<basename>
+            path.basename(String(file.storageKey || '')),
+            path.basename(String(file.url || '')),
+            path.basename(String(file.filename || ''))
           ]
             .map((value) => String(value || '').trim())
             .filter(Boolean)
         )
       );
 
+      // Prefer recovering from managed object storage first.
       for (const objectName of fallbackCandidates) {
         try {
           const metadata = await getDatabaseStorageMetadataByName(objectName);
@@ -2065,6 +2131,25 @@ export const serveFileContent = async (req: Request, res: Response) => {
         }
       }
 
+      // Local uploads basename fallback (legacy dual-path marketplace media).
+      for (const objectName of fallbackCandidates) {
+        const candidatePath = path.resolve(UPLOAD_DIR, objectName.replace(/^\/+/, ''));
+        if (
+          candidatePath.startsWith(path.resolve(UPLOAD_DIR)) &&
+          fs.existsSync(candidatePath) &&
+          candidatePath !== localPath
+        ) {
+          const recoveredType =
+            file.mimeType || getMimeTypeFromFilename(file.filename || candidatePath);
+          applyFileResponseHeaders(res, {
+            contentType: recoveredType,
+            cacheControl
+          });
+          res.sendFile(candidatePath);
+          return;
+        }
+      }
+
       res.status(404).json({ success: false, error: 'File not found' });
       return;
     }
@@ -2074,6 +2159,7 @@ export const serveFileContent = async (req: Request, res: Response) => {
       contentType,
       cacheControl
     });
+    // Express sendFile supports HTTP Range for video progressive playback.
     res.sendFile(localPath);
   } catch (error) {
     console.error('Failed to serve file content:', error);
