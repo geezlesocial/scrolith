@@ -1,6 +1,7 @@
 import express from 'express';
 import { optionalAuthMiddleware } from '../middleware/auth.middleware';
 import { getDiscoveryV2 } from '../services/phase2.service';
+import { getOrchestratedMemberFeed } from '../services/feedOrchestrator.service';
 
 const router = express.Router();
 
@@ -102,6 +103,33 @@ router.get('/v2/briefing', optionalAuthMiddleware, async (req, res) => {
     });
   } catch (error) {
     return handleError(res, error, 'Failed to load discovery briefing');
+  }
+});
+
+/**
+ * Unified continuous feed for member-home and /community.
+ * Additive; does not replace GET /community/feed or GET /discovery/v2/feed.
+ */
+router.get('/v2/member-feed', optionalAuthMiddleware, async (req, res) => {
+  try {
+    if (isAnonymousRequest(req)) {
+      // Short public cache only for fully anonymous unpersonalized responses.
+      setPublicCache(res, 30);
+    } else {
+      res.setHeader('Cache-Control', 'private, no-store');
+    }
+    const data = await getOrchestratedMemberFeed({
+      viewerId: req.user?.id || null,
+      surface: (req.query.surface as string) || 'member_home',
+      mode: (req.query.mode as string) || 'for_you',
+      limit: req.query.limit as any,
+      cursor: (req.query.cursor as string) || null,
+      topic: (req.query.topic as string) || undefined,
+      region: (req.query.region as string) || undefined
+    });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleError(res, error, 'Failed to load member feed');
   }
 });
 
