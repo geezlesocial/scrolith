@@ -2489,8 +2489,22 @@ export const getFeed = async (req: Request, res: Response) => {
             })
             .slice(0, take);
 
-    const nextCursor = posts.length ? posts[posts.length - 1].createdAt.toISOString() : null;
-    return res.json({ success: true, data: { items, nextCursor, mode: feedMode, scope } });
+    // Cursor must track the ranked page boundary, not the raw over-fetch tail.
+    // Using the oldest returned item lets the next page re-enter the previous over-fetch
+    // window so mid-ranked posts are not permanently skipped (clients already dedupe by id).
+    const returnedCreatedAtMs = items
+      .map((item: any) => new Date(String(item?.createdAt || '')).getTime())
+      .filter((value: number) => Number.isFinite(value));
+    const oldestReturnedMs = returnedCreatedAtMs.length ? Math.min(...returnedCreatedAtMs) : null;
+    const nextCursor =
+      items.length && oldestReturnedMs != null ? new Date(oldestReturnedMs).toISOString() : null;
+    // More content may exist when we filled a full page and still had DB candidates.
+    const hasMore = Boolean(nextCursor) && (items.length >= take || posts.length > items.length);
+
+    return res.json({
+      success: true,
+      data: { items, nextCursor: hasMore ? nextCursor : null, hasMore, mode: feedMode, scope }
+    });
   } catch (error: any) {
     console.error('Get feed error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load feed' });
