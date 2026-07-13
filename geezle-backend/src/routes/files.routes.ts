@@ -1,22 +1,22 @@
 import express from 'express';
 import multer from 'multer';
 import { authMiddleware } from '../middleware/auth.middleware';
-import { deleteFile, getUploadDir, listFiles, serveFileContent, uploadFile } from '../controllers/filesController';
+import {
+  deleteFile,
+  getUploadDir,
+  listFiles,
+  serveFileContent,
+  shouldUseMemoryUploadMulter,
+  uploadFile
+} from '../controllers/filesController';
 
 const router = express.Router();
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 
 const uploadDir = getUploadDir();
 
-const resolveUploadDriver = () =>
-  String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || 'local')
-    .trim()
-    .toLowerCase();
-
-const isMemoryUploadDriver = () => {
-  const driver = resolveUploadDriver();
-  return ['azure_blob', 'azure', 'blob', 'firebase_storage', 'firebase', 'gcs', 'google_cloud_storage'].includes(driver);
-};
+/** Memory multer for GCS/DB/Firebase/Azure — never write product media to Cloud Run uploads/. */
+const isMemoryUploadDriver = () => shouldUseMemoryUploadMulter();
 
 const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
@@ -36,11 +36,11 @@ const upload = multer({
 const handleSingleUpload: express.RequestHandler = (req, res, next) => {
   upload.single('file')(req, res, (error: any) => {
     if (error instanceof multer.MulterError) {
-      const message =
-        error.code === 'LIMIT_FILE_SIZE'
-          ? `File exceeds upload limit (${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))}MB)`
-          : error.message || 'Upload failed';
-      res.status(400).json({
+      const isSize = error.code === 'LIMIT_FILE_SIZE';
+      const message = isSize
+        ? `File exceeds upload limit (${Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024))}MB)`
+        : error.message || 'Upload failed';
+      res.status(isSize ? 413 : 400).json({
         success: false,
         error: message,
         code: error.code

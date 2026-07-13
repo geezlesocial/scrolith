@@ -43,6 +43,17 @@ import {
   getDatabaseStorageMetadataByName,
   uploadBufferToDatabaseStorage
 } from '../services/storage/databaseStorage';
+import {
+  MediaStorageService,
+  GOOGLE_CLOUD_STORAGE_PROVIDER,
+  resolveWriteStorageProvider,
+  shouldUseMemoryUploadMulter as shouldUseMemoryUploadMulterService
+} from '../services/storage/mediaStorage.service';
+import {
+  createGcsMediaReadStream,
+  getGcsMediaMetadata,
+  uploadToGcsMedia
+} from '../services/storage/gcsMediaStorage';
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 const TEMP_UPLOAD_DIR = path.join(UPLOAD_DIR, '.tmp');
@@ -68,6 +79,8 @@ const DEFAULT_STORAGE_PROVIDER = 'local';
 const DATABASE_STORAGE_PROVIDER = 'database_storage';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
 const FIREBASE_STORAGE_PROVIDER = 'firebase_storage';
+// Durable product media (Phase 1) — native GCS, not Firebase.
+const GCS_MEDIA_STORAGE_PROVIDER = GOOGLE_CLOUD_STORAGE_PROVIDER;
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const UPLOAD_THUMBNAILS_DIR = path.join(UPLOAD_DIR, 'thumbnails');
 
@@ -86,19 +99,24 @@ const shouldUseAzureBlobStorage = () => {
   return ['azure_blob', 'azure', 'blob'].includes(driver) && isAzureBlobConfigured();
 };
 
+/** Firebase Admin path — does NOT include gcs/google_cloud_storage (those use native GCS). */
 const shouldUseFirebaseStorage = () => {
   const driver = resolveUploadDriver();
-  return ['firebase_storage', 'firebase', 'gcs', 'google_cloud_storage'].includes(driver) && isFirebaseStorageConfigured();
+  return ['firebase_storage', 'firebase'].includes(driver) && isFirebaseStorageConfigured();
 };
 
-const resolveStorageProvider = () =>
-  shouldUseDatabaseStorage()
-    ? DATABASE_STORAGE_PROVIDER
-    : shouldUseFirebaseStorage()
-      ? FIREBASE_STORAGE_PROVIDER
-      : shouldUseAzureBlobStorage()
-        ? AZURE_BLOB_STORAGE_PROVIDER
-        : DEFAULT_STORAGE_PROVIDER;
+const shouldUseGcsMediaStorage = () => {
+  const driver = resolveUploadDriver();
+  return ['gcs', 'google_cloud_storage'].includes(driver);
+};
+
+const resolveStorageProvider = () => {
+  // Throws if UPLOAD_DRIVER=gcs but bucket/config is missing (fail closed — never silent local).
+  return resolveWriteStorageProvider();
+};
+
+/** Exported for routes: memory multer when writing to cloud/DB (never product uploads/ for GCS). */
+export const shouldUseMemoryUploadMulter = () => shouldUseMemoryUploadMulterService();
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
@@ -456,7 +474,18 @@ const resolveUploadKind = (
   return null;
 };
 
-const validateUploadFile = (file: Express.Multer.File, req?: Request) => {
+/** Exported for tests / ops reporting. Soft product limits (bytes). */
+export const getProductUploadSizeLimits = () => ({
+  image: MAX_UPLOAD_BYTES.image,
+  video: MAX_UPLOAD_BYTES.video,
+  audio: MAX_UPLOAD_BYTES.audio,
+  document: MAX_UPLOAD_BYTES.document,
+  adminApk: MAX_ADMIN_BINARY_BYTES,
+  /** Absolute multer ceiling (all types). */
+  multerAbsolute: 500 * 1024 * 1024
+});
+
+export const validateUploadFile = (file: Express.Multer.File, req?: Request) => {
   const originalName = String(file?.originalname || file?.filename || '');
   const mimeType = resolveUploadMimeType(file?.mimetype, originalName);
   const allowAdminBinary = isAdminUploadRequest(req);
@@ -472,9 +501,14 @@ const validateUploadFile = (file: Express.Multer.File, req?: Request) => {
   const maxSize = isAdminBinaryUpload ? MAX_ADMIN_BINARY_BYTES : MAX_UPLOAD_BYTES[kind];
   if (typeof maxSize === 'number' && Number(file?.size || 0) > maxSize) {
     const label = isAdminBinaryUpload ? 'APK' : kind;
-    throw new Error(`File exceeds ${label} upload limit (${Math.floor(maxSize / (1024 * 1024))}MB)`);
+    const err = new Error(
+      `File exceeds ${label} upload limit (${Math.floor(maxSize / (1024 * 1024))}MB)`
+    ) as Error & { code?: string; status?: number };
+    err.code = 'LIMIT_FILE_SIZE';
+    err.status = 413;
+    throw err;
   }
-  return { kind };
+  return { kind, maxSize };
 };
 
 function resolveUploadMimeType(mimeType?: string | null, originalName?: string | null) {
@@ -779,6 +813,26 @@ const loadStoredFileBuffer = async (file: {
   filename?: string | null;
 }) => {
   const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+
+  // Prefer MediaStorageService for durable cloud providers (GCS, DB, Firebase, Azure).
+  if (
+    storedProvider === GCS_MEDIA_STORAGE_PROVIDER ||
+    storedProvider === 'gcs' ||
+    storedProvider === DATABASE_STORAGE_PROVIDER ||
+    storedProvider === FIREBASE_STORAGE_PROVIDER ||
+    storedProvider === AZURE_BLOB_STORAGE_PROVIDER
+  ) {
+    try {
+      const fromService = await MediaStorageService.downloadMediaByProvider({
+        storageProvider: storedProvider === 'gcs' ? GCS_MEDIA_STORAGE_PROVIDER : storedProvider,
+        storageKey: file.storageKey
+      });
+      if (fromService) return fromService;
+    } catch {
+      // Fall through to legacy recovery paths below.
+    }
+  }
+
   if (storedProvider === DATABASE_STORAGE_PROVIDER) {
     if (file.storageKey) {
       try {
@@ -1953,6 +2007,55 @@ export const serveFileContent = async (req: Request, res: Response) => {
 
     const storedProvider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
 
+    // Phase 1 durable GCS media (native @google-cloud/storage).
+    if (storedProvider === GCS_MEDIA_STORAGE_PROVIDER || storedProvider === 'gcs') {
+      if (!file.storageKey) {
+        res.status(404).json({ success: false, error: 'File storage key missing' });
+        return;
+      }
+      try {
+        const metadata = await getGcsMediaMetadata(file.storageKey);
+        const contentType =
+          String(metadata?.contentType || '').trim() ||
+          file.mimeType ||
+          'application/octet-stream';
+        const contentLength = Number(metadata?.size || 0) || undefined;
+        applyFileResponseHeaders(res, {
+          contentType,
+          contentLength,
+          cacheControl
+        });
+        const stream = createGcsMediaReadStream(file.storageKey);
+        stream.on('error', (streamError: any) => {
+          const code = Number(streamError?.code || 0);
+          if (code === 404 || String(streamError?.code || '').toLowerCase() === 'notfound') {
+            if (!res.headersSent) {
+              res.status(404).json({ success: false, error: 'File not found in storage' });
+            } else {
+              res.end();
+            }
+            return;
+          }
+          console.error('GCS media stream error:', streamError);
+          if (!res.headersSent) {
+            res.status(500).end();
+          } else {
+            res.end();
+          }
+        });
+        stream.pipe(res);
+        return;
+      } catch (error: any) {
+        if (String(error?.code || '') === 'NOT_FOUND' || Number(error?.code || 0) === 404) {
+          res.status(404).json({ success: false, error: 'File not found in storage' });
+          return;
+        }
+        console.error('Failed to stream GCS media object:', error);
+        res.status(500).json({ success: false, error: 'Failed to read file from storage' });
+        return;
+      }
+    }
+
     if (storedProvider === DATABASE_STORAGE_PROVIDER) {
       if (!file.storageKey) {
         res.status(404).json({ success: false, error: 'File storage key missing' });
@@ -2463,7 +2566,67 @@ const persistUploadedFile = async (params: {
   let filename = file.filename || safeFilename(file.originalname || `upload-${Date.now()}`);
   let mediaMetadata: MediaMetadata;
 
-  if (storageProvider === DATABASE_STORAGE_PROVIDER) {
+  if (storageProvider === GCS_MEDIA_STORAGE_PROVIDER) {
+    // Phase 1: durable GCS — never write under product uploads/.
+    // Sequence: upload → verify exists → create File row.
+    // On verification or Prisma failure, best-effort delete the GCS object.
+    let uploadedKey: string | null = null;
+    try {
+      const uploaded = await MediaStorageService.upload({
+        buffer: file.buffer && Buffer.isBuffer(file.buffer) ? file.buffer : undefined,
+        filePath: file.path && fs.existsSync(file.path) ? file.path : undefined,
+        contentType: normalizedMimeType,
+        originalName: file.originalname || file.filename || 'upload.bin',
+        ownerId: userId,
+        category: String(req.body?.category || category || 'general'),
+        visibility: visibility as any,
+        sizeBytes: Number(file.size || 0)
+      });
+      uploadedKey = uploaded.storageKey;
+      const verified = await MediaStorageService.mediaObjectExists({
+        storageProvider: GCS_MEDIA_STORAGE_PROVIDER,
+        storageKey: uploaded.storageKey
+      });
+      if (!verified) {
+        throw new Error('GCS upload verification failed before File record create');
+      }
+      storageKey = uploaded.storageKey;
+      filename = path.basename(uploaded.storageKey);
+      url = buildFileContentUrl(fileId, baseUrl);
+      if (file.buffer && Buffer.isBuffer(file.buffer)) {
+        mediaMetadata = await buildMediaMetadataForAzure(
+          { ...file, mimetype: normalizedMimeType },
+          storageKey,
+          baseUrl
+        );
+      } else {
+        mediaMetadata = {
+          width: null,
+          height: null,
+          duration: null,
+          thumbnailRelativePath: null,
+          thumbnailUrl: null
+        };
+      }
+      safeUnlink(file.path);
+    } catch (gcsError) {
+      if (uploadedKey) {
+        try {
+          await MediaStorageService.deleteMediaObject({
+            storageProvider: GCS_MEDIA_STORAGE_PROVIDER,
+            storageKey: uploadedKey
+          });
+        } catch (cleanupError) {
+          console.warn('Failed to cleanup GCS object after upload failure:', {
+            storageKey: uploadedKey,
+            error: String((cleanupError as any)?.message || cleanupError)
+          });
+        }
+      }
+      safeUnlink(file.path);
+      throw gcsError;
+    }
+  } else if (storageProvider === DATABASE_STORAGE_PROVIDER) {
     const sourceBuffer = getUploadedFileBuffer(file);
     if (!sourceBuffer) {
       throw new Error('Database storage upload could not read the uploaded file buffer');
@@ -2475,6 +2638,9 @@ const persistUploadedFile = async (params: {
       contentType: normalizedMimeType,
       fileName: storageKey
     });
+    if (!(await databaseStorageExistsByName(storageKey))) {
+      throw new Error('Database storage verification failed before File record create');
+    }
     url = buildFileContentUrl(fileId, baseUrl);
     mediaMetadata = await buildMediaMetadataForDatabaseStorage(
       { ...file, mimetype: normalizedMimeType },
@@ -2513,6 +2679,7 @@ const persistUploadedFile = async (params: {
     url = buildFileContentUrl(fileId, baseUrl);
     mediaMetadata = await buildMediaMetadataForAzure({ ...file, mimetype: normalizedMimeType }, storageKey, baseUrl);
   } else {
+    // Development / legacy local driver only — writes under uploads/.
     const fallbackFilename =
       file.filename || `${Date.now()}-${safeFilename(file.originalname || 'upload.bin')}`;
     const filePath = file.path || path.join(UPLOAD_DIR, fallbackFilename);
@@ -2526,26 +2693,45 @@ const persistUploadedFile = async (params: {
     );
   }
 
-  const created = await prisma.file.create({
-    data: {
-      id: fileId,
-      ownerId: userId || null,
-      ownerRole,
-      filename,
-      originalName: file.originalname,
-      mimeType: normalizedMimeType,
-      size: BigInt(file.size),
-      url,
-      storageKey,
-      storageProvider,
-      thumbnailUrl: mediaMetadata.thumbnailUrl,
-      width: mediaMetadata.width,
-      height: mediaMetadata.height,
-      duration: mediaMetadata.duration,
-      visibility,
-      createdAt: now
+  let created: any;
+  try {
+    created = await prisma.file.create({
+      data: {
+        id: fileId,
+        ownerId: userId || null,
+        ownerRole,
+        filename,
+        originalName: file.originalname,
+        mimeType: normalizedMimeType,
+        size: BigInt(file.size),
+        url,
+        storageKey,
+        storageProvider,
+        thumbnailUrl: mediaMetadata.thumbnailUrl,
+        width: mediaMetadata.width,
+        height: mediaMetadata.height,
+        duration: mediaMetadata.duration,
+        visibility,
+        createdAt: now
+      }
+    });
+  } catch (createError) {
+    // If File row failed after a durable cloud write, best-effort delete the object.
+    if (storageProvider === GCS_MEDIA_STORAGE_PROVIDER && storageKey) {
+      try {
+        await MediaStorageService.deleteMediaObject({
+          storageProvider: GCS_MEDIA_STORAGE_PROVIDER,
+          storageKey
+        });
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup GCS object after File row create failure:', {
+          storageKey,
+          error: String((cleanupError as any)?.message || cleanupError)
+        });
+      }
     }
-  });
+    throw createError;
+  }
 
   return normalizeRecord({
     id: created.id,
@@ -2580,7 +2766,16 @@ export const uploadFile = async (req: Request, res: Response) => {
       validateUploadFile(req.file, req);
     } catch (validationError: any) {
       safeUnlink(req.file?.path);
-      res.status(400).json({ success: false, error: validationError?.message || 'Invalid file upload' });
+      const message = validationError?.message || 'Invalid file upload';
+      const isSize =
+        /exceeds/i.test(message) ||
+        /upload limit/i.test(message) ||
+        validationError?.code === 'LIMIT_FILE_SIZE';
+      res.status(isSize ? 413 : 400).json({
+        success: false,
+        error: message,
+        code: isSize ? 'PAYLOAD_TOO_LARGE' : validationError?.code
+      });
       return;
     }
 
@@ -2626,14 +2821,23 @@ export const uploadFile = async (req: Request, res: Response) => {
           '.png';
         const faviconName = `favicon${ext}`;
         try {
-          if (resolveStorageProvider() === FIREBASE_STORAGE_PROVIDER && req.file.buffer) {
+          const provider = resolveStorageProvider();
+          if (provider === GCS_MEDIA_STORAGE_PROVIDER) {
+            await uploadToGcsMedia({
+              buffer: req.file.buffer,
+              filePath: req.file.path && fs.existsSync(req.file.path) ? req.file.path : undefined,
+              contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
+              objectKey: `media/system/favicon/${faviconName}`
+            });
+            console.log('Created favicon copy in GCS media bucket:', faviconName);
+          } else if (provider === FIREBASE_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToFirebaseStorage({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
               fileName: faviconName
             });
             console.log('Created favicon copy in Firebase Storage:', faviconName);
-          } else if (resolveStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
+          } else if (provider === AZURE_BLOB_STORAGE_PROVIDER && req.file.buffer) {
             await uploadBufferToBlob({
               buffer: req.file.buffer,
               contentType: req.file.mimetype || getMimeTypeFromFilename(faviconName),
@@ -2700,7 +2904,16 @@ export const deleteFile = async (req: Request, res: Response) => {
     await prisma.file.delete({ where: { id } });
 
     const storageProvider = (existing.storageProvider || DEFAULT_STORAGE_PROVIDER).toString().toLowerCase();
-    if (storageProvider === DATABASE_STORAGE_PROVIDER) {
+    if (storageProvider === GCS_MEDIA_STORAGE_PROVIDER || storageProvider === 'gcs') {
+      try {
+        await MediaStorageService.deleteMediaObject({
+          storageProvider: GCS_MEDIA_STORAGE_PROVIDER,
+          storageKey: existing.storageKey
+        });
+      } catch (storageError) {
+        console.warn('Failed to delete GCS media object:', storageError);
+      }
+    } else if (storageProvider === DATABASE_STORAGE_PROVIDER) {
       try {
         await deleteDatabaseStorageByName(existing.storageKey);
       } catch (storageError) {
@@ -2787,7 +3000,13 @@ export const uploadMedia = async (req: Request, res: Response) => {
       validateUploadFile(req.file, req);
     } catch (validationError: any) {
       safeUnlink(req.file?.path);
-      res.status(400).json({ success: false, error: validationError?.message || 'Invalid file upload' });
+      const message = validationError?.message || 'Invalid file upload';
+      const isSize = /exceeds/i.test(message) || /upload limit/i.test(message);
+      res.status(isSize ? 413 : 400).json({
+        success: false,
+        error: message,
+        code: isSize ? 'PAYLOAD_TOO_LARGE' : validationError?.code
+      });
       return;
     }
 

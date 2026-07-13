@@ -51,12 +51,14 @@ const OPTIONAL_KEYS: EnvKey[] = [
   { key: 'SCROLITHA_TIMEOUT_MS', description: 'Scrolitha request timeout (ms)' },
   { key: 'SCROLITHA_ENABLE_STREAMING', description: 'Enable streaming responses (future)' },
   { key: 'SCROLITHA_GEMINI_FALLBACK', description: 'Allow legacy Gemini/OpenAI fallback when Ollama is unavailable' },
-  { key: 'UPLOAD_DRIVER', description: 'Upload driver override: local | database_storage | firebase_storage | azure_blob | s3 | backblaze' },
-  { key: 'STORAGE_DRIVER', description: 'Storage driver: local | database_storage | firebase_storage | s3 | backblaze' },
+  { key: 'UPLOAD_DRIVER', description: 'Upload driver: local | gcs | google_cloud_storage | database_storage | firebase_storage | azure_blob | s3 | backblaze' },
+  { key: 'STORAGE_DRIVER', description: 'Legacy storage driver fallback (same values as UPLOAD_DRIVER)' },
+  { key: 'STORAGE_BUCKET', description: 'GCS media bucket for durable product media (default scrolith-prod-media)' },
+  { key: 'GCS_MEDIA_BUCKET', description: 'Optional alias for STORAGE_BUCKET' },
   { key: 'AZURE_STORAGE_CONNECTION_STRING', description: 'Azure Blob storage connection string' },
   { key: 'AZURE_STORAGE_CONTAINER', description: 'Azure Blob storage container name' },
   { key: 'AZURE_BLOB_BASE_URL', description: 'Azure Blob base URL for public files' },
-  { key: 'FIREBASE_STORAGE_BUCKET', description: 'Firebase Storage bucket name' },
+  { key: 'FIREBASE_STORAGE_BUCKET', description: 'Firebase Storage bucket name (legacy firebase_storage driver only)' },
   { key: 'API_REQUEST_LOGGING', description: 'Enable verbose API request logs in production' },
   { key: 'API_RATE_LIMIT_WINDOW_MS', description: 'API rate-limit rolling window in ms' },
   { key: 'API_RATE_LIMIT_MAX_ANON', description: 'API rate-limit max requests for anonymous traffic per window' },
@@ -122,7 +124,18 @@ export function validateEnv() {
     }
   }
 
-  if (['firebase_storage', 'firebase', 'gcs', 'google_cloud_storage'].includes(storage)) {
+  if (['gcs', 'google_cloud_storage'].includes(storage)) {
+    const bucket =
+      process.env.STORAGE_BUCKET?.trim() ||
+      process.env.GCS_MEDIA_BUCKET?.trim() ||
+      process.env.GOOGLE_CLOUD_STORAGE_BUCKET?.trim() ||
+      'scrolith-prod-media';
+    console.info(
+      `GCS durable media selected. Bucket=${bucket}. Uses Application Default Credentials (Cloud Run SA / GOOGLE_APPLICATION_CREDENTIALS).`
+    );
+  }
+
+  if (['firebase_storage', 'firebase'].includes(storage)) {
     const hasInlineJson = Boolean(process.env.FCM_SERVICE_ACCOUNT_JSON?.trim());
     const hasBase64 = Boolean(process.env.FCM_SERVICE_ACCOUNT_B64?.trim());
     const hasPath = Boolean(

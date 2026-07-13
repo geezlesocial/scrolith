@@ -6,12 +6,14 @@ import prisma from '../utils/prismaClient';
 import { downloadBlobByName, extractBlobNameFromUrl } from './storage/blobStorage';
 import { downloadDatabaseStorageBufferByName } from './storage/databaseStorage';
 import { downloadFirebaseStorageBufferByName } from './storage/firebaseStorage';
+import { downloadGcsMediaBuffer, GOOGLE_CLOUD_STORAGE_PROVIDER } from './storage/gcsMediaStorage';
 
 const UPLOAD_DIR = path.join(__dirname, '..', '..', 'uploads');
 const DEFAULT_STORAGE_PROVIDER = 'local';
 const DATABASE_STORAGE_PROVIDER = 'database_storage';
 const AZURE_BLOB_STORAGE_PROVIDER = 'azure_blob';
 const FIREBASE_STORAGE_PROVIDER = 'firebase_storage';
+const GCS_MEDIA_STORAGE_PROVIDER = GOOGLE_CLOUD_STORAGE_PROVIDER;
 const DEFAULT_VIDEO_THUMBNAIL_FILENAME = '__video_fallback_thumbnail.svg';
 const VIDEO_USAGE_TYPES = ['community_post', 'scroll_video'] as const;
 const VIDEO_PERCEPTUAL_HASH_VERSION = 1;
@@ -124,6 +126,16 @@ const computeFileSha256 = async (file: FileLike) => {
       return bufferToSha256(buffer);
     } catch {
       // Fall back to local storage during incremental migrations from disk.
+    }
+  }
+
+  if (provider === GCS_MEDIA_STORAGE_PROVIDER || provider === 'gcs') {
+    if (!file.storageKey) throw new Error('Video storage key missing for GCS media file.');
+    try {
+      const buffer = await downloadGcsMediaBuffer(String(file.storageKey));
+      return bufferToSha256(buffer);
+    } catch {
+      // Fall through to local / other recovery.
     }
   }
 
