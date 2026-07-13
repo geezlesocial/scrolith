@@ -1,11 +1,17 @@
 import { resolveAssetUrl } from './assetUrl';
-import { looksLikeFileId, resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from './postAttachmentMedia';
+import {
+  looksLikeFileId,
+  resolvePostAttachmentMediaPair,
+  resolvePostAttachmentMediaUrl,
+  resolvePostAttachmentPosterUrl
+} from './postAttachmentMedia';
 
 export type InlineMediaKind = 'video' | 'image' | 'document' | 'unknown';
 
 export type ResolvedInlineMedia = {
   kind: InlineMediaKind;
   src: string;
+  fallbackSrc?: string;
   poster?: string;
 };
 
@@ -77,10 +83,12 @@ export const resolveInlineMedia = (
   const media = Array.isArray(mediaCandidate) ? mediaCandidate[0] || {} : mediaCandidate;
 
   // Prefer shared attachment resolver (nested file/asset/media + fileId + content URLs).
-  let src =
-    resolvePostAttachmentMediaUrl(media) ||
-    (media !== root ? resolvePostAttachmentMediaUrl(root) : '') ||
-    '';
+  const pair =
+    resolvePostAttachmentMediaPair(media) ||
+    (media !== root ? resolvePostAttachmentMediaPair(root) : { url: '', fallbackUrl: '', posterUrl: '', fileId: '', storagePath: '' });
+
+  let src = pair.url || resolvePostAttachmentMediaUrl(media) || (media !== root ? resolvePostAttachmentMediaUrl(root) : '') || '';
+  let fallbackSrc = pair.fallbackUrl || '';
 
   // Fallback: bare absolute string / file id on the root itself.
   if (!src && typeof input === 'string') {
@@ -95,6 +103,7 @@ export const resolveInlineMedia = (
   }
 
   const poster =
+    pair.posterUrl ||
     resolvePostAttachmentPosterUrl(media) ||
     (media !== root ? resolvePostAttachmentPosterUrl(root) : undefined) ||
     undefined;
@@ -110,6 +119,7 @@ export const resolveInlineMedia = (
   return {
     kind,
     src,
+    fallbackSrc: fallbackSrc && fallbackSrc !== src ? fallbackSrc : undefined,
     poster: poster || undefined
   };
 };

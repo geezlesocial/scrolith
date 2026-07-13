@@ -113,19 +113,26 @@ export default function OptimizedImage({
     disableSrcSet ? undefined : resolvedSources.srcSet
   );
   const [triedOriginal, setTriedOriginal] = React.useState(false);
+  const [triedFallback, setTriedFallback] = React.useState(false);
 
   React.useEffect(() => {
     setCurrentSrc(resolvedSources.baseSrc);
     setCurrentSrcSet(disableSrcSet ? undefined : resolvedSources.srcSet);
     setTriedOriginal(false);
-  }, [disableSrcSet, resolvedSources.baseSrc, resolvedSources.srcSet]);
+    setTriedFallback(false);
+  }, [disableSrcSet, resolvedSources.baseSrc, resolvedSources.srcSet, fallback]);
 
   const computedSizes = currentSrcSet ? sizes || `${normalizedWidth}px` : undefined;
+
+  // Never render empty src — leaves broken icon in some browsers.
+  if (!currentSrc && !fallback) {
+    return null;
+  }
 
   return (
     <img
       {...rest}
-      src={currentSrc}
+      src={currentSrc || fallback || undefined}
       srcSet={currentSrcSet}
       sizes={computedSizes}
       alt={alt}
@@ -135,7 +142,7 @@ export default function OptimizedImage({
       decoding={decoding}
       fetchPriority={fetchPriority}
       onError={(event) => {
-        // Prefer original untransformed content URL when responsive variants fail
+        // 1) Prefer original untransformed content URL when responsive variants fail
         // (missing transform, cache-key miss, or backend 404 on ?w=&h=).
         if (
           !triedOriginal &&
@@ -147,7 +154,15 @@ export default function OptimizedImage({
           setCurrentSrcSet(undefined);
           return;
         }
-        if (fallbackSources && currentSrc !== fallbackSources.baseSrc) {
+        // 2) Switch once to fallbackSrc (e.g. legacy /uploads after content 404).
+        // Never retry the same URL — prevents infinite error loops.
+        if (
+          !triedFallback &&
+          fallbackSources &&
+          fallbackSources.baseSrc &&
+          currentSrc !== fallbackSources.baseSrc
+        ) {
+          setTriedFallback(true);
           setCurrentSrc(fallbackSources.baseSrc);
           setCurrentSrcSet(disableSrcSet ? undefined : fallbackSources.srcSet);
           return;

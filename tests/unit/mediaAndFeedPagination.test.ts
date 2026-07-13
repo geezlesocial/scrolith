@@ -41,19 +41,23 @@ const loadMediaUtils = async () => {
     { resolveUserAvatarUrl },
     feedPagination,
     { resolveAssetUrl, resolveResponsiveAssetUrl },
-    continuousFeed
+    continuousFeed,
+    mediaDescriptor
   ] = await Promise.all([
     import('../../src/utils/inlineMedia.ts'),
     import('../../src/utils/postAttachmentMedia.ts'),
     import('../../src/utils/userAvatar.ts'),
     import('../../src/utils/feedPagination.ts'),
     import('../../src/utils/assetUrl.ts'),
-    import('../../src/utils/continuousFeed.ts')
+    import('../../src/utils/continuousFeed.ts'),
+    import('../../src/utils/mediaDescriptor.ts')
   ]);
   return {
     resolveInlineMedia,
     resolvePostAttachmentMediaUrl: postAttachment.resolvePostAttachmentMediaUrl,
     resolvePostAttachmentPosterUrl: postAttachment.resolvePostAttachmentPosterUrl,
+    resolvePostAttachmentMediaPair: postAttachment.resolvePostAttachmentMediaPair,
+    resolveMediaDescriptor: mediaDescriptor.resolveMediaDescriptor,
     resolveUserAvatarUrl,
     resolveAssetUrl,
     resolveResponsiveAssetUrl,
@@ -158,6 +162,44 @@ test('resolvePostAttachmentMediaUrl returns empty for malformed/empty media', as
   assert.equal(resolvePostAttachmentMediaUrl(''), '');
   assert.equal(resolvePostAttachmentMediaUrl('Just a label'), '');
   assert.equal(resolvePostAttachmentMediaUrl({ name: 'no-media' }), '');
+});
+
+test('marketplace dual-path prefers working /uploads over orphaned fileId content URL', async () => {
+  const { resolvePostAttachmentMediaUrl, resolvePostAttachmentMediaPair, resolveMediaDescriptor } =
+    await loadMediaUtils();
+  const media = {
+    fileId: 'cee0cdb0-0166-4512-a1fa-be7fd94e7a9f',
+    url: 'https://api.scrolith.com/uploads/1783047535108-photo.jpg',
+    storagePath: '1783047535108-photo.jpg'
+  };
+  const preferred = resolvePostAttachmentMediaUrl(media);
+  assert.ok(preferred.includes('/uploads/1783047535108-photo.jpg'));
+  assert.ok(!preferred.includes('/api/files/content/cee0cdb0'));
+
+  const pair = resolvePostAttachmentMediaPair(media);
+  assert.ok(pair.url.includes('/uploads/'));
+  assert.ok(pair.fallbackUrl.includes('/api/files/content/'));
+
+  const descriptor = resolveMediaDescriptor(media);
+  assert.ok(String(descriptor.url || '').includes('/uploads/'));
+  assert.ok(String(descriptor.fallbackUrl || '').includes('/api/files/content/'));
+});
+
+test('signed URL receives no transforms and no dual rewrite', async () => {
+  const { resolvePostAttachmentMediaUrl, resolveResponsiveAssetUrl } = await loadMediaUtils();
+  const signed =
+    'https://storage.googleapis.com/bucket/key.jpg?X-Goog-Algorithm=GOOG4&X-Goog-Signature=abc123&X-Goog-Credential=x';
+  assert.equal(resolvePostAttachmentMediaUrl({ url: signed, fileId: 'should_not_win_123456' }), signed);
+  assert.equal(resolveResponsiveAssetUrl(signed, { width: 120, height: 120 }), signed);
+});
+
+test('empty descriptor yields no src', async () => {
+  const { resolveMediaDescriptor, resolveInlineMedia } = await loadMediaUtils();
+  const empty = resolveMediaDescriptor({});
+  assert.equal(empty.url, undefined);
+  assert.equal(empty.fallbackUrl, undefined);
+  const inline = resolveInlineMedia({ name: 'no-media' });
+  assert.equal(inline.src, '');
 });
 
 test('video source and poster resolve independently', async () => {

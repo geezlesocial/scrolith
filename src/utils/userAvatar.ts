@@ -1,5 +1,5 @@
 import { resolveAssetUrl } from './assetUrl';
-import { looksLikeFileId, resolvePostAttachmentMediaUrl } from './postAttachmentMedia';
+import { looksLikeFileId, resolveMediaDescriptor, resolvePostAttachmentMediaUrl } from './postAttachmentMedia';
 
 const pickFirstString = (...values: unknown[]) => {
   for (const value of values) {
@@ -9,98 +9,126 @@ const pickFirstString = (...values: unknown[]) => {
   return '';
 };
 
+/**
+ * Resolve user / page avatar or logo URL.
+ * Uses dual-path safe precedence (uploads before orphaned fileId content URLs).
+ * OAuth external avatars (googleusercontent, etc.) are preserved unchanged.
+ */
 export const resolveUserAvatarUrl = (userLike: any): string => {
   if (!userLike) return '';
 
-  // Prefer durable absolute / content URLs when already present (CDN, API content, signed).
-  // Only fall back to fileId reconstruction when URL is missing or a stale /uploads path.
-  const attachmentResolved = [
-    userLike.avatarUrl,
-    userLike.avatar_url,
-    userLike.avatar,
-    userLike.logo,
-    userLike.logoUrl,
-    userLike.logo_url,
-    userLike.image,
-    userLike.imageUrl,
-    userLike.profileImage,
-    userLike.profile_image,
-    userLike.photo,
-    userLike.photoUrl,
-    userLike.photo_url,
-    userLike.authorAvatar,
-    userLike.userAvatar,
-    userLike.user_avatar,
-    userLike.cover,
-    userLike.coverUrl,
-    userLike.cover_url,
-    // Nested objects with url/fileId
+  // Nested media objects first (logo/cover/avatar with url + fileId + storagePath).
+  const nestedCandidates = [
     userLike.logo && typeof userLike.logo === 'object' ? userLike.logo : null,
+    userLike.avatar && typeof userLike.avatar === 'object' ? userLike.avatar : null,
     userLike.cover && typeof userLike.cover === 'object' ? userLike.cover : null,
-    userLike.avatar && typeof userLike.avatar === 'object' ? userLike.avatar : null
-  ]
-    .map((candidate) => resolvePostAttachmentMediaUrl(candidate))
-    .find(Boolean);
-  if (attachmentResolved) return attachmentResolved;
+    userLike.image && typeof userLike.image === 'object' ? userLike.image : null
+  ];
+  for (const candidate of nestedCandidates) {
+    if (!candidate) continue;
+    const resolved = resolvePostAttachmentMediaUrl(candidate);
+    if (resolved) return resolved;
+  }
 
-  // Explicit file IDs — more durable than legacy /uploads paths.
-  const fileId = pickFirstString(
-    userLike.profilePhotoFileId,
-    userLike.profile_photo_file_id,
-    userLike.clientProfilePhotoFileId,
-    userLike.client_profile_photo_file_id,
-    userLike.freelancerProfilePhotoFileId,
-    userLike.freelancer_profile_photo_file_id,
-    userLike.avatarFileId,
-    userLike.avatar_file_id,
-    userLike.authorAvatarFileId,
-    userLike.userAvatarFileId,
-    userLike.logoFileId,
-    userLike.logo_file_id,
-    userLike.coverFileId,
-    userLike.cover_file_id,
-    userLike.imageFileId,
-    userLike.image_file_id,
-    userLike.profileImageFileId,
-    userLike.profile_image_file_id,
-    // Nested logo/cover objects common on business pages
-    userLike.logo?.fileId,
-    userLike.logo?.file_id,
-    userLike.logo?.id,
-    userLike.cover?.fileId,
-    userLike.cover?.file_id,
-    userLike.avatar?.fileId,
-    userLike.avatar?.file_id,
-    userLike.avatar?.id
-  );
+  // Composite descriptor from common identity fields.
+  const composite = resolveMediaDescriptor({
+    url: pickFirstString(
+      userLike.avatarUrl,
+      userLike.avatar_url,
+      typeof userLike.avatar === 'string' ? userLike.avatar : '',
+      userLike.logoUrl,
+      userLike.logo_url,
+      typeof userLike.logo === 'string' ? userLike.logo : '',
+      userLike.imageUrl,
+      userLike.profileImage,
+      userLike.profile_image,
+      userLike.photoUrl,
+      userLike.photo_url,
+      userLike.authorAvatar,
+      userLike.userAvatar,
+      userLike.user_avatar,
+      userLike.coverUrl,
+      userLike.cover_url,
+      typeof userLike.cover === 'string' ? userLike.cover : ''
+    ),
+    fileId: pickFirstString(
+      userLike.profilePhotoFileId,
+      userLike.profile_photo_file_id,
+      userLike.clientProfilePhotoFileId,
+      userLike.client_profile_photo_file_id,
+      userLike.freelancerProfilePhotoFileId,
+      userLike.freelancer_profile_photo_file_id,
+      userLike.avatarFileId,
+      userLike.avatar_file_id,
+      userLike.authorAvatarFileId,
+      userLike.userAvatarFileId,
+      userLike.logoFileId,
+      userLike.logo_file_id,
+      userLike.coverFileId,
+      userLike.cover_file_id,
+      userLike.imageFileId,
+      userLike.image_file_id,
+      userLike.profileImageFileId,
+      userLike.profile_image_file_id,
+      userLike.logo?.fileId,
+      userLike.logo?.file_id,
+      userLike.logo?.id,
+      userLike.cover?.fileId,
+      userLike.cover?.file_id,
+      userLike.avatar?.fileId,
+      userLike.avatar?.file_id,
+      userLike.avatar?.id
+    ),
+    storagePath: pickFirstString(
+      userLike.storagePath,
+      userLike.storage_path,
+      userLike.storageKey,
+      userLike.logo?.storagePath,
+      userLike.logo?.storageKey,
+      userLike.avatar?.storagePath,
+      userLike.avatar?.storageKey
+    ),
+    fallbackUrl: userLike.fallbackUrl || userLike.fallback_url
+  });
+  if (composite.url) return composite.url;
 
+  const fileId = String(composite.fileId || '').trim();
   if (fileId && looksLikeFileId(fileId)) {
     const fromFileId = resolvePostAttachmentMediaUrl({ fileId });
     if (fromFileId) return fromFileId;
   }
 
-  const directUrl = pickFirstString(
-    userLike.avatarUrl,
-    userLike.avatar_url,
-    typeof userLike.avatar === 'string' ? userLike.avatar : '',
-    userLike.authorAvatar,
-    userLike.userAvatar,
-    userLike.user_avatar,
-    userLike.photoUrl,
-    userLike.photo_url,
-    userLike.logoUrl,
-    userLike.imageUrl,
-    userLike.coverUrl,
-    userLike.cover_url
-  );
-
-  const effectiveFileId = fileId || (looksLikeFileId(directUrl) ? directUrl : '');
-  if (effectiveFileId && looksLikeFileId(effectiveFileId)) {
-    const resolved = resolvePostAttachmentMediaUrl({ fileId: effectiveFileId });
-    if (resolved) return resolved;
-  }
-  if (directUrl && !looksLikeFileId(directUrl)) {
-    return resolveAssetUrl(directUrl);
-  }
   return '';
 };
+
+/** Avatar pair for OptimizedImage dual-source rendering. */
+export const resolveUserAvatarPair = (userLike: any) => {
+  if (!userLike) return { url: '', fallbackUrl: '' };
+  const descriptor = resolveMediaDescriptor({
+    url: pickFirstString(
+      userLike.avatarUrl,
+      userLike.avatar_url,
+      typeof userLike.avatar === 'string' ? userLike.avatar : '',
+      userLike.logoUrl,
+      userLike.logo_url,
+      typeof userLike.logo === 'string' ? userLike.logo : ''
+    ),
+    fileId: pickFirstString(
+      userLike.profilePhotoFileId,
+      userLike.avatarFileId,
+      userLike.logoFileId,
+      userLike.logo?.fileId,
+      userLike.avatar?.fileId
+    ),
+    storagePath: pickFirstString(userLike.storagePath, userLike.storageKey),
+    fallbackUrl: userLike.fallbackUrl
+  });
+  const url = String(descriptor.url || resolveUserAvatarUrl(userLike) || '').trim();
+  const fallbackUrl = String(descriptor.fallbackUrl || '').trim();
+  return {
+    url,
+    fallbackUrl: fallbackUrl && fallbackUrl !== url ? fallbackUrl : ''
+  };
+};
+
+export const resolveAssetUrlSafe = (value?: string | null) => resolveAssetUrl(value);

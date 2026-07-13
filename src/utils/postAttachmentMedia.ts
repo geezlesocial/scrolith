@@ -1,337 +1,66 @@
 import { resolveAssetUrl } from './assetUrl';
+import {
+  buildFileContentUrl,
+  isAlreadyFileContentRef,
+  isLegacyUploadPath,
+  looksLikeFileId,
+  preferServableMediaUrl,
+  resolveMediaDescriptor
+} from './mediaDescriptor';
 
-const readPathValue = (source: any, path: string[]) => {
-  let current = source;
-  for (const key of path) {
-    if (!current || typeof current !== 'object') return '';
-    current = current?.[key];
-  }
-  // Reject object leaves (e.g. poster: { url }) so nested paths can win.
-  if (current == null || typeof current === 'object') return '';
-  return String(current).trim();
-};
-
-const readFirstPathValue = (source: any, paths: string[][]) => {
-  for (const path of paths) {
-    const value = readPathValue(source, path);
-    if (value) return value;
-  }
-  return '';
-};
-
-const MEDIA_VALUE_PATHS = [
-  ['url'],
-  ['path'],
-  ['downloadUrl'],
-  ['download_url'],
-  ['fileUrl'],
-  ['file_url'],
-  ['mediaUrl'],
-  ['media_url'],
-  ['videoUrl'],
-  ['video_url'],
-  ['src'],
-  ['href'],
-  ['publicUrl'],
-  ['public_url'],
-  ['secureUrl'],
-  ['secure_url'],
-  ['storageKey'],
-  ['storage_key'],
-  ['blobName'],
-  ['blob_name'],
-  ['file', 'url'],
-  ['file', 'path'],
-  ['file', 'downloadUrl'],
-  ['file', 'download_url'],
-  ['file', 'storageKey'],
-  ['file', 'storage_key'],
-  ['asset', 'url'],
-  ['asset', 'path'],
-  ['asset', 'downloadUrl'],
-  ['asset', 'download_url'],
-  ['asset', 'storageKey'],
-  ['media', 'url'],
-  ['media', 'path'],
-  ['media', 'storageKey'],
-  ['mediaFile', 'url'],
-  ['mediaFile', 'path'],
-  ['mediaFile', 'storageKey'],
-  // Logo / cover / avatar nested objects used by pages and profiles
-  ['logo', 'url'],
-  ['logo', 'path'],
-  ['logo', 'storageKey'],
-  ['cover', 'url'],
-  ['cover', 'path'],
-  ['cover', 'storageKey'],
-  ['avatar', 'url'],
-  ['avatar', 'path'],
-  ['avatar', 'storageKey'],
-  ['image', 'url'],
-  ['image', 'path'],
-  ['thumbnail', 'url'],
-  ['thumbnail', 'path']
-];
-
-const MEDIA_ID_PATHS = [
-  ['fileId'],
-  ['file_id'],
-  ['mediaFileId'],
-  ['media_file_id'],
-  ['profilePhotoFileId'],
-  ['profile_photo_file_id'],
-  ['logoFileId'],
-  ['logo_file_id'],
-  ['coverFileId'],
-  ['cover_file_id'],
-  ['imageFileId'],
-  ['image_file_id'],
-  ['avatarFileId'],
-  ['avatar_file_id'],
-  ['file', 'id'],
-  ['file', 'fileId'],
-  ['file', 'file_id'],
-  ['asset', 'id'],
-  ['asset', 'fileId'],
-  ['media', 'id'],
-  ['media', 'fileId'],
-  ['mediaFile', 'id'],
-  ['logo', 'id'],
-  ['logo', 'fileId'],
-  ['cover', 'id'],
-  ['cover', 'fileId'],
-  ['avatar', 'id'],
-  ['avatar', 'fileId'],
-  // Attachment/entity id last — only used when it looks like a storage file id.
-  ['id']
-];
-
-const POSTER_VALUE_PATHS = [
-  ['thumbnailUrl'],
-  ['thumbnail_url'],
-  ['posterUrl'],
-  ['poster_url'],
-  ['previewUrl'],
-  ['preview_url'],
-  ['thumbnailFileUrl'],
-  ['thumbnail_file_url'],
-  ['thumbnail', 'url'],
-  ['thumbnail', 'path'],
-  ['poster', 'url'],
-  ['poster', 'path'],
-  ['poster'],
-  ['preview', 'url'],
-  ['preview', 'path'],
-  ['file', 'thumbnailUrl'],
-  ['file', 'thumbnail_url'],
-  ['asset', 'thumbnailUrl'],
-  ['asset', 'thumbnail_url']
-];
-
-const POSTER_ID_PATHS = [
-  ['thumbnailFileId'],
-  ['thumbnail_file_id'],
-  ['thumbnail', 'id'],
-  ['poster', 'id'],
-  ['preview', 'id']
-];
-
-const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(String(value || '').trim());
-
-const isDiskFileId = (value: string) => String(value || '').trim().toLowerCase().startsWith('disk:');
-
-const isAssetLikePath = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.startsWith('/uploads/') ||
-    normalized.startsWith('uploads/') ||
-    normalized.includes('/uploads/') ||
-    normalized.startsWith('/api/files/') ||
-    normalized.startsWith('api/files/') ||
-    normalized.includes('/api/files/content/') ||
-    normalized.startsWith('/files/content/') ||
-    normalized.startsWith('files/content/')
-  );
-};
-
-const looksLikeDirectUrl = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return false;
-  if (isDiskFileId(normalized)) return false;
-  return (
-    normalized.startsWith('http://') ||
-    normalized.startsWith('https://') ||
-    normalized.startsWith('/') ||
-    normalized.startsWith('blob:') ||
-    normalized.startsWith('data:') ||
-    isAssetLikePath(normalized) ||
-    // Bare filenames / paths with extensions (not storage IDs)
-    (normalized.includes('.') && (normalized.includes('/') || /\.(png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|m4v|pdf)$/i.test(normalized)))
-  );
-};
+export { looksLikeFileId, buildFileContentUrl, resolveMediaDescriptor } from './mediaDescriptor';
 
 /**
- * True for Prisma file IDs, UUIDs, disk: legacy ids, and opaque storage keys.
- * False for human labels and normal web URLs/paths.
+ * Resolve a single primary media URL for attachments, logos, covers, and posts.
+ * Dual-path (fileId + /uploads): prefers the working legacy uploads URL and never
+ * rewrites it into a content URL that may 404.
  */
-export const looksLikeFileId = (value: string) => {
-  const normalized = String(value || '').trim();
-  if (!normalized) return false;
-  if (isDiskFileId(normalized)) return true;
-  if (/^https?:\/\//i.test(normalized) || normalized.startsWith('data:') || normalized.startsWith('blob:')) {
-    return false;
-  }
-  if (isAssetLikePath(normalized) || normalized.startsWith('/')) return false;
-  if (/\s/.test(normalized)) return false;
-  // cuid / uuid / firebase-ish object names
-  if (/^[a-z0-9_-]{12,}$/i.test(normalized)) return true;
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
-    return true;
-  }
-  // Storage object keys that are not plain filenames
-  if (/^[a-z0-9].*[a-z0-9]$/i.test(normalized) && normalized.includes('/') && normalized.length >= 8) {
-    return true;
-  }
-  return false;
-};
-
-const isLegacyUploadPath = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.startsWith('/uploads/') ||
-    normalized.startsWith('uploads/') ||
-    normalized.includes('/uploads/')
-  );
-};
-
-const isAlreadyFileContentRef = (value: string) => {
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    normalized.includes('/api/files/content/') ||
-    normalized.startsWith('api/files/content/') ||
-    normalized.includes('/files/content/') ||
-    normalized.startsWith('files/content/')
-  );
-};
-
-/**
- * Build a relative content path for a file id. Never double-wrap absolute URLs
- * or existing content paths.
- */
-const buildFileContentUrl = (value: string) => {
-  const contentId = String(value || '').trim();
-  if (!contentId) return '';
-
-  // Absolute URL — leave as-is for resolveAssetUrl.
-  if (isAbsoluteUrl(contentId)) return contentId;
-
-  // Already a content path (relative or host-less).
-  if (isAlreadyFileContentRef(contentId)) {
-    if (contentId.startsWith('/')) return contentId;
-    if (contentId.toLowerCase().startsWith('api/files/') || contentId.toLowerCase().startsWith('files/content/')) {
-      return `/${contentId.replace(/^\/+/, '')}`;
-    }
-    // Unexpected shape that still contains the marker — do not wrap again.
-    return contentId.startsWith('/') ? contentId : `/${contentId.replace(/^\/+/, '')}`;
-  }
-
-  return `/api/files/content/${encodeURIComponent(contentId)}`;
-};
-
-const resolveMediaCandidate = (value: string) => {
-  const normalized = String(value || '').trim();
-  if (!normalized) return '';
-  // Absolute / direct paths first — never wrap a full URL as a file id.
-  if (isAbsoluteUrl(normalized) || isAssetLikePath(normalized) || looksLikeDirectUrl(normalized)) {
-    return resolveAssetUrl(normalized);
-  }
-  if (isDiskFileId(normalized) || looksLikeFileId(normalized)) {
-    return resolveAssetUrl(buildFileContentUrl(normalized));
-  }
-  return '';
-};
-
 export const resolvePostAttachmentMediaUrl = (attachment: any) => {
   if (!attachment) return '';
-
-  if (typeof attachment === 'string') {
-    return resolveMediaCandidate(attachment);
-  }
-
-  const directValue = readFirstPathValue(attachment, MEDIA_VALUE_PATHS);
-  const normalizedDirect = String(directValue || '').trim();
-  const rawContentId = readFirstPathValue(attachment, MEDIA_ID_PATHS);
-  const contentId =
-    rawContentId && (isAbsoluteUrl(rawContentId) || looksLikeFileId(rawContentId) || isDiskFileId(rawContentId))
-      ? rawContentId
-      : '';
-
-  // Prefer already-valid absolute / content URLs over reconstructing from fileId.
-  // Only override with fileId when the direct URL is missing or a stale /uploads path.
-  const directIsUsable =
-    Boolean(normalizedDirect) &&
-    (isAbsoluteUrl(normalizedDirect) || isAlreadyFileContentRef(normalizedDirect) || looksLikeDirectUrl(normalizedDirect)) &&
-    !isLegacyUploadPath(normalizedDirect);
-
-  if (directIsUsable) {
-    return resolveAssetUrl(normalizedDirect);
-  }
-
-  // Prefer durable file-content URL over stale legacy /uploads paths.
-  if (contentId && (!normalizedDirect || isLegacyUploadPath(normalizedDirect))) {
-    if (isAbsoluteUrl(contentId)) return resolveAssetUrl(contentId);
-    return resolveAssetUrl(buildFileContentUrl(contentId));
-  }
-
-  if (normalizedDirect) {
-    // Nested storage keys that are not full URLs still map to content endpoint.
-    if (!looksLikeDirectUrl(normalizedDirect) && looksLikeFileId(normalizedDirect)) {
-      return resolveAssetUrl(buildFileContentUrl(normalizedDirect));
-    }
-    if (isDiskFileId(normalizedDirect)) {
-      return resolveAssetUrl(buildFileContentUrl(normalizedDirect));
-    }
-    if (looksLikeDirectUrl(normalizedDirect) || isAbsoluteUrl(normalizedDirect)) {
-      return resolveAssetUrl(normalizedDirect);
-    }
-  }
-
-  if (!contentId) return '';
-  if (isAbsoluteUrl(contentId)) return resolveAssetUrl(contentId);
-  return resolveAssetUrl(buildFileContentUrl(contentId));
+  return preferServableMediaUrl(attachment) || '';
 };
 
+/**
+ * Resolve poster/thumbnail independently from the primary media source.
+ */
 export const resolvePostAttachmentPosterUrl = (attachment: any) => {
   if (!attachment || typeof attachment === 'string') return undefined;
-  const posterValue = readFirstPathValue(attachment, POSTER_VALUE_PATHS);
-  const normalizedPoster = String(posterValue || '').trim();
-  const posterId = readFirstPathValue(attachment, POSTER_ID_PATHS);
+  const descriptor = resolveMediaDescriptor(attachment);
+  if (descriptor.posterUrl) return descriptor.posterUrl;
+  if (descriptor.thumbnailUrl) return descriptor.thumbnailUrl;
 
-  const posterIsUsable =
-    Boolean(normalizedPoster) &&
-    (isAbsoluteUrl(normalizedPoster) || isAlreadyFileContentRef(normalizedPoster) || looksLikeDirectUrl(normalizedPoster)) &&
-    !isLegacyUploadPath(normalizedPoster);
+  // Preserve prior nested poster-only paths that descriptor may not map when
+  // primary media fields are empty but poster fields exist.
+  const posterOnly = resolveMediaDescriptor({
+    url: attachment.thumbnailUrl || attachment.posterUrl || attachment.previewUrl,
+    fileId: attachment.thumbnailFileId || attachment.thumbnail_file_id,
+    storagePath: attachment.thumbnailStoragePath
+  });
+  return posterOnly.url || undefined;
+};
 
-  if (posterIsUsable) {
-    return resolveAssetUrl(normalizedPoster);
-  }
+/**
+ * Preferred + fallback pair for OptimizedImage / video onError handling.
+ * primary is always the safest known-working URL; fallback is the alternate.
+ */
+export const resolvePostAttachmentMediaPair = (attachment: any) => {
+  const descriptor = resolveMediaDescriptor(attachment);
+  const url = String(descriptor.url || '').trim();
+  const fallbackUrl = String(descriptor.fallbackUrl || '').trim();
+  return {
+    url,
+    fallbackUrl: fallbackUrl && fallbackUrl !== url ? fallbackUrl : '',
+    posterUrl: descriptor.posterUrl || descriptor.thumbnailUrl || '',
+    fileId: descriptor.fileId || '',
+    storagePath: descriptor.storagePath || ''
+  };
+};
 
-  if (posterId && (isDiskFileId(posterId) || looksLikeFileId(posterId)) && (!normalizedPoster || isLegacyUploadPath(normalizedPoster))) {
-    return resolveAssetUrl(buildFileContentUrl(posterId));
-  }
-  if (normalizedPoster) {
-    if (isDiskFileId(normalizedPoster) || (!looksLikeDirectUrl(normalizedPoster) && looksLikeFileId(normalizedPoster))) {
-      return resolveAssetUrl(buildFileContentUrl(normalizedPoster));
-    }
-    return resolveAssetUrl(normalizedPoster);
-  }
-  if (!posterId) return undefined;
-  if (isAbsoluteUrl(posterId)) return resolveAssetUrl(posterId);
-  if (looksLikeFileId(posterId) || isDiskFileId(posterId)) {
-    return resolveAssetUrl(buildFileContentUrl(posterId));
-  }
-  return undefined;
+/** @deprecated internal helper retained for tests that import path checks indirectly */
+export const __mediaInternals = {
+  buildFileContentUrl,
+  isAlreadyFileContentRef,
+  isLegacyUploadPath,
+  looksLikeFileId,
+  resolveAssetUrl
 };
