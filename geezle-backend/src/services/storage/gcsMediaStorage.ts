@@ -173,8 +173,29 @@ export const downloadGcsMediaBuffer = async (objectKey: string) => {
   }
 };
 
-export const createGcsMediaReadStream = (objectKey: string) => {
+/**
+ * Create a GCS read stream. Optional inclusive byte window for HTTP Range.
+ * @param opts.start inclusive start byte
+ * @param opts.end inclusive end byte (Node/GCS createReadStream end is inclusive)
+ */
+export const createGcsMediaReadStream = (
+  objectKey: string,
+  opts?: { start?: number; end?: number }
+) => {
   const key = normalizeObjectKey(objectKey);
+  const start = opts?.start;
+  const end = opts?.end;
+  if (
+    typeof start === 'number' &&
+    Number.isFinite(start) &&
+    typeof end === 'number' &&
+    Number.isFinite(end)
+  ) {
+    return getFile(key).createReadStream({ start, end });
+  }
+  if (typeof start === 'number' && Number.isFinite(start)) {
+    return getFile(key).createReadStream({ start });
+  }
   return getFile(key).createReadStream();
 };
 
