@@ -9,6 +9,11 @@ import {
   shouldUseMemoryUploadMulter,
   uploadFile
 } from '../controllers/filesController';
+import {
+  getFileManifest,
+  getFileProcessingStatus,
+  serveFileVariantContent
+} from '../controllers/files.mediaManifest.controller';
 
 const router = express.Router();
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
@@ -21,7 +26,7 @@ const isMemoryUploadDriver = () => shouldUseMemoryUploadMulter();
 const diskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadDir),
   filename: (_req, file, cb) => {
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]+/g, '_');
     cb(null, `${Date.now()}-${safeName}`);
   }
 });
@@ -62,6 +67,11 @@ const handleSingleUpload: express.RequestHandler = (req, res, next) => {
 
 // Public file content endpoint: supports public assets and authenticated private files.
 router.get('/content/:id', serveFileContent);
+
+// Phase 3A additive APIs (authorization enforced inside handlers).
+router.get('/:fileId/processing-status', getFileProcessingStatus);
+router.get('/:fileId/manifest', getFileManifest);
+router.get('/:fileId/variants/:variantId/content', serveFileVariantContent);
 
 router.use(authMiddleware);
 

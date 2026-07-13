@@ -1965,6 +1965,43 @@ export const serveFileContent = async (req: Request, res: Response) => {
 
     if (imageVariant && isResizableImageMimeType(file.mimeType)) {
       try {
+        // Phase 3A: prefer durable precomputed WebP variant when width matches.
+        try {
+          const { findMatchingImageVariant } = require('../services/media/mediaVariant.service');
+          const { createGcsMediaReadStream, gcsMediaExists, getGcsMediaMetadata } = require('../services/storage/gcsMediaStorage');
+          const precomputed = await findMatchingImageVariant({
+            fileId: file.id,
+            width: imageVariant.width,
+            format: 'webp'
+          });
+          if (precomputed?.storageKey && String(precomputed.storageKey).startsWith(`media/${file.id}/`)) {
+            const exists = await gcsMediaExists(precomputed.storageKey);
+            if (exists) {
+              let contentLength = Number(precomputed.sizeBytes || 0) || undefined;
+              try {
+                const meta = await getGcsMediaMetadata(precomputed.storageKey);
+                contentLength = Number(meta?.size || 0) || contentLength;
+              } catch {
+                // keep sizeBytes
+              }
+              applyFileResponseHeaders(res, {
+                contentType: precomputed.mimeType || 'image/webp',
+                contentLength,
+                cacheControl
+              });
+              const stream = createGcsMediaReadStream(precomputed.storageKey);
+              stream.on('error', () => {
+                if (!res.headersSent) res.status(500).end();
+                else res.end();
+              });
+              stream.pipe(res);
+              return;
+            }
+          }
+        } catch {
+          // Fall through to Jimp on-demand path
+        }
+
         const cacheKey = buildImageVariantCacheKey(file, imageVariant);
         const cachedVariant = !isPrivate ? imageVariantCache.get(cacheKey) : null;
         if (cachedVariant) {
@@ -2731,6 +2768,23 @@ const persistUploadedFile = async (params: {
       }
     }
     throw createError;
+  }
+
+  // Phase 3A: enqueue image processing after durable File row exists.
+  // Never fails the upload if enqueue fails. Disabled by default via feature flags.
+  try {
+    // Queue abstraction only — Cloud Tasks can replace the queue implementation later
+    // without changing this call site (see mediaProcessing.enqueue + mediaProcessingQueue).
+    const { enqueueImageProcessingSafe } = require('../services/media/mediaProcessing.enqueue');
+    void enqueueImageProcessingSafe(created.id, {
+      mimeType: created.mimeType,
+      category
+    });
+  } catch (enqueueError) {
+    console.warn('Image processing enqueue hook failed (upload unaffected):', {
+      fileIdPrefix: String(created.id || '').slice(0, 8),
+      error: String((enqueueError as any)?.message || enqueueError)
+    });
   }
 
   return normalizeRecord({

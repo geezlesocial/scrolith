@@ -8,45 +8,45 @@ datasource db {
 }
 
 model User {
-  id                        String    @id @default(cuid())
-  email                     String    @unique
-  username                  String?   @unique
-  passwordHash              String?
-  name                      String?
-  role                      Role      @default(USER)
-  avatar                    String?
-  profilePhotoFileId        String?
-  phone                     String?
-  country                   String?
-  timezone                  String?
-  kycStatus                 KYCStatus @default(PENDING)
-  isVerified                Boolean   @default(false)
-  isActive                  Boolean   @default(true)
-  isOnline                  Boolean   @default(false)
-  lastLoginAt               DateTime?
-  lastSeenAt                DateTime?
-  freelancerPlanId          String?
-  freelancerPlanName        String?
-  freelancerPlanInterval    String?
-  freelancerPlanPrice       Float?
-  freelancerPlanCurrency    String?
-  freelancerPlanActive      Boolean   @default(false)
-  freelancerPlanPurchasedAt DateTime?
-  freelancerPlanExpiresAt   DateTime?
-  employerPlanId            String?
-  employerPlanName          String?
-  employerPlanInterval      String?
-  employerPlanPrice         Float?
-  employerPlanCurrency      String?
-  employerPlanActive        Boolean   @default(false)
-  employerPlanPurchasedAt   DateTime?
-  employerPlanExpiresAt     DateTime?
-  stripeAccountId           String?
-  refreshToken              String?
-  followOnboardingRequired  Boolean   @default(false)
+  id                          String    @id @default(cuid())
+  email                       String    @unique
+  username                    String?   @unique
+  passwordHash                String?
+  name                        String?
+  role                        Role      @default(USER)
+  avatar                      String?
+  profilePhotoFileId          String?
+  phone                       String?
+  country                     String?
+  timezone                    String?
+  kycStatus                   KYCStatus @default(PENDING)
+  isVerified                  Boolean   @default(false)
+  isActive                    Boolean   @default(true)
+  isOnline                    Boolean   @default(false)
+  lastLoginAt                 DateTime?
+  lastSeenAt                  DateTime?
+  freelancerPlanId            String?
+  freelancerPlanName          String?
+  freelancerPlanInterval      String?
+  freelancerPlanPrice         Float?
+  freelancerPlanCurrency      String?
+  freelancerPlanActive        Boolean   @default(false)
+  freelancerPlanPurchasedAt   DateTime?
+  freelancerPlanExpiresAt     DateTime?
+  employerPlanId              String?
+  employerPlanName            String?
+  employerPlanInterval        String?
+  employerPlanPrice           Float?
+  employerPlanCurrency        String?
+  employerPlanActive          Boolean   @default(false)
+  employerPlanPurchasedAt     DateTime?
+  employerPlanExpiresAt       DateTime?
+  stripeAccountId             String?
+  refreshToken                String?
+  followOnboardingRequired    Boolean   @default(false)
   followOnboardingCompletedAt DateTime?
-  createdAt                 DateTime  @default(now())
-  updatedAt                 DateTime  @updatedAt
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
 
   // Relationships
   profile              Profile?
@@ -73,17 +73,17 @@ model User {
   proposals Proposal[]
 
   // Favorites
-  favorites       Favorite[]
-  postCollections  PostCollection[]
-  cart             Cart?
-  marketplaceListings         MarketplaceListing[]   @relation("MarketplaceListingSeller")
-  marketplaceInquiriesBuying  MarketplaceInquiry[]   @relation("MarketplaceInquiryBuyer")
-  marketplaceInquiriesSelling MarketplaceInquiry[]   @relation("MarketplaceInquirySeller")
-  marketplaceReportsFiled     MarketplaceReport[]    @relation("MarketplaceReportReporter")
-  marketplaceReportsResolved  MarketplaceReport[]    @relation("MarketplaceReportResolver")
-  marketplaceOrdersPlaced     MarketplaceOrder[]     @relation("MarketplaceOrderBuyer")
-  marketplaceOrdersSold       MarketplaceOrder[]     @relation("MarketplaceOrderSeller")
-  marketplaceAuditLogs        MarketplaceAuditLog[]  @relation("MarketplaceAuditActor")
+  favorites                   Favorite[]
+  postCollections             PostCollection[]
+  cart                        Cart?
+  marketplaceListings         MarketplaceListing[]  @relation("MarketplaceListingSeller")
+  marketplaceInquiriesBuying  MarketplaceInquiry[]  @relation("MarketplaceInquiryBuyer")
+  marketplaceInquiriesSelling MarketplaceInquiry[]  @relation("MarketplaceInquirySeller")
+  marketplaceReportsFiled     MarketplaceReport[]   @relation("MarketplaceReportReporter")
+  marketplaceReportsResolved  MarketplaceReport[]   @relation("MarketplaceReportResolver")
+  marketplaceOrdersPlaced     MarketplaceOrder[]    @relation("MarketplaceOrderBuyer")
+  marketplaceOrdersSold       MarketplaceOrder[]    @relation("MarketplaceOrderSeller")
+  marketplaceAuditLogs        MarketplaceAuditLog[] @relation("MarketplaceAuditActor")
 
   // Gcoin
   gcoinWallet       GcoinWallet?
@@ -107,22 +107,22 @@ model User {
   ltvPredictions LtvPrediction[]
 
   // Community relationships
-  forumThreads       ForumThread[]
-  forumComments      ForumComment[]
-  forumLikes         ForumLike[]
-  communityClubs     CommunityClub[]     @relation("ClubOwner")
-  clubMemberships    ClubMembership[]
-  clubJoinRequests   ClubJoinRequest[]   @relation("ClubJoinRequestUser")
-  clubModerationActions ClubJoinRequest[] @relation("ClubJoinRequestModerator")
-  clubInvitesReceived ClubInvite[]       @relation("ClubInviteRecipient")
-  clubInvitesSent     ClubInvite[]       @relation("ClubInviteSender")
-  communityEvents    CommunityEvent[]    @relation("EventHost")
-  eventRegistrations EventRegistration[]
-  communityChannels  CommunityChannel[]  @relation("ChannelOwner")
-  channelMemberships ChannelMembership[]
-  communityMessages  CommunityMessage[]
-  kycSubmissions     KYCSubmission[]
-  kycDocuments       KYCDocument[]
+  forumThreads          ForumThread[]
+  forumComments         ForumComment[]
+  forumLikes            ForumLike[]
+  communityClubs        CommunityClub[]     @relation("ClubOwner")
+  clubMemberships       ClubMembership[]
+  clubJoinRequests      ClubJoinRequest[]   @relation("ClubJoinRequestUser")
+  clubModerationActions ClubJoinRequest[]   @relation("ClubJoinRequestModerator")
+  clubInvitesReceived   ClubInvite[]        @relation("ClubInviteRecipient")
+  clubInvitesSent       ClubInvite[]        @relation("ClubInviteSender")
+  communityEvents       CommunityEvent[]    @relation("EventHost")
+  eventRegistrations    EventRegistration[]
+  communityChannels     CommunityChannel[]  @relation("ChannelOwner")
+  channelMemberships    ChannelMembership[]
+  communityMessages     CommunityMessage[]
+  kycSubmissions        KYCSubmission[]
+  kycDocuments          KYCDocument[]
 
   // Direct messaging
   conversations         ConversationParticipant[]
@@ -245,7 +245,7 @@ model User {
 
   // Resume / CV builder and reviewer
   resumeDocuments ResumeDocument[] @relation("ResumeDocuments")
-  resumeAnalyses  ResumeAnalysis[]  @relation("ResumeAnalyses")
+  resumeAnalyses  ResumeAnalysis[] @relation("ResumeAnalyses")
 }
 
 model Profile {
@@ -294,25 +294,25 @@ model Profile {
 }
 
 model ResumeDocument {
-  id              String   @id @default(cuid())
-  userId          String
-  freelancerId    String?
-  title           String
-  targetRole      String?
-  targetIndustry  String?
-  template        String   @default("professional")
-  includePhoto    Boolean  @default(false)
-  photoUrl        String?
-  status          String   @default("draft")
-  sourceSnapshot  Json?
-  editableData    Json?
-  aiOutput        Json?
-  pdfUrl          String?
-  pdfStorageKey   String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String   @id @default(cuid())
+  userId         String
+  freelancerId   String?
+  title          String
+  targetRole     String?
+  targetIndustry String?
+  template       String   @default("professional")
+  includePhoto   Boolean  @default(false)
+  photoUrl       String?
+  status         String   @default("draft")
+  sourceSnapshot Json?
+  editableData   Json?
+  aiOutput       Json?
+  pdfUrl         String?
+  pdfStorageKey  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  user     User           @relation("ResumeDocuments", fields: [userId], references: [id], onDelete: Cascade)
+  user     User            @relation("ResumeDocuments", fields: [userId], references: [id], onDelete: Cascade)
   versions ResumeVersion[]
 
   @@index([userId])
@@ -321,21 +321,21 @@ model ResumeDocument {
 }
 
 model ResumeVersion {
-  id             String   @id @default(cuid())
-  resumeId       String
-  versionNumber  Int
-  changeReason   String?
-  prompt         String?
-  editableData   Json?
-  aiOutput       Json?
-  pdfUrl         String?
-  pdfStorageKey  String?
-  createdAt      DateTime @default(now())
+  id            String   @id @default(cuid())
+  resumeId      String
+  versionNumber Int
+  changeReason  String?
+  prompt        String?
+  editableData  Json?
+  aiOutput      Json?
+  pdfUrl        String?
+  pdfStorageKey String?
+  createdAt     DateTime @default(now())
 
   resume ResumeDocument @relation(fields: [resumeId], references: [id], onDelete: Cascade)
 
-  @@index([resumeId])
   @@unique([resumeId, versionNumber])
+  @@index([resumeId])
 }
 
 model ResumeAnalysis {
@@ -627,11 +627,11 @@ model Category {
   updatedAt   DateTime     @updatedAt
 
   // Relationships
-  parent       Category?     @relation("CategoryChildren", fields: [parentId], references: [id])
-  children     Category[]    @relation("CategoryChildren")
-  gigs         Gig[]
-  jobs         Job[]
-  forumThreads ForumThread[] @relation("ForumCategory")
+  parent              Category?            @relation("CategoryChildren", fields: [parentId], references: [id])
+  children            Category[]           @relation("CategoryChildren")
+  gigs                Gig[]
+  jobs                Job[]
+  forumThreads        ForumThread[]        @relation("ForumCategory")
   marketplaceListings MarketplaceListing[] @relation("MarketplaceListingCategory")
 }
 
@@ -748,24 +748,24 @@ model FxProvider {
   updatedAt    DateTime @updatedAt
 
   snapshots FxSnapshot[]
-  syncJobs   FxSyncJob[]
+  syncJobs  FxSyncJob[]
 
   @@index([enabled, priority])
 }
 
 model FxSnapshot {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   providerCode    String
   baseCurrency    String
-  status          String   @default("PENDING")
+  status          String    @default("PENDING")
   sourceTimestamp DateTime
-  fetchedAt       DateTime @default(now())
+  fetchedAt       DateTime  @default(now())
   approvedAt      DateTime?
   approvedById    String?
-  isFrozen        Boolean  @default(false)
+  isFrozen        Boolean   @default(false)
   sourceMeta      Json?
 
-  provider FxProvider @relation(fields: [providerCode], references: [code], onDelete: Restrict)
+  provider FxProvider  @relation(fields: [providerCode], references: [code], onDelete: Restrict)
   rates    FxRate[]
   syncJobs FxSyncJob[]
 
@@ -789,35 +789,35 @@ model FxRate {
 }
 
 model FxManualOverride {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   fromCurrency  String
   toCurrency    String
-  rate          Decimal  @db.Decimal(20, 10)
+  rate          Decimal   @db.Decimal(20, 10)
   effectiveFrom DateTime
   effectiveTo   DateTime?
   reason        String
-  status        String   @default("PENDING")
+  status        String    @default("PENDING")
   createdById   String?
   approvedById  String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([fromCurrency, toCurrency, status, effectiveFrom])
   @@index([status, createdAt])
 }
 
 model FxSyncJob {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   providerCode    String
   snapshotId      String?
-  status          String   @default("RUNNING")
-  startedAt       DateTime @default(now())
+  status          String    @default("RUNNING")
+  startedAt       DateTime  @default(now())
   finishedAt      DateTime?
   baseCurrency    String
   requestedById   String?
-  triggerType     String   @default("manual")
+  triggerType     String    @default("manual")
   error           String?
-  recordsInserted Int      @default(0)
+  recordsInserted Int       @default(0)
   meta            Json?
 
   provider FxProvider  @relation(fields: [providerCode], references: [code], onDelete: Restrict)
@@ -2433,53 +2433,53 @@ model Favorite {
 }
 
 model MarketplaceListing {
-  id              String   @id @default(cuid())
-  sellerId        String
-  title           String
-  slug            String   @unique
-  description     String   @db.Text
-  categoryId      String?
-  subcategoryId   String?
-  condition       String   @default("new")
-  brand           String?
-  tags            String[] @default([])
-  price           Float
-  currency        String   @default("USD")
-  negotiable      Boolean  @default(false)
-  quantity        Int      @default(1)
-  location        String?
-  latitude        Float?
-  longitude       Float?
-  meetupPreferences String[] @default([])
-  hideFromFriendsAndFollowers Boolean @default(false)
-  deliveryOptions String[] @default([])
-  paymentMethods  String[] @default([])
-  contactPreference String? @default("message")
-  status          String   @default("draft")
-  reviewStatus    String   @default("pending")
-  rejectionReason String?
-  adminNotes      String?
-  featured        Boolean  @default(false)
-  pinned          Boolean  @default(false)
-  promoted        Boolean  @default(false)
-  viewCount       Int      @default(0)
-  saveCount       Int      @default(0)
-  reportCount     Int      @default(0)
-  soldAt          DateTime?
-  reservedAt      DateTime?
-  approvedAt      DateTime?
-  rejectedAt      DateTime?
-  removedAt       DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                          String    @id @default(cuid())
+  sellerId                    String
+  title                       String
+  slug                        String    @unique
+  description                 String    @db.Text
+  categoryId                  String?
+  subcategoryId               String?
+  condition                   String    @default("new")
+  brand                       String?
+  tags                        String[]  @default([])
+  price                       Float
+  currency                    String    @default("USD")
+  negotiable                  Boolean   @default(false)
+  quantity                    Int       @default(1)
+  location                    String?
+  latitude                    Float?
+  longitude                   Float?
+  meetupPreferences           String[]  @default([])
+  hideFromFriendsAndFollowers Boolean   @default(false)
+  deliveryOptions             String[]  @default([])
+  paymentMethods              String[]  @default([])
+  contactPreference           String?   @default("message")
+  status                      String    @default("draft")
+  reviewStatus                String    @default("pending")
+  rejectionReason             String?
+  adminNotes                  String?
+  featured                    Boolean   @default(false)
+  pinned                      Boolean   @default(false)
+  promoted                    Boolean   @default(false)
+  viewCount                   Int       @default(0)
+  saveCount                   Int       @default(0)
+  reportCount                 Int       @default(0)
+  soldAt                      DateTime?
+  reservedAt                  DateTime?
+  approvedAt                  DateTime?
+  rejectedAt                  DateTime?
+  removedAt                   DateTime?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
 
-  seller       User       @relation("MarketplaceListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
-  category     Category?  @relation("MarketplaceListingCategory", fields: [categoryId], references: [id], onDelete: SetNull)
-  media        MarketplaceListingMedia[]
-  inquiries    MarketplaceInquiry[]
-  reports      MarketplaceReport[]
-  orders       MarketplaceOrder[]
-  auditLogs    MarketplaceAuditLog[]
+  seller    User                      @relation("MarketplaceListingSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  category  Category?                 @relation("MarketplaceListingCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  media     MarketplaceListingMedia[]
+  inquiries MarketplaceInquiry[]
+  reports   MarketplaceReport[]
+  orders    MarketplaceOrder[]
+  auditLogs MarketplaceAuditLog[]
 
   @@index([sellerId])
   @@index([categoryId])
@@ -2492,21 +2492,21 @@ model MarketplaceListing {
 }
 
 model MarketplaceListingMedia {
-  id               String   @id @default(cuid())
-  listingId        String
-  fileId           String?
-  type             String
-  url              String
-  storagePath      String
-  thumbnailUrl     String?
-  sortOrder        Int      @default(0)
-  mimeType         String
-  sizeBytes        BigInt
-  width            Int?
-  height           Int?
-  durationSeconds  Float?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String   @id @default(cuid())
+  listingId       String
+  fileId          String?
+  type            String
+  url             String
+  storagePath     String
+  thumbnailUrl    String?
+  sortOrder       Int      @default(0)
+  mimeType        String
+  sizeBytes       BigInt
+  width           Int?
+  height          Int?
+  durationSeconds Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   file    File?              @relation(fields: [fileId], references: [id], onDelete: SetNull)
@@ -2519,19 +2519,19 @@ model MarketplaceListingMedia {
 }
 
 model MarketplaceInquiry {
-  id           String   @id @default(cuid())
-  listingId    String
-  buyerId      String
-  sellerId     String
-  message      String   @db.Text
-  status       String   @default("open")
+  id             String   @id @default(cuid())
+  listingId      String
+  buyerId        String
+  sellerId       String
+  message        String   @db.Text
+  status         String   @default("open")
   conversationId String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  listing     MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  buyer       User                @relation("MarketplaceInquiryBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
-  seller      User                @relation("MarketplaceInquirySeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  listing MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  buyer   User               @relation("MarketplaceInquiryBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  seller  User               @relation("MarketplaceInquirySeller", fields: [sellerId], references: [id], onDelete: Cascade)
 
   @@index([listingId])
   @@index([buyerId])
@@ -2541,21 +2541,21 @@ model MarketplaceInquiry {
 }
 
 model MarketplaceReport {
-  id            String   @id @default(cuid())
-  listingId     String
-  reporterId    String
-  reason        String
-  details       String?  @db.Text
-  status        String   @default("open")
-  resolution    String?  @db.Text
-  resolvedById  String?
-  resolvedAt    DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String    @id @default(cuid())
+  listingId    String
+  reporterId   String
+  reason       String
+  details      String?   @db.Text
+  status       String    @default("open")
+  resolution   String?   @db.Text
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  listing     MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  reporter    User                @relation("MarketplaceReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
-  resolvedBy  User?               @relation("MarketplaceReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  listing    MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reporter   User               @relation("MarketplaceReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  resolvedBy User?              @relation("MarketplaceReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
   @@index([listingId])
   @@index([reporterId])
@@ -3092,32 +3092,68 @@ model CMSConfig {
 
 // Uploaded Files (single source of truth)
 model File {
-  id                         String         @id @default(cuid())
-  ownerId                    String?        @map("owner_id")
-  ownerRole                  FileOwnerRole  @default(ADMIN)
+  id                         String                    @id @default(cuid())
+  ownerId                    String?                   @map("owner_id")
+  ownerRole                  FileOwnerRole             @default(ADMIN)
   filename                   String
-  originalName               String         @map("original_name")
-  mimeType                   String         @map("mime_type")
+  originalName               String                    @map("original_name")
+  mimeType                   String                    @map("mime_type")
   size                       BigInt
   url                        String
-  storageKey                 String         @unique @map("storage_key")
-  storageProvider            String         @default("local") @map("storage_provider")
-  thumbnailUrl               String?        @map("thumbnail_url")
+  storageKey                 String                    @unique @map("storage_key")
+  storageProvider            String                    @default("local") @map("storage_provider")
+  thumbnailUrl               String?                   @map("thumbnail_url")
   videoPerceptualHash        String?
   videoPerceptualHashVersion Int?
   width                      Int?
   height                     Int?
   duration                   Float?
-  visibility                 FileVisibility @default(PUBLIC)
-  createdAt                  DateTime       @default(now()) @map("created_at")
+  visibility                 FileVisibility            @default(PUBLIC)
+  // Phase 3A — image processing (nullable, additive; originals always available)
+  processingStatus           FileProcessingStatus      @default(PENDING) @map("processing_status")
+  processingVersion          Int                       @default(0) @map("processing_version")
+  processingErrorCode        String?                   @map("processing_error_code")
+  processingStartedAt        DateTime?                 @map("processing_started_at")
+  processingCompletedAt      DateTime?                 @map("processing_completed_at")
+  variantsManifest           Json?                     @map("variants_manifest")
+  createdAt                  DateTime                  @default(now()) @map("created_at")
   usages                     FileUsage[]
+  variants                   FileVariant[]
   voiceNotes                 VoiceNote[]
   marketplaceMedia           MarketplaceListingMedia[]
 
   @@index([ownerId])
   @@index([ownerRole])
   @@index([createdAt])
+  @@index([processingStatus])
   @@map("files")
+}
+
+/// Phase 3A — durable image (and later video) derivatives. Idempotent per unique key.
+model FileVariant {
+  id              String            @id @default(cuid())
+  fileId          String            @map("file_id")
+  kind            String
+  label           String            @default("default")
+  width           Int?
+  height          Int?
+  format          String
+  mimeType        String            @map("mime_type")
+  storageProvider String            @default("google_cloud_storage") @map("storage_provider")
+  storageKey      String            @map("storage_key")
+  sizeBytes       BigInt            @default(0) @map("size_bytes")
+  checksum        String?
+  status          FileVariantStatus @default(READY)
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@unique([fileId, kind, width, format, label])
+  @@unique([storageKey])
+  @@index([fileId])
+  @@index([status])
+  @@map("file_variants")
 }
 
 model ManagedUploadObject {
@@ -3175,6 +3211,20 @@ enum FileOwnerRole {
 enum FileVisibility {
   PRIVATE
   PUBLIC
+}
+
+enum FileProcessingStatus {
+  PENDING
+  PROCESSING
+  READY
+  PARTIAL
+  FAILED
+  SKIPPED
+}
+
+enum FileVariantStatus {
+  READY
+  FAILED
 }
 
 enum KYCStatus {
@@ -3484,26 +3534,26 @@ model ForumLike {
 }
 
 model CommunityClub {
-  id          String            @id @default(cuid())
-  name        String
-  slug        String            @unique
-  summary     String?
-  description String            @db.Text
-  coverImage  String?
-  avatarImage String?
-  visibility  ChannelVisibility @default(PUBLIC)
-  category    String?
-  location    String?
-  joinMode    String            @default("open")
-  postPermission String         @default("members")
-  membersCanInvite Boolean      @default(true)
-  faqs        Json?
-  postingGuidelines String?     @db.Text
-  status      String            @default("active")
-  ownerId     String
-  memberCount Int               @default(0)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id                String            @id @default(cuid())
+  name              String
+  slug              String            @unique
+  summary           String?
+  description       String            @db.Text
+  coverImage        String?
+  avatarImage       String?
+  visibility        ChannelVisibility @default(PUBLIC)
+  category          String?
+  location          String?
+  joinMode          String            @default("open")
+  postPermission    String            @default("members")
+  membersCanInvite  Boolean           @default(true)
+  faqs              Json?
+  postingGuidelines String?           @db.Text
+  status            String            @default("active")
+  ownerId           String
+  memberCount       Int               @default(0)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   // Relationships
   owner        User              @relation("ClubOwner", fields: [ownerId], references: [id])
@@ -3520,14 +3570,14 @@ model CommunityClub {
 }
 
 model ClubMembership {
-  id       String   @id @default(cuid())
-  clubId   String
-  userId   String
-  role     String   @default("member")
-  status   String   @default("active")
+  id          String   @id @default(cuid())
+  clubId      String
+  userId      String
+  role        String   @default("member")
+  status      String   @default("active")
   invitedById String?
-  joinedAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  joinedAt    DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relationships
   club CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
@@ -3539,16 +3589,16 @@ model ClubMembership {
 }
 
 model ClubJoinRequest {
-  id          String   @id @default(cuid())
+  id           String    @id @default(cuid())
   clubId       String
   userId       String
   answers      Json?
-  status       String   @default("pending")
-  requestedAt  DateTime @default(now())
+  status       String    @default("pending")
+  requestedAt  DateTime  @default(now())
   reviewedAt   DateTime?
   reviewedById String?
-  note         String?  @db.Text
-  reviewNote   String?  @db.Text
+  note         String?   @db.Text
+  reviewNote   String?   @db.Text
 
   club       CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
   user       User          @relation("ClubJoinRequestUser", fields: [userId], references: [id], onDelete: Cascade)
@@ -3560,23 +3610,23 @@ model ClubJoinRequest {
 }
 
 model ClubInvite {
-  id          String   @id @default(cuid())
-  clubId       String
-  inviteeId    String
-  invitedById  String
-  role         String   @default("member")
-  status       String   @default("pending")
-  note         String?  @db.Text
-  invitedAt    DateTime @default(now())
-  respondedAt  DateTime?
+  id          String    @id @default(cuid())
+  clubId      String
+  inviteeId   String
+  invitedById String
+  role        String    @default("member")
+  status      String    @default("pending")
+  note        String?   @db.Text
+  invitedAt   DateTime  @default(now())
+  respondedAt DateTime?
 
   club      CommunityClub @relation(fields: [clubId], references: [id], onDelete: Cascade)
   invitee   User          @relation("ClubInviteRecipient", fields: [inviteeId], references: [id], onDelete: Cascade)
   invitedBy User          @relation("ClubInviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
 
+  @@unique([clubId, inviteeId, status])
   @@index([clubId, status, invitedAt])
   @@index([inviteeId, status, invitedAt])
-  @@unique([clubId, inviteeId, status])
 }
 
 model CommunityEvent {
@@ -3948,14 +3998,14 @@ model CommunityPost {
   reposts      CommunityPost[]        @relation("CommunityPostReposts")
 
   // Earning events and relations
-  earningEvents GcoinEarningEvent[]
-  comments      CommunityPostComment[]
-    reactions     CommunityPostReaction[]
-    hiddenBy      CommunityPostHidden[]
-    feedback      CommunityPostFeedback[]
-    reports       CommunityPostReport[]
-    prediction    PostPrediction?
-    savedInCollections PostCollectionItem[]
+  earningEvents      GcoinEarningEvent[]
+  comments           CommunityPostComment[]
+  reactions          CommunityPostReaction[]
+  hiddenBy           CommunityPostHidden[]
+  feedback           CommunityPostFeedback[]
+  reports            CommunityPostReport[]
+  prediction         PostPrediction?
+  savedInCollections PostCollectionItem[]
 
   @@index([authorId])
   @@index([status])
@@ -5235,32 +5285,32 @@ model BudgetRule {
 }
 
 model PurchaseRequest {
-  id                      String   @id @default(cuid())
-  requestNumber           String   @unique @map("request_number")
-  requesterUserId         String?  @map("requester_user_id")
-  requesterStaffId        String?  @map("requester_staff_id")
-  costCenterId            String?  @map("cost_center_id")
+  id                      String    @id @default(cuid())
+  requestNumber           String    @unique @map("request_number")
+  requesterUserId         String?   @map("requester_user_id")
+  requesterStaffId        String?   @map("requester_staff_id")
+  costCenterId            String?   @map("cost_center_id")
   department              String?
-  projectCode             String?  @map("project_code")
+  projectCode             String?   @map("project_code")
   title                   String
   description             String?
-  entityType              String   @default("generic") @map("entity_type")
-  entityId                String?  @map("entity_id")
+  entityType              String    @default("generic") @map("entity_type")
+  entityId                String?   @map("entity_id")
   amount                  Float
-  currency                String   @default("USD")
-  status                  String   @default("DRAFT")
-  budgetStatus            String   @default("WITHIN_BUDGET") @map("budget_status")
-  financeStatus           String   @default("PENDING") @map("finance_status")
-  approvalThresholdAmount Float?   @map("approval_threshold_amount")
-  spendCapAtRequest       Float?   @map("spend_cap_at_request")
+  currency                String    @default("USD")
+  status                  String    @default("DRAFT")
+  budgetStatus            String    @default("WITHIN_BUDGET") @map("budget_status")
+  financeStatus           String    @default("PENDING") @map("finance_status")
+  approvalThresholdAmount Float?    @map("approval_threshold_amount")
+  spendCapAtRequest       Float?    @map("spend_cap_at_request")
   requiredBy              DateTime? @map("required_by")
   approvedAt              DateTime? @map("approved_at")
   rejectedAt              DateTime? @map("rejected_at")
   metadata                Json?
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
-  costCenter          CostCenter?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  costCenter          CostCenter?          @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
   approvals           PurchaseApproval[]
   purchaseOrders      PurchaseOrder[]
   spendAuthorizations SpendAuthorization[]
@@ -5316,17 +5366,17 @@ model PurchaseOrder {
 }
 
 model SpendAuthorization {
-  id                String    @id @default(cuid())
-  authorizationNumber String  @unique @map("authorization_number")
-  purchaseRequestId String?   @map("purchase_request_id")
-  approvedAmount    Float     @map("approved_amount")
-  currency          String    @default("USD")
-  status            String    @default("ACTIVE")
-  expiresAt         DateTime? @map("expires_at")
-  approvedByStaffId String?   @map("approved_by_staff_id")
-  metadata          Json?
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  id                  String    @id @default(cuid())
+  authorizationNumber String    @unique @map("authorization_number")
+  purchaseRequestId   String?   @map("purchase_request_id")
+  approvedAmount      Float     @map("approved_amount")
+  currency            String    @default("USD")
+  status              String    @default("ACTIVE")
+  expiresAt           DateTime? @map("expires_at")
+  approvedByStaffId   String?   @map("approved_by_staff_id")
+  metadata            Json?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
 
@@ -5368,9 +5418,9 @@ model InvoiceRecord {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  costCenter      CostCenter?      @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
-  purchaseRequest PurchaseRequest? @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
-  purchaseOrder   PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  costCenter      CostCenter?       @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  purchaseRequest PurchaseRequest?  @relation(fields: [purchaseRequestId], references: [id], onDelete: SetNull)
+  purchaseOrder   PurchaseOrder?    @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   lineItems       InvoiceLineItem[]
   creditNotes     CreditNote[]
 
@@ -5424,22 +5474,22 @@ model CreditNote {
 }
 
 model ComplianceCase {
-  id            String    @id @default(cuid())
-  caseNumber    String    @unique @map("case_number")
-  caseType      String    @map("case_type")
-  status        String    @default("OPEN")
-  priority      String    @default("MEDIUM")
-  entityType    String    @map("entity_type")
-  entityId      String?   @map("entity_id")
-  subjectUserId String?   @map("subject_user_id")
-  assignedStaffId String? @map("assigned_staff_id")
-  riskScore     Float?    @map("risk_score")
-  holdState     String    @default("NONE") @map("hold_state")
-  slaDueAt      DateTime? @map("sla_due_at")
-  summary       String?
-  metadata      Json?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id              String    @id @default(cuid())
+  caseNumber      String    @unique @map("case_number")
+  caseType        String    @map("case_type")
+  status          String    @default("OPEN")
+  priority        String    @default("MEDIUM")
+  entityType      String    @map("entity_type")
+  entityId        String?   @map("entity_id")
+  subjectUserId   String?   @map("subject_user_id")
+  assignedStaffId String?   @map("assigned_staff_id")
+  riskScore       Float?    @map("risk_score")
+  holdState       String    @default("NONE") @map("hold_state")
+  slaDueAt        DateTime? @map("sla_due_at")
+  summary         String?
+  metadata        Json?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   evidence  ComplianceEvidence[]
   decisions ComplianceDecisionLog[]
@@ -5453,14 +5503,14 @@ model ComplianceCase {
 }
 
 model ComplianceEvidence {
-  id          String   @id @default(cuid())
-  caseId      String   @map("case_id")
-  kind        String
-  label       String
-  fileUrl     String?  @map("file_url")
-  payload     Json?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(cuid())
+  caseId    String   @map("case_id")
+  kind      String
+  label     String
+  fileUrl   String?  @map("file_url")
+  payload   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   case ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
@@ -5468,10 +5518,10 @@ model ComplianceEvidence {
 }
 
 model ComplianceDecisionLog {
-  id          String   @id @default(cuid())
-  caseId       String  @map("case_id")
-  actorUserId  String? @map("actor_user_id")
-  actorStaffId String? @map("actor_staff_id")
+  id           String   @id @default(cuid())
+  caseId       String   @map("case_id")
+  actorUserId  String?  @map("actor_user_id")
+  actorStaffId String?  @map("actor_staff_id")
   action       String
   note         String?
   metadata     Json?
@@ -5484,15 +5534,15 @@ model ComplianceDecisionLog {
 }
 
 model ComplianceAppeal {
-  id             String   @id @default(cuid())
-  caseId         String   @map("case_id")
-  requesterUserId String  @map("requester_user_id")
-  status         String   @default("OPEN")
-  statement      String
-  resolutionNote String?  @map("resolution_note")
-  metadata       Json?
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  id              String   @id @default(cuid())
+  caseId          String   @map("case_id")
+  requesterUserId String   @map("requester_user_id")
+  status          String   @default("OPEN")
+  statement       String
+  resolutionNote  String?  @map("resolution_note")
+  metadata        Json?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
 
   case ComplianceCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
@@ -5519,15 +5569,15 @@ model RiskRule {
 }
 
 model RiskScoreSnapshot {
-  id           String   @id @default(cuid())
-  entityType   String   @map("entity_type")
-  entityId     String?  @map("entity_id")
-  subjectUserId String? @map("subject_user_id")
-  score        Float
-  level        String
-  signals      Json?
-  metadata     Json?
-  createdAt    DateTime @default(now()) @map("created_at")
+  id            String   @id @default(cuid())
+  entityType    String   @map("entity_type")
+  entityId      String?  @map("entity_id")
+  subjectUserId String?  @map("subject_user_id")
+  score         Float
+  level         String
+  signals       Json?
+  metadata      Json?
+  createdAt     DateTime @default(now()) @map("created_at")
 
   @@index([entityType, entityId, createdAt])
   @@index([subjectUserId, createdAt])
@@ -5535,17 +5585,17 @@ model RiskScoreSnapshot {
 }
 
 model HoldAction {
-  id            String    @id @default(cuid())
-  caseId        String?   @map("case_id")
-  entityType    String    @map("entity_type")
-  entityId      String?   @map("entity_id")
-  holdType      String    @map("hold_type")
-  status        String    @default("ACTIVE")
-  reason        String
-  releasedAt    DateTime? @map("released_at")
-  metadata      Json?
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id         String    @id @default(cuid())
+  caseId     String?   @map("case_id")
+  entityType String    @map("entity_type")
+  entityId   String?   @map("entity_id")
+  holdType   String    @map("hold_type")
+  status     String    @default("ACTIVE")
+  reason     String
+  releasedAt DateTime? @map("released_at")
+  metadata   Json?
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
   case ComplianceCase? @relation(fields: [caseId], references: [id], onDelete: SetNull)
 
@@ -5565,24 +5615,24 @@ model TalentPool {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  members             TalentPoolMember[]
-  privateAccessRules  PrivateOpportunityAccess[]
+  members            TalentPoolMember[]
+  privateAccessRules PrivateOpportunityAccess[]
 
   @@index([visibility, isActive])
 }
 
 model TalentPoolMember {
-  id              String   @id @default(cuid())
-  poolId          String   @map("pool_id")
-  userId          String   @map("user_id")
-  membershipType  String   @default("APPROVED") @map("membership_type")
-  status          String   @default("ACTIVE")
-  invitedByStaffId String? @map("invited_by_staff_id")
-  tags            Json?
-  scorecard       Json?
-  internalNotes   String?  @map("internal_notes")
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(cuid())
+  poolId           String   @map("pool_id")
+  userId           String   @map("user_id")
+  membershipType   String   @default("APPROVED") @map("membership_type")
+  status           String   @default("ACTIVE")
+  invitedByStaffId String?  @map("invited_by_staff_id")
+  tags             Json?
+  scorecard        Json?
+  internalNotes    String?  @map("internal_notes")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   pool TalentPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
 
@@ -5608,34 +5658,34 @@ model PrivateOpportunityAccess {
 }
 
 model VendorRequirement {
-  id                       String   @id @default(cuid())
-  code                     String   @unique
-  name                     String
-  requiredDocuments        Json?    @map("required_documents")
-  requiredKycTier          String?  @map("required_kyc_tier")
-  requiredComplianceChecks Json?    @map("required_compliance_checks")
-  requireContractAcceptance Boolean @default(false) @map("require_contract_acceptance")
-  isActive                 Boolean  @default(true) @map("is_active")
-  metadata                 Json?
-  createdAt                DateTime @default(now()) @map("created_at")
-  updatedAt                DateTime @updatedAt @map("updated_at")
+  id                        String   @id @default(cuid())
+  code                      String   @unique
+  name                      String
+  requiredDocuments         Json?    @map("required_documents")
+  requiredKycTier           String?  @map("required_kyc_tier")
+  requiredComplianceChecks  Json?    @map("required_compliance_checks")
+  requireContractAcceptance Boolean  @default(false) @map("require_contract_acceptance")
+  isActive                  Boolean  @default(true) @map("is_active")
+  metadata                  Json?
+  createdAt                 DateTime @default(now()) @map("created_at")
+  updatedAt                 DateTime @updatedAt @map("updated_at")
 
   @@index([isActive, createdAt])
 }
 
 model IntegrationEndpoint {
-  id               String   @id @default(cuid())
-  name             String
-  type             String   @default("WEBHOOK")
-  targetUrl        String?  @map("target_url")
-  eventTypes       Json?    @map("event_types")
-  secretHash       String?  @map("secret_hash")
-  status           String   @default("ACTIVE")
-  retryPolicy      Json?    @map("retry_policy")
-  deadLetterEnabled Boolean @default(true) @map("dead_letter_enabled")
-  metadata         Json?
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(cuid())
+  name              String
+  type              String   @default("WEBHOOK")
+  targetUrl         String?  @map("target_url")
+  eventTypes        Json?    @map("event_types")
+  secretHash        String?  @map("secret_hash")
+  status            String   @default("ACTIVE")
+  retryPolicy       Json?    @map("retry_policy")
+  deadLetterEnabled Boolean  @default(true) @map("dead_letter_enabled")
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   webhookDeliveries WebhookDeliveryLog[]
 
@@ -5644,17 +5694,17 @@ model IntegrationEndpoint {
 
 model WebhookDeliveryLog {
   id            String    @id @default(cuid())
-  endpointId     String   @map("endpoint_id")
-  eventType      String   @map("event_type")
-  payload        Json?
-  signature      String?
-  status         String   @default("QUEUED")
-  attempts       Int      @default(0)
-  lastError      String?  @map("last_error")
-  nextAttemptAt  DateTime? @map("next_attempt_at")
-  deliveredAt    DateTime? @map("delivered_at")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+  endpointId    String    @map("endpoint_id")
+  eventType     String    @map("event_type")
+  payload       Json?
+  signature     String?
+  status        String    @default("QUEUED")
+  attempts      Int       @default(0)
+  lastError     String?   @map("last_error")
+  nextAttemptAt DateTime? @map("next_attempt_at")
+  deliveredAt   DateTime? @map("delivered_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   endpoint IntegrationEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
 
@@ -5679,21 +5729,21 @@ model ApiCredential {
 }
 
 model AiTaskOutput {
-  id                String   @id @default(cuid())
-  moduleKey         String   @map("module_key")
-  taskType          String   @map("task_type")
-  entityType        String   @map("entity_type")
-  entityId          String?  @map("entity_id")
-  actorUserId       String?  @map("actor_user_id")
-  actorStaffId      String?  @map("actor_staff_id")
-  promptVersion     String   @map("prompt_version")
-  confidence        Float?
-  explanation       String?
-  output            Json?
-  humanOverrideState String  @default("PENDING_REVIEW") @map("human_override_state")
-  metadata          Json?
-  createdAt         DateTime @default(now()) @map("created_at")
-  updatedAt         DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(cuid())
+  moduleKey          String   @map("module_key")
+  taskType           String   @map("task_type")
+  entityType         String   @map("entity_type")
+  entityId           String?  @map("entity_id")
+  actorUserId        String?  @map("actor_user_id")
+  actorStaffId       String?  @map("actor_staff_id")
+  promptVersion      String   @map("prompt_version")
+  confidence         Float?
+  explanation        String?
+  output             Json?
+  humanOverrideState String   @default("PENDING_REVIEW") @map("human_override_state")
+  metadata           Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@index([moduleKey, createdAt])
   @@index([entityType, entityId])
@@ -5701,17 +5751,17 @@ model AiTaskOutput {
 }
 
 model ManagedProject {
-  id               String   @id @default(cuid())
-  title            String
-  entityType       String   @map("entity_type")
-  entityId         String?  @map("entity_id")
-  coordinatorStaffId String? @map("coordinator_staff_id")
-  status           String   @default("ACTIVE")
-  slaStatus        String   @default("ON_TRACK") @map("sla_status")
-  riskLevel        String   @default("LOW") @map("risk_level")
-  metadata         Json?
-  createdAt        DateTime @default(now()) @map("created_at")
-  updatedAt        DateTime @updatedAt @map("updated_at")
+  id                 String   @id @default(cuid())
+  title              String
+  entityType         String   @map("entity_type")
+  entityId           String?  @map("entity_id")
+  coordinatorStaffId String?  @map("coordinator_staff_id")
+  status             String   @default("ACTIVE")
+  slaStatus          String   @default("ON_TRACK") @map("sla_status")
+  riskLevel          String   @default("LOW") @map("risk_level")
+  metadata           Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
 
   milestones  ManagedMilestone[]
   assignments ManagedAssignment[]
@@ -5741,14 +5791,14 @@ model ManagedMilestone {
 }
 
 model ManagedAssignment {
-  id              String   @id @default(cuid())
-  managedProjectId String  @map("managed_project_id")
-  assigneeStaffId String?  @map("assignee_staff_id")
-  role            String
-  status          String   @default("ACTIVE")
-  metadata        Json?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id               String   @id @default(cuid())
+  managedProjectId String   @map("managed_project_id")
+  assigneeStaffId  String?  @map("assignee_staff_id")
+  role             String
+  status           String   @default("ACTIVE")
+  metadata         Json?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   project ManagedProject @relation(fields: [managedProjectId], references: [id], onDelete: Cascade)
 
