@@ -1,4 +1,4 @@
-import React, { Suspense, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BriefcaseIcon as Briefcase,
@@ -66,6 +66,18 @@ import {
   shouldContinueOffsetFallback
 } from '../../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../../utils/continuousFeed';
+import {
+  getStableFeedReactKey,
+  isStaleFeedResponse,
+  logFeedLifecycle,
+  prependRealtimeItem,
+  resolveRenderedCountAfterCommit,
+  resolveTransportAfterFailure,
+  shouldAllowObserverLoadMore,
+  shouldShowInitialSkeleton,
+  shouldSkipDuplicateCursorRequest,
+  shouldStopUnchangedCursorLoop
+} from '../../utils/feedLifecycle';
 import { Phase2Service } from '../../services/phase2';
 import { MemberFeedService } from '../../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
@@ -1358,22 +1370,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const feedDiscoveryUsedRef = useRef(false);
   /** Phase 3: prefer enterprise orchestrator; fall back to Phase 1 continuous loaders. */
   const feedTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
+  /** Once orchestrated fails this session, stay on legacy until deliberate hard refresh. */
+  const feedOrchestratedFailedRef = useRef(false);
   const feedAbortRef = useRef<AbortController | null>(null);
   const desktopConstrainedFeed = profile.lowBandwidth || profile.dataSaver;
   const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
   const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
   const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
+  const renderedFeedItemCountRef = useRef(desktopInitialRenderCount);
   const feedItemsRef = useRef<FeedPost[]>([]);
   const feedLoadRequestIdRef = useRef(0);
   const feedLoadingMoreRef = useRef(false);
+  const feedLoadingRef = useRef(false);
+  const feedNextCursorRef = useRef<string | null>(null);
+  const feedOffsetFallbackRef = useRef(false);
+  const feedTerminalRef = useRef(false);
+  const feedInFlightCursorRef = useRef<string | null>(null);
+  const feedLastCompletedCursorRef = useRef<string | null>(null);
+  const feedLastCompletedAddedRef = useRef(0);
   const extractFeedItems = useCallback((value: any) => extractFeedItemList(value), []);
   const extractFeedCursor = useCallback((value: any) => extractNextCursor(value), []);
-  const commitFeedItems = useCallback((items: FeedPost[]) => {
+  const commitFeedItems = useCallback((items: FeedPost[], options?: { forceResetWindow?: boolean }) => {
+    const previousLength = feedItemsRef.current.length;
+    const previousRendered = renderedFeedItemCountRef.current;
     feedItemsRef.current = items;
     setFeedItems(items);
-    setRenderedFeedItemCount(
-      Math.min(desktopInitialRenderCount, items.length || desktopInitialRenderCount)
-    );
+    const nextRendered = resolveRenderedCountAfterCommit({
+      previousRendered,
+      previousLength,
+      nextLength: items.length,
+      initialWindow: desktopInitialRenderCount,
+      forceReset: Boolean(options?.forceResetWindow)
+    });
+    renderedFeedItemCountRef.current = nextRendered;
+    setRenderedFeedItemCount(nextRendered);
   }, [desktopInitialRenderCount]);
   const appendFeedItems = useCallback((items: FeedPost[]) => {
     if (!items.length) return { addedCount: 0 };
@@ -1384,19 +1414,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setRenderedFeedItemCount((prev) => {
       const minimum = Math.min(desktopInitialRenderCount, merged.length || desktopInitialRenderCount);
       const nextCount = Math.max(prev + Math.max(addedCount, desktopRenderStep), minimum);
-      return Math.min(merged.length, nextCount);
+      const clamped = Math.min(merged.length, nextCount);
+      renderedFeedItemCountRef.current = clamped;
+      return clamped;
     });
     return { addedCount };
   }, [desktopInitialRenderCount, desktopRenderStep]);
-  const deferredFeedItems = useDeferredValue(feedItems);
-  const visibleFeedItems = useMemo(
-    () => deferredFeedItems.slice(0, Math.min(renderedFeedItemCount, deferredFeedItems.length)),
-    [deferredFeedItems, renderedFeedItemCount]
+  // Render from committed feed state directly — deferred slicing caused blank gaps during refresh.
+  const renderableFeedItems = useMemo(
+    () => feedItems.slice(0, Math.min(renderedFeedItemCount, feedItems.length)),
+    [feedItems, renderedFeedItemCount]
   );
-  const renderableFeedItems = useMemo(() => {
-    if (visibleFeedItems.length > 0 || feedItems.length === 0) return visibleFeedItems;
-    return feedItems.slice(0, Math.min(renderedFeedItemCount, feedItems.length));
-  }, [feedItems, renderedFeedItemCount, visibleFeedItems]);
   const interestSurveyPostId = useMemo(
     () =>
       pickInterestSurveyCandidateId(
@@ -2410,10 +2438,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     [applyPostUpdate, pipelineBusyByPostId, showNotification, user]
   );
 
-  const loadFeed = useCallback(async () => {
+  const loadFeed = useCallback(async (options?: { forceRetryOrchestrated?: boolean; hardReset?: boolean }) => {
     if (!user) return;
+    // One in-flight initial/soft-refresh at a time (superseded by newer sequence).
+    if (feedLoadingRef.current && !options?.hardReset) {
+      // Allow tab/filter changes to supersede via request sequence below.
+    }
     const requestId = ++feedLoadRequestIdRef.current;
-    setFeedLoading(true);
+    feedLoadingRef.current = true;
+    const hadExistingContent = feedItemsRef.current.length > 0;
+    // Never blank existing content: skeleton only when empty.
+    if (!hadExistingContent) {
+      setFeedLoading(true);
+    }
     try {
       const scope = feedTab === 'following' ? 'following' : 'discover';
       const requestedMode =
@@ -2453,7 +2490,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         ) as FeedPost[];
 
       // Phase 3: try enterprise orchestrator first (cursor-only). Soft-fail → Phase 1 loaders.
+      // Stay on legacy after a session failure unless hard refresh forces retry.
+      const mayTryOrchestrated =
+        options?.forceRetryOrchestrated ||
+        options?.hardReset ||
+        !feedOrchestratedFailedRef.current ||
+        feedTransportRef.current === 'orchestrated';
+      if (mayTryOrchestrated) {
       try {
+        // Abort only superseded initial requests (not load-more).
         feedAbortRef.current?.abort();
         const controller = new AbortController();
         feedAbortRef.current = controller;
@@ -2470,17 +2515,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           signal: controller.signal,
           timeoutMs: desktopConstrainedFeed ? 12000 : 18000
         });
-        if (requestId !== feedLoadRequestIdRef.current) return;
+        if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
         if (orchestrated && Array.isArray(orchestrated.posts)) {
           const normalized = normalizeFeedItems(orchestrated.posts);
           if (normalized.length > 0 || orchestrated.hasMore) {
             feedTransportRef.current = 'orchestrated';
+            feedOrchestratedFailedRef.current = false;
             feedEmptyPageStreakRef.current = 0;
             feedDiscoveryUsedRef.current = true; // skip Phase 1 discovery supplement while orchestrated
-            setFeedTerminal(!orchestrated.hasMore && normalized.length === 0);
-            commitFeedItems(normalized);
-            setFeedNextCursor(orchestrated.nextCursor);
-            setFeedOffsetFallbackEnabled(false);
+            feedTerminalRef.current = !orchestrated.hasMore && normalized.length === 0;
+            setFeedTerminal(feedTerminalRef.current);
+            // Soft refresh: merge first page over existing pages — never drop already-loaded items.
+            const nextItems =
+              hadExistingContent && !options?.hardReset
+                ? (mergeUniqueFeedItems(normalized, feedItemsRef.current).merged as FeedPost[])
+                : normalized;
+            commitFeedItems(nextItems, {
+              forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent
+            });
+            // Only reset cursor on deliberate hard reset / empty prior list.
+            if (!hadExistingContent || options?.hardReset) {
+              feedNextCursorRef.current = orchestrated.nextCursor;
+              setFeedNextCursor(orchestrated.nextCursor);
+              feedOffsetFallbackRef.current = false;
+              setFeedOffsetFallbackEnabled(false);
+            }
+            logFeedLifecycle({
+              surface: 'member_home',
+              transport: 'orchestrated',
+              kind: hadExistingContent ? 'soft_refresh' : 'initial',
+              sequence: requestId,
+              cursor: null,
+              nextCursor: orchestrated.nextCursor,
+              itemCount: normalized.length,
+              hasMore: orchestrated.hasMore,
+              feedCountBefore: hadExistingContent ? feedItemsRef.current.length : 0,
+              feedCountAfter: normalized.length
+            });
             if (orchestrated.jobs.length) {
               setListingJobsPool((prev) =>
                 dedupeById([...(orchestrated.jobs as any[]), ...((prev || []) as any[])]) as any
@@ -2494,8 +2565,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             return;
           }
         }
+        // Empty orchestrated response → try Phase 1 without marking permanent failure.
       } catch (orchestratorError) {
         console.warn('Member-home orchestrated feed unavailable; using Phase 1 continuous feed', orchestratorError);
+        feedOrchestratedFailedRef.current = true;
+        feedTransportRef.current = resolveTransportAfterFailure(feedTransportRef.current, 'orchestrated');
+      }
       }
       feedTransportRef.current = 'legacy';
       const shouldFetchCommunityBaseline = scope === 'discover' && !feedTopic && !feedRegion;
@@ -2530,7 +2605,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         serviceBaselineRequest,
         publicBaselineRequest
       ]);
-      if (requestId !== feedLoadRequestIdRef.current) return;
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
       const data = feedResult.status === 'fulfilled' ? feedResult.value : null;
       let nextCursor = extractFeedCursor(data);
       let items = extractFeedItems(data);
@@ -2567,7 +2642,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           console.warn('Failed to load desktop discover feed fallback', fallbackError);
         }
       }
-      if (requestId !== feedLoadRequestIdRef.current) return;
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
       const normalizedFeedItems = normalizeFeedItems(items);
       let normalized = normalizedFeedItems;
       if (shouldFetchCommunityBaseline) {
@@ -2679,27 +2754,47 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               return bScore - aScore;
             })
           : normalized;
-      if (requestId !== feedLoadRequestIdRef.current) return;
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
       const shouldPreserveExistingFeed =
         sorted.length === 0 &&
         feedItemsRef.current.length > 0 &&
         scope === 'discover' &&
         !feedTopic &&
         !feedRegion;
-      const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
+      const softMerged =
+        hadExistingContent && !options?.hardReset && sorted.length > 0
+          ? (mergeUniqueFeedItems(sorted, feedItemsRef.current).merged as FeedPost[])
+          : sorted;
+      const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : softMerged;
       feedEmptyPageStreakRef.current = 0;
-      feedDiscoveryUsedRef.current = false;
-      setFeedTerminal(false);
-      commitFeedItems(effectiveFeedItems);
-      setFeedNextCursor(shouldPreserveExistingFeed ? feedNextCursor : nextCursor);
-      setFeedOffsetFallbackEnabled(
-        !shouldPreserveExistingFeed &&
-          Boolean(effectiveFeedItems.length) &&
-          !nextCursor &&
-          scope === 'discover' &&
-          !feedTopic &&
-          !feedRegion
-      );
+      // Soft refresh keeps discovery/offset state so pagination is not reset.
+      if (!hadExistingContent || options?.hardReset) {
+        feedDiscoveryUsedRef.current = false;
+        feedTerminalRef.current = false;
+        setFeedTerminal(false);
+      }
+      commitFeedItems(effectiveFeedItems, { forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent });
+      if (!hadExistingContent || options?.hardReset || shouldPreserveExistingFeed) {
+        const preservedCursor =
+          shouldPreserveExistingFeed || (hadExistingContent && !options?.hardReset)
+            ? feedNextCursorRef.current
+            : nextCursor;
+        if (!hadExistingContent || options?.hardReset) {
+          feedNextCursorRef.current = nextCursor;
+          setFeedNextCursor(nextCursor);
+          const offsetEnabled =
+            Boolean(effectiveFeedItems.length) &&
+            !nextCursor &&
+            scope === 'discover' &&
+            !feedTopic &&
+            !feedRegion;
+          feedOffsetFallbackRef.current = offsetEnabled;
+          setFeedOffsetFallbackEnabled(offsetEnabled);
+        } else if (shouldPreserveExistingFeed) {
+          feedNextCursorRef.current = preservedCursor;
+          setFeedNextCursor(preservedCursor);
+        }
+      }
       if (effectiveFeedItems.length > 0) {
         try {
           window.localStorage.setItem(
@@ -2744,11 +2839,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       });
       setCommentCounts(counts);
     } catch (error) {
-      if (requestId !== feedLoadRequestIdRef.current) return;
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
       console.error('Failed to load home feed', error);
-      setFeedNextCursor(null);
-      setFeedOffsetFallbackEnabled(false);
+      // Soft failure: keep existing list and pagination state.
       if (!feedItemsRef.current.length) {
+        feedNextCursorRef.current = null;
+        setFeedNextCursor(null);
+        feedOffsetFallbackRef.current = false;
+        setFeedOffsetFallbackEnabled(false);
         try {
           const raw = window.localStorage.getItem(feedCacheKey);
           const parsed = raw ? (JSON.parse(raw) as { items?: FeedPost[] }) : null;
@@ -2760,24 +2858,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         } catch {
           // Ignore cache read failures.
         }
-        startTransition(() => {
-          setFeedItems([]);
-          setRenderedFeedItemCount(desktopInitialRenderCount);
-        });
       }
     } finally {
       if (requestId === feedLoadRequestIdRef.current) {
+        feedLoadingRef.current = false;
         setFeedLoading(false);
       }
     }
   }, [
     commitFeedItems,
     defaultIntentFeedTab,
-    desktopInitialRenderCount,
+    desktopConstrainedFeed,
     extractFeedCursor,
     extractFeedItems,
     feedCacheKey,
-    feedNextCursor,
     feedRegion,
     feedTab,
     feedTopic,
@@ -2789,13 +2883,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   ]);
 
   const loadMoreFeed = useCallback(async () => {
-    if (!user || feedLoadingMoreRef.current || feedTerminal) return;
-    const cursor = String(feedNextCursor || '').trim();
+    if (!user || feedLoadingMoreRef.current || feedTerminalRef.current || feedLoadingRef.current) return;
+    const cursor = String(feedNextCursorRef.current || '').trim();
+    if (
+      shouldSkipDuplicateCursorRequest({
+        cursor,
+        inFlightCursor: feedInFlightCursorRef.current,
+        loadMoreInFlight: feedLoadingMoreRef.current,
+        lastCompletedCursor: feedLastCompletedCursorRef.current,
+        lastCompletedAddedCount: feedLastCompletedAddedRef.current
+      })
+    ) {
+      return;
+    }
 
     const scope = feedTab === 'following' ? 'following' : 'discover';
     const canUseOffsetFallback =
       !cursor &&
-      feedOffsetFallbackEnabled &&
+      feedOffsetFallbackRef.current &&
       scope === 'discover' &&
       !feedTopic &&
       !feedRegion &&
@@ -2808,6 +2913,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       !feedTopic &&
       !feedRegion;
     if (!cursor && !canUseOffsetFallback && !canUseDiscoverySupplement) {
+      feedTerminalRef.current = true;
       setFeedTerminal(true);
       return;
     }
@@ -2835,10 +2941,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }
 
     feedLoadingMoreRef.current = true;
+    feedInFlightCursorRef.current = cursor || null;
     setFeedLoadingMore(true);
     try {
       // Phase 3: continue on orchestrator cursor when transport is orchestrated.
-      if (feedTransportRef.current === 'orchestrated' && cursor) {
+      if (feedTransportRef.current === 'orchestrated' && cursor && !feedOrchestratedFailedRef.current) {
         try {
           const orchestratedMode =
             scope === 'following'
@@ -2866,6 +2973,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             const { addedCount } = appendFeedItems(appendedItems);
             if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
             else feedEmptyPageStreakRef.current += 1;
+            feedLastCompletedCursorRef.current = cursor;
+            feedLastCompletedAddedRef.current = addedCount;
             if (page.jobs.length) {
               setListingJobsPool((prev) =>
                 dedupeById([...((prev || []) as any[]), ...(page.jobs as any[])]) as any
@@ -2876,25 +2985,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 dedupeById([...((prev || []) as any[]), ...(page.gigs as any[])]) as any
               );
             }
-            if (!page.hasMore || (!page.nextCursor && addedCount === 0)) {
+            const stopUnchanged = shouldStopUnchangedCursorLoop({
+              requestedCursor: cursor,
+              returnedCursor: page.nextCursor,
+              uniqueAddedCount: addedCount,
+              consecutiveEmptyPages: feedEmptyPageStreakRef.current,
+              maxEmptyPages: 2
+            });
+            if (
+              !page.hasMore ||
+              (!page.nextCursor && addedCount === 0) ||
+              stopUnchanged ||
+              shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2)
+            ) {
+              feedNextCursorRef.current = null;
               setFeedNextCursor(null);
+              feedOffsetFallbackRef.current = false;
               setFeedOffsetFallbackEnabled(false);
-              setFeedTerminal(true);
-            } else if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2)) {
-              setFeedNextCursor(null);
+              feedTerminalRef.current = true;
               setFeedTerminal(true);
             } else {
+              feedNextCursorRef.current = page.nextCursor;
               setFeedNextCursor(page.nextCursor);
+              feedOffsetFallbackRef.current = false;
               setFeedOffsetFallbackEnabled(false);
+              feedTerminalRef.current = false;
               setFeedTerminal(false);
             }
+            logFeedLifecycle({
+              surface: 'member_home',
+              transport: 'orchestrated',
+              kind: 'load_more',
+              sequence: feedLoadRequestIdRef.current,
+              cursor,
+              nextCursor: page.nextCursor,
+              itemCount: appendedItems.length,
+              hasMore: page.hasMore,
+              feedCountAfter: feedItemsRef.current.length
+            });
             return;
           }
-          // Soft-fail → drop to Phase 1 for remaining pages.
-          feedTransportRef.current = 'legacy';
+          // Soft-fail → drop to Phase 1 for remaining pages; stick for session.
+          feedOrchestratedFailedRef.current = true;
+          feedTransportRef.current = resolveTransportAfterFailure(feedTransportRef.current, 'orchestrated');
         } catch (orchestratedMoreError) {
           console.warn('Orchestrated load-more failed; falling back to Phase 1', orchestratedMoreError);
-          feedTransportRef.current = 'legacy';
+          feedOrchestratedFailedRef.current = true;
+          feedTransportRef.current = resolveTransportAfterFailure(feedTransportRef.current, 'orchestrated');
         }
       }
 
@@ -2982,6 +3119,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       const { addedCount } = appendFeedItems(appendedItems);
       if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
       else feedEmptyPageStreakRef.current += 1;
+      feedLastCompletedCursorRef.current = cursor || null;
+      feedLastCompletedAddedRef.current = addedCount;
 
       const nextCursor =
         canUseOffsetFallback || canUseDiscoverySupplement ? null : extractFeedCursor(response);
@@ -3006,33 +3145,56 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         offsetFallbackEnabled: offsetEnabled,
         secondarySourcesRemaining: !feedDiscoveryUsedRef.current && scope === 'discover'
       });
+      const stopUnchanged = shouldStopUnchangedCursorLoop({
+        requestedCursor: cursor,
+        returnedCursor: nextCursor,
+        uniqueAddedCount: addedCount,
+        consecutiveEmptyPages: feedEmptyPageStreakRef.current,
+        maxEmptyPages: 2
+      });
 
-      if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2) || terminal.isTerminal) {
+      if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2) || terminal.isTerminal || stopUnchanged) {
+        feedNextCursorRef.current = null;
         setFeedNextCursor(null);
+        feedOffsetFallbackRef.current = false;
         setFeedOffsetFallbackEnabled(false);
+        feedTerminalRef.current = true;
         setFeedTerminal(true);
       } else {
+        feedNextCursorRef.current = nextCursor;
         setFeedNextCursor(nextCursor);
+        feedOffsetFallbackRef.current = offsetEnabled;
         setFeedOffsetFallbackEnabled(offsetEnabled);
+        feedTerminalRef.current = false;
         setFeedTerminal(false);
       }
+      logFeedLifecycle({
+        surface: 'member_home',
+        transport: feedTransportRef.current,
+        kind: 'load_more',
+        sequence: feedLoadRequestIdRef.current,
+        cursor: cursor || null,
+        nextCursor,
+        itemCount: appendedItems.length,
+        hasMore: !terminal.isTerminal,
+        feedCountAfter: feedItemsRef.current.length
+      });
     } catch (error) {
       // Keep cursor/offset so IntersectionObserver can retry without full reload.
       console.error('Failed to load more home feed', error);
     } finally {
       feedLoadingMoreRef.current = false;
+      feedInFlightCursorRef.current = null;
       setFeedLoadingMore(false);
     }
   }, [
     appendFeedItems,
     defaultIntentFeedTab,
+    desktopConstrainedFeed,
     extractFeedCursor,
     extractFeedItems,
-    feedOffsetFallbackEnabled,
-    feedNextCursor,
     feedRegion,
     feedTab,
-    feedTerminal,
     feedTopic,
     maxFeedItems,
     normalizePost,
@@ -4990,10 +5152,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     [showNotification]
   );
 
+  // Initial feed only when user/tab/filters change — NOT when loadFeed identity changes
+  // (cursor/pagination updates must not re-trigger a full initial load).
+  const userId = user?.id;
   useEffect(() => {
-    if (!user || !feedTabReady) return;
-    loadFeed();
-  }, [user, feedTab, feedTopic, feedRegion, feedTabReady, loadFeed]);
+    if (!userId || !feedTabReady) return;
+    // Deliberate surface change: allow orchestrated retry and clear empty-loop guards.
+    feedLastCompletedCursorRef.current = null;
+    feedLastCompletedAddedRef.current = 0;
+    feedEmptyPageStreakRef.current = 0;
+    feedDiscoveryUsedRef.current = false;
+    feedTerminalRef.current = false;
+    setFeedTerminal(false);
+    feedNextCursorRef.current = null;
+    setFeedNextCursor(null);
+    feedOffsetFallbackRef.current = false;
+    setFeedOffsetFallbackEnabled(false);
+    // Tab/filter change is a deliberate hard reset of the primary stream.
+    void loadFeed({ forceRetryOrchestrated: true, hardReset: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFeed omitted intentionally to stop request loops
+  }, [userId, feedTab, feedTopic, feedRegion, feedTabReady]);
 
   useEffect(() => {
     if (feedTabInitializedRef.current) return;
@@ -5072,11 +5250,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   useEffect(() => {
     setRenderedFeedItemCount((prev) => {
-      if (!feedItems.length) return desktopInitialRenderCount;
+      if (!feedItems.length) {
+        renderedFeedItemCountRef.current = desktopInitialRenderCount;
+        return desktopInitialRenderCount;
+      }
       const minimum = Math.min(desktopInitialRenderCount, feedItems.length);
-      if (prev < minimum) return minimum;
-      if (prev > feedItems.length) return feedItems.length;
-      return prev;
+      let next = prev;
+      if (prev < minimum) next = minimum;
+      if (prev > feedItems.length) next = feedItems.length;
+      renderedFeedItemCountRef.current = next;
+      return next;
     });
   }, [desktopInitialRenderCount, feedItems.length]);
 
@@ -5093,58 +5276,78 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     });
   }, [renderableFeedItems, user?.id]);
 
+  // Single stable IntersectionObserver — callback reads refs so pagination state
+  // changes do not disconnect/reconnect (which re-fires while the sentinel is visible).
+  const loadMoreFeedRef = useRef(loadMoreFeed);
+  loadMoreFeedRef.current = loadMoreFeed;
   useEffect(() => {
-    if (!desktopFeedSentinelRef.current) return;
     const node = desktopFeedSentinelRef.current;
+    if (!node) return;
     const obs = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (!entry?.isIntersecting) return;
-        if (renderedFeedItemCount < feedItems.length) {
-          setRenderedFeedItemCount((prev) => Math.min(feedItems.length, prev + desktopRenderStep));
+        const hasUnrendered =
+          renderedFeedItemCountRef.current < feedItemsRef.current.length;
+        if (hasUnrendered && entry?.isIntersecting) {
+          setRenderedFeedItemCount((prev) => {
+            const next = Math.min(
+              feedItemsRef.current.length,
+              prev + desktopRenderStep
+            );
+            renderedFeedItemCountRef.current = next;
+            return next;
+          });
           return;
         }
         if (
-          !feedTerminal &&
-          (feedNextCursor || feedOffsetFallbackEnabled || !feedDiscoveryUsedRef.current) &&
-          !feedLoading &&
-          !feedLoadingMore
+          !shouldAllowObserverLoadMore({
+            isIntersecting: Boolean(entry?.isIntersecting),
+            initialLoading: feedLoadingRef.current,
+            loadMoreInFlight: feedLoadingMoreRef.current,
+            isTerminal: feedTerminalRef.current,
+            hasCursor: Boolean(String(feedNextCursorRef.current || '').trim()),
+            offsetFallbackEnabled: feedOffsetFallbackRef.current,
+            secondarySourceRemaining: !feedDiscoveryUsedRef.current,
+            hasUnrenderedItems: hasUnrendered
+          })
         ) {
-          void loadMoreFeed();
+          return;
         }
+        void loadMoreFeedRef.current();
       },
-      { rootMargin: '900px 0px', threshold: 0.01 }
+      // Moderate rootMargin: 900px kept the sentinel constantly intersecting on short pages.
+      { rootMargin: '320px 0px', threshold: 0 }
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [
-    desktopRenderStep,
-    feedItems.length,
-    feedLoading,
-    feedLoadingMore,
-    feedNextCursor,
-    feedOffsetFallbackEnabled,
-    feedTerminal,
-    loadMoreFeed,
-    renderedFeedItemCount
-  ]);
+  }, [desktopRenderStep, userId, feedTabReady]);
 
   useEffect(() => {
     if (!socket || !user) return;
-    const refreshFeed = () => loadFeed();
+    const softRefreshFeed = () => {
+      void loadFeed();
+    };
     const refreshStories = () => loadStories();
     const refreshSlider = () => loadSlider();
     const refreshSidebar = () => scheduleSidebarRefresh();
     const handlePostCreated = (payload: any) => {
       const created = payload?.post || payload;
       if (!created?.id) {
-        refreshFeed();
+        softRefreshFeed();
         return;
       }
       const normalized = normalizePost(created);
+      // Realtime insert must not reset pagination or clear the list.
       setFeedItems((prev) => {
-        if (prev.some((item) => item.id === normalized.id)) return prev;
-        return [normalized, ...prev];
+        const { next, inserted } = prependRealtimeItem(prev, normalized);
+        if (!inserted) return prev;
+        feedItemsRef.current = next;
+        setRenderedFeedItemCount((count) => {
+          const updated = Math.min(next.length, Math.max(count + 1, count));
+          renderedFeedItemCountRef.current = updated;
+          return updated;
+        });
+        return next;
       });
       syncCommentCount(normalized.id, normalized.interactions?.comments ?? 0);
     };
@@ -5263,8 +5466,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       );
     };
     socket.on('community:post_created', handlePostCreated);
-    socket.on('community:post_updated', refreshFeed);
-    socket.on('community:post_deleted', refreshFeed);
+    socket.on('community:post_updated', softRefreshFeed);
+    socket.on('community:post_deleted', softRefreshFeed);
     socket.on('community:story_created', handleStoryCreated);
     socket.on('community:story_deleted', refreshStories);
     socket.on('community:story_updated', handleStoryUpdated);
@@ -5280,8 +5483,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     socket.on('reco:rules_updated', refreshSidebar);
     return () => {
       socket.off('community:post_created', handlePostCreated);
-      socket.off('community:post_updated', refreshFeed);
-      socket.off('community:post_deleted', refreshFeed);
+      socket.off('community:post_updated', softRefreshFeed);
+      socket.off('community:post_deleted', softRefreshFeed);
       socket.off('community:story_created', handleStoryCreated);
       socket.off('community:story_deleted', refreshStories);
       socket.off('community:story_updated', handleStoryUpdated);
@@ -7898,7 +8101,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   </button>
                 )}
                 <button
-                  onClick={() => loadFeed()}
+                  onClick={() => void loadFeed({ forceRetryOrchestrated: true })}
                   className="ml-auto rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold uppercase text-slate-600"
                 >
                   Refresh
@@ -7949,12 +8152,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </div>
 
             <div className="space-y-4">
-              {feedLoading && feedItems.length === 0 ? (
-                <div className="rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+              {shouldShowInitialSkeleton({ loading: feedLoading, existingItemCount: feedItems.length }) ? (
+                <div
+                  className="min-h-[24rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm"
+                  role="status"
+                  aria-live="polite"
+                >
                   Loading your feed...
                 </div>
               ) : feedItems.length === 0 ? (
-                <div className="rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+                <div className="min-h-[12rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
                   {feedTopic || feedRegion
                     ? 'No posts match the current filters. Clear the topic or region filter to widen your feed.'
                     : 'No posts found. Follow creators or switch to Discover to explore.'}
@@ -7992,9 +8199,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   const initialIsFollowing =
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
-                    <React.Fragment key={post.id}>
+                    <React.Fragment key={getStableFeedReactKey(post, postIndex)}>
                       <article
-                        className={`rise-fade overflow-hidden rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 shadow-[0_22px_52px_-34px_rgba(15,23,42,0.42)] ring-1 ring-slate-100/70 transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_30px_70px_-36px_rgba(15,23,42,0.5)] ${postDensity === 'compact' ? 'p-5' : 'p-7'}`}
+                        className={`overflow-hidden rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 shadow-[0_22px_52px_-34px_rgba(15,23,42,0.42)] ring-1 ring-slate-100/70 transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_30px_70px_-36px_rgba(15,23,42,0.5)] ${postDensity === 'compact' ? 'p-5' : 'p-7'}`}
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -8412,22 +8619,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   );
                 })
               )}
-              <div ref={desktopFeedSentinelRef} className="h-8" aria-hidden="true" />
+              <div ref={desktopFeedSentinelRef} className="h-10 shrink-0" aria-hidden="true" />
               {feedLoadingMore ? (
-                <div className="pb-2 text-center text-xs font-medium text-slate-500" role="status" aria-live="polite">
+                <div className="min-h-[2.5rem] pb-2 text-center text-xs font-medium text-slate-500" role="status" aria-live="polite">
                   Loading more posts...
                 </div>
               ) : renderedFeedItemCount < feedItems.length ? (
-                <div className="flex flex-col items-center gap-2 pb-2">
+                <div className="flex min-h-[3rem] flex-col items-center gap-2 pb-2">
                   <div className="text-center text-xs font-medium text-slate-500">
                     Scroll to reveal more posts.
                   </div>
                   <button
                     type="button"
                     onClick={() =>
-                      setRenderedFeedItemCount((prev) =>
-                        Math.min(feedItems.length, prev + desktopRenderStep)
-                      )
+                      setRenderedFeedItemCount((prev) => {
+                        const next = Math.min(feedItems.length, prev + desktopRenderStep);
+                        renderedFeedItemCountRef.current = next;
+                        return next;
+                      })
                     }
                     className="rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
                   >

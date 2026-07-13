@@ -57,6 +57,15 @@ import {
   shouldContinueOffsetFallback
 } from '../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../utils/continuousFeed';
+import {
+  getStableFeedReactKey,
+  logFeedLifecycle,
+  prependRealtimeItem,
+  resolveTransportAfterFailure,
+  shouldAllowObserverLoadMore,
+  shouldSkipDuplicateCursorRequest,
+  shouldStopUnchangedCursorLoop
+} from '../utils/feedLifecycle';
 import { Phase2Service } from '../services/phase2';
 import { MemberFeedService } from '../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
@@ -459,6 +468,14 @@ const CommunityHome = () => {
   const discoverySupplementUsedRef = useRef(false);
   /** Phase 3: orchestrated member-feed with Phase 1 continuous-feed fallback. */
   const postsTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
+  const postsOrchestratedFailedRef = useRef(false);
+  const postsNextCursorRef = useRef<string | null>(null);
+  const postsOffsetFallbackRef = useRef(false);
+  const postsFeedTerminalRef = useRef(false);
+  const postsInFlightCursorRef = useRef<string | null>(null);
+  const postsLastCompletedCursorRef = useRef<string | null>(null);
+  const postsLastCompletedAddedRef = useRef(0);
+  const postsInitialLoadingRef = useRef(false);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
@@ -951,45 +968,64 @@ const CommunityHome = () => {
   const applyPostUpdate = useCallback((updated: any) => {
     setPosts((prev) => {
       const exists = prev.some((item) => item.id === updated.id);
-      const merged = exists
-        ? prev.map((item) =>
-            item.id === updated.id
-              ? {
-                  ...item,
-                  ...updated,
-                  interactions: updated.interactions
-                    ? { ...(item.interactions || {}), ...updated.interactions }
-                    : item.interactions,
-                  userState: updated.userState
-                    ? { ...(item.userState || {}), ...updated.userState }
-                    : item.userState
-                }
-              : item
-          )
-        : [updated, ...prev];
-      return sortPosts(merged);
+      let next: any[];
+      if (exists) {
+        next = prev.map((item) =>
+          item.id === updated.id
+            ? {
+                ...item,
+                ...updated,
+                interactions: updated.interactions
+                  ? { ...(item.interactions || {}), ...updated.interactions }
+                  : item.interactions,
+                userState: updated.userState
+                  ? { ...(item.userState || {}), ...updated.userState }
+                  : item.userState
+              }
+            : item
+        );
+      } else {
+        // Realtime insert: prepend without resetting pagination cursors.
+        const inserted = prependRealtimeItem(prev, updated);
+        next = inserted.inserted ? inserted.next : prev;
+      }
+      postsRef.current = next;
+      return next;
     });
     if (updated.interactions?.comments !== undefined) {
       syncCommentCount(updated.id, updated.interactions?.comments);
     }
-  }, [sortPosts, syncCommentCount]);
+  }, [syncCommentCount]);
 
   const loadMorePosts = useCallback(async () => {
-    if (postsLoadingMoreRef.current || postsFeedTerminal) return;
-    const cursor = String(postsNextCursor || '').trim();
+    if (postsLoadingMoreRef.current || postsFeedTerminalRef.current || postsInitialLoadingRef.current) return;
+    const cursor = String(postsNextCursorRef.current || '').trim();
+    if (
+      shouldSkipDuplicateCursorRequest({
+        cursor,
+        inFlightCursor: postsInFlightCursorRef.current,
+        loadMoreInFlight: postsLoadingMoreRef.current,
+        lastCompletedCursor: postsLastCompletedCursorRef.current,
+        lastCompletedAddedCount: postsLastCompletedAddedRef.current
+      })
+    ) {
+      return;
+    }
     const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
     const existingCount = postsRef.current.length;
-    const canUseOffsetFallback = !cursor && postsOffsetFallbackEnabled && existingCount > 0;
+    const canUseOffsetFallback = !cursor && postsOffsetFallbackRef.current && existingCount > 0;
     const canUseDiscoverySupplement = !cursor && !canUseOffsetFallback && !discoverySupplementUsedRef.current;
     if (!cursor && !canUseOffsetFallback && !canUseDiscoverySupplement) {
+      postsFeedTerminalRef.current = true;
       setPostsFeedTerminal(true);
       return;
     }
 
     postsLoadingMoreRef.current = true;
+    postsInFlightCursorRef.current = cursor || null;
     setPostsLoadingMore(true);
     try {
-      if (postsTransportRef.current === 'orchestrated' && cursor) {
+      if (postsTransportRef.current === 'orchestrated' && cursor && !postsOrchestratedFailedRef.current) {
         try {
           const page = await MemberFeedService.tryFetchPage({
             surface: 'community',
@@ -1026,21 +1062,54 @@ const CommunityHome = () => {
             } else {
               postsEmptyPageStreakRef.current += 1;
             }
-            if (!page.hasMore || (!page.nextCursor && addedCount === 0) || shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2)) {
+            postsLastCompletedCursorRef.current = cursor;
+            postsLastCompletedAddedRef.current = addedCount;
+            const stopUnchanged = shouldStopUnchangedCursorLoop({
+              requestedCursor: cursor,
+              returnedCursor: page.nextCursor,
+              uniqueAddedCount: addedCount,
+              consecutiveEmptyPages: postsEmptyPageStreakRef.current,
+              maxEmptyPages: 2
+            });
+            if (
+              !page.hasMore ||
+              (!page.nextCursor && addedCount === 0) ||
+              stopUnchanged ||
+              shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2)
+            ) {
+              postsNextCursorRef.current = null;
               setPostsNextCursor(null);
+              postsOffsetFallbackRef.current = false;
               setPostsOffsetFallbackEnabled(false);
+              postsFeedTerminalRef.current = true;
               setPostsFeedTerminal(true);
             } else {
+              postsNextCursorRef.current = page.nextCursor;
               setPostsNextCursor(page.nextCursor);
+              postsOffsetFallbackRef.current = false;
               setPostsOffsetFallbackEnabled(false);
+              postsFeedTerminalRef.current = false;
               setPostsFeedTerminal(false);
             }
+            logFeedLifecycle({
+              surface: 'community',
+              transport: 'orchestrated',
+              kind: 'load_more',
+              sequence: 0,
+              cursor,
+              nextCursor: page.nextCursor,
+              itemCount: nextPosts.length,
+              hasMore: page.hasMore,
+              feedCountAfter: postsRef.current.length
+            });
             return;
           }
-          postsTransportRef.current = 'legacy';
+          postsOrchestratedFailedRef.current = true;
+          postsTransportRef.current = resolveTransportAfterFailure(postsTransportRef.current, 'orchestrated');
         } catch (orchestratedError) {
           console.warn('Community orchestrated load-more failed; using Phase 1', orchestratedError);
-          postsTransportRef.current = 'legacy';
+          postsOrchestratedFailedRef.current = true;
+          postsTransportRef.current = resolveTransportAfterFailure(postsTransportRef.current, 'orchestrated');
         }
       }
 
@@ -1102,6 +1171,8 @@ const CommunityHome = () => {
       } else {
         postsEmptyPageStreakRef.current += 1;
       }
+      postsLastCompletedCursorRef.current = cursor || null;
+      postsLastCompletedAddedRef.current = addedCount;
 
       const nextCursor = canUseOffsetFallback || canUseDiscoverySupplement ? null : extractCommunityFeedCursor(response);
       const hasMoreFlag = canUseOffsetFallback || canUseDiscoverySupplement ? null : extractHasMore(response);
@@ -1119,24 +1190,49 @@ const CommunityHome = () => {
         offsetFallbackEnabled: offsetEnabled,
         secondarySourcesRemaining: !discoverySupplementUsedRef.current
       });
+      const stopUnchanged = shouldStopUnchangedCursorLoop({
+        requestedCursor: cursor,
+        returnedCursor: nextCursor,
+        uniqueAddedCount: addedCount,
+        consecutiveEmptyPages: postsEmptyPageStreakRef.current,
+        maxEmptyPages: 2
+      });
 
-      if (shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2) || terminal.isTerminal) {
+      if (shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2) || terminal.isTerminal || stopUnchanged) {
+        postsNextCursorRef.current = null;
         setPostsNextCursor(null);
+        postsOffsetFallbackRef.current = false;
         setPostsOffsetFallbackEnabled(false);
+        postsFeedTerminalRef.current = true;
         setPostsFeedTerminal(true);
       } else {
+        postsNextCursorRef.current = nextCursor;
         setPostsNextCursor(nextCursor);
+        postsOffsetFallbackRef.current = offsetEnabled;
         setPostsOffsetFallbackEnabled(offsetEnabled);
+        postsFeedTerminalRef.current = false;
         setPostsFeedTerminal(false);
       }
+      logFeedLifecycle({
+        surface: 'community',
+        transport: postsTransportRef.current,
+        kind: 'load_more',
+        sequence: 0,
+        cursor: cursor || null,
+        nextCursor,
+        itemCount: nextPosts.length,
+        hasMore: !terminal.isTerminal,
+        feedCountAfter: postsRef.current.length
+      });
     } catch (error) {
       // Preserve cursor/offset so the sentinel can retry without a full remount.
       console.error('Failed to load more community posts:', error);
     } finally {
       postsLoadingMoreRef.current = false;
+      postsInFlightCursorRef.current = null;
       setPostsLoadingMore(false);
     }
-  }, [normalizePost, postsFeedTerminal, postsNextCursor, postsOffsetFallbackEnabled, profile.feedPageSize, sortPosts]);
+  }, [normalizePost, profile.feedPageSize, sortPosts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1227,6 +1323,11 @@ const CommunityHome = () => {
     };
 
     const fetchData = async () => {
+      postsInitialLoadingRef.current = true;
+      // Only full-page gate when there is no existing content (soft reloads keep feed mounted).
+      if (postsRef.current.length === 0) {
+        setLoading(true);
+      }
       setStoriesLoading(true);
       setReelsLoading(true);
       const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
@@ -1286,8 +1387,11 @@ const CommunityHome = () => {
         if (cancelled) return;
 
         // Phase 3: prefer orchestrated member-feed for initial community posts stream.
+        // Stay on legacy after a session failure (no orchestrated/legacy flapping).
         let usedOrchestrated = false;
+        const mayTryOrchestrated = !postsOrchestratedFailedRef.current || postsTransportRef.current === 'orchestrated';
         try {
+          if (mayTryOrchestrated) {
           const orchestrated = await MemberFeedService.tryFetchPage({
             surface: 'community',
             mode: 'for_you',
@@ -1297,6 +1401,7 @@ const CommunityHome = () => {
           if (orchestrated && (orchestrated.posts.length > 0 || orchestrated.hasMore)) {
             usedOrchestrated = true;
             postsTransportRef.current = 'orchestrated';
+            postsOrchestratedFailedRef.current = false;
             const normalizedPosts = sortPosts(
               orchestrated.posts.map((post: any) => {
                 try {
@@ -1308,10 +1413,13 @@ const CommunityHome = () => {
             );
             postsEmptyPageStreakRef.current = 0;
             discoverySupplementUsedRef.current = true;
-            setPostsFeedTerminal(!orchestrated.hasMore && normalizedPosts.length === 0);
+            postsFeedTerminalRef.current = !orchestrated.hasMore && normalizedPosts.length === 0;
+            setPostsFeedTerminal(postsFeedTerminalRef.current);
             setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
             postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+            postsNextCursorRef.current = orchestrated.nextCursor;
             setPostsNextCursor(orchestrated.nextCursor);
+            postsOffsetFallbackRef.current = false;
             setPostsOffsetFallbackEnabled(false);
             setCommentCounts((prev) => {
               if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
@@ -1341,8 +1449,11 @@ const CommunityHome = () => {
               setFollowStatuses((prev) => ({ ...prev, ...followSeed }));
             }
           }
+          }
         } catch (orchestratedInitError) {
           console.warn('Community orchestrated feed unavailable; using Phase 1', orchestratedInitError);
+          postsOrchestratedFailedRef.current = true;
+          postsTransportRef.current = resolveTransportAfterFailure(postsTransportRef.current, 'orchestrated');
         }
 
         if (!usedOrchestrated && feedPostsResult.status === 'fulfilled') {
@@ -1360,11 +1471,15 @@ const CommunityHome = () => {
           const normalizedPosts = sortPosts(rawPosts.map(normalizePost));
           postsEmptyPageStreakRef.current = 0;
           discoverySupplementUsedRef.current = false;
+          postsFeedTerminalRef.current = false;
           setPostsFeedTerminal(false);
           setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
           postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+          postsNextCursorRef.current = nextCursor;
           setPostsNextCursor(nextCursor);
-          setPostsOffsetFallbackEnabled(Boolean(normalizedPosts.length) && !nextCursor);
+          const offsetOn = Boolean(normalizedPosts.length) && !nextCursor;
+          postsOffsetFallbackRef.current = offsetOn;
+          setPostsOffsetFallbackEnabled(offsetOn);
           setCommentCounts((prev) => {
             if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
             return normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
@@ -1493,6 +1608,7 @@ const CommunityHome = () => {
       } catch (error) {
         console.error('Error loading community data:', error);
       } finally {
+        postsInitialLoadingRef.current = false;
         if (!cancelled) {
           setStoriesLoading(false);
           setReelsLoading(false);
@@ -1669,7 +1785,10 @@ const CommunityHome = () => {
       window.removeEventListener('community:thread_deleted', refreshCommunityOverview as EventListener);
       window.removeEventListener('community:comment_created', refreshCommunityOverview as EventListener);
     };
-  }, [applyStoryUpdate, filterActiveStories, normalizePost, profile.feedPageSize, sortPosts, user?.id, user?.role]);
+    // Intentionally omit normalizePost/sortPosts identities — unstable callbacks must not
+    // re-trigger full community bootstrap (that unmounted/remounted the feed and caused shake).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.feedPageSize, user?.id, user?.role]);
 
   useEffect(() => {
     const onPostCreated = (event: Event) => {
@@ -2458,23 +2577,37 @@ const CommunityHome = () => {
     };
   }, [heroBackgroundImage, showHero]);
 
+  const loadMorePostsRef = useRef(loadMorePosts);
+  loadMorePostsRef.current = loadMorePosts;
+  // Attach once the feed (and sentinel) is mounted; avoid re-creating on cursor/loading toggles.
+  const communityFeedMounted = !loading || posts.length > 0;
   useEffect(() => {
-    if (!postsSentinelRef.current) return;
+    if (!communityFeedMounted) return;
     const node = postsSentinelRef.current;
+    if (!node) return;
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (!entry?.isIntersecting) return;
-        if (postsLoadingMore || postsFeedTerminal) return;
-        if (postsNextCursor || postsOffsetFallbackEnabled || !discoverySupplementUsedRef.current) {
-          void loadMorePosts();
+        if (
+          !shouldAllowObserverLoadMore({
+            isIntersecting: Boolean(entry?.isIntersecting),
+            initialLoading: postsInitialLoadingRef.current,
+            loadMoreInFlight: postsLoadingMoreRef.current,
+            isTerminal: postsFeedTerminalRef.current,
+            hasCursor: Boolean(String(postsNextCursorRef.current || '').trim()),
+            offsetFallbackEnabled: postsOffsetFallbackRef.current,
+            secondarySourceRemaining: !discoverySupplementUsedRef.current
+          })
+        ) {
+          return;
         }
+        void loadMorePostsRef.current();
       },
-      { rootMargin: '900px 0px', threshold: 0.01 }
+      { rootMargin: '320px 0px', threshold: 0 }
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [loadMorePosts, postsFeedTerminal, postsLoadingMore, postsNextCursor, postsOffsetFallbackEnabled]);
+  }, [communityFeedMounted, user?.id]);
 
   const interestSurveyPostIds = useMemo(
     () =>
@@ -2493,10 +2626,11 @@ const CommunityHome = () => {
     [posts, user?.id]
   );
 
-  if (loading) {
+  // Full-page skeleton only on first paint with no posts — never unmount feed during soft reloads.
+  if (loading && posts.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
+        <div className="text-center min-h-[12rem]">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-500">Loading Community...</p>
         </div>
@@ -3124,7 +3258,7 @@ const CommunityHome = () => {
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
                     <article
-                      key={post.id}
+                      key={getStableFeedReactKey(post)}
                       id={`community-post-${post.id}`}
                       className={`overflow-hidden rounded-[24px] border border-slate-200/85 bg-gradient-to-b from-white via-white to-slate-50/75 p-4 shadow-[0_20px_44px_-30px_rgba(15,23,42,0.38)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_26px_56px_-30px_rgba(15,23,42,0.44)] sm:rounded-[30px] sm:p-5 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
@@ -3577,10 +3711,10 @@ const CommunityHome = () => {
                     </article>
                   );
                 })}
-                <div ref={postsSentinelRef} className="h-8" aria-hidden="true" />
+                <div ref={postsSentinelRef} className="h-10 shrink-0" aria-hidden="true" />
                 {postsLoadingMore ? (
                   <div
-                    className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm"
+                    className="min-h-[3rem] rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm"
                     role="status"
                     aria-live="polite"
                   >
