@@ -1,7 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Minus, X, Loader2 } from 'lucide-react';
-import type { Conversation, Message } from '../../types';
+import {
+  ExternalLink,
+  Minus,
+  X,
+  Loader2,
+  CornerUpLeft,
+  Copy,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  MoreVertical
+} from 'lucide-react';
+import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
@@ -11,8 +22,18 @@ import {
   getConversationDisplayName,
   getMessagePreviewText
 } from '../../services/messagingSurfaces';
+import {
+  canDeleteForMe,
+  canEditOrUnsendMessage,
+  getMyReaction,
+  getReactionCounts,
+  insertSuggestionIntoDraft,
+  isFailedOutgoingMessage,
+  QUICK_REACTIONS
+} from '../../services/messagingComposer';
 import InlineMessageComposer from './InlineMessageComposer';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
+import { AIService } from '../../services/ai/ai.service';
 
 type MessagingChatWindowProps = {
   conversationId: string;
@@ -37,13 +58,25 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
     getThreadState,
     ensureThreadLoaded,
     sendInlineMessage,
+    sendInlineVoiceNote,
+    retryFailedMessage,
     getDraft,
     setDraft,
+    getReplyTo,
+    setReplyTo,
+    getPendingAttachments,
+    addPendingAttachments,
+    removePendingAttachment,
     typingByConversation,
     emitTyping,
     registerVisibleConversation,
     unregisterVisibleConversation,
-    sendingConversationIds
+    sendingConversationIds,
+    toggleReaction,
+    editMessage,
+    deleteMessage,
+    copyMessage,
+    voiceRuntimeConfig
   } = useMessages();
 
   const conversation = useMemo(
@@ -52,11 +85,19 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
   );
   const thread = getThreadState(conversationId);
   const draft = getDraft(conversationId);
+  const replyTo = getReplyTo(conversationId);
+  const pendingAttachments = getPendingAttachments(conversationId);
   const typingName = typingByConversation[conversationId] || null;
   const sending = Boolean(sendingConversationIds[conversationId]);
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
+  const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
+  const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const previousCountRef = useRef(0);
 
@@ -76,12 +117,43 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
     }
     registerVisibleConversation(conversationId);
     return () => unregisterVisibleConversation(conversationId);
-  }, [
-    conversationId,
-    minimized,
-    registerVisibleConversation,
-    unregisterVisibleConversation
-  ]);
+  }, [conversationId, minimized, registerVisibleConversation, unregisterVisibleConversation]);
+
+  useEffect(() => {
+    setExpandedMessageId(null);
+    setReactionMessageId(null);
+    setEditingMessageId(null);
+    setEditDraft('');
+    setSendError(null);
+  }, [conversationId]);
+
+  // Escape closes topmost in-window surface first (edit/reactions/actions) before dock handlers.
+  useEffect(() => {
+    if (minimized) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (editingMessageId) {
+        event.preventDefault();
+        event.stopPropagation();
+        setEditingMessageId(null);
+        setEditDraft('');
+        return;
+      }
+      if (reactionMessageId) {
+        event.preventDefault();
+        event.stopPropagation();
+        setReactionMessageId(null);
+        return;
+      }
+      if (expandedMessageId) {
+        event.preventDefault();
+        event.stopPropagation();
+        setExpandedMessageId(null);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => document.removeEventListener('keydown', onKeyDown, true);
+  }, [minimized, editingMessageId, reactionMessageId, expandedMessageId]);
 
   const messages: Message[] = useMemo(() => {
     if (thread.messages.length > 0) return thread.messages;
@@ -157,7 +229,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
 
   return (
     <div
-      className="pointer-events-auto flex h-[480px] w-[360px] max-h-[min(560px,70vh)] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl"
+      className="pointer-events-auto flex h-[520px] w-[380px] max-h-[min(620px,75vh)] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl"
       style={style}
       role="dialog"
       aria-label={`Conversation with ${title}`}
@@ -182,11 +254,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
           <div className="truncate text-[11px] text-slate-500">
-            {typingName
-              ? `${typingName} is typing…`
-              : isOnline
-                ? 'Online'
-                : 'Messaging'}
+            {typingName ? `${typingName} is typing…` : isOnline ? 'Online' : 'Messaging'}
           </div>
         </div>
         <Link
@@ -242,34 +310,265 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
           {messages.map((message) => {
             const mine =
               String(message.senderId || message.sender_id || '') === String(user?.id || '');
-            const failed = Boolean((message.metadata as any)?.sendFailed);
+            const failed = isFailedOutgoingMessage(message);
+            const deleted = Boolean(message.isDeleted ?? message.is_deleted);
+            const canMutate = canEditOrUnsendMessage(message, user?.id, user?.role);
+            const expanded = expandedMessageId === message.id;
+            const showReactions = reactionMessageId === message.id && !deleted;
+            const editing = editingMessageId === message.id;
+            const myReaction = getMyReaction(message, user?.id);
+            const reactionCounts = getReactionCounts(message);
+            const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+
             return (
-              <div
-                key={message.id}
-                className={`flex ${mine ? 'justify-end' : 'justify-start'}`}
-              >
-                <div
-                  className={[
-                    'max-w-[80%] rounded-2xl px-3 py-2 text-sm shadow-sm',
-                    mine
-                      ? failed
-                        ? 'bg-red-50 text-red-800 ring-1 ring-red-200'
-                        : 'bg-blue-600 text-white'
-                      : 'bg-slate-100 text-slate-800'
-                  ].join(' ')}
-                >
-                  <div className="whitespace-pre-wrap break-words">
-                    {getMessagePreviewText(message) || message.text}
-                  </div>
+              <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                <div className="max-w-[86%]">
                   <div
                     className={[
-                      'mt-1 text-[10px]',
-                      mine ? (failed ? 'text-red-500' : 'text-blue-100') : 'text-slate-400'
+                      'rounded-2xl px-3 py-2 text-sm shadow-sm',
+                      mine
+                        ? failed
+                          ? 'bg-red-50 text-red-800 ring-1 ring-red-200'
+                          : 'bg-blue-600 text-white'
+                        : 'bg-slate-100 text-slate-800'
                     ].join(' ')}
+                    onClick={() => {
+                      if (editing) return;
+                      setExpandedMessageId((prev) => (prev === message.id ? null : message.id));
+                      if (!deleted) {
+                        setReactionMessageId((prev) => (prev === message.id ? null : message.id));
+                      }
+                    }}
                   >
-                    {formatRelativeMessageTime(message.timestamp)}
-                    {failed ? ' · Failed' : ''}
+                    {editing ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editDraft}
+                          onChange={(event) => setEditDraft(event.target.value)}
+                          className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-sm text-slate-900"
+                          rows={3}
+                          aria-label="Edit message"
+                        />
+                        <div className="flex justify-end gap-1.5">
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] text-slate-700"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setEditingMessageId(null);
+                              setEditDraft('');
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-md bg-blue-700 px-2 py-1 text-[11px] text-white disabled:opacity-50"
+                            disabled={actionBusyId === message.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActionBusyId(message.id);
+                              void editMessage(conversationId, message.id, editDraft)
+                                .then(() => {
+                                  setEditingMessageId(null);
+                                  setEditDraft('');
+                                })
+                                .catch((error) => {
+                                  setSendError(getRecoverableActionMessage('Edit message', error));
+                                })
+                                .finally(() => setActionBusyId(null));
+                            }}
+                          >
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="whitespace-pre-wrap break-words">
+                          {deleted
+                            ? '[Message deleted]'
+                            : getMessagePreviewText(message) || message.text}
+                        </div>
+                        {attachments.length > 0 && !deleted ? (
+                          <div className="mt-1 text-[11px] opacity-90">
+                            {attachments.length} attachment{attachments.length === 1 ? '' : 's'}
+                          </div>
+                        ) : null}
+                      </>
+                    )}
+                    <div
+                      className={[
+                        'mt-1 flex items-center justify-end gap-1 text-[10px]',
+                        mine ? (failed ? 'text-red-500' : 'text-blue-100') : 'text-slate-400'
+                      ].join(' ')}
+                    >
+                      <span>{formatRelativeMessageTime(message.timestamp)}</span>
+                      {!deleted && (message.editedAt || message.edited_at) ? (
+                        <span>(edited)</span>
+                      ) : null}
+                      {failed ? <span>· Failed</span> : null}
+                    </div>
+
+                    {showReactions ? (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {QUICK_REACTIONS.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            disabled={actionBusyId === message.id}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setActionBusyId(message.id);
+                              void toggleReaction(conversationId, message.id, emoji)
+                                .catch((error) => {
+                                  setSendError(getRecoverableActionMessage('Reaction', error));
+                                })
+                                .finally(() => setActionBusyId(null));
+                            }}
+                            className={[
+                              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs',
+                              myReaction === emoji
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 bg-white text-slate-700'
+                            ].join(' ')}
+                            aria-label={`React with ${emoji}`}
+                          >
+                            <span>{emoji}</span>
+                            {reactionCounts[emoji] ? (
+                              <span className="font-semibold">{reactionCounts[emoji]}</span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
+
+                  <div className={`mt-1 flex ${mine ? 'justify-end' : 'justify-start'}`}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedMessageId((prev) => (prev === message.id ? null : message.id))
+                      }
+                      className="inline-flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-[10px] font-medium text-slate-600 shadow-sm"
+                      aria-label="Message actions"
+                      aria-expanded={expanded}
+                    >
+                      <MoreVertical className="h-3.5 w-3.5" />
+                      Actions
+                    </button>
+                  </div>
+
+                  {expanded ? (
+                    <div
+                      className={`mt-1 flex max-w-full flex-wrap gap-1 ${
+                        mine ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
+                      {!deleted ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-[10px] text-slate-600"
+                          onClick={() => setReplyTo(conversationId, message)}
+                          aria-label="Reply to message"
+                        >
+                          <CornerUpLeft className="h-3 w-3" />
+                          Reply
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-[10px] text-slate-600"
+                        disabled={actionBusyId === message.id}
+                        onClick={() => {
+                          setActionBusyId(message.id);
+                          void copyMessage(conversationId, message)
+                            .catch((error) => {
+                              setSendError(getRecoverableActionMessage('Copy message', error));
+                            })
+                            .finally(() => setActionBusyId(null));
+                        }}
+                        aria-label="Copy message"
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy
+                      </button>
+                      {canMutate ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-[10px] text-slate-600"
+                          disabled={deleted || actionBusyId === message.id}
+                          onClick={() => {
+                            setEditingMessageId(message.id);
+                            setEditDraft(String(message.text || ''));
+                          }}
+                          aria-label="Edit message"
+                        >
+                          <Pencil className="h-3 w-3" />
+                          Edit
+                        </button>
+                      ) : null}
+                      {canDeleteForMe(message) ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-red-200 bg-white px-2 text-[10px] text-red-600"
+                          disabled={actionBusyId === message.id}
+                          onClick={() => {
+                            if (!window.confirm('Delete this message for you only?')) return;
+                            setActionBusyId(message.id);
+                            void deleteMessage(conversationId, message.id, 'me')
+                              .catch((error) => {
+                                setSendError(getRecoverableActionMessage('Delete message', error));
+                              })
+                              .finally(() => setActionBusyId(null));
+                          }}
+                          aria-label="Delete for me"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Delete for me
+                        </button>
+                      ) : null}
+                      {canMutate ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-red-300 bg-white px-2 text-[10px] text-red-700"
+                          disabled={deleted || actionBusyId === message.id}
+                          onClick={() => {
+                            if (!window.confirm('Unsend this message for everyone?')) return;
+                            setActionBusyId(message.id);
+                            void deleteMessage(conversationId, message.id, 'everyone')
+                              .catch((error) => {
+                                setSendError(getRecoverableActionMessage('Unsend message', error));
+                              })
+                              .finally(() => setActionBusyId(null));
+                          }}
+                          aria-label="Unsend for everyone"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                          Unsend
+                        </button>
+                      ) : null}
+                      {failed ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 text-[10px] text-amber-800"
+                          disabled={actionBusyId === message.id || sending}
+                          onClick={() => {
+                            setActionBusyId(message.id);
+                            void retryFailedMessage(conversationId, message.id)
+                              .catch((error) => {
+                                setSendError(getRecoverableActionMessage('Retry send', error));
+                              })
+                              .finally(() => setActionBusyId(null));
+                          }}
+                          aria-label="Retry failed message"
+                        >
+                          <RefreshCw className="h-3 w-3" />
+                          Retry
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );
@@ -302,11 +601,70 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         value={draft}
         onChange={(value) => setDraft(conversationId, value)}
         sending={sending}
+        pendingAttachments={pendingAttachments}
+        onAttachmentsUploaded={(files) => addPendingAttachments(conversationId, files as any)}
+        onRemoveAttachment={(attachmentId) => removePendingAttachment(conversationId, attachmentId)}
+        replyPreview={
+          replyTo
+            ? {
+                label:
+                  String(replyTo.senderId || replyTo.sender_id || '') === String(user?.id || '')
+                    ? 'Replying to yourself'
+                    : `Replying to ${title}`,
+                text: getMessagePreviewText(replyTo) || replyTo.text || 'Attachment'
+              }
+            : null
+        }
+        onCancelReply={() => setReplyTo(conversationId, null)}
+        voiceDisabled={
+          !voiceRuntimeConfig.enabledVoiceNotes || voiceRuntimeConfig.blockedForCurrentUser
+        }
+        maxVoiceSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
+        suggestLoading={suggestLoading}
         onTyping={(isTyping) => emitTyping(conversationId, isTyping)}
+        onVoiceRecorded={async (blob, durationMs) => {
+          setSendError(null);
+          try {
+            await sendInlineVoiceNote(conversationId, { blob, durationMs });
+          } catch (error) {
+            setSendError(getRecoverableActionMessage('Voice note send', error));
+          }
+        }}
+        onSuggestReply={async () => {
+          if (!user) return;
+          setSuggestLoading(true);
+          setSendError(null);
+          try {
+            const history = messages.slice(-5).map((entry) => ({
+              sender:
+                String(entry.senderId || entry.sender_id || '') === String(user.id)
+                  ? 'Me'
+                  : 'Other',
+              text: String(entry.text || '')
+            }));
+            const response = await AIService.suggestReply({
+              history,
+              userRole: user.role
+            });
+            if (response?.suggestion) {
+              // Explicit selection path: replace current draft with suggestion only on user click.
+              setDraft(
+                conversationId,
+                insertSuggestionIntoDraft(draft, response.suggestion, 'replace')
+              );
+            }
+          } catch (error) {
+            setSendError(getRecoverableActionMessage('Suggest reply', error));
+          } finally {
+            setSuggestLoading(false);
+          }
+        }}
         onSend={async () => {
           setSendError(null);
           try {
-            await sendInlineMessage(conversationId, draft);
+            await sendInlineMessage(conversationId, draft, {
+              replyToMessageId: replyTo?.id || null
+            });
           } catch (error) {
             setSendError(getRecoverableActionMessage('Message send', error));
           }

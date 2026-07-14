@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState
 } from 'react';
-import type { Conversation, Message } from '../types';
+import type { Conversation, Message, UploadedFile } from '../types';
 import { MessagingService, messageMatchesConversation } from '../services/messaging';
 import { getConversationMergeKey } from '../services/messagingMerge';
 import {
@@ -31,6 +31,18 @@ import {
   sumConversationUnread,
   upsertOpenChatWindows
 } from '../services/messagingSurfaces';
+import {
+  applyLocalReactionToggle,
+  buildClientSendId,
+  DEFAULT_MAX_VOICE_NOTE_SECONDS,
+  markMessageDeletedEveryone,
+  mergeEditResponseIntoMessage,
+  pendingToAttachmentIds,
+  type PendingComposerAttachment,
+  uploadedFileToPending,
+  revokePendingObjectUrls
+} from '../services/messagingComposer';
+import { FileService } from '../services/files';
 import { getRecoverableActionMessage, isOfflineLikeError } from '../mobile/runtime/requestRecovery';
 import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
@@ -72,12 +84,42 @@ interface MessageContextType {
   sendInlineMessage: (
     conversationId: string,
     text: string,
-    options?: { replyToMessageId?: string | null }
+    options?: {
+      replyToMessageId?: string | null;
+      attachmentIds?: string[];
+      optimisticId?: string | null;
+    }
   ) => Promise<Message | null>;
+  sendInlineVoiceNote: (
+    conversationId: string,
+    payload: { blob: Blob; durationMs: number }
+  ) => Promise<Message | null>;
+  retryFailedMessage: (conversationId: string, messageId: string) => Promise<Message | null>;
   getDraft: (conversationId: string) => string;
   setDraft: (conversationId: string, text: string) => void;
+  getReplyTo: (conversationId: string) => Message | null;
+  setReplyTo: (conversationId: string, message: Message | null) => void;
+  getPendingAttachments: (conversationId: string) => PendingComposerAttachment[];
+  addPendingAttachments: (conversationId: string, files: UploadedFile[]) => void;
+  removePendingAttachment: (conversationId: string, attachmentId: string) => void;
+  clearPendingAttachments: (conversationId: string) => void;
   typingByConversation: Record<string, string | null>;
   emitTyping: (conversationId: string, isTyping: boolean) => void;
+
+  // Message actions (dock parity with /messages)
+  toggleReaction: (conversationId: string, messageId: string, emoji: string) => Promise<void>;
+  editMessage: (conversationId: string, messageId: string, text: string) => Promise<void>;
+  deleteMessage: (
+    conversationId: string,
+    messageId: string,
+    scope: 'me' | 'everyone'
+  ) => Promise<void>;
+  copyMessage: (conversationId: string, message: Message) => Promise<void>;
+  voiceRuntimeConfig: {
+    enabledVoiceNotes: boolean;
+    maxVoiceNoteDurationSeconds: number;
+    blockedForCurrentUser: boolean;
+  };
 
   // Shared list helpers
   getPreviewConversations: (tab: MessagingInboxTab, limit?: number) => Conversation[];
@@ -117,10 +159,27 @@ const DEFAULT_MESSAGE_CONTEXT: MessageContextType = {
   getThreadState: () => EMPTY_THREAD,
   ensureThreadLoaded: async () => {},
   sendInlineMessage: async () => null,
+  sendInlineVoiceNote: async () => null,
+  retryFailedMessage: async () => null,
   getDraft: () => '',
   setDraft: () => {},
+  getReplyTo: () => null,
+  setReplyTo: () => {},
+  getPendingAttachments: () => [],
+  addPendingAttachments: () => {},
+  removePendingAttachment: () => {},
+  clearPendingAttachments: () => {},
   typingByConversation: {},
   emitTyping: () => {},
+  toggleReaction: async () => {},
+  editMessage: async () => {},
+  deleteMessage: async () => {},
+  copyMessage: async () => {},
+  voiceRuntimeConfig: {
+    enabledVoiceNotes: true,
+    maxVoiceNoteDurationSeconds: DEFAULT_MAX_VOICE_NOTE_SECONDS,
+    blockedForCurrentUser: false
+  },
   getPreviewConversations: () => [],
   searchQuery: '',
   setSearchQuery: () => {},
@@ -185,6 +244,10 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [openChatWindows, setOpenChatWindows] = useState<OpenChatWindowState[]>([]);
   const [threadCache, setThreadCache] = useState<Record<string, ThreadCacheEntry>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [replyToByConversation, setReplyToByConversation] = useState<Record<string, Message | null>>({});
+  const [pendingAttachmentsByConversation, setPendingAttachmentsByConversation] = useState<
+    Record<string, PendingComposerAttachment[]>
+  >({});
   const [typingByConversation, setTypingByConversation] = useState<Record<string, string | null>>({});
   const [sendingConversationIds, setSendingConversationIds] = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQueryState] = useState('');
@@ -192,6 +255,11 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [searchResults, setSearchResults] = useState<Conversation[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState({
+    enabledVoiceNotes: true,
+    maxVoiceNoteDurationSeconds: DEFAULT_MAX_VOICE_NOTE_SECONDS,
+    blockedForCurrentUser: false
+  });
 
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const lastRefreshAtRef = useRef(0);
@@ -423,6 +491,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!id) return;
       setOpenChatWindows((current) => current.filter((entry) => entry.conversationId !== id));
       unregisterVisibleConversation(id);
+      // Keep per-conversation drafts/attachments for reopen in-session; do not leak across ids.
     },
     [unregisterVisibleConversation]
   );
@@ -560,6 +629,93 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setDrafts((prev) => setConversationDraft(prev, id, text));
   }, []);
 
+  const getReplyTo = useCallback(
+    (conversationId: string) => replyToByConversation[safeId(conversationId)] || null,
+    [replyToByConversation]
+  );
+
+  const setReplyTo = useCallback((conversationId: string, message: Message | null) => {
+    const id = safeId(conversationId);
+    if (!id) return;
+    setReplyToByConversation((prev) => ({ ...prev, [id]: message }));
+  }, []);
+
+  const getPendingAttachments = useCallback(
+    (conversationId: string) => pendingAttachmentsByConversation[safeId(conversationId)] || [],
+    [pendingAttachmentsByConversation]
+  );
+
+  const addPendingAttachments = useCallback((conversationId: string, files: UploadedFile[]) => {
+    const id = safeId(conversationId);
+    if (!id) return;
+    const mapped = (Array.isArray(files) ? files : []).map(uploadedFileToPending).filter((item) => item.id);
+    if (!mapped.length) return;
+    setPendingAttachmentsByConversation((prev) => {
+      const existing = prev[id] || [];
+      const known = new Set(existing.map((item) => item.id));
+      const unique = mapped.filter((item) => !known.has(item.id));
+      return { ...prev, [id]: [...existing, ...unique] };
+    });
+  }, []);
+
+  const removePendingAttachment = useCallback((conversationId: string, attachmentId: string) => {
+    const id = safeId(conversationId);
+    const attachmentKey = safeId(attachmentId);
+    if (!id || !attachmentKey) return;
+    setPendingAttachmentsByConversation((prev) => {
+      const existing = prev[id] || [];
+      const next = existing.filter((item) => item.id !== attachmentKey);
+      const removed = existing.filter((item) => item.id === attachmentKey);
+      revokePendingObjectUrls(removed);
+      return { ...prev, [id]: next };
+    });
+  }, []);
+
+  const clearPendingAttachments = useCallback((conversationId: string) => {
+    const id = safeId(conversationId);
+    if (!id) return;
+    setPendingAttachmentsByConversation((prev) => {
+      const existing = prev[id] || [];
+      revokePendingObjectUrls(existing);
+      return { ...prev, [id]: [] };
+    });
+  }, []);
+
+  const updateThreadMessages = useCallback(
+    (conversationId: string, updater: (messages: Message[]) => Message[]) => {
+      const id = safeId(conversationId);
+      if (!id) return;
+      setThreadCache((prev) => {
+        const current = prev[id] || EMPTY_THREAD;
+        return {
+          ...prev,
+          [id]: {
+            ...current,
+            messages: dedupeMessagesById(updater(current.messages || []))
+          }
+        };
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void MessagingService.getVoiceRuntimeConfig()
+      .then((config) => {
+        setVoiceRuntimeConfig({
+          enabledVoiceNotes: Boolean(config?.enabledVoiceNotes ?? true),
+          maxVoiceNoteDurationSeconds: Number(
+            config?.maxVoiceNoteDurationSeconds ?? DEFAULT_MAX_VOICE_NOTE_SECONDS
+          ),
+          blockedForCurrentUser: Boolean((config as any)?.blockedForCurrentUser ?? false)
+        });
+      })
+      .catch(() => {
+        // keep defaults
+      });
+  }, [user?.id]);
+
   const emitTyping = useCallback(
     (conversationId: string, isTyping: boolean) => {
       const id = safeId(conversationId);
@@ -604,16 +760,25 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     async (
       conversationId: string,
       text: string,
-      options?: { replyToMessageId?: string | null }
+      options?: {
+        replyToMessageId?: string | null;
+        attachmentIds?: string[];
+        optimisticId?: string | null;
+      }
     ): Promise<Message | null> => {
       const id = safeId(conversationId);
       const trimmed = String(text || '').trim();
-      if (!id || !trimmed || !user?.id) return null;
+      const attachmentIds = Array.isArray(options?.attachmentIds)
+        ? options!.attachmentIds.map((entry) => safeId(entry)).filter(Boolean)
+        : pendingToAttachmentIds(pendingAttachmentsByConversation[id] || []);
+      if (!id || !user?.id) return null;
+      if (!trimmed && attachmentIds.length === 0) return null;
       if (sendingIdsRef.current.has(id)) return null;
 
       sendingIdsRef.current.add(id);
       setSendingConversationIds((prev) => ({ ...prev, [id]: true }));
-      const optimisticId = `optimistic-${id}-${Date.now()}`;
+      const optimisticId = safeId(options?.optimisticId) || buildClientSendId(id, Date.now());
+      const replyToMessageId = options?.replyToMessageId || replyToByConversation[id]?.id || null;
       const optimistic: Message = {
         id: optimisticId,
         conversationId: id,
@@ -624,19 +789,22 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         timestamp: new Date().toISOString(),
         is_read: true,
         isRead: true,
-        message_type: 'text',
-        messageType: 'text',
-        replyToMessageId: options?.replyToMessageId || null,
-        reply_to_message_id: options?.replyToMessageId || null
+        message_type: attachmentIds.length ? 'file' : 'text',
+        messageType: attachmentIds.length ? 'file' : 'text',
+        attachments: attachmentIds,
+        replyToMessageId,
+        reply_to_message_id: replyToMessageId,
+        metadata: { clientSendId: optimisticId }
       } as Message;
 
       setThreadCache((prev) => {
         const current = prev[id] || EMPTY_THREAD;
+        const withoutRetry = current.messages.filter((entry) => entry.id !== optimisticId);
         return {
           ...prev,
           [id]: {
             ...current,
-            messages: dedupeMessagesById([...current.messages, optimistic])
+            messages: dedupeMessagesById([...withoutRetry, optimistic])
           }
         };
       });
@@ -656,8 +824,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           user.id,
           trimmed,
           user.role,
-          [],
-          options?.replyToMessageId || null
+          attachmentIds,
+          replyToMessageId
         );
         seenMessageIdsRef.current.add(safeId(serverMessage.id));
         setThreadCache((prev) => {
@@ -679,11 +847,15 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return next;
         });
         setDrafts((prev) => clearConversationDraft(prev, id));
+        setReplyToByConversation((prev) => ({ ...prev, [id]: null }));
+        setPendingAttachmentsByConversation((prev) => {
+          revokePendingObjectUrls(prev[id] || []);
+          return { ...prev, [id]: [] };
+        });
         emitTyping(id, false);
         scheduleSoftRefresh();
         return serverMessage;
       } catch (e) {
-        // Keep draft and optimistic failure state
         setThreadCache((prev) => {
           const current = prev[id] || EMPTY_THREAD;
           return {
@@ -692,7 +864,17 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               ...current,
               messages: current.messages.map((entry) =>
                 entry.id === optimisticId
-                  ? { ...entry, metadata: { ...(entry.metadata || {}), sendFailed: true } }
+                  ? {
+                      ...entry,
+                      metadata: {
+                        ...(entry.metadata || {}),
+                        sendFailed: true,
+                        clientSendId: optimisticId,
+                        failedText: trimmed,
+                        failedAttachmentIds: attachmentIds,
+                        failedReplyToMessageId: replyToMessageId
+                      }
+                    }
                   : entry
               ),
               error: getRecoverableActionMessage('Message send', e)
@@ -709,7 +891,209 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
       }
     },
-    [user?.id, user?.role, recomputeUnread, emitTyping, scheduleSoftRefresh]
+    [
+      user?.id,
+      user?.role,
+      recomputeUnread,
+      emitTyping,
+      scheduleSoftRefresh,
+      pendingAttachmentsByConversation,
+      replyToByConversation
+    ]
+  );
+
+  const sendInlineVoiceNote = useCallback(
+    async (
+      conversationId: string,
+      payload: { blob: Blob; durationMs: number }
+    ): Promise<Message | null> => {
+      const id = safeId(conversationId);
+      if (!id || !user?.id) return null;
+      if (!voiceRuntimeConfig.enabledVoiceNotes || voiceRuntimeConfig.blockedForCurrentUser) {
+        throw new Error('Voice notes are disabled for this account.');
+      }
+      if (sendingIdsRef.current.has(id)) return null;
+      sendingIdsRef.current.add(id);
+      setSendingConversationIds((prev) => ({ ...prev, [id]: true }));
+      try {
+        const extension = payload.blob.type.includes('ogg') ? 'ogg' : 'webm';
+        const file = new File([payload.blob], `voice-note-${Date.now()}.${extension}`, {
+          type: payload.blob.type || 'audio/webm'
+        });
+        const uploaded = await FileService.uploadFile(file, 'document', {
+          role: user.role,
+          userId: user.id,
+          visibility: 'private'
+        });
+        const message = await MessagingService.sendVoiceNote(id, {
+          fileId: String(uploaded.id || uploaded.fileId || '').trim(),
+          durationMs: Math.max(1, Math.trunc(payload.durationMs || 0))
+        });
+        seenMessageIdsRef.current.add(safeId(message.id));
+        updateThreadMessages(id, (messages) => dedupeMessagesById([...messages, message]));
+        setConversations((prev) => {
+          const next = applyIncomingPreviewUpdate(prev, message, {
+            currentUserId: user.id,
+            activeConversationIds: visibleConversationIdsRef.current
+          });
+          recomputeUnread(next);
+          return next;
+        });
+        scheduleSoftRefresh();
+        return message;
+      } finally {
+        sendingIdsRef.current.delete(id);
+        setSendingConversationIds((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    [
+      user?.id,
+      user?.role,
+      voiceRuntimeConfig.enabledVoiceNotes,
+      voiceRuntimeConfig.blockedForCurrentUser,
+      updateThreadMessages,
+      recomputeUnread,
+      scheduleSoftRefresh
+    ]
+  );
+
+  const retryFailedMessage = useCallback(
+    async (conversationId: string, messageId: string): Promise<Message | null> => {
+      const id = safeId(conversationId);
+      const mid = safeId(messageId);
+      if (!id || !mid) return null;
+      const thread = threadCache[id];
+      const failed = (thread?.messages || []).find((entry) => entry.id === mid);
+      if (!failed) return null;
+      const meta = (failed.metadata || {}) as any;
+      const text = String(meta.failedText ?? failed.text ?? '').trim();
+      const attachmentIds = Array.isArray(meta.failedAttachmentIds)
+        ? meta.failedAttachmentIds.map((entry: any) => String(entry || '').trim()).filter(Boolean)
+        : [];
+      return sendInlineMessage(id, text, {
+        attachmentIds,
+        replyToMessageId: meta.failedReplyToMessageId || null,
+        optimisticId: mid
+      });
+    },
+    [threadCache, sendInlineMessage]
+  );
+
+  const toggleReaction = useCallback(
+    async (conversationId: string, messageId: string, emoji: string) => {
+      const id = safeId(conversationId);
+      const mid = safeId(messageId);
+      if (!id || !mid || !user?.id) return;
+      let snapshot: Message | null = null;
+      setThreadCache((prev) => {
+        const current = prev[id] || EMPTY_THREAD;
+        snapshot = (current.messages || []).find((entry) => entry.id === mid) || null;
+        return {
+          ...prev,
+          [id]: {
+            ...current,
+            messages: (current.messages || []).map((entry) =>
+              entry.id === mid ? applyLocalReactionToggle(entry, user.id, emoji) : entry
+            )
+          }
+        };
+      });
+      try {
+        const updated = await MessagingService.toggleReaction(id, mid, user.id, emoji);
+        if (updated?.messageId) {
+          updateThreadMessages(id, (messages) =>
+            messages.map((entry) =>
+              entry.id === updated.messageId
+                ? {
+                    ...entry,
+                    reactions: Array.isArray(updated.reactions) ? updated.reactions : entry.reactions,
+                    reactionSummary: updated.reactionSummary || (entry as any).reactionSummary
+                  }
+                : entry
+            )
+          );
+        }
+      } catch (error) {
+        // Rollback optimistic reaction without full-thread refetch thrash.
+        if (snapshot) {
+          const previous = snapshot;
+          updateThreadMessages(id, (messages) =>
+            messages.map((entry) => (entry.id === mid ? previous : entry))
+          );
+        } else {
+          await ensureThreadLoaded(id, { force: true });
+        }
+        throw error;
+      }
+    },
+    [user?.id, updateThreadMessages, ensureThreadLoaded]
+  );
+
+  const editMessage = useCallback(
+    async (conversationId: string, messageId: string, text: string) => {
+      const id = safeId(conversationId);
+      const mid = safeId(messageId);
+      const nextText = String(text || '').trim();
+      if (!id || !mid || !nextText) return;
+      const updated = await MessagingService.editMessage(id, mid, nextText);
+      updateThreadMessages(id, (messages) =>
+        messages.map((entry) =>
+          entry.id === mid ? mergeEditResponseIntoMessage(entry, updated as any) : entry
+        )
+      );
+      scheduleSoftRefresh();
+    },
+    [updateThreadMessages, scheduleSoftRefresh]
+  );
+
+  const deleteMessage = useCallback(
+    async (conversationId: string, messageId: string, scope: 'me' | 'everyone') => {
+      const id = safeId(conversationId);
+      const mid = safeId(messageId);
+      if (!id || !mid) return;
+      const result = await MessagingService.deleteMessage(id, mid, scope);
+      const deletedForMe = Boolean(result?.deletedForMe ?? result?.deleted_for_me ?? scope === 'me');
+      if (deletedForMe) {
+        updateThreadMessages(id, (messages) => messages.filter((entry) => entry.id !== mid));
+      } else {
+        updateThreadMessages(id, (messages) =>
+          messages.map((entry) => (entry.id === mid ? markMessageDeletedEveryone(entry) : entry))
+        );
+      }
+      if (replyToByConversation[id]?.id === mid) {
+        setReplyToByConversation((prev) => ({ ...prev, [id]: null }));
+      }
+      scheduleSoftRefresh();
+    },
+    [updateThreadMessages, replyToByConversation, scheduleSoftRefresh]
+  );
+
+  const copyMessage = useCallback(
+    async (conversationId: string, message: Message) => {
+      const id = safeId(conversationId);
+      const mid = safeId(message?.id);
+      if (!id || !mid) return;
+      const text = String(message.text || '');
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const area = document.createElement('textarea');
+        area.value = text;
+        area.style.position = 'fixed';
+        area.style.opacity = '0';
+        document.body.appendChild(area);
+        area.focus();
+        area.select();
+        document.execCommand('copy');
+        document.body.removeChild(area);
+      }
+      await MessagingService.copyMessage(id, mid);
+    },
+    []
   );
 
   // Initial load + polling fallback when socket is down
@@ -721,6 +1105,11 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setOpenChatWindows([]);
       setThreadCache({});
       setDrafts({});
+      setReplyToByConversation({});
+      setPendingAttachmentsByConversation((prev) => {
+        Object.values(prev).forEach((items) => revokePendingObjectUrls(items || []));
+        return {};
+      });
       setTypingByConversation({});
       seenMessageIdsRef.current.clear();
       visibleConversationIdsRef.current.clear();
@@ -888,53 +1277,90 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const messageId = safeId(payload?.messageId ?? payload?.id);
       if (!conversationId || !messageId) return;
       const deletedForMe = Boolean(payload?.deletedForMe ?? payload?.deleted_for_me);
+      const deletedEveryone = Boolean(payload?.isDeleted ?? payload?.is_deleted);
+      const hasReactions = Array.isArray(payload?.reactions);
 
       setThreadCache((prev) => {
         const current = prev[conversationId];
         if (!current) return prev;
         const nextMessages = deletedForMe
           ? current.messages.filter((entry) => entry.id !== messageId)
-          : current.messages.map((entry) =>
-              entry.id === messageId
-                ? {
-                    ...entry,
-                    text: payload?.text ?? entry.text,
-                    isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? entry.isDeleted),
-                    is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? entry.is_deleted),
-                    editedAt: payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
-                    reactions: Array.isArray(payload?.reactions) ? payload.reactions : entry.reactions
-                  }
-                : entry
-            );
+          : current.messages.map((entry) => {
+              if (entry.id !== messageId) return entry;
+              if (deletedEveryone) {
+                return markMessageDeletedEveryone({
+                  ...entry,
+                  text: payload?.text ?? '[Message deleted]',
+                  attachments: Array.isArray(payload?.attachments) ? payload.attachments : []
+                });
+              }
+              return {
+                ...entry,
+                text: payload?.text ?? entry.text,
+                isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? entry.isDeleted),
+                is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? entry.is_deleted),
+                editedAt: payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
+                edited_at: payload?.edited_at ?? payload?.editedAt ?? entry.edited_at,
+                deletedAt: payload?.deletedAt ?? payload?.deleted_at ?? entry.deletedAt,
+                deleted_at: payload?.deleted_at ?? payload?.deletedAt ?? entry.deleted_at,
+                reactions: hasReactions ? payload.reactions : entry.reactions,
+                reactionSummary: payload?.reactionSummary ?? (entry as any).reactionSummary,
+                attachments: Array.isArray(payload?.attachments) ? payload.attachments : entry.attachments
+              };
+            });
         return {
           ...prev,
           [conversationId]: { ...current, messages: nextMessages }
         };
       });
 
-      setConversations((prev) =>
-        prev.map((conversation) => {
+      setConversations((prev) => {
+        const next = prev.map((conversation) => {
           if (conversation.id !== conversationId) return conversation;
           const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
           const nextMessages = deletedForMe
             ? messages.filter((entry) => entry.id !== messageId)
-            : messages.map((entry) =>
-                entry.id === messageId ? { ...entry, text: payload?.text ?? entry.text } : entry
-              );
+            : messages.map((entry) => {
+                if (entry.id !== messageId) return entry;
+                if (deletedEveryone) {
+                  return markMessageDeletedEveryone({
+                    ...entry,
+                    text: payload?.text ?? '[Message deleted]'
+                  });
+                }
+                return {
+                  ...entry,
+                  text: payload?.text ?? entry.text,
+                  isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? entry.isDeleted),
+                  is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? entry.is_deleted),
+                  editedAt: payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
+                  edited_at: payload?.edited_at ?? payload?.editedAt ?? entry.edited_at,
+                  reactions: hasReactions ? payload.reactions : entry.reactions
+                };
+              });
           const last = nextMessages[nextMessages.length - 1];
           const preview =
             payload?.lastMessage ??
             payload?.last_message ??
             getMessagePreviewText(last) ??
             conversation.lastMessage;
+          const lastAt =
+            payload?.lastMessageAt ??
+            payload?.last_message_at ??
+            last?.timestamp ??
+            conversation.lastMessageAt ??
+            conversation.last_message_at;
           return {
             ...conversation,
             messages: nextMessages,
             lastMessage: preview,
-            last_message: preview
+            last_message: preview,
+            lastMessageAt: lastAt,
+            last_message_at: lastAt
           } as Conversation;
-        })
-      );
+        });
+        return sortConversationsByRecent(next);
+      });
     };
 
     const handleConversationUpdated = (payload: any) => {
@@ -1056,10 +1482,23 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       getThreadState,
       ensureThreadLoaded,
       sendInlineMessage,
+      sendInlineVoiceNote,
+      retryFailedMessage,
       getDraft,
       setDraft,
+      getReplyTo,
+      setReplyTo,
+      getPendingAttachments,
+      addPendingAttachments,
+      removePendingAttachment,
+      clearPendingAttachments,
       typingByConversation,
       emitTyping,
+      toggleReaction,
+      editMessage,
+      deleteMessage,
+      copyMessage,
+      voiceRuntimeConfig,
       getPreviewConversations,
       searchQuery,
       setSearchQuery,
@@ -1088,10 +1527,23 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       getThreadState,
       ensureThreadLoaded,
       sendInlineMessage,
+      sendInlineVoiceNote,
+      retryFailedMessage,
       getDraft,
       setDraft,
+      getReplyTo,
+      setReplyTo,
+      getPendingAttachments,
+      addPendingAttachments,
+      removePendingAttachment,
+      clearPendingAttachments,
       typingByConversation,
       emitTyping,
+      toggleReaction,
+      editMessage,
+      deleteMessage,
+      copyMessage,
+      voiceRuntimeConfig,
       getPreviewConversations,
       searchQuery,
       setSearchQuery,

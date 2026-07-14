@@ -564,7 +564,19 @@ export const MessagingService = {
 
   editMessage: async (conversationId: string, messageId: string, text: string): Promise<Message> => {
     const response = await api.patch(`/messages/conversations/${conversationId}/messages/${messageId}`, { text });
-    return normalizeMessage(extractData<any>(response));
+    const data = extractData<any>(response) || {};
+    // Edit API returns mutation payload (messageId/text/editedAt), not a full message document.
+    return normalizeMessage({
+      ...data,
+      id: data?.id ?? data?.messageId ?? messageId,
+      conversationId: data?.conversationId ?? data?.conversation_id ?? conversationId,
+      conversation_id: data?.conversation_id ?? data?.conversationId ?? conversationId,
+      text: data?.text ?? text,
+      editedAt: data?.editedAt ?? data?.edited_at ?? null,
+      edited_at: data?.edited_at ?? data?.editedAt ?? null,
+      isDeleted: Boolean(data?.isDeleted ?? data?.is_deleted ?? false),
+      is_deleted: Boolean(data?.is_deleted ?? data?.isDeleted ?? false)
+    });
   },
 
   copyMessage: async (conversationId: string, messageId: string): Promise<void> => {
