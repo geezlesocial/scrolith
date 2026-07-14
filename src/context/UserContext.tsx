@@ -289,6 +289,15 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('user');
     } catch {}
 
+    // Drop all private messaging media object URLs before navigation.
+    void import('../services/messagingMedia')
+      .then((mod) => {
+        mod.revokeAllAuthenticatedMediaUrls();
+      })
+      .catch(() => {
+        // best-effort
+      });
+
     void AuthService.clearToken();
     void (async () => {
       try {

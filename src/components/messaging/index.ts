@@ -6,3 +6,7 @@ export { default as MessagingTabs } from './MessagingTabs';
 export { default as MessagingSearch } from './MessagingSearch';
 export { default as MessagingChatWindow } from './MessagingChatWindow';
 export { default as InlineMessageComposer } from './InlineMessageComposer';
+export {
+  default as MessageAttachmentRenderer,
+  MessageAttachmentsList
+} from './MessageAttachmentRenderer';
