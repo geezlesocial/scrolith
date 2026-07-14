@@ -1584,6 +1584,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const postMediaCountRef = useRef(0);
   /** Latest media snapshot for unmount blob cleanup. */
   const postMediaItemsRef = useRef<PostMediaItem[]>([]);
+  /** Stable close/save path — avoid recreating onClose every keystroke (focus trap churn). */
+  const postDraftRef = useRef(postDraft);
+  const postingRef = useRef(posting);
+  const postAuthorScopeIdRef = useRef(postAuthorScopeId);
   const composerDraftKey = useMemo(
     () =>
       buildComposerDraftKey({
@@ -1593,6 +1597,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }),
     [postAuthorScopeId, user?.id]
   );
+  const composerDraftKeyRef = useRef(composerDraftKey);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState('');
@@ -2072,6 +2077,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     postMediaCountRef.current = postDraft.media.length;
     postMediaItemsRef.current = postDraft.media;
   }, [postDraft.media]);
+
+  // Keep latest draft snapshot for stable close/save callbacks (must not remount editor/focus trap).
+  useEffect(() => {
+    postDraftRef.current = postDraft;
+  }, [postDraft]);
+  useEffect(() => {
+    postingRef.current = posting;
+  }, [posting]);
+  useEffect(() => {
+    postAuthorScopeIdRef.current = postAuthorScopeId;
+  }, [postAuthorScopeId]);
+  useEffect(() => {
+    composerDraftKeyRef.current = composerDraftKey;
+  }, [composerDraftKey]);
 
   // Persist text/settings draft while typing (no media bytes).
   useEffect(() => {
@@ -6444,26 +6463,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   const closeDesktopComposer = useCallback(() => {
     // Do not dismiss mid-publish (guard + UI busy state).
-    if (posting || publishGuardRef.current.isBusy()) return;
-    // Persist draft safely on close (text/settings only).
-    saveComposerDraft(composerDraftKey, {
-      title: postDraft.title,
-      content: postDraft.content,
-      tags: postDraft.tags,
-      mentions: postDraft.mentions,
-      topic: postDraft.topic,
-      region: postDraft.region,
-      location: postDraft.location,
-      visibility: postDraft.visibility,
-      commentPolicy: postDraft.commentPolicy,
-      graphicWarning: postDraft.graphicWarning,
-      isAIEnhanced: postDraft.isAIEnhanced,
-      aiInsightPreference: postDraft.aiInsightPreference,
-      authorScopeId: postAuthorScopeId
+    if (postingRef.current || publishGuardRef.current.isBusy()) return;
+    // Persist draft safely on close (text/settings only) from latest refs —
+    // callback identity stays stable so ComposerShell never re-inits the focus trap mid-typing.
+    const draft = postDraftRef.current;
+    saveComposerDraft(composerDraftKeyRef.current, {
+      title: draft.title,
+      content: draft.content,
+      tags: draft.tags,
+      mentions: draft.mentions,
+      topic: draft.topic,
+      region: draft.region,
+      location: draft.location,
+      visibility: draft.visibility,
+      commentPolicy: draft.commentPolicy,
+      graphicWarning: draft.graphicWarning,
+      isAIEnhanced: draft.isAIEnhanced,
+      aiInsightPreference: draft.aiInsightPreference,
+      authorScopeId: postAuthorScopeIdRef.current
     });
     setDesktopComposerOpen(false);
     setPostLocationPickerOpen(false);
-  }, [composerDraftKey, postAuthorScopeId, postDraft, posting]);
+  }, []);
 
   const discardComposerDraft = useCallback(() => {
     if (posting || publishGuardRef.current.isBusy()) return;
