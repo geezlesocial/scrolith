@@ -13,6 +13,7 @@ import { isEligibleVideoMime } from './mediaVideoProbe.service';
 import {
   getMediaProcessingMode,
   getMediaProcessingQueue,
+  isInlineAsyncExecutionMode,
   isMediaImageProcessingEnabled,
   isMediaVideoProcessingEnabled,
   registerImageProcessingHandler,
@@ -24,11 +25,13 @@ let videoHandlerReady = false;
 
 /**
  * Lazily wire inline_async image handler only when that mode is active.
- * Avoids loading Sharp in production when MEDIA_IMAGE_PROCESSING_ENABLED=false.
+ * Avoids loading Sharp when disabled or when mode is cloud_tasks (worker executes).
  */
 const ensureImageHandlerIfNeeded = () => {
   if (imageHandlerReady) return;
   if (!isMediaImageProcessingEnabled()) return;
+  // cloud_tasks: API only enqueues — do not load Sharp / processors here.
+  if (!isInlineAsyncExecutionMode()) return;
   // Dynamic require keeps Sharp off the default upload path.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { processImageFile } = require('./mediaProcessing.service') as typeof import('./mediaProcessing.service');
@@ -41,6 +44,8 @@ const ensureImageHandlerIfNeeded = () => {
 const ensureVideoHandlerIfNeeded = () => {
   if (videoHandlerReady) return;
   if (!isMediaVideoProcessingEnabled()) return;
+  // cloud_tasks: API only enqueues — do not load ffprobe/ffmpeg processors here.
+  if (!isInlineAsyncExecutionMode()) return;
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { processVideoMetadata } =
     require('./mediaVideoProcessing.service') as typeof import('./mediaVideoProcessing.service');

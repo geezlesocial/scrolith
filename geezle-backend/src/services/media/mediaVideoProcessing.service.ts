@@ -29,6 +29,7 @@ import {
   type VideoPosterErrorCode
 } from './mediaVideoPoster.service';
 import { listReadyVariants, persistGeneratedVariant } from './mediaVariant.service';
+import { isMediaVideoExecutionAllowed } from './mediaProcessingQueue';
 
 const processingLocks = new Set<string>();
 
@@ -47,15 +48,8 @@ const logSafe = (event: string, payload: Record<string, unknown>) => {
   console.info(`[media-video] ${event}`, payload);
 };
 
-const isVideoProcessingEnabled = () => {
-  const enabled = String(process.env.MEDIA_VIDEO_PROCESSING_ENABLED || 'false')
-    .trim()
-    .toLowerCase();
-  const mode = String(process.env.MEDIA_PROCESSING_MODE || 'disabled')
-    .trim()
-    .toLowerCase();
-  return ['1', 'true', 'yes', 'on'].includes(enabled) && mode === 'inline_async';
-};
+/** Execute only under inline_async or dedicated media worker — never on API cloud_tasks. */
+const isVideoProcessingEnabled = () => isMediaVideoExecutionAllowed();
 
 /**
  * Deep-safe merge for the video subsection.
