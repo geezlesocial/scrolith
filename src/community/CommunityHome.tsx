@@ -3260,7 +3260,7 @@ const CommunityHome = () => {
                     <article
                       key={getStableFeedReactKey(post)}
                       id={`community-post-${post.id}`}
-                      className={`overflow-hidden rounded-[24px] border border-slate-200/85 bg-gradient-to-b from-white via-white to-slate-50/75 p-4 shadow-[0_20px_44px_-30px_rgba(15,23,42,0.38)] transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_26px_56px_-30px_rgba(15,23,42,0.44)] sm:rounded-[30px] sm:p-5 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
+                      className={`overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-22px_rgba(15,23,42,0.28)] transition-shadow duration-150 hover:shadow-[0_2px_8px_rgba(15,23,42,0.06),0_16px_36px_-22px_rgba(15,23,42,0.32)] sm:p-6 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}

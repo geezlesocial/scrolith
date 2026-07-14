@@ -118,6 +118,23 @@ import type { CommunityClub, StructuredLocationFields } from '../../types';
 import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
 import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
 import EnterpriseStoryViewer from '../../features/stories/components/StoryViewer';
+import {
+  enterpriseCta,
+  enterpriseCtaPrimary,
+  enterpriseFeedColumn,
+  enterpriseLeftColumn,
+  enterpriseMemberHomeGrid,
+  enterprisePageShell,
+  enterprisePanel,
+  enterprisePanelPadding,
+  enterprisePostCard,
+  enterprisePostCardCompact,
+  enterprisePostCardPadding,
+  enterpriseRightColumn,
+  enterpriseSponsoredLabel,
+  enterpriseWidgetHeading,
+  enterpriseWidgetTitle
+} from '../enterprise/enterpriseClasses';
 
 const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
@@ -7095,19 +7112,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   ]);
 
   return (
-    <section className="relative bg-[#f3f2ef] py-6 sm:py-12 text-base sm:text-[17px] leading-relaxed">
-      <div className="pointer-events-none absolute inset-0 opacity-60">
+    <section className="relative bg-[#f3f2ef] py-5 sm:py-10 text-base sm:text-[17px] leading-relaxed">
+      <div className="pointer-events-none absolute inset-0 opacity-50">
         <div className="absolute -top-24 left-[-8%] h-72 w-72 rounded-full bg-[radial-gradient(circle_at_center,#e0f2fe,transparent_70%)]" />
         <div className="absolute top-16 right-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,#fef3c7,transparent_70%)]" />
       </div>
 
-      <div className="relative mx-auto max-w-[94rem] px-4 sm:px-6 lg:px-8 xl:px-10">
-        <div className="relative z-30 mb-6 overflow-visible flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/80 p-4 sm:p-6 shadow-sm backdrop-blur rise-fade">
+      <div className={enterprisePageShell}>
+        <div className={`relative z-30 mb-6 overflow-visible flex flex-col gap-4 ${enterprisePanel} ${enterprisePanelPadding} bg-white/95 rise-fade`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 lg:flex-1">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Home</p>
-              <h2 className="text-2xl sm:text-3xl font-semibold text-slate-900">{content?.title || 'Grow your professional world'}</h2>
-              <p className="text-sm sm:text-base text-slate-500">{content?.subtitle || 'Catch up on your network, opportunities, and community highlights.'}</p>
+              <p className={enterpriseWidgetTitle}>Home</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-[1.85rem]">{content?.title || 'Grow your professional world'}</h2>
+              <p className="mt-1.5 text-[15px] leading-relaxed text-slate-600 sm:text-base">{content?.subtitle || 'Catch up on your network, opportunities, and community highlights.'}</p>
             </div>
             <div className="w-full lg:w-auto flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
               {showSearch && (
@@ -7265,10 +7282,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           </div>
         </div>
 
-        <div className="relative z-0 grid items-start gap-5 lg:grid-cols-[240px_minmax(0,1fr)] xl:gap-6 xl:grid-cols-[240px_minmax(0,1fr)_minmax(320px,360px)] 2xl:gap-7 2xl:grid-cols-[248px_minmax(0,1.08fr)_minmax(332px,372px)]">
-          <aside className="order-2 space-y-4 lg:order-1">
-            <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
-              <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
+        <div className={enterpriseMemberHomeGrid}>
+          <aside className={enterpriseLeftColumn} aria-label="Profile and shortcuts">
+            <div className={`${enterprisePanel} rise-fade-delay-1`}>
+              <div className="relative h-24 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600 sm:h-28">
                 {selfProfileCover ? (
                   // Plain img (same as FreelancerProfile) so cover reuses the browser-cached
                   // content URL. OptimizedImage adds ?w=&h= variants that miss cache and can 404.
@@ -7283,98 +7300,98 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 ) : null}
                 <div className="pointer-events-none absolute inset-0 bg-slate-900/35" />
               </div>
-              <div className="p-4 sm:p-5">
-                <div className="-mt-10 flex items-end gap-3">
-                  <div className="h-16 w-16 rounded-2xl bg-slate-100 overflow-hidden ring-4 ring-white">
+              <div className={enterprisePanelPadding}>
+                <div className="-mt-12 flex items-end gap-3 sm:-mt-14">
+                  <div className="h-[4.5rem] w-[4.5rem] shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-4 ring-white sm:h-20 sm:w-20">
                     {resolvedUserAvatar ? (
                       <OptimizedImage
                         src={resolvedUserAvatar}
                         alt={user.name || 'User'}
-                        width={144}
-                        height={144}
-                        sizes="72px"
+                        width={160}
+                        height={160}
+                        sizes="80px"
                         className="h-full w-full object-cover"
                         loading="lazy"
                         decoding="async"
                       />
                     ) : (
-                      <Users className="mx-auto mt-4 h-6 w-6 text-slate-400" />
+                      <Users className="mx-auto mt-6 h-7 w-7 text-slate-400" />
                     )}
                   </div>
-                  <div>
-                    <p className="text-base font-semibold text-slate-900">{user?.name || user?.username || 'Community member'}</p>
-                    <p className="text-sm text-slate-500">{userHeadline}</p>
-                    {userLocation && <p className="text-sm text-slate-400">{userLocation}</p>}
+                  <div className="min-w-0 pb-1">
+                    <p className="truncate text-[17px] font-semibold leading-snug text-slate-900">{user?.name || user?.username || 'Community member'}</p>
+                    <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-slate-600">{userHeadline}</p>
+                    {userLocation && <p className="mt-0.5 truncate text-sm text-slate-500">{userLocation}</p>}
                   </div>
                 </div>
-                <div className="mt-4 space-y-2 text-sm text-slate-500">
+                <div className="mt-5 space-y-2 text-sm text-slate-600">
                   <div className="flex items-center justify-between">
                     <span>Profile strength</span>
-                    <span className="font-semibold text-slate-700">72%</span>
+                    <span className="font-semibold text-slate-800">72%</span>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-100">
-                    <div className="h-2 w-3/4 rounded-full bg-slate-900" />
+                  <div className="h-2.5 rounded-full bg-slate-100">
+                    <div className="h-2.5 w-3/4 rounded-full bg-slate-900" />
                   </div>
                 </div>
                 <Link
                   to={buildProfileUrl({ id: currentUserId || undefined, username: currentUsername || undefined })}
-                  className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-slate-200 px-3 py-2 text-sm font-semibold uppercase text-slate-600"
+                  className={`mt-5 w-full ${enterpriseCta}`}
                 >
                   View profile
                 </Link>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-2">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Quick actions</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-2`}>
+              <p className={enterpriseWidgetTitle}>Quick actions</p>
+              <div className="mt-4 grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   onClick={focusComposer}
-                  className="col-span-2 flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                  className="col-span-2 flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-[15px] font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   Share an update
-                  <Plus className="h-4 w-4 text-slate-400" />
+                  <Plus className="h-5 w-5 text-slate-400" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/browse-jobs')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
                 >
                   Browse jobs
-                  <Briefcase className="h-4 w-4 text-slate-400" />
+                  <Briefcase className="h-5 w-5 text-slate-400" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/browse')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
                 >
                   Browse gigs
-                  <Sparkles className="h-4 w-4 text-slate-400" />
+                  <Sparkles className="h-5 w-5 text-slate-400" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/marketplace')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
                 >
                   Marketplace
-                  <ShoppingBag className="h-4 w-4 text-slate-400" />
+                  <ShoppingBag className="h-5 w-5 text-slate-400" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/community/clubs')}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
                 >
                   Groups
-                  <Users className="h-4 w-4 text-slate-400" />
+                  <Users className="h-5 w-5 text-slate-400" />
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/messages')}
-                  className="col-span-2 flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-left text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:text-base"
+                  className="col-span-2 flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
                 >
                   Messages
-                  <MessageCircle className="h-4 w-4 text-slate-400" />
+                  <MessageCircle className="h-5 w-5 text-slate-400" />
                 </button>
               </div>
 
@@ -7663,7 +7680,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </div>
           </aside>
 
-          <main className="order-1 min-w-0 w-full space-y-4 lg:order-2 xl:max-w-[52rem] xl:justify-self-center 2xl:max-w-[56rem]">
+          <main className={enterpriseFeedColumn} aria-label="Home feed">
             {showSlider && sliderItems.length > 0 && (
               <div className="rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1">
                 <div className="flex items-center justify-between">
@@ -8201,7 +8218,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   return (
                     <React.Fragment key={getStableFeedReactKey(post, postIndex)}>
                       <article
-                        className={`overflow-hidden rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 shadow-[0_22px_52px_-34px_rgba(15,23,42,0.42)] ring-1 ring-slate-100/70 transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_30px_70px_-36px_rgba(15,23,42,0.5)] ${postDensity === 'compact' ? 'p-5' : 'p-7'}`}
+                        className={`${enterprisePostCard} ${postDensity === 'compact' ? enterprisePostCardCompact : enterprisePostCardPadding}`}
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -8476,8 +8493,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 viewerUsername={user?.username}
                                 mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                                 expandable
-                                titleClassName="text-left text-[1.45rem] font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
-                                contentWrapperClassName="cursor-pointer text-base leading-[1.82] text-slate-700 [overflow-wrap:anywhere]"
+                                titleClassName="text-left text-[1.35rem] font-semibold leading-snug tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere] sm:text-[1.4rem]"
+                                contentWrapperClassName="cursor-pointer text-[15px] leading-[1.7] text-slate-700 [overflow-wrap:anywhere] sm:text-base sm:leading-[1.75]"
                                 buttonClassName="text-slate-900"
                                 translationRowClassName="text-slate-500"
                                 onTitleClick={postTitle ? () => openPostCard(post) : undefined}
@@ -8661,31 +8678,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </div>
           </main>
 
-          <aside className="order-3 space-y-4 lg:col-span-2 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 xl:col-span-1 xl:block xl:space-y-4">
+          <aside className={enterpriseRightColumn} aria-label="Recommendations and insights">
             <Suspense
               fallback={
-                <div className="rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm xl:sticky xl:top-4">
+                <div className={`${enterprisePanel} ${enterprisePanelPadding} text-sm text-slate-500`}>
                   Loading insights...
                 </div>
               }
             >
-              <InsightsQuickPanel desktopMode="rail" className="xl:sticky xl:top-4" />
+              <InsightsQuickPanel desktopMode="rail" className="" />
             </Suspense>
             {showTopSidebarAd && (
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5 shadow-sm">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
+              <div className={`${enterprisePanel} border-amber-200 bg-amber-50/90 ${enterprisePanelPadding}`}>
+                <div className={`mb-3 ${enterpriseSponsoredLabel}`}>Sponsored</div>
                 {sidebarTopAd ? (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">{sidebarTopAd.title}</p>
+                    <p className={enterpriseWidgetHeading}>{sidebarTopAd.title}</p>
                     {sidebarTopAd.body ? (
-                      <p className="mt-2 text-sm text-slate-600 line-clamp-3">{sidebarTopAd.body}</p>
+                      <p className="mt-2 line-clamp-3 text-[15px] leading-relaxed text-slate-600">{sidebarTopAd.body}</p>
                     ) : null}
                     {sidebarTopAd.mediaUrl ? (
-                      <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
+                      <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white" style={{ aspectRatio: '16 / 9' }}>
                         {sidebarTopAd.mediaType === 'video' ? (
                           <AdVideoPlayer
                             src={sidebarTopAd.mediaUrl}
-                            className="h-32 w-full"
+                            className="h-full w-full"
                             videoClassName="h-full w-full object-cover"
                             preload="auto"
                           />
@@ -8693,7 +8710,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           <img
                             src={sidebarTopAd.mediaUrl}
                             alt={sidebarTopAd.title}
-                            className="h-32 w-full object-cover"
+                            className="h-full w-full object-cover"
                           />
                         )}
                       </div>
@@ -8701,39 +8718,39 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <button
                       type="button"
                       onClick={() => handleSidebarAdClick(sidebarTopAd)}
-                      className="mt-4 inline-flex rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                      className={`mt-4 ${enterpriseCtaPrimary}`}
                     >
                       {sidebarTopAd.ctaText || 'Learn more'}
                     </button>
                   </>
                 ) : (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">No sponsored campaigns available right now.</p>
-                    <p className="mt-2 text-sm text-slate-600">Approved campaigns from the ads manager will appear here automatically.</p>
+                    <p className={enterpriseWidgetHeading}>No sponsored campaigns available right now.</p>
+                    <p className="mt-2 text-[15px] text-slate-600">Approved campaigns from the ads manager will appear here automatically.</p>
                   </>
                 )}
               </div>
             )}
             {showMessages && (
-              <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center justify-between text-base font-semibold text-slate-900">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle className="h-4 w-4 text-slate-600" />
-                    {messagesTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <MessageCircle className="h-5 w-5 shrink-0 text-slate-600" />
+                    <h3 className={enterpriseWidgetHeading}>{messagesTitle}</h3>
                   </div>
                   <button
                     type="button"
                     onClick={() => navigate('/messages')}
-                    className="text-[11px] font-semibold uppercase text-slate-400"
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800"
                   >
                     View all
                   </button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {messagesLoading ? (
-                    <p className="text-sm text-slate-500">Loading messages...</p>
+                    <p className="text-[15px] text-slate-500">Loading messages...</p>
                   ) : conversations.length === 0 ? (
-                    <p className="text-sm text-slate-500">No messages yet.</p>
+                    <p className="text-[15px] text-slate-500">No messages yet.</p>
                   ) : (
                     conversations.map((conversation) => {
                       const participants = Array.isArray(conversation.participants)
@@ -8745,10 +8762,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           key={conversation.id}
                           type="button"
                           onClick={() => navigate(`/messages/${conversation.id}`)}
-                          className="flex w-full items-start justify-between gap-3 rounded-2xl border border-slate-200 p-3 text-left hover:border-slate-300"
+                          className="flex min-h-[3.5rem] w-full items-start justify-between gap-3 rounded-xl border border-slate-200 p-3.5 text-left transition hover:border-slate-300 hover:bg-slate-50/80"
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
                               {primary.avatar ? (
                                 <OptimizedImage
                                   src={resolveAssetUrl(primary.avatar)}
@@ -8761,16 +8778,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                   decoding="async"
                                 />
                               ) : (
-                                <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
+                                <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
                               )}
                             </div>
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-800">{primary.name || 'Conversation'}</p>
+                              <p className="truncate text-[15px] font-semibold text-slate-900">{primary.name || 'Conversation'}</p>
                               <p className="truncate text-sm text-slate-500">{conversation.lastMessage || 'Start the conversation'}</p>
                             </div>
                           </div>
                           {conversation.unreadCount ? (
-                            <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white">
                               {conversation.unreadCount}
                             </span>
                           ) : null}
@@ -8783,46 +8800,46 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             )}
 
             {(showProfileViewers || showProfileViewing) && (
-              <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center justify-between text-base font-semibold text-slate-900">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-slate-600" />
-                    {profileViewersTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <Users className="h-5 w-5 shrink-0 text-slate-600" />
+                    <h3 className={enterpriseWidgetHeading}>{profileViewersTitle}</h3>
                   </div>
-                  <span className="text-[11px] font-semibold uppercase text-slate-400">Last 7 days</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Last 7 days</span>
                 </div>
 
                 <div className="mt-4 space-y-3">
                   {viewersLoading ? (
-                    <p className="text-sm text-slate-500">Loading viewers...</p>
+                    <p className="text-[15px] text-slate-500">Loading viewers...</p>
                   ) : profileViewers.length === 0 ? (
-                    <p className="text-sm text-slate-500">No profile views yet.</p>
+                    <p className="text-[15px] text-slate-500">No profile views yet.</p>
                   ) : (
                     profileViewers.map((viewer) => (
                       <Link
                         key={`${viewer.id}-${viewer.viewedAt}`}
                         to={buildProfileUrl(viewer)}
-                        className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3 hover:border-slate-300"
+                        className="flex min-h-[3.5rem] items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5 transition hover:border-slate-300 hover:bg-slate-50/80"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
                             {viewer.avatar ? (
                               <OptimizedImage
                                 src={resolveAssetUrl(viewer.avatar)}
                                 alt={viewer.name}
                                 width={96}
                                 height={96}
-                                sizes="40px"
+                                sizes="48px"
                                 className="h-full w-full object-cover"
                                 loading="lazy"
                                 decoding="async"
                               />
                             ) : (
-                              <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
+                              <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-base font-semibold text-slate-800">{viewer.name}</p>
+                            <p className="truncate text-[15px] font-semibold text-slate-900">{viewer.name}</p>
                             <p className="truncate text-sm text-slate-500">{viewer.subtitle}</p>
                           </div>
                         </div>
@@ -8880,19 +8897,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             )}
 
             {showPagesRecommendations && (
-              <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <Briefcase className="h-4 w-4 text-slate-600" />
-                  {pagesTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center gap-2.5">
+                  <Briefcase className="h-5 w-5 text-slate-600" />
+                  <h3 className={enterpriseWidgetHeading}>{pagesTitle}</h3>
                 </div>
                 <div className="mt-4 space-y-3">
                   {recommendedPages.length === 0 ? (
-                    <p className="text-sm text-slate-500">No page recommendations available yet.</p>
+                    <p className="text-[15px] text-slate-500">No page recommendations available yet.</p>
                   ) : (
                     recommendedPages.map((page) => (
-                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3">
+                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5">
                         <div className="min-w-0">
-                          <Link to={buildPageUrl(page)} className="block truncate text-base font-semibold text-slate-800 hover:text-blue-600">
+                          <Link to={buildPageUrl(page)} className="block truncate text-[15px] font-semibold text-slate-900 hover:text-blue-600">
                             {page.name}
                           </Link>
                           <p className="truncate text-sm text-slate-500">{page.tagline || page.industry || 'Business page'}</p>
@@ -8902,7 +8919,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           type="button"
                           disabled={Boolean(pagesFollowBusy[page.id])}
                           onClick={() => handlePageFollow(page)}
-                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase ${
+                          className={`min-h-10 shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold uppercase ${
                             page.isFollowing
                               ? 'border-slate-300 text-slate-600'
                               : 'border-blue-200 text-blue-600'
@@ -8918,20 +8935,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             )}
 
             {showMiddleSidebarAd && (
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
+              <div className={`${enterprisePanel} border-amber-200 bg-amber-50/90 ${enterprisePanelPadding}`}>
+                <div className={`mb-3 ${enterpriseSponsoredLabel}`}>Sponsored</div>
                 {sidebarMiddleAd ? (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">{sidebarMiddleAd.title}</p>
+                    <p className={enterpriseWidgetHeading}>{sidebarMiddleAd.title}</p>
                     {sidebarMiddleAd.body ? (
-                      <p className="mt-2 text-sm text-slate-600 line-clamp-3">{sidebarMiddleAd.body}</p>
+                      <p className="mt-2 line-clamp-3 text-[15px] leading-relaxed text-slate-600">{sidebarMiddleAd.body}</p>
                     ) : null}
                     {sidebarMiddleAd.mediaUrl ? (
-                      <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
+                      <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white" style={{ aspectRatio: '16 / 9' }}>
                         {sidebarMiddleAd.mediaType === 'video' ? (
                           <AdVideoPlayer
                             src={sidebarMiddleAd.mediaUrl}
-                            className="h-32 w-full"
+                            className="h-full w-full"
                             videoClassName="h-full w-full object-cover"
                             preload="auto"
                           />
@@ -8939,7 +8956,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           <img
                             src={sidebarMiddleAd.mediaUrl}
                             alt={sidebarMiddleAd.title}
-                            className="h-32 w-full object-cover"
+                            className="h-full w-full object-cover"
                           />
                         )}
                       </div>
@@ -8947,34 +8964,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <button
                       type="button"
                       onClick={() => handleSidebarAdClick(sidebarMiddleAd)}
-                      className="mt-4 inline-flex rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700"
+                      className={`mt-4 ${enterpriseCta}`}
                     >
                       {sidebarMiddleAd.ctaText || 'View campaign'}
                     </button>
                   </>
                 ) : (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">No sponsored campaigns available right now.</p>
-                    <p className="mt-2 text-sm text-slate-600">Enable and approve ad campaigns in Admin - Community - Ads Manager.</p>
+                    <p className={enterpriseWidgetHeading}>No sponsored campaigns available right now.</p>
+                    <p className="mt-2 text-[15px] text-slate-600">Enable and approve ad campaigns in Admin - Community - Ads Manager.</p>
                   </>
                 )}
               </div>
             )}
 
             {showProfiles && (
-              <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
-                  {profilesTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="h-5 w-5 text-amber-500" />
+                  <h3 className={enterpriseWidgetHeading}>{profilesTitle}</h3>
                 </div>
                 <div className="mt-4 space-y-3">
                   {profiles.length === 0 ? (
-                    <p className="text-sm text-slate-500">No recommendations yet.</p>
+                    <p className="text-[15px] text-slate-500">No recommendations yet.</p>
                   ) : (
                     profiles.map((profile) => (
-                      <div key={profile.id} className="flex items-center justify-between">
-                        <Link to={buildProfileUrl(profile)} className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
+                      <div key={profile.id} className="flex items-center justify-between gap-3">
+                        <Link to={buildProfileUrl(profile)} className="flex min-w-0 items-center gap-3">
+                          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
                             {profile.avatar ? (
                               <OptimizedImage
                                 src={resolveAssetUrl(profile.avatar)}
@@ -8987,18 +9004,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 decoding="async"
                               />
                             ) : (
-                              <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
+                              <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
                             )}
                           </div>
-                          <div>
-                            <p className="text-base font-semibold text-slate-800">{profile.name}</p>
-                            <p className="text-sm text-slate-500">{profile.subtitle}</p>
+                          <div className="min-w-0">
+                            <p className="truncate text-[15px] font-semibold text-slate-900">{profile.name}</p>
+                            <p className="truncate text-sm text-slate-500">{profile.subtitle}</p>
                           </div>
                         </Link>
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleFollow(profile)}
-                            className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase text-slate-600"
+                            className="min-h-10 rounded-full border border-slate-200 px-3.5 py-2 text-xs font-semibold uppercase text-slate-700"
                           >
                             {followingIds.has(profile.id) ? 'Following' : 'Follow'}
                           </button>

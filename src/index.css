@@ -15,6 +15,27 @@ html {
   --color-moss: #0f6b4f;
   --color-clay: #e7e0d3;
   --page-gutter: clamp(12px, 4vw, 24px);
+
+  /* Phase 4 — enterprise member-home tokens (extend existing theme; do not fork design system) */
+  --enterprise-page-max: 1560px;
+  --enterprise-feed-max: 760px;
+  --enterprise-left-w: 300px;
+  --enterprise-right-w: 320px;
+  --enterprise-gap: 1.5rem;
+  --enterprise-card-radius: 1rem;
+  --enterprise-panel-pad: 1.25rem;
+  --enterprise-border: rgb(226 232 240 / 0.95);
+  --enterprise-muted: #64748b;
+  --enterprise-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px -18px rgba(15, 23, 42, 0.18);
+  --enterprise-hover-surface: rgb(248 250 252 / 0.9);
+  --enterprise-transition: 160ms ease;
+  --enterprise-sticky-top: 6rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --enterprise-transition: 0ms;
+  }
 }
 
 /* BASE STYLES */
