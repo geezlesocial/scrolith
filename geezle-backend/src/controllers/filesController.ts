@@ -2757,18 +2757,18 @@ const persistUploadedFile = async (params: {
     throw createError;
   }
 
-  // Phase 3A: enqueue image processing after durable File row exists.
+  // Phase 3A/3B.2: enqueue image variants and/or video metadata after durable File row exists.
   // Never fails the upload if enqueue fails. Disabled by default via feature flags.
   try {
     // Queue abstraction only — Cloud Tasks can replace the queue implementation later
     // without changing this call site (see mediaProcessing.enqueue + mediaProcessingQueue).
-    const { enqueueImageProcessingSafe } = require('../services/media/mediaProcessing.enqueue');
-    void enqueueImageProcessingSafe(created.id, {
+    const { enqueueMediaProcessingSafe } = require('../services/media/mediaProcessing.enqueue');
+    void enqueueMediaProcessingSafe(created.id, {
       mimeType: created.mimeType,
       category
     });
   } catch (enqueueError) {
-    console.warn('Image processing enqueue hook failed (upload unaffected):', {
+    console.warn('Media processing enqueue hook failed (upload unaffected):', {
       fileIdPrefix: String(created.id || '').slice(0, 8),
       error: String((enqueueError as any)?.message || enqueueError)
     });
