@@ -18,7 +18,9 @@ import { walletApi } from '../services/wallet';
 import { CMSService } from '../services/cms';
 import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import { useSocket } from '../context/SocketContext';
+import { useMessages } from '../context/MessageContext';
 import { Contract, Message, TimeEntry } from '../types';
+import { reconcileOptimisticMessage } from '../services/messagingSurfaces';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 const defaultGigExperience = {
@@ -103,6 +105,7 @@ const GigDetail = () => {
   const [expandedFaqIndex, setExpandedFaqIndex] = useState<number | null>(0);
   const gigChatMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const { socket, isConnected } = useSocket();
+  const { registerVisibleConversation, unregisterVisibleConversation } = useMessages();
 
   const normalizeViewerRole = (rawRole?: string) => {
       const normalized = String(rawRole || '').toLowerCase();
@@ -374,6 +377,18 @@ const GigDetail = () => {
       gigChatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [gigChatMessages, gigChatOpen]);
 
+  // Shared unread ownership: treat open gig chat as a visible conversation.
+  useEffect(() => {
+      if (!gigChatOpen || !gigChatConversationId) return;
+      registerVisibleConversation(gigChatConversationId);
+      return () => unregisterVisibleConversation(gigChatConversationId);
+  }, [
+      gigChatOpen,
+      gigChatConversationId,
+      registerVisibleConversation,
+      unregisterVisibleConversation
+  ]);
+
   useEffect(() => {
       if (!socket || !gigChatOpen || !gigChatConversationId) return;
 
@@ -381,7 +396,9 @@ const GigDetail = () => {
           const message = normalizeGigChatMessage(payload);
           const payloadConversationId = message.conversationId || message.conversation_id;
           if (!payloadConversationId || payloadConversationId !== gigChatConversationId) return;
-          setGigChatMessages((prev) => upsertGigChatMessage(prev, message));
+          setGigChatMessages((prev) =>
+              reconcileOptimisticMessage(prev as Message[], message as Message) as Message[]
+          );
 
           const senderId = message.senderId || message.sender_id;
           if (user?.id && senderId && senderId !== user.id) {

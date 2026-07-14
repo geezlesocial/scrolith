@@ -39,7 +39,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useUser();
-  const { socket } = useSocket();
+  const { socket, isConnected, connectionHealth } = useSocket();
   const { isOnline, recoveryTick } = useNetworkStatus();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
@@ -309,46 +309,38 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
-    if (!isOnline) {
+    if (!isOnline || connectionHealth === 'offline') {
       if (pollRef.current) {
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
       return;
     }
-    if (!socket) {
-      if (pollRef.current) return;
-      pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
-      return;
-    }
 
-    const handleConnect = () => {
+    // Healthy socket: no notification polling.
+    if (isConnected || connectionHealth === 'connected') {
       if (pollRef.current) {
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
-      void refreshNotifications({ force: true });
-    };
+      return;
+    }
 
-    const handleDisconnect = () => {
-      if (pollRef.current) return;
-      pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
-    };
+    // Brief reconnect: do not start polling immediately.
+    if (connectionHealth === 'connecting' || connectionHealth === 'reconnecting') {
+      return;
+    }
 
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-
-    if (socket.connected) handleConnect();
+    if (pollRef.current) return;
+    pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
 
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
       if (pollRef.current) {
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
     };
-  }, [socket, isAuthenticated, user?.id, refreshNotifications, isOnline]);
+  }, [socket, isConnected, connectionHealth, isAuthenticated, user?.id, refreshNotifications, isOnline]);
 
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) return;

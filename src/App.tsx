@@ -19,6 +19,7 @@ import { FavoritesProvider } from './context/FavoritesContext';
 import { CartProvider } from './context/CartContext';
 import { NetworkStatusProvider } from './context/NetworkStatusContext';
 import { UserProvider, useUser } from './context/UserContext';
+import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
@@ -1995,27 +1996,34 @@ function App() {
         <RouterHistorySync />
         <ChunkLoadRecovery />
         <UserProvider>
-          <PreloaderProvider>
-            <ContentProvider>
-              <I18nProvider>
-                <NotificationProvider>
-                  <ToastContainer />
-                  <CurrencyProvider>
-                    <FavoritesProvider>
-                      <CartProvider>
-                        <LiveFeatureProvider>
-                          <AuthenticatedRuntimeBoundary>
-                            <GlobalPreloader />
-                            <AppContent />
-                          </AuthenticatedRuntimeBoundary>
-                        </LiveFeatureProvider>
-                      </CartProvider>
-                    </FavoritesProvider>
-                  </CurrencyProvider>
-                </NotificationProvider>
-              </I18nProvider>
-            </ContentProvider>
-          </PreloaderProvider>
+          {/*
+            SocketProvider must wrap every useSocket() consumer (notifications,
+            currency, favorites, cart, preloader, realtime, messages). Exactly
+            one physical socket lives in socketService; this only provides context.
+          */}
+          <SocketProvider>
+            <PreloaderProvider>
+              <ContentProvider>
+                <I18nProvider>
+                  <NotificationProvider>
+                    <ToastContainer />
+                    <CurrencyProvider>
+                      <FavoritesProvider>
+                        <CartProvider>
+                          <LiveFeatureProvider>
+                            <AuthenticatedRuntimeBoundary>
+                              <GlobalPreloader />
+                              <AppContent />
+                            </AuthenticatedRuntimeBoundary>
+                          </LiveFeatureProvider>
+                        </CartProvider>
+                      </FavoritesProvider>
+                    </CurrencyProvider>
+                  </NotificationProvider>
+                </I18nProvider>
+              </ContentProvider>
+            </PreloaderProvider>
+          </SocketProvider>
         </UserProvider>
       </NetworkStatusProvider>
     </BrowserRouter>

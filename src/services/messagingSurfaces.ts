@@ -352,6 +352,28 @@ export const reconcileOptimisticMessage = (
   const serverSender = safeString(
     (serverMessage as any).senderId ?? (serverMessage as any).sender_id
   );
+  // Prefer explicit clientSendId / metadata match (enterprise delivery IDs).
+  const serverClientSendId = safeString(
+    (serverMessage as any)?.metadata?.clientSendId ||
+      (serverMessage as any)?.metadata?.client_send_id ||
+      (serverMessage as any)?.clientSendId ||
+      (serverMessage as any)?.client_send_id
+  );
+  if (serverClientSendId) {
+    const byClient = list.findIndex((message) => {
+      const metaId = safeString(
+        (message as any)?.metadata?.clientSendId ||
+          (message as any)?.metadata?.client_send_id ||
+          message.id
+      );
+      return metaId === serverClientSendId || safeString(message.id) === serverClientSendId;
+    });
+    if (byClient >= 0) {
+      list[byClient] = { ...list[byClient], ...serverMessage, id: serverId };
+      return list;
+    }
+  }
+
   const optimisticIndex = list.findIndex((message) => {
     const id = safeString(message.id);
     if (!id.startsWith('optimistic-') && !id.startsWith('temp-')) return false;

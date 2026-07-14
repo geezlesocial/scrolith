@@ -44,6 +44,22 @@ import {
 } from '../services/messagingComposer';
 import { FileService } from '../services/files';
 import { getRecoverableActionMessage, isOfflineLikeError } from '../mobile/runtime/requestRecovery';
+import {
+  bindMessagingSocketHealth,
+  broadcastMultiTabMessaging,
+  decideMessagingFallbackPolling,
+  DEFAULT_THREAD_CACHE_MAX,
+  evictThreadCacheEntries,
+  getSocketHealthSnapshot,
+  globalMessagingSeenIds,
+  markOutgoingState,
+  MESSAGING_POLL_GRACE_MS,
+  publishMessagingEvent,
+  resetMessagingEngineSession,
+  subscribeMultiTabMessaging,
+  touchThreadCacheEntry,
+  trackOutgoingMessage
+} from '../services/messagingEngine';
 import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
@@ -230,7 +246,7 @@ const normalizeSocketMessage = (payload: any): Message | null => {
 
 export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useUser();
-  const { socket, isConnected } = useSocket();
+  const { socket, isConnected, connectionHealth } = useSocket();
   const { isOnline, recoveryTick } = useNetworkStatus();
 
   const [unreadCount, setUnreadCount] = useState(0);
@@ -288,7 +304,13 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [user?.id]);
 
   const recomputeUnread = useCallback((list: Conversation[]) => {
-    setUnreadCount(sumConversationUnread(list));
+    const nextUnread = sumConversationUnread(list);
+    setUnreadCount(nextUnread);
+    publishMessagingEvent(
+      'UNREAD_CHANGED',
+      { unreadCount: nextUnread },
+      { source: 'local' }
+    );
   }, []);
 
   const scheduleSoftRefresh = useCallback(() => {
@@ -342,9 +364,22 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           lastRefreshAtRef.current = refreshedAt;
           setLastSyncedAt(refreshedAt);
           setSyncState('ready');
+          publishMessagingEvent(
+            'SYNC_STATE',
+            { state: 'ready', conversationCount: sorted.length, at: refreshedAt },
+            { source: options?.force ? 'recovery' : 'api' }
+          );
+          broadcastMultiTabMessaging('UNREAD_CHANGED', {
+            unreadCount: sumConversationUnread(sorted)
+          });
         } catch (e: any) {
           setError(getRecoverableActionMessage('Message sync', e));
           setSyncState(isOfflineLikeError(e) ? 'offline' : 'error');
+          publishMessagingEvent(
+            'SYNC_STATE',
+            { state: isOfflineLikeError(e) ? 'offline' : 'error' },
+            { source: 'api' }
+          );
         } finally {
           setLoading(false);
         }
@@ -797,16 +832,34 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         metadata: { clientSendId: optimisticId }
       } as Message;
 
+      trackOutgoingMessage({
+        clientSendId: optimisticId,
+        conversationId: id,
+        text: trimmed,
+        attachmentIds,
+        replyToMessageId,
+        state: 'sending'
+      });
+      publishMessagingEvent(
+        'MESSAGE_CREATED',
+        optimistic,
+        { conversationId: id, messageId: optimisticId, clientSendId: optimisticId, source: 'local' }
+      );
+
       setThreadCache((prev) => {
         const current = prev[id] || EMPTY_THREAD;
         const withoutRetry = current.messages.filter((entry) => entry.id !== optimisticId);
-        return {
-          ...prev,
-          [id]: {
-            ...current,
-            messages: dedupeMessagesById([...withoutRetry, optimistic])
+        const nextEntry = touchThreadCacheEntry({
+          ...current,
+          messages: dedupeMessagesById([...withoutRetry, optimistic])
+        });
+        return evictThreadCacheEntries(
+          { ...prev, [id]: nextEntry },
+          {
+            maxEntries: DEFAULT_THREAD_CACHE_MAX,
+            protectIds: visibleConversationIdsRef.current
           }
-        };
+        );
       });
 
       setConversations((prev) => {
@@ -827,19 +880,44 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           attachmentIds,
           replyToMessageId
         );
-        seenMessageIdsRef.current.add(safeId(serverMessage.id));
+        const serverId = safeId(serverMessage.id);
+        seenMessageIdsRef.current.add(serverId);
+        globalMessagingSeenIds.remember(serverId);
+        globalMessagingSeenIds.remember(optimisticId);
+        const reconciledServer = {
+          ...serverMessage,
+          metadata: {
+            ...(serverMessage as any).metadata,
+            clientSendId: optimisticId
+          }
+        } as Message;
+        markOutgoingState(optimisticId, 'sent', { serverMessageId: serverId });
+        publishMessagingEvent(
+          'MESSAGE_DELIVERED',
+          reconciledServer,
+          {
+            conversationId: id,
+            messageId: serverId,
+            clientSendId: optimisticId,
+            source: 'api'
+          }
+        );
+        broadcastMultiTabMessaging('MESSAGE_CREATED', {
+          conversationId: id,
+          message: reconciledServer
+        });
         setThreadCache((prev) => {
           const current = prev[id] || EMPTY_THREAD;
           return {
             ...prev,
-            [id]: {
+            [id]: touchThreadCacheEntry({
               ...current,
-              messages: reconcileOptimisticMessage(current.messages, serverMessage)
-            }
+              messages: reconcileOptimisticMessage(current.messages, reconciledServer)
+            })
           };
         });
         setConversations((prev) => {
-          const next = applyIncomingPreviewUpdate(prev, serverMessage, {
+          const next = applyIncomingPreviewUpdate(prev, reconciledServer, {
             currentUserId: user.id,
             activeConversationIds: visibleConversationIdsRef.current
           });
@@ -854,8 +932,16 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         emitTyping(id, false);
         scheduleSoftRefresh();
-        return serverMessage;
+        return reconciledServer;
       } catch (e) {
+        markOutgoingState(optimisticId, 'failed', {
+          error: getRecoverableActionMessage('Message send', e)
+        });
+        publishMessagingEvent(
+          'MESSAGE_FAILED',
+          { clientSendId: optimisticId, conversationId: id, error: String((e as any)?.message || e) },
+          { conversationId: id, clientSendId: optimisticId, source: 'api' }
+        );
         setThreadCache((prev) => {
           const current = prev[id] || EMPTY_THREAD;
           return {
@@ -1107,7 +1193,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
-  // Initial load + polling fallback when socket is down
+  const disconnectedSinceRef = useRef<number | null>(null);
+
+  // Initial load + bounded polling fallback (never while healthy; grace before poll).
   useEffect(() => {
     if (!user?.id) {
       setUnreadCount(0);
@@ -1124,6 +1212,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setTypingByConversation({});
       seenMessageIdsRef.current.clear();
       visibleConversationIdsRef.current.clear();
+      disconnectedSinceRef.current = null;
+      resetMessagingEngineSession();
       // Session cleared / logout: revoke all private messaging media object URLs.
       void import('../services/messagingMedia')
         .then((mod) => {
@@ -1135,22 +1225,123 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     void refreshMessages();
-    if (!isOnline) return;
 
-    if (!socket || !isConnected) {
-      const interval = window.setInterval(() => {
-        void refreshMessages();
-      }, 30_000);
-      return () => window.clearInterval(interval);
+    if (isConnected) {
+      disconnectedSinceRef.current = null;
+      return undefined;
+    }
+    if (!disconnectedSinceRef.current) {
+      disconnectedSinceRef.current = Date.now();
     }
 
-    return undefined;
-  }, [user?.id, socket, isConnected, refreshMessages, isOnline]);
+    let intervalId: number | null = null;
+    const armPolling = () => {
+      const decision = decideMessagingFallbackPolling({
+        health: connectionHealth || (isOnline ? 'disconnected' : 'offline'),
+        isOnline,
+        disconnectedSince: disconnectedSinceRef.current,
+        tabHidden: typeof document !== 'undefined' && document.visibilityState === 'hidden'
+      });
+      if (!decision.shouldPoll) {
+        if (intervalId) {
+          window.clearInterval(intervalId);
+          intervalId = null;
+        }
+        return;
+      }
+      if (intervalId) return;
+      intervalId = window.setInterval(() => {
+        void refreshMessages();
+      }, decision.intervalMs);
+    };
+
+    // Grace period before any fallback poll starts.
+    const graceTimer = window.setTimeout(() => {
+      armPolling();
+    }, MESSAGING_POLL_GRACE_MS + 200);
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !isConnected && isOnline) {
+        void refreshMessages({ force: true });
+      }
+      armPolling();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.clearTimeout(graceTimer);
+      if (intervalId) window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [user?.id, isConnected, connectionHealth, refreshMessages, isOnline]);
 
   useEffect(() => {
     if (!user?.id || !isOnline || recoveryTick <= 0) return;
+    publishMessagingEvent(
+      'MISSED_EVENTS_RECOVERY',
+      { reason: 'network_recovery', tick: recoveryTick },
+      { source: 'recovery' }
+    );
     void refreshMessages({ force: true });
   }, [user?.id, isOnline, recoveryTick, refreshMessages]);
+
+  // Observe shared Socket.IO connection health (no second websocket).
+  useEffect(() => {
+    bindMessagingSocketHealth(socket);
+    return () => {
+      bindMessagingSocketHealth(null);
+    };
+  }, [socket]);
+
+  // Multi-tab: unread / conversation soft-sync without extra sockets.
+  useEffect(() => {
+    if (!user?.id) return;
+    return subscribeMultiTabMessaging((envelope) => {
+      if (envelope.type === 'UNREAD_CHANGED') {
+        const remoteUnread = Number((envelope.payload as any)?.unreadCount);
+        if (Number.isFinite(remoteUnread) && remoteUnread >= 0) {
+          // Soft recovery — never blindly trust remote without list reconcile.
+          scheduleSoftRefresh();
+        }
+        return;
+      }
+      if (
+        envelope.type === 'MESSAGE_CREATED' ||
+        envelope.type === 'MESSAGE_UPDATED' ||
+        envelope.type === 'CONVERSATION_UPDATED' ||
+        envelope.type === 'CONVERSATION_DELETED'
+      ) {
+        scheduleSoftRefresh();
+      }
+    });
+  }, [user?.id, scheduleSoftRefresh]);
+
+  // Reconnect path: recover missed inbox rows only after an actual disconnect.
+  const wasConnectedRef = useRef(false);
+  const hadDisconnectRef = useRef(false);
+  useEffect(() => {
+    if (!user?.id) {
+      wasConnectedRef.current = false;
+      hadDisconnectRef.current = false;
+      return;
+    }
+    if (!isConnected && wasConnectedRef.current) {
+      hadDisconnectRef.current = true;
+    }
+    if (isConnected && !wasConnectedRef.current && hadDisconnectRef.current) {
+      publishMessagingEvent(
+        'MISSED_EVENTS_RECOVERY',
+        {
+          reason: 'socket_reconnect',
+          health: getSocketHealthSnapshot()
+        },
+        { source: 'recovery' }
+      );
+      void refreshMessages({ force: true });
+      hadDisconnectRef.current = false;
+    }
+    wasConnectedRef.current = isConnected;
+  }, [isConnected, user?.id, refreshMessages]);
 
   // Centralized socket reconciliation for shared surfaces
   // Single shared-surface listener registration per provider mount / socket instance.
@@ -1165,16 +1356,41 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
       const messageId = safeId(message.id);
-      const alreadySeen = Boolean(messageId && seenMessageIdsRef.current.has(messageId));
-      if (messageId && !alreadySeen) {
+      const clientSendId = safeId(
+        (message as any)?.metadata?.clientSendId ||
+          (message as any)?.metadata?.client_send_id ||
+          (payload as any)?.clientSendId
+      );
+      // Session-local + engine-level dedupe: never inflate unread twice.
+      const isNew = Boolean(messageId) && !seenMessageIdsRef.current.has(messageId);
+      if (messageId) {
         seenMessageIdsRef.current.add(messageId);
+        if (isNew) globalMessagingSeenIds.add(messageId);
+        else globalMessagingSeenIds.remember(messageId);
         if (seenMessageIdsRef.current.size > 800) {
           const trimmed = Array.from(seenMessageIdsRef.current).slice(-400);
           seenMessageIdsRef.current = new Set(trimmed);
         }
       }
+      if (clientSendId) {
+        globalMessagingSeenIds.remember(clientSendId);
+        markOutgoingState(clientSendId, 'delivered', { serverMessageId: messageId || undefined });
+      }
 
       const conversationId = safeId(message.conversationId || message.conversation_id);
+      publishMessagingEvent(
+        'MESSAGE_CREATED',
+        message,
+        {
+          conversationId,
+          messageId,
+          clientSendId: clientSendId || undefined,
+          source: 'socket'
+        }
+      );
+      if (isNew) {
+        broadcastMultiTabMessaging('MESSAGE_CREATED', { conversationId, messageId });
+      }
 
       // Shared conversation list + unread badge: single authoritative path (this handler).
       // applyIncomingPreviewUpdate is idempotent for already-present message ids.
@@ -1184,7 +1400,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             entry.id === conversationId || messageMatchesConversation(message as any, entry)
         );
         if (!hasConversation) {
-          if (alreadySeen) return prev;
+          if (!isNew) return prev;
           scheduleSoftRefresh();
           void MessagingService.getConversationById(conversationId)
             .then((full) => {
@@ -1231,7 +1447,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
 
         if (
-          !alreadySeen &&
+          isNew &&
           visibleConversationIdsRef.current.has(conversationId) &&
           safeId(message.senderId || message.sender_id) !== userIdRef.current
         ) {
@@ -1239,10 +1455,17 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
     };
+    // Note: isNew gates badge inflation & mark-read; thread merge remains idempotent.
 
     const handleRead = (payload: any) => {
       const conversationId = safeId(payload?.conversationId ?? payload?.conversation_id);
       if (!conversationId) return;
+      publishMessagingEvent(
+        'MESSAGE_READ',
+        payload,
+        { conversationId, source: 'socket' }
+      );
+      broadcastMultiTabMessaging('MESSAGE_READ', { conversationId });
       setConversations((prev) => {
         const next = setConversationUnreadLocal(prev, conversationId, 0);
         recomputeUnread(next);
@@ -1256,15 +1479,30 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!conversationId || !typingUserId || typingUserId === userIdRef.current) return;
       if (!payload?.isTyping) {
         setTypingByConversation((prev) => ({ ...prev, [conversationId]: null }));
+        publishMessagingEvent(
+          'USER_STOPPED_TYPING',
+          { conversationId, userId: typingUserId },
+          { conversationId, source: 'socket' }
+        );
         return;
       }
       const name = safeId(payload?.name) || 'Someone';
       setTypingByConversation((prev) => ({ ...prev, [conversationId]: name }));
+      publishMessagingEvent(
+        'USER_TYPING',
+        { conversationId, userId: typingUserId, name },
+        { conversationId, source: 'socket' }
+      );
       if (typingClearTimersRef.current[conversationId]) {
         window.clearTimeout(typingClearTimersRef.current[conversationId]);
       }
       typingClearTimersRef.current[conversationId] = window.setTimeout(() => {
         setTypingByConversation((prev) => ({ ...prev, [conversationId]: null }));
+        publishMessagingEvent(
+          'USER_STOPPED_TYPING',
+          { conversationId, userId: typingUserId },
+          { conversationId, source: 'local' }
+        );
       }, 2200);
     };
 
@@ -1273,6 +1511,11 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!presenceUserId) return;
       const isOnlineUser = Boolean(payload?.isOnline ?? payload?.is_online);
       const lastSeenAt = payload?.lastSeenAt ?? payload?.last_seen_at;
+      publishMessagingEvent(
+        isOnlineUser ? 'USER_ONLINE' : 'USER_OFFLINE',
+        { userId: presenceUserId, lastSeenAt },
+        { source: 'socket' }
+      );
       setConversations((prev) =>
         prev.map((conversation) => ({
           ...conversation,
