@@ -38,17 +38,15 @@ import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../typ
 import SearchInput from "./SearchInput";
 import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
+import { HeaderMessagesPopover } from "./messaging";
+import { formatMessagingBadgeCount } from "../services/messagingSurfaces";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 
 const HEADER_SEARCH_PLACEHOLDER =
   "Search for jobs, gigs, freelancers, businesses, communities...";
 
-const formatBadgeCount = (count: number) => {
-  if (!Number.isFinite(count) || count <= 0) return "";
-  if (count > 99) return "99+";
-  return String(count);
-};
+const formatBadgeCount = (count: number) => formatMessagingBadgeCount(count);
 
 const resolveNavIconKey = (item: { label?: string; url?: string; icon?: string }) => {
   const iconHint = String(item?.icon || "").toLowerCase().trim();
@@ -1267,29 +1265,44 @@ const Navbar = () => {
       </div>
     ) : null;
 
-  const renderMessagesDropdown = () =>
-    showMessagesDropdown ? (
-      <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
-        <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
-          <h3 className="font-bold text-sm text-gray-700">Messages</h3>
-          {messagesUnreadCount > 0 ? (
-            <span className="text-xs font-semibold text-blue-600">
-              {formatBadgeCount(messagesUnreadCount)} unread
-            </span>
-          ) : null}
+  const messagesPopoverId = "scrolith-header-messages-popover";
+
+  const renderMessagesDropdown = () => {
+    // Compact non-desktop: keep a lightweight sheet that routes to /messages
+    if (!isDesktopNav) {
+      return showMessagesDropdown ? (
+        <div className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
+          <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50 px-4 py-3">
+            <h3 className="text-sm font-bold text-gray-700">Messages</h3>
+            {messagesUnreadCount > 0 ? (
+              <span className="text-xs font-semibold text-blue-600">
+                {formatBadgeCount(messagesUnreadCount)} unread
+              </span>
+            ) : null}
+          </div>
+          <div className="p-4 text-sm text-gray-600">
+            <p className="mb-3">Open your inbox to view conversations.</p>
+            <Link
+              to="/messages"
+              className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              onClick={() => setShowMessagesDropdown(false)}
+            >
+              Go to Messages
+            </Link>
+          </div>
         </div>
-        <div className="p-4 text-sm text-gray-600">
-          <p className="mb-3">Open your inbox to view conversations.</p>
-          <Link
-            to="/messages"
-            className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            onClick={() => setShowMessagesDropdown(false)}
-          >
-            Go to Messages
-          </Link>
-        </div>
-      </div>
-    ) : null;
+      ) : null;
+    }
+
+    return (
+      <HeaderMessagesPopover
+        open={showMessagesDropdown}
+        onClose={() => setShowMessagesDropdown(false)}
+        triggerRef={msgRef}
+        id={messagesPopoverId}
+      />
+    );
+  };
 
   const handleActivityIconClick = (icon: any) => {
     const actionType = icon.actionType || icon.type;
@@ -1367,7 +1380,11 @@ const Navbar = () => {
           onClick={() => handleActivityIconClick(icon)}
           className={buttonClass}
           title={icon.label}
-          aria-label={icon.label || actionType}
+          aria-label={
+            actionType === "messages" && messagesUnreadCount > 0
+              ? `Messages, ${messagesUnreadCount} unread`
+              : icon.label || actionType
+          }
           aria-expanded={
             actionType === "notifications"
               ? showNotifications
@@ -1379,8 +1396,13 @@ const Navbar = () => {
                     ? showProfileDropdown
                     : undefined
           }
+          aria-controls={
+            actionType === "messages" && showMessagesDropdown && isDesktopNav
+              ? messagesPopoverId
+              : undefined
+          }
           aria-haspopup={
-            ["notifications", "messages", "help", "profile"].includes(actionType) ? "menu" : undefined
+            ["notifications", "messages", "help", "profile"].includes(actionType) ? "dialog" : undefined
           }
         >
           <span
