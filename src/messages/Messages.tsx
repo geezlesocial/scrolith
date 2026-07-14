@@ -30,6 +30,8 @@ import { normalizeDealFlowSettings } from '../utils/dealFlow';
 import AcceptProposalContractModal from '../components/contracts/AcceptProposalContractModal';
 import { getRecoverableActionMessage } from '../mobile/runtime/requestRecovery';
 import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDialog';
+import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
+import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -1322,6 +1324,9 @@ const Messages = () => {
       return Boolean(messageMediaResources[cacheKey]?.loading);
   };
 
+  // Composer pending previews only. Historical message media is loaded by
+  // MessageAttachmentRenderer (shared dock + /messages path) to avoid double-fetch
+  // and unbounded full-conversation blob preloads (especially video).
   const mediaPreviewCandidates = useMemo(() => {
       const candidates: AttachmentDisplay[] = [];
       const pushCandidate = (value: any) => {
@@ -1331,24 +1336,8 @@ const Messages = () => {
       };
 
       pendingAttachments.forEach(pushCandidate);
-      (activeConvo?.messages || []).forEach((message) => {
-          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-          attachments.forEach(pushCandidate);
-          const voiceNote = (message as any)?.voiceNote || (message as any)?.voice_note;
-          if (voiceNote) {
-              pushCandidate({
-                  id: voiceNote.fileId || voiceNote.id || '',
-                  fileId: voiceNote.fileId || voiceNote.id || '',
-                  url: voiceNote.url || '',
-                  name: 'Voice note',
-                  type: 'audio',
-                  mimeType: 'audio/webm'
-              });
-          }
-      });
-
       return candidates;
-  }, [activeConvo?.messages, pendingAttachments]);
+  }, [pendingAttachments]);
 
   useEffect(() => {
       mediaPreviewCandidates.forEach((attachment) => {
@@ -1623,14 +1612,21 @@ const Messages = () => {
           const messageId = payload?.messageId || payload?.id;
           if (!convoId || !messageId) return;
           const deletedForMe = Boolean(payload?.deletedForMe ?? payload?.deleted_for_me ?? false);
+          const isDeleted = Boolean(payload?.isDeleted ?? payload?.is_deleted);
           traceClient('socket.message_updated', {
               conversationId: convoId,
               messageId,
               deletedForMe,
-              isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted),
+              isDeleted,
               editedAt: payload?.editedAt ?? payload?.edited_at ?? null
           });
-          setConversations(prev => prev.map(c => {
+          setConversations(prev => {
+              if (deletedForMe || isDeleted) {
+                  const target = prev.find((entry) => entry.id === convoId);
+                  const existing = target?.messages?.find((entry) => entry.id === messageId);
+                  if (existing) revokeMessageAttachmentMediaUrls(existing);
+              }
+              return prev.map(c => {
               if (c.id !== convoId) return c;
               if (deletedForMe) {
                   const nextMessages = c.messages.filter(m => m.id !== messageId);
@@ -1683,7 +1679,8 @@ const Messages = () => {
                   lastMessageAt: nextLastAt,
                   last_message_at: nextLastAt
               };
-          }));
+              });
+          });
       };
 
       const handleConversationUpdated = (payload: any) => {
@@ -2285,6 +2282,8 @@ const Messages = () => {
       try {
           const result = await MessagingService.deleteMessage(activeConvoId, messageId, scope);
           const deletedForMe = Boolean(result?.deletedForMe ?? result?.deleted_for_me ?? scope === 'me');
+          // Targeted media cache cleanup for unsend / delete-for-me.
+          revokeMessageAttachmentMediaUrls(message);
           if (deletedForMe) {
               applyConversationMessageChanges(activeConvoId, (messages) => messages.filter((m) => m.id !== messageId));
               if (replyToMessage?.id === messageId) setReplyToMessage(null);
@@ -3079,9 +3078,7 @@ const Messages = () => {
                             onScroll={handleMessagesScroll}
                         >
                             {activeConvo.messages.map(msg => {
-                                const attachmentList = (Array.isArray(msg.attachments) ? msg.attachments : [])
-                                    .map((attachment) => normalizeAttachmentForDisplay(attachment))
-                                    .filter(Boolean) as AttachmentDisplay[];
+                                const attachmentList = extractMessageAttachments(msg);
                                 const dealFlowEvent = extractDealFlowEvent(msg);
                                 const isOwner = msg.senderId === user?.id;
                                 const isAdmin = user?.role === UserRole.ADMIN;
@@ -3239,100 +3236,12 @@ const Messages = () => {
                                                 {msg.text || ''}
                                             </p>
                                         )}
-                                        {(String(msg.messageType || msg.message_type || '').toLowerCase() === 'voice_note' ||
-                                            msg.voiceNote ||
-                                            msg.voice_note) && (
-                                            <div className={`mt-1 text-[11px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
-                                                Voice note
-                                                {Number(msg?.voiceNote?.durationMs || msg?.voice_note?.durationMs || 0) > 0
-                                                    ? ` · ${Math.round(Number(msg?.voiceNote?.durationMs || msg?.voice_note?.durationMs || 0) / 1000)}s`
-                                                    : ''}
-                                            </div>
-                                        )}
-                                        {attachmentList.length > 0 && (
-                                            <div className="mt-2 space-y-2">
-                                                {attachmentList.map((attachment) => {
-                                                    const resolvedAttachmentUrl = getResolvedAttachmentUrl(attachment);
-                                                    const previewLoading = isAttachmentPreviewLoading(attachment);
-                                                    return (
-                                                        <div key={attachment.id} className={`rounded-lg border p-2 text-xs ${
-                                                            msg.senderId === user?.id
-                                                                ? 'border-white/30 bg-white/15 text-white'
-                                                                : 'border-gray-200 bg-white/80 text-gray-700'
-                                                        }`}>
-                                                            <div className="mb-2 flex items-center justify-between gap-2">
-                                                                <div className="min-w-0">
-                                                                    <div className="truncate font-semibold">{attachment.name}</div>
-                                                                    {formatBytes(attachment.size) ? (
-                                                                        <div className={`text-[10px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
-                                                                            {formatBytes(attachment.size)}
-                                                                        </div>
-                                                                    ) : null}
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(event) => {
-                                                                        event.preventDefault();
-                                                                        event.stopPropagation();
-                                                                        void downloadAttachment(attachment as AttachmentDisplay);
-                                                                    }}
-                                                                    className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${
-                                                                        msg.senderId === user?.id
-                                                                            ? 'border-white/30 bg-white/10 text-white hover:bg-white/20'
-                                                                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                                                                    }`}
-                                                                >
-                                                                    <Download className="h-3.5 w-3.5" />
-                                                                    <span>Download</span>
-                                                                </button>
-                                                            </div>
-                                                            {attachment.type === 'image' ? (
-                                                                resolvedAttachmentUrl ? (
-                                                                    <a href={resolvedAttachmentUrl} target="_blank" rel="noreferrer" className="block">
-                                                                        <img src={resolvedAttachmentUrl} alt={attachment.name} className="w-full max-h-56 rounded-md object-cover" loading="lazy" />
-                                                                    </a>
-                                                                ) : (
-                                                                    <div className="flex h-40 items-center justify-center rounded-md bg-gray-100 text-gray-400">
-                                                                        {previewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Image preview unavailable'}
-                                                                    </div>
-                                                                )
-                                                            ) : attachment.type === 'video' ? (
-                                                                resolvedAttachmentUrl ? (
-                                                                    <video controls preload="auto" playsInline src={resolvedAttachmentUrl} className="w-full max-h-56 rounded-md" />
-                                                                ) : (
-                                                                    <div className="flex h-40 items-center justify-center rounded-md bg-gray-100 text-gray-400">
-                                                                        {previewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Video preview unavailable'}
-                                                                    </div>
-                                                                )
-                                                            ) : attachment.type === 'audio' ? (
-                                                                resolvedAttachmentUrl ? (
-                                                                    <audio controls preload="auto" src={resolvedAttachmentUrl} className="w-full" />
-                                                                ) : (
-                                                                    <div className="flex items-center gap-2 rounded-md bg-gray-100 px-3 py-2 text-gray-500">
-                                                                        {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
-                                                                        <span>Preparing audio...</span>
-                                                                    </div>
-                                                                )
-                                                            ) : (
-                                                                <a
-                                                                    href={attachment.url || '#'}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
-                                                                    className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border px-3 py-2 hover:underline ${
-                                                                        msg.senderId === user?.id
-                                                                            ? 'border-white/20 text-blue-100'
-                                                                            : 'border-gray-200 text-blue-600'
-                                                                    }`}
-                                                                >
-                                                                    <span className="font-semibold">Open</span>
-                                                                    <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
+                                        {attachmentList.length > 0 && !isDeleted ? (
+                                            <MessageAttachmentsList
+                                                attachments={attachmentList}
+                                                outgoing={msg.senderId === user?.id}
+                                            />
+                                        ) : null}
                                         <div className={`text-[10px] mt-1 text-right flex justify-end items-center gap-1 ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>
                                             {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                             {!isDeleted && (msg.editedAt || msg.edited_at) && (

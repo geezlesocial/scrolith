@@ -32,6 +32,8 @@ import {
   QUICK_REACTIONS
 } from '../../services/messagingComposer';
 import InlineMessageComposer from './InlineMessageComposer';
+import { MessageAttachmentsList } from './MessageAttachmentRenderer';
+import { extractMessageAttachments } from '../../services/messagingMedia';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
 import { AIService } from '../../services/ai/ai.service';
 
@@ -318,7 +320,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
             const editing = editingMessageId === message.id;
             const myReaction = getMyReaction(message, user?.id);
             const reactionCounts = getReactionCounts(message);
-            const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+            const mediaAttachments = deleted ? [] : extractMessageAttachments(message);
 
             return (
               <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
@@ -385,15 +387,18 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                       </div>
                     ) : (
                       <>
-                        <div className="whitespace-pre-wrap break-words">
-                          {deleted
-                            ? '[Message deleted]'
-                            : getMessagePreviewText(message) || message.text}
-                        </div>
-                        {attachments.length > 0 && !deleted ? (
-                          <div className="mt-1 text-[11px] opacity-90">
-                            {attachments.length} attachment{attachments.length === 1 ? '' : 's'}
+                        {(!deleted && String(message.text || '').trim()) || deleted ? (
+                          <div className="whitespace-pre-wrap break-words">
+                            {deleted
+                              ? '[Message deleted]'
+                              : getMessagePreviewText(message) || message.text}
                           </div>
+                        ) : null}
+                        {!deleted && mediaAttachments.length > 0 ? (
+                          <MessageAttachmentsList
+                            attachments={mediaAttachments}
+                            outgoing={mine && !failed}
+                          />
                         ) : null}
                       </>
                     )}

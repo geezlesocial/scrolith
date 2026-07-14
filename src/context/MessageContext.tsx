@@ -1055,8 +1055,19 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const id = safeId(conversationId);
       const mid = safeId(messageId);
       if (!id || !mid) return;
+      // Capture attachment keys before local removal so private blobs can be revoked.
+      const existing = (threadCache[id]?.messages || []).find((entry) => entry.id === mid);
       const result = await MessagingService.deleteMessage(id, mid, scope);
       const deletedForMe = Boolean(result?.deletedForMe ?? result?.deleted_for_me ?? scope === 'me');
+      if (existing) {
+        void import('../services/messagingMedia')
+          .then((mod) => {
+            mod.revokeMessageAttachmentMediaUrls(existing);
+          })
+          .catch(() => {
+            // best-effort
+          });
+      }
       if (deletedForMe) {
         updateThreadMessages(id, (messages) => messages.filter((entry) => entry.id !== mid));
       } else {
@@ -1069,7 +1080,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       scheduleSoftRefresh();
     },
-    [updateThreadMessages, replyToByConversation, scheduleSoftRefresh]
+    [updateThreadMessages, replyToByConversation, scheduleSoftRefresh, threadCache]
   );
 
   const copyMessage = useCallback(
@@ -1113,6 +1124,14 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setTypingByConversation({});
       seenMessageIdsRef.current.clear();
       visibleConversationIdsRef.current.clear();
+      // Session cleared / logout: revoke all private messaging media object URLs.
+      void import('../services/messagingMedia')
+        .then((mod) => {
+          mod.revokeAllAuthenticatedMediaUrls();
+        })
+        .catch(() => {
+          // best-effort
+        });
       return;
     }
     void refreshMessages();
