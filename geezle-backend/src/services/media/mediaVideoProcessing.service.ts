@@ -1,9 +1,10 @@
 /**
- * Phase 3B.2 — orchestrate async video metadata extraction.
+ * Phase 3B.2/3B.3 — orchestrate async video metadata + poster/thumbnail generation.
  * Original media remains available in every status. Never blocks upload.
  *
  * Memory: GCS sources are streamed to a job-scoped temp file (never fully buffered).
  * Claim: conditional DB update so only one job becomes active for a version.
+ * Derivatives: deterministic GCS keys + FileVariant rows; client-safe manifest only.
  */
 import prisma from '../../utils/prismaClient';
 import {
@@ -21,6 +22,13 @@ import {
   type VideoProbeErrorCode,
   type VideoProbeMetadata
 } from './mediaVideoProbe.service';
+import {
+  cleanupVideoPosterTemps,
+  generateVideoPosterAndThumb,
+  isFfmpegAvailable,
+  type VideoPosterErrorCode
+} from './mediaVideoPoster.service';
+import { listReadyVariants, persistGeneratedVariant } from './mediaVariant.service';
 
 const processingLocks = new Set<string>();
 
@@ -30,6 +38,8 @@ export type VideoProcessingOutcome = {
   errorCode?: string | null;
   durationMs?: number;
   metadata?: VideoProbeMetadata | null;
+  posterVariantId?: string | null;
+  thumbVariantId?: string | null;
 };
 
 const logSafe = (event: string, payload: Record<string, unknown>) => {
@@ -55,13 +65,18 @@ const isVideoProcessingEnabled = () => {
 export const mergeVideoIntoVariantsManifest = (
   existing: unknown,
   videoMeta: VideoProbeMetadata,
-  processingStatus: string
+  processingStatus: string,
+  opts?: {
+    posterUrl?: string | null;
+    thumbnailUrl?: string | null;
+    posterVariantId?: string | null;
+    thumbVariantId?: string | null;
+  }
 ): Record<string, unknown> => {
   let base: Record<string, unknown> = {};
   try {
     if (existing && typeof existing === 'object' && !Array.isArray(existing)) {
       base = { ...(existing as Record<string, unknown>) };
-      // Copy array fields shallowly so callers cannot mutate stored arrays in place
       if (Array.isArray(base.variants)) {
         base.variants = [...base.variants];
       }
@@ -79,14 +94,13 @@ export const mergeVideoIntoVariantsManifest = (
     prevVideo = {};
   }
 
-  // Drop any previously leaked private keys if present
   delete prevVideo.storageKey;
   delete prevVideo.bucket;
   delete prevVideo.raw;
   delete prevVideo.tempPath;
   delete prevVideo.command;
 
-  return {
+  const next: Record<string, unknown> = {
     ...base,
     processingStatus,
     video: {
@@ -94,10 +108,18 @@ export const mergeVideoIntoVariantsManifest = (
       metadata: toClientSafeVideoMetadata(videoMeta)
     }
   };
+
+  if (opts?.posterUrl) next.posterUrl = opts.posterUrl;
+  if (opts?.thumbnailUrl) next.thumbnailUrl = opts.thumbnailUrl;
+
+  return next;
 };
 
+const authorizedVariantUrl = (fileId: string, variantId: string) =>
+  `/api/files/${encodeURIComponent(fileId)}/variants/${encodeURIComponent(variantId)}/content`;
+
 /**
- * Process video metadata for a single File. Idempotent and version-safe.
+ * Process video metadata + optional poster/thumbnail for a single File.
  */
 export const processVideoMetadata = async (
   fileId: string,
@@ -120,6 +142,7 @@ export const processVideoMetadata = async (
 
   let claimedVersion: number | null = null;
   let tempPath: string | null = null;
+  let posterTemps: { posterPath?: string | null; thumbPath?: string | null } | null = null;
 
   try {
     const file = await prisma.file.findUnique({
@@ -166,8 +189,6 @@ export const processVideoMetadata = async (
       };
     }
 
-    // Expected version from enqueue (current version at enqueue time).
-    // Claim does NOT increment version — avoids immediately invalidating the same job.
     const expectedVersion =
       opts?.expectedVersion != null && Number.isFinite(Number(opts.expectedVersion))
         ? Number(opts.expectedVersion)
@@ -187,7 +208,6 @@ export const processVideoMetadata = async (
       };
     }
 
-    // Conditional claim: only one worker can move this version out of non-PROCESSING.
     const claim = await prisma.file.updateMany({
       where: {
         id,
@@ -217,6 +237,7 @@ export const processVideoMetadata = async (
     claimedVersion = expectedVersion;
     logSafe('started', { fileIdPrefix: id.slice(0, 8), processingVersion: claimedVersion });
 
+    // Metadata requires ffprobe; without it we cannot proceed to READY.
     if (!(await isFfprobeAvailable())) {
       await safeFinalUpdate(id, claimedVersion, {
         processingStatus: 'FAILED',
@@ -231,7 +252,6 @@ export const processVideoMetadata = async (
       };
     }
 
-    // Pre-check declared size against product video limit (no download if already over).
     const declaredSize = Number(file.size);
     if (Number.isFinite(declaredSize) && declaredSize > MAX_VIDEO_PROBE_BYTES) {
       await safeFinalUpdate(id, claimedVersion, {
@@ -284,7 +304,6 @@ export const processVideoMetadata = async (
 
     tempPath = materialize.tempPath;
 
-    // Stale check after long download: another job may have advanced version.
     const mid = await prisma.file.findUnique({
       where: { id },
       select: { processingVersion: true, processingStatus: true }
@@ -306,11 +325,8 @@ export const processVideoMetadata = async (
       };
     }
 
+    // --- Metadata ---
     const probe = await probeVideoFile(tempPath);
-    // Always drop temp before DB work
-    safeUnlinkTemp(tempPath);
-    tempPath = null;
-
     if (probe.ok === false) {
       const code: VideoProbeErrorCode = probe.errorCode;
       await safeFinalUpdate(id, claimedVersion, {
@@ -329,14 +345,7 @@ export const processVideoMetadata = async (
 
     const meta = probe.metadata;
     const hasCore = Boolean(meta.width || meta.height || meta.durationSeconds != null);
-    const hasExtra = Boolean(
-      meta.codec || meta.container || meta.frameRate != null || meta.audioPresent
-    );
-    let status: 'READY' | 'PARTIAL' | 'FAILED' = 'FAILED';
-    if (hasCore && hasExtra) status = 'READY';
-    else if (hasCore) status = 'PARTIAL';
-
-    if (status === 'FAILED') {
+    if (!hasCore) {
       await safeFinalUpdate(id, claimedVersion, {
         processingStatus: 'FAILED',
         processingErrorCode: 'VIDEO_METADATA_FAILED',
@@ -348,6 +357,97 @@ export const processVideoMetadata = async (
         errorCode: 'VIDEO_METADATA_FAILED',
         durationMs: Date.now() - started
       };
+    }
+
+    // --- Poster / thumbnail (best-effort; metadata may still persist as PARTIAL) ---
+    let posterVariantId: string | null = null;
+    let thumbVariantId: string | null = null;
+    let posterError: VideoPosterErrorCode | null = null;
+
+    if (!(await isFfmpegAvailable())) {
+      posterError = 'VIDEO_POSTER_UNAVAILABLE';
+      logSafe('poster_unavailable', { fileIdPrefix: id.slice(0, 8) });
+    } else {
+      const posterResult = await generateVideoPosterAndThumb({
+        inputPath: tempPath,
+        metadata: meta
+      });
+      if (posterResult.ok === false) {
+        posterError = posterResult.errorCode;
+        logSafe('poster_failed', { fileIdPrefix: id.slice(0, 8), errorCode: posterError });
+      } else {
+        posterTemps = {
+          posterPath: posterResult.outputs.posterPath,
+          thumbPath: posterResult.outputs.thumbPath
+        };
+
+        // Atomicity: only assign variant IDs after verified GCS upload + FileVariant upsert.
+        // Failed derivative must not appear in posterUrl/thumbnailUrl or READY status.
+        const posterPersist = await persistGeneratedVariant({
+          fileId: id,
+          variant: posterResult.outputs.poster
+        });
+        if (posterPersist.action === 'created' || posterPersist.action === 'reused') {
+          posterVariantId = posterPersist.variantId || null;
+        } else {
+          posterError = 'VIDEO_POSTER_FAILED';
+          // Safe log: action only — no full storage key / bucket
+          logSafe('poster_persist_failed', {
+            fileIdPrefix: id.slice(0, 8),
+            action: posterPersist.action,
+            derivative: 'video_poster'
+          });
+        }
+
+        const thumbPersist = await persistGeneratedVariant({
+          fileId: id,
+          variant: posterResult.outputs.thumbnail
+        });
+        if (thumbPersist.action === 'created' || thumbPersist.action === 'reused') {
+          thumbVariantId = thumbPersist.variantId || null;
+        } else {
+          if (!posterError) posterError = 'VIDEO_THUMBNAIL_FAILED';
+          logSafe('thumb_persist_failed', {
+            fileIdPrefix: id.slice(0, 8),
+            action: thumbPersist.action,
+            derivative: 'video_thumb'
+          });
+        }
+
+        // Drop temp image files after persist attempts (success or fail)
+        cleanupVideoPosterTemps(posterTemps);
+        posterTemps = null;
+      }
+    }
+
+    // Drop original temp before final DB write
+    safeUnlinkTemp(tempPath);
+    tempPath = null;
+
+    // READY only when metadata is rich AND both derivatives verified+persisted.
+    // Poster-only or thumb-only success remains PARTIAL (most useful error preserved).
+    const bothDerivativesOk = Boolean(posterVariantId && thumbVariantId);
+    const hasExtra = Boolean(
+      meta.codec || meta.container || meta.frameRate != null || meta.audioPresent
+    );
+
+    let status: 'READY' | 'PARTIAL' = 'PARTIAL';
+    let errorCode: string | null = null;
+    if (bothDerivativesOk && hasExtra) {
+      status = 'READY';
+      errorCode = null;
+    } else if (bothDerivativesOk) {
+      status = 'PARTIAL';
+      errorCode = 'VIDEO_PARTIAL';
+    } else if (posterVariantId && !thumbVariantId) {
+      status = 'PARTIAL';
+      errorCode = posterError || 'VIDEO_THUMBNAIL_FAILED';
+    } else if (!posterVariantId && thumbVariantId) {
+      status = 'PARTIAL';
+      errorCode = posterError || 'VIDEO_POSTER_FAILED';
+    } else {
+      status = 'PARTIAL';
+      errorCode = posterError || 'VIDEO_PARTIAL';
     }
 
     const latest = await prisma.file.findUnique({
@@ -388,10 +488,28 @@ export const processVideoMetadata = async (
           ? latest.duration
           : undefined;
 
+    const posterUrl = posterVariantId ? authorizedVariantUrl(id, posterVariantId) : null;
+    const thumbnailUrl = thumbVariantId ? authorizedVariantUrl(id, thumbVariantId) : null;
+
+    // Include ready variants list (client-safe) from DB
+    const readyVariants = await listReadyVariants(id);
+    const clientVariants = readyVariants.map((v) => ({
+      id: v.id,
+      kind: v.kind,
+      label: v.label,
+      width: v.width,
+      height: v.height,
+      format: v.format,
+      mimeType: v.mimeType,
+      sizeBytes: Number(v.sizeBytes || 0),
+      contentUrl: authorizedVariantUrl(id, v.id)
+    }));
+
     const mergedManifest = mergeVideoIntoVariantsManifest(
       latest.variantsManifest,
       meta,
-      status
+      status,
+      { posterUrl, thumbnailUrl, posterVariantId, thumbVariantId }
     );
     const clientManifest: Record<string, unknown> = {
       ...mergedManifest,
@@ -400,11 +518,12 @@ export const processVideoMetadata = async (
       width: nextWidth ?? null,
       height: nextHeight ?? null,
       durationSeconds: nextDuration ?? null,
-      originalUrl: `/api/files/content/${encodeURIComponent(id)}`
+      originalUrl: `/api/files/content/${encodeURIComponent(id)}`,
+      posterUrl,
+      thumbnailUrl,
+      variants: clientVariants
     };
 
-    // Final write only if we still own the claim (version + PROCESSING).
-    // Bump processingVersion once on successful completion so re-enqueue can run again.
     const updated = await prisma.file.updateMany({
       where: {
         id,
@@ -413,12 +532,14 @@ export const processVideoMetadata = async (
       },
       data: {
         processingStatus: status,
-        processingErrorCode: null,
+        processingErrorCode: errorCode,
         processingCompletedAt: new Date(),
         processingVersion: { increment: 1 },
         width: nextWidth,
         height: nextHeight,
         duration: nextDuration,
+        // Prefer authorized app route for File.thumbnailUrl when thumb exists
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
         variantsManifest: clientManifest as any
       }
     });
@@ -436,17 +557,24 @@ export const processVideoMetadata = async (
     logSafe('completed', {
       fileIdPrefix: id.slice(0, 8),
       status,
-      durationMs: Date.now() - started
+      errorCode,
+      durationMs: Date.now() - started,
+      hasPoster: Boolean(posterVariantId),
+      hasThumb: Boolean(thumbVariantId)
     });
 
     return {
       fileId: id,
       status,
+      errorCode,
       metadata: meta,
+      posterVariantId,
+      thumbVariantId,
       durationMs: Date.now() - started
     };
   } finally {
     if (tempPath) safeUnlinkTemp(tempPath);
+    if (posterTemps) cleanupVideoPosterTemps(posterTemps);
     processingLocks.delete(id);
   }
 };
