@@ -21,6 +21,10 @@ type Props = {
 /**
  * Accessible modal shell for the enterprise composer.
  * Focus trap + Escape + body scroll lock while open.
+ *
+ * IMPORTANT: the focus-trap effect depends only on `open`.
+ * `onClose` is read via a ref so draft keystrokes / parent re-renders
+ * never re-run trap setup (which previously stole focus from the editor).
  */
 const ComposerShell: React.FC<Props> = ({
   open,
@@ -34,6 +38,8 @@ const ComposerShell: React.FC<Props> = ({
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
@@ -42,31 +48,41 @@ const ComposerShell: React.FC<Props> = ({
     document.body.style.overflow = 'hidden';
 
     const panel = panelRef.current;
+    // Exclude tabindex=-1 (suggestion rows keep editor DOM focus via aria-activedescendant).
     const getFocusable = () =>
       Array.from(
         panel?.querySelectorAll<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+          'button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
         ) || []
       );
 
-    // Initial focus after paint so dialog children are mounted.
-    window.setTimeout(() => {
+    // Initial focus once when the dialog opens — never on parent callback churn.
+    // Prefer keeping focus if a child (e.g. intent-driven editor focus) already has it.
+    const focusTimer = window.setTimeout(() => {
+      if (panel?.contains(document.activeElement)) return;
       const list = getFocusable();
       list[0]?.focus();
     }, 0);
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        // Allow nested handlers (mention/hashtag popup) to claim Escape first.
+        if (event.defaultPrevented) return;
         event.preventDefault();
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !panel) return;
       // Re-query each Tab so dynamically added media controls stay in the trap.
       const list = getFocusable();
       if (!list.length) return;
-      const currentIndex = list.indexOf(document.activeElement as HTMLElement);
+      const active = document.activeElement as HTMLElement | null;
+      // If focus is already inside the panel but not a listed control, do not yank it.
+      if (active && panel.contains(active) && !list.includes(active)) {
+        return;
+      }
+      const currentIndex = active ? list.indexOf(active) : -1;
       if (event.shiftKey) {
         if (currentIndex <= 0) {
           event.preventDefault();
@@ -80,17 +96,18 @@ const ComposerShell: React.FC<Props> = ({
 
     document.addEventListener('keydown', onKeyDown);
     return () => {
+      window.clearTimeout(focusTimer);
       document.removeEventListener('keydown', onKeyDown);
       document.body.style.overflow = originalOverflow;
       previouslyFocused.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
   return (
     <div className={composerModalBackdrop} role="presentation">
-      <button type="button" aria-label="Close composer" className="absolute inset-0" onClick={onClose} />
+      <button type="button" aria-label="Close composer" className="absolute inset-0" onClick={() => onCloseRef.current()} />
       <div
         ref={panelRef}
         role="dialog"

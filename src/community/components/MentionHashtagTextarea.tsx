@@ -1,6 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Hash, Loader2, AtSign } from 'lucide-react';
 import { CommunityService } from '../../services/community';
+import {
+  applyMentionOrTagSuggestion,
+  findActiveToken,
+  type ActiveToken
+} from './mentionHashtagTokens';
+
+// Re-export pure helpers for consumers/tests that import from this module path.
+export { applyMentionOrTagSuggestion, findActiveToken } from './mentionHashtagTokens';
 
 type Suggestion =
   | {
@@ -17,41 +25,6 @@ type Suggestion =
       slug: string;
       count?: number;
     };
-
-type ActiveToken = {
-  kind: 'mention' | 'tag';
-  query: string;
-  replaceStart: number;
-  replaceEnd: number;
-};
-
-const MAX_QUERY_LEN = 30;
-
-const findActiveToken = (
-  value: string,
-  caret: number,
-  opts: { mentionsEnabled: boolean; hashtagsEnabled: boolean }
-): ActiveToken | null => {
-  const before = value.slice(0, caret);
-
-  // Mentions: @username (letters/numbers/underscore/dot). Keep conservative to avoid triggering in emails/URLs.
-  const mentionMatch = before.match(/(^|[\s([{>])@([a-zA-Z0-9_.]{0,30})$/);
-  if (mentionMatch && opts.mentionsEnabled) {
-    const query = String(mentionMatch[2] || '').slice(0, MAX_QUERY_LEN);
-    const replaceStart = Math.max(0, caret - query.length - 1);
-    return { kind: 'mention', query, replaceStart, replaceEnd: caret };
-  }
-
-  // Tags: #tag (letters/numbers/underscore) aligned with backend normalize/extract rules.
-  const tagMatch = before.match(/(^|[\s([{>])#([a-zA-Z0-9_]{0,40})$/);
-  if (tagMatch && opts.hashtagsEnabled) {
-    const query = String(tagMatch[2] || '').slice(0, 40);
-    const replaceStart = Math.max(0, caret - query.length - 1);
-    return { kind: 'tag', query, replaceStart, replaceEnd: caret };
-  }
-
-  return null;
-};
 
 export type MentionHashtagTextareaProps = {
   value: string;
@@ -196,24 +169,26 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
     const applySuggestion = useCallback(
       (suggestion: Suggestion) => {
         if (!active) return;
-        const prefix = active.kind === 'mention' ? '@' : '#';
-        const token =
-          suggestion.kind === 'mention'
-            ? `${prefix}${suggestion.username}`
-            : `${prefix}${suggestion.slug}`;
-        const replacement = `${token} `;
-        const next =
-          value.slice(0, active.replaceStart) + replacement + value.slice(active.replaceEnd);
-        onChange(next);
+        const tokenBody = suggestion.kind === 'mention' ? suggestion.username : suggestion.slug;
+        const { nextValue, caret } = applyMentionOrTagSuggestion({
+          value,
+          replaceStart: active.replaceStart,
+          replaceEnd: active.replaceEnd,
+          kind: active.kind,
+          tokenBody
+        });
+        onChange(nextValue);
 
+        // Single post-selection frame only — restore caret after controlled value flush.
         window.setTimeout(() => {
           const el = textareaRef.current;
           if (!el) return;
-          const caret = active.replaceStart + replacement.length;
           try {
             el.focus();
             el.setSelectionRange(caret, caret);
-          } catch {}
+          } catch {
+            // ignore selection failures in non-DOM environments
+          }
         }, 0);
 
         close();
@@ -225,12 +200,15 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
       (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (!isOpen) return;
         if (event.key === 'Escape') {
+          // Claim Escape so ComposerShell does not close the whole dialog.
           event.preventDefault();
+          event.stopPropagation();
           close();
           return;
         }
         if (!items.length) return;
         if (event.key === 'ArrowDown') {
+          // Keep DOM focus on the editor; highlight via state only.
           event.preventDefault();
           setHighlightIndex((prev) => Math.min(items.length - 1, prev + 1));
           return;
@@ -256,6 +234,12 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
 
     const visibleItems = useMemo(() => items, [items]);
 
+    const listboxId = 'composer-mention-hashtag-listbox';
+    const activeOptionId =
+      isOpen && visibleItems[highlightIndex]
+        ? `${listboxId}-option-${highlightIndex}`
+        : undefined;
+
     return (
       <div ref={containerRef} className="relative">
         <textarea
@@ -274,10 +258,20 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
           placeholder={placeholder}
           disabled={disabled}
           className={className}
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-controls={isOpen ? listboxId : undefined}
+          aria-autocomplete="list"
+          aria-activedescendant={activeOptionId}
         />
 
         {isOpen ? (
-          <div className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg">
+          <div
+            id={listboxId}
+            role="listbox"
+            aria-label={active?.kind === 'mention' ? 'Mention suggestions' : 'Tag suggestions'}
+            className="absolute left-0 right-0 top-full z-50 mt-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"
+          >
             <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-[11px] font-semibold text-slate-600">
               <span className="inline-flex items-center gap-1">
                 {active?.kind === 'mention' ? <AtSign className="h-3.5 w-3.5" /> : <Hash className="h-3.5 w-3.5" />}
@@ -303,13 +297,19 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
               <div className="max-h-64 overflow-auto">
                 {visibleItems.map((item, idx) => {
                   const isActive = idx === highlightIndex;
+                  const optionId = `${listboxId}-option-${idx}`;
                   if (item.kind === 'mention') {
                     const label = item.name ? String(item.name) : `@${item.username}`;
                     return (
                       <button
+                        id={optionId}
                         key={`mention_${item.id}`}
                         type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        tabIndex={-1}
                         onMouseDown={(e) => e.preventDefault()}
+                        onPointerDown={(e) => e.preventDefault()}
                         onClick={() => applySuggestion(item)}
                         className={[
                           'flex w-full items-center gap-3 px-3 py-2 text-left text-sm',
@@ -318,7 +318,7 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
                       >
                         <div className="h-8 w-8 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                           {item.avatar ? (
-                            <img src={item.avatar} alt={item.username} className="h-full w-full object-cover" />
+                            <img src={item.avatar} alt="" className="h-full w-full object-cover" />
                           ) : null}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -331,9 +331,14 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
 
                   return (
                     <button
+                      id={optionId}
                       key={`tag_${item.id}`}
                       type="button"
+                      role="option"
+                      aria-selected={isActive}
+                      tabIndex={-1}
                       onMouseDown={(e) => e.preventDefault()}
+                      onPointerDown={(e) => e.preventDefault()}
                       onClick={() => applySuggestion(item)}
                       className={[
                         'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm',
