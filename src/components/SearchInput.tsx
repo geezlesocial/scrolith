@@ -35,7 +35,7 @@ interface SearchInputProps {
 }
 
 const DEFAULT_HEADER_PLACEHOLDER =
-    'Search for jobs, gigs, freelancers, businesses, communities...';
+    'Search people, jobs, gigs, posts, pages, communities, or marketplace';
 
 const DEFAULT_SEARCH_RECOMMENDATIONS: SearchSuggestion[] = [
     { text: 'interview tips', type: 'keyword', category: 'Careers' },
@@ -157,8 +157,10 @@ const SearchInput: React.FC<SearchInputProps> = ({
     const [isThinking, setIsThinking] = useState(false);
     const [recommendationsLoaded, setRecommendationsLoaded] = useState(false);
     const [suggestionsResolvedFor, setSuggestionsResolvedFor] = useState('');
+    const [highlightIndex, setHighlightIndex] = useState(-1);
     const containerRef = useRef<HTMLDivElement>(null);
     const suggestionRequestSeqRef = useRef(0);
+    const listboxId = 'scrolith-search-listbox';
     const navigate = useNavigate();
     const { user } = useUser();
 
@@ -278,6 +280,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
         const handleClickOutside = (e: MouseEvent) => {
             if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
                 setIsOpen(false);
+                setHighlightIndex(-1);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
@@ -314,16 +317,27 @@ const SearchInput: React.FC<SearchInputProps> = ({
         navigate(`${url.pathname}${url.search}`);
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') {
-            handleSearch(query);
+    const selectSuggestion = (s: SearchSuggestion) => {
+        const url = String((s as any).url || '').trim();
+        if (url) {
+            setQuery(s.text);
+            setIsOpen(false);
+            setHighlightIndex(-1);
+            if (url.startsWith('http')) {
+                window.location.href = url;
+            } else {
+                navigate(url);
+            }
+            return;
         }
+        handleSearch(s.text);
     };
 
     const clearSearch = () => {
         setQuery('');
         setSuggestions([]);
         setIsOpen(true);
+        setHighlightIndex(-1);
         loadRecommendations();
     };
 
@@ -337,9 +351,10 @@ const SearchInput: React.FC<SearchInputProps> = ({
         large: "py-5 text-base rounded-2xl",
         xl: "py-6 text-lg rounded-2xl",
         header:
-            "py-2.5 text-sm rounded-full bg-slate-100 border-slate-200/80 shadow-none " +
-            "placeholder:text-slate-500 focus:bg-white focus:border-blue-400 focus:ring-2 " +
-            "focus:ring-blue-500/25 focus:shadow-md motion-safe:transition-all motion-safe:duration-200"
+            "py-2.5 text-sm rounded-full border border-slate-200/90 bg-slate-100/90 shadow-none " +
+            "placeholder:text-slate-500 hover:bg-white hover:border-slate-300 " +
+            "focus:bg-white focus:border-blue-400 focus:ring-2 " +
+            "focus:ring-blue-500/20 focus:shadow-md motion-safe:transition-colors motion-safe:duration-150"
     };
 
     const iconSizes = {
@@ -409,6 +424,45 @@ const SearchInput: React.FC<SearchInputProps> = ({
         (cleanQuery.length >= 2 || isThinking || activeSuggestions.length > 0 || recommendedSuggestions.length > 0);
     const dropdownTitle = cleanQuery.length >= 2 ? 'Scrolith suggestions' : 'Try searching for';
 
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            if (isOpen) {
+                e.preventDefault();
+                e.stopPropagation();
+                setIsOpen(false);
+                setHighlightIndex(-1);
+            }
+            return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setIsOpen(true);
+            setHighlightIndex((prev) => {
+                const max = Math.max(activeSuggestions.length - 1, 0);
+                if (activeSuggestions.length === 0) return -1;
+                return prev < max ? prev + 1 : 0;
+            });
+            return;
+        }
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setHighlightIndex((prev) => {
+                const max = Math.max(activeSuggestions.length - 1, 0);
+                if (activeSuggestions.length === 0) return -1;
+                return prev <= 0 ? max : prev - 1;
+            });
+            return;
+        }
+        if (e.key === 'Enter') {
+            if (isOpen && highlightIndex >= 0 && activeSuggestions[highlightIndex]) {
+                e.preventDefault();
+                selectSuggestion(activeSuggestions[highlightIndex]);
+                return;
+            }
+            handleSearch(query);
+        }
+    };
+
     const isHeaderSize = size === 'header';
     const inputBaseClass = isHeaderSize
         ? `block w-full ${inputPaddingLeft[size]} ${showButton ? inputPaddingRight[size] : 'pr-10'} border leading-5 focus:outline-none ${sizeClasses[size]}`
@@ -426,15 +480,26 @@ const SearchInput: React.FC<SearchInputProps> = ({
                 <input
                     type="search"
                     name="q"
+                    role="combobox"
                     autoComplete="off"
                     enterKeyHint="search"
                     className={inputBaseClass}
                     placeholder={resolvedPlaceholder}
                     value={query}
-                    onChange={(e) => { setQuery(e.target.value); setIsOpen(true); }}
+                    onChange={(e) => {
+                        setQuery(e.target.value);
+                        setIsOpen(true);
+                        setHighlightIndex(-1);
+                    }}
                     onFocus={handleFocus}
                     onKeyDown={handleKeyDown}
                     aria-label={resolvedPlaceholder || 'Search'}
+                    aria-expanded={shouldShowDropdown}
+                    aria-controls={listboxId}
+                    aria-autocomplete="list"
+                    aria-activedescendant={
+                        highlightIndex >= 0 ? `${listboxId}-option-${highlightIndex}` : undefined
+                    }
                 />
                 {!showButton && query && (
                     <button 
@@ -461,7 +526,10 @@ const SearchInput: React.FC<SearchInputProps> = ({
             {/* Dropdown */}
             {shouldShowDropdown && (
                 <div
-                    className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(26rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white text-left shadow-2xl animate-fade-in"
+                    id={listboxId}
+                    role="listbox"
+                    aria-label="Search suggestions"
+                    className="absolute left-0 right-0 top-full z-[70] mt-2 max-h-[min(26rem,calc(100dvh-8rem))] overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white text-left shadow-2xl animate-fade-in"
                     style={{ contain: 'layout paint', scrollbarGutter: 'stable' }}
                 >
                     <div className="border-b border-gray-100 px-4 py-3">
@@ -498,24 +566,19 @@ const SearchInput: React.FC<SearchInputProps> = ({
                             const visual = suggestionVisualConfig[visualType];
                             const imageSrc = resolveSuggestionImage(s);
                             const VisualIcon = visual.icon;
+                            const isHighlighted = i === highlightIndex;
                             return (
                                 <button
                                     key={`${s.text}-${i}`}
-                                    onClick={() => {
-                                        const url = String((s as any).url || '').trim();
-                                        if (url) {
-                                            setQuery(s.text);
-                                            setIsOpen(false);
-                                            if (url.startsWith('http')) {
-                                                window.location.href = url;
-                                            } else {
-                                                navigate(url);
-                                            }
-                                            return;
-                                        }
-                                        handleSearch(s.text);
-                                    }}
-                                    className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50"
+                                    id={`${listboxId}-option-${i}`}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={isHighlighted}
+                                    onMouseEnter={() => setHighlightIndex(i)}
+                                    onClick={() => selectSuggestion(s)}
+                                    className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors ${
+                                        isHighlighted ? 'bg-blue-50' : 'hover:bg-slate-50'
+                                    }`}
                                 >
                                     <span className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden border border-slate-200 shadow-sm ${visual.shape} ${imageSrc ? 'bg-slate-100' : visual.shell}`}>
                                         {imageSrc ? (
