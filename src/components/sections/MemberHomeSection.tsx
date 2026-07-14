@@ -135,6 +135,32 @@ import {
   enterpriseWidgetHeading,
   enterpriseWidgetTitle
 } from '../enterprise/enterpriseClasses';
+import {
+  composerAttachmentTile,
+  composerDraftBanner,
+  composerEditor,
+  composerEntryCard,
+  composerEntryShortcut,
+  composerEntryTrigger,
+  composerField,
+  composerPrimaryBtn,
+  composerSecondaryBtn,
+  composerToolbarBtn
+} from '../composer/composerClasses';
+import {
+  buildComposerDraftKey,
+  clearComposerDraft,
+  isComposerDraftMeaningful,
+  loadComposerDraft,
+  saveComposerDraft
+} from '../composer/composerDraftStore';
+import {
+  canPublishWithAttachments,
+  revokePreviewUrl,
+  validateComposerFile
+} from '../composer/composerAttachments';
+import { createPublishGuard } from '../composer/composerPublishGuard';
+import ComposerShell from '../composer/ComposerShell';
 
 const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
@@ -1545,12 +1571,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [postDraft, setPostDraft] = useState<PostDraft>(createEmptyPostDraft);
   const [desktopComposerOpen, setDesktopComposerOpen] = useState(false);
   const [desktopComposerIntent, setDesktopComposerIntent] = useState<DesktopComposerIntent>('text');
+  const [composerDraftNotice, setComposerDraftNotice] = useState<string | null>(null);
+  const [composerStatusMessage, setComposerStatusMessage] = useState('');
   const [postLocationDetails, setPostLocationDetails] = useState<Partial<StructuredLocationFields> | null>(null);
   const [postLocationPickerOpen, setPostLocationPickerOpen] = useState(false);
   const [ownedBusinessPages, setOwnedBusinessPages] = useState<PostAuthorOption[]>([]);
   const [ownedBusinessPagesLoading, setOwnedBusinessPagesLoading] = useState(false);
   const [postAuthorScopeId, setPostAuthorScopeId] = useState('user');
   const [posting, setPosting] = useState(false);
+  const publishGuardRef = useRef(createPublishGuard());
+  /** Tracks media count for multi-file validation without stale-closure races. */
+  const postMediaCountRef = useRef(0);
+  /** Latest media snapshot for unmount blob cleanup. */
+  const postMediaItemsRef = useRef<PostMediaItem[]>([]);
+  const composerDraftKey = useMemo(
+    () =>
+      buildComposerDraftKey({
+        userId: user?.id,
+        surface: 'member-home',
+        identityId: postAuthorScopeId || 'user'
+      }),
+    [postAuthorScopeId, user?.id]
+  );
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState('');
@@ -2025,16 +2067,57 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return () => window.clearTimeout(timer);
   }, [desktopComposerIntent, desktopComposerOpen]);
 
+  // Keep multi-file attach validation + unmount cleanup in sync with draft media.
   useEffect(() => {
-    if (!desktopComposerOpen) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      setDesktopComposerOpen(false);
-      setPostLocationPickerOpen(false);
+    postMediaCountRef.current = postDraft.media.length;
+    postMediaItemsRef.current = postDraft.media;
+  }, [postDraft.media]);
+
+  // Persist text/settings draft while typing (no media bytes).
+  useEffect(() => {
+    if (!user?.id) return;
+    const timer = window.setTimeout(() => {
+      saveComposerDraft(composerDraftKey, {
+        title: postDraft.title,
+        content: postDraft.content,
+        tags: postDraft.tags,
+        mentions: postDraft.mentions,
+        topic: postDraft.topic,
+        region: postDraft.region,
+        location: postDraft.location,
+        visibility: postDraft.visibility,
+        commentPolicy: postDraft.commentPolicy,
+        graphicWarning: postDraft.graphicWarning,
+        isAIEnhanced: postDraft.isAIEnhanced,
+        aiInsightPreference: postDraft.aiInsightPreference,
+        authorScopeId: postAuthorScopeId
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [
+    composerDraftKey,
+    postAuthorScopeId,
+    postDraft.aiInsightPreference,
+    postDraft.commentPolicy,
+    postDraft.content,
+    postDraft.graphicWarning,
+    postDraft.isAIEnhanced,
+    postDraft.location,
+    postDraft.mentions,
+    postDraft.region,
+    postDraft.tags,
+    postDraft.title,
+    postDraft.topic,
+    postDraft.visibility,
+    user?.id
+  ]);
+
+  // Revoke any remaining blob previews on unmount (navigation / teardown).
+  useEffect(() => {
+    return () => {
+      postMediaItemsRef.current.forEach((item) => revokePreviewUrl(item.url));
     };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [desktopComposerOpen]);
+  }, []);
   const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
@@ -4023,7 +4106,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const updatePostMedia = useCallback((localId: string, patch: Partial<PostMediaItem>) => {
     setPostDraft((prev) => ({
       ...prev,
-      media: prev.media.map((item) => (item.localId === localId ? { ...item, ...patch } : item))
+      media: prev.media.map((item) => {
+        if (item.localId !== localId) return item;
+        // Revoke blob preview when swapping to a durable URL.
+        if (patch.url && patch.url !== item.url && String(item.url || '').startsWith('blob:')) {
+          revokePreviewUrl(item.url);
+        }
+        return { ...item, ...patch };
+      })
     }));
   }, []);
 
@@ -4032,21 +4122,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, []);
 
   const handlePostMediaRemove = useCallback((localId: string) => {
-    setPostDraft((prev) => ({
-      ...prev,
-      media: prev.media.filter((item) => item.localId !== localId)
-    }));
+    setPostDraft((prev) => {
+      const target = prev.media.find((item) => item.localId === localId);
+      if (!target) return prev;
+      if (target.url) revokePreviewUrl(target.url);
+      const nextMedia = prev.media.filter((item) => item.localId !== localId);
+      postMediaCountRef.current = nextMedia.length;
+      postMediaItemsRef.current = nextMedia;
+      return {
+        ...prev,
+        media: nextMedia
+      };
+    });
+    setComposerStatusMessage('Attachment removed.');
   }, []);
 
   const uploadPostFile = useCallback(async (file: File) => {
     if (!user) return;
+    const validation = validateComposerFile(file, {
+      currentCount: postMediaCountRef.current
+    });
+    if (!validation.ok) {
+      showNotification('warning', 'Attachments', validation.reason);
+      setComposerStatusMessage(validation.reason);
+      return;
+    }
+    // Reserve a slot immediately so concurrent multi-file picks cannot exceed the limit.
+    postMediaCountRef.current += 1;
     const localId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const mime = String(file.type || '').toLowerCase();
-    const inferred: PostMediaItem['type'] = mime.startsWith('video/')
-      ? 'video'
-      : mime.startsWith('image/')
-        ? 'image'
-        : 'document';
+    const inferred = validation.kind;
     const previewUrl = URL.createObjectURL(file);
     addPostMediaItem({
       localId,
@@ -4056,12 +4160,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       uploading: true,
       progress: 0
     });
+    setComposerStatusMessage(`Uploading ${file.name}…`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community', {
         role: user.role,
         visibility: postDraft.visibility === 'private' ? 'private' : 'public',
         userId: user.id,
-        onProgress: (percent) => updatePostMedia(localId, { progress: percent })
+        onProgress: (percent) => {
+          updatePostMedia(localId, { progress: percent });
+          setComposerStatusMessage(`Uploading ${file.name}: ${percent}%`);
+        }
       });
       updatePostMedia(localId, {
         id: uploaded.id,
@@ -4071,20 +4179,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url,
         duration: uploaded.duration,
         uploading: false,
-        progress: 100
+        progress: 100,
+        error: undefined
       });
+      setComposerStatusMessage(`${file.name} uploaded.`);
     } catch (error: any) {
       console.error('Upload failed', error);
-      updatePostMedia(localId, { uploading: false, error: error?.message || 'Upload failed' });
+      const message = error?.message || 'Upload failed';
+      updatePostMedia(localId, { uploading: false, error: message });
+      setComposerStatusMessage(`${file.name} failed: ${message}`);
     }
-  }, [addPostMediaItem, postDraft.visibility, updatePostMedia, user]);
+  }, [addPostMediaItem, postDraft.visibility, showNotification, updatePostMedia, user]);
 
   const handlePostMedia = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
-    files.forEach((file) => uploadPostFile(file));
+    files.forEach((file) => {
+      void uploadPostFile(file);
+    });
     if (postMediaInputRef.current) postMediaInputRef.current.value = '';
   }, [uploadPostFile]);
+
+  const handleComposerDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const files = Array.from(event.dataTransfer?.files || []);
+      if (!files.length) return;
+      files.forEach((file) => {
+        void uploadPostFile(file);
+      });
+    },
+    [uploadPostFile]
+  );
+
+  const handleComposerPaste = useCallback(
+    (event: React.ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items || []);
+      const imageItems = items.filter((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'));
+      if (!imageItems.length) return;
+      event.preventDefault();
+      imageItems.forEach((item) => {
+        const file = item.getAsFile();
+        if (file) void uploadPostFile(file);
+      });
+    },
+    [uploadPostFile]
+  );
 
   const startCamera = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
@@ -4252,21 +4393,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   const handlePostSubmit = useCallback(async () => {
     if (!user) return;
-    if (postDraft.media.some((item) => item.uploading)) {
-      showNotification('warning', 'Posts', 'Wait for uploads to finish before posting.');
+    if (!publishGuardRef.current.tryBegin()) {
       return;
     }
-    if (postDraft.media.some((item) => item.error)) {
-      showNotification('warning', 'Posts', 'Remove failed uploads before posting.');
+    const attachmentGate = canPublishWithAttachments(postDraft.media);
+    if (!attachmentGate.ok) {
+      showNotification('warning', 'Posts', attachmentGate.reason);
+      setComposerStatusMessage(attachmentGate.reason);
+      publishGuardRef.current.end();
       return;
     }
     const attachmentFileIds = postDraft.media.map((m) => m.id).filter(Boolean) as string[];
     const hasText = Boolean(postDraft.title.trim() || postDraft.content.trim());
     if (!hasText && attachmentFileIds.length === 0) {
       showNotification('warning', 'Posts', 'Add text or at least one attachment.');
+      setComposerStatusMessage('Add text or at least one attachment.');
+      publishGuardRef.current.end();
       return;
     }
     setPosting(true);
+    setComposerStatusMessage('Publishing…');
     try {
       const submitLocation = composePostLocationValue(postDraft.location, postDraft.region);
       const created = await CommunityService.createPost({
@@ -4283,15 +4429,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         aiInsightEnabled: postAiInsightPreferenceToBoolean(postDraft.aiInsightPreference),
         offerTags: postDraft.offerTags
       });
+      // Clear blob previews before wiping draft.
+      postDraft.media.forEach((item) => revokePreviewUrl(item.url));
+      postMediaCountRef.current = 0;
+      postMediaItemsRef.current = [];
       setPostDraft(createEmptyPostDraft());
       setPostLocationDetails(null);
       setPostLocationPickerOpen(false);
       setDesktopComposerOpen(false);
+      setComposerDraftNotice(null);
+      clearComposerDraft(composerDraftKey);
       if (created) {
         const normalized = normalizePost(created);
         setFeedItems((prev) => [normalized, ...prev.filter((item) => String(item.id) !== String(normalized.id))]);
         setCommentCounts((prev) => ({ ...prev, [normalized.id]: 0 }));
       }
+      setComposerStatusMessage('Your update is live.');
       showNotification('success', 'Posts', 'Your update is live.');
     } catch (error: any) {
       console.error('Post failed', error);
@@ -4300,11 +4453,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         error?.response?.data?.message ||
         error?.message ||
         'Unable to post update.';
+      setComposerStatusMessage(serverMessage);
       showNotification('error', 'Posts', serverMessage);
+      // Keep draft + attachments on failure (do not clear).
     } finally {
       setPosting(false);
+      publishGuardRef.current.end();
     }
-  }, [activePostBusinessPageId, normalizePost, postDraft, showNotification, user]);
+  }, [activePostBusinessPageId, composerDraftKey, normalizePost, postDraft, showNotification, user]);
 
   const beginEditPost = useCallback((post: FeedPost) => {
     const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
@@ -6245,17 +6401,82 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const openDesktopComposer = useCallback(
     (intent: DesktopComposerIntent = 'text') => {
       if (!showComposer) return;
+      // Restore session draft if the current composer is empty.
+      const existingMeaningful = isComposerDraftMeaningful({
+        title: postDraft.title,
+        content: postDraft.content,
+        topic: postDraft.topic,
+        location: postDraft.location,
+        region: postDraft.region
+      });
+      if (!existingMeaningful) {
+        const saved = loadComposerDraft(composerDraftKey);
+        if (saved) {
+          setPostDraft((prev) => ({
+            ...prev,
+            title: saved.title ?? prev.title,
+            content: saved.content ?? prev.content,
+            tags: saved.tags ?? prev.tags,
+            mentions: saved.mentions ?? prev.mentions,
+            topic: saved.topic ?? prev.topic,
+            region: saved.region ?? prev.region,
+            location: saved.location ?? prev.location,
+            visibility: (saved.visibility as PostDraft['visibility']) || prev.visibility,
+            commentPolicy: (saved.commentPolicy as PostDraft['commentPolicy']) || prev.commentPolicy,
+            graphicWarning:
+              typeof saved.graphicWarning === 'boolean' ? saved.graphicWarning : prev.graphicWarning,
+            isAIEnhanced: typeof saved.isAIEnhanced === 'boolean' ? saved.isAIEnhanced : prev.isAIEnhanced,
+            aiInsightPreference: resolvePostAiInsightPreference(
+              saved.aiInsightPreference,
+              prev.aiInsightPreference
+            )
+          }));
+          if (saved.authorScopeId) setPostAuthorScopeId(saved.authorScopeId);
+          setComposerDraftNotice('Restored your unfinished draft from this session.');
+        }
+      }
       composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setDesktopComposerIntent(intent);
       setDesktopComposerOpen(true);
     },
-    [showComposer]
+    [composerDraftKey, postDraft.content, postDraft.location, postDraft.region, postDraft.title, postDraft.topic, showComposer]
   );
 
   const closeDesktopComposer = useCallback(() => {
+    // Do not dismiss mid-publish (guard + UI busy state).
+    if (posting || publishGuardRef.current.isBusy()) return;
+    // Persist draft safely on close (text/settings only).
+    saveComposerDraft(composerDraftKey, {
+      title: postDraft.title,
+      content: postDraft.content,
+      tags: postDraft.tags,
+      mentions: postDraft.mentions,
+      topic: postDraft.topic,
+      region: postDraft.region,
+      location: postDraft.location,
+      visibility: postDraft.visibility,
+      commentPolicy: postDraft.commentPolicy,
+      graphicWarning: postDraft.graphicWarning,
+      isAIEnhanced: postDraft.isAIEnhanced,
+      aiInsightPreference: postDraft.aiInsightPreference,
+      authorScopeId: postAuthorScopeId
+    });
     setDesktopComposerOpen(false);
     setPostLocationPickerOpen(false);
-  }, []);
+  }, [composerDraftKey, postAuthorScopeId, postDraft, posting]);
+
+  const discardComposerDraft = useCallback(() => {
+    if (posting || publishGuardRef.current.isBusy()) return;
+    postDraft.media.forEach((item) => revokePreviewUrl(item.url));
+    postMediaCountRef.current = 0;
+    postMediaItemsRef.current = [];
+    setPostDraft(createEmptyPostDraft());
+    setPostLocationDetails(null);
+    setPostLocationPickerOpen(false);
+    setComposerDraftNotice(null);
+    clearComposerDraft(composerDraftKey);
+    setComposerStatusMessage('Draft discarded.');
+  }, [composerDraftKey, postDraft.media, posting]);
 
   const focusComposer = useCallback(() => {
     openDesktopComposer('text');
@@ -6281,160 +6502,239 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const renderDesktopComposer = useCallback(() => {
     if (!showComposer) return null;
 
+    const publishBlocked =
+      posting ||
+      postDraft.media.some((item) => item.uploading) ||
+      postDraft.media.some((item) => item.error) ||
+      (!postDraft.title.trim() &&
+        !postDraft.content.trim() &&
+        !postDraft.media.some((item) => item.id));
+
     return (
       <>
-        <div
-          ref={composerRef}
-          className="mt-4 rounded-[32px] border border-slate-200/90 bg-white p-5 shadow-[0_24px_48px_-36px_rgba(15,23,42,0.36)]"
-        >
-          <div className="flex items-center gap-4">
-            <div className="h-12 w-12 overflow-hidden rounded-2xl bg-slate-100 shadow-sm">
+        <div ref={composerRef} className={`mt-4 ${composerEntryCard}`}>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 sm:h-14 sm:w-14">
               {resolvedUserAvatar ? (
                 <OptimizedImage
                   src={resolvedUserAvatar}
                   alt={user.name || 'User'}
                   width={128}
                   height={128}
-                  sizes="64px"
+                  sizes="56px"
                   className="h-full w-full object-cover"
                   loading="lazy"
                   decoding="async"
                 />
               ) : (
-                <Users className="mx-auto mt-3.5 h-5 w-5 text-slate-400" />
+                <Users className="mx-auto mt-3.5 h-5 w-5 text-slate-400 sm:mt-4" aria-hidden="true" />
               )}
             </div>
             <button
               type="button"
               onClick={() => openDesktopComposer('text')}
-              className="flex-1 rounded-full border border-slate-200 bg-white px-5 py-3 text-left text-base text-slate-500 transition hover:border-slate-300 hover:text-slate-700"
+              className={composerEntryTrigger}
+              aria-haspopup="dialog"
             >
               Start a post
             </button>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => openDesktopComposer('video')}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <Video className="h-4 w-4 text-emerald-600" />
+            <button type="button" onClick={() => openDesktopComposer('video')} className={composerEntryShortcut}>
+              <Video className="h-4 w-4 text-emerald-600" aria-hidden="true" />
               Video
             </button>
-            <button
-              type="button"
-              onClick={() => openDesktopComposer('photo')}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <ImageIcon className="h-4 w-4 text-sky-600" />
+            <button type="button" onClick={() => openDesktopComposer('photo')} className={composerEntryShortcut}>
+              <ImageIcon className="h-4 w-4 text-sky-600" aria-hidden="true" />
               Photo
             </button>
-            <button
-              type="button"
-              onClick={() => openDesktopComposer('article')}
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              <FileText className="h-4 w-4 text-amber-600" />
+            <button type="button" onClick={() => openDesktopComposer('article')} className={composerEntryShortcut}>
+              <FileText className="h-4 w-4 text-amber-600" aria-hidden="true" />
               Write article
             </button>
           </div>
+          {composerDraftNotice ? (
+            <div className={`mt-3 ${composerDraftBanner}`} role="status">
+              <span>{composerDraftNotice}</span>
+              <button type="button" onClick={discardComposerDraft} className="text-xs font-semibold underline">
+                Discard draft
+              </button>
+            </div>
+          ) : null}
         </div>
 
-        {desktopComposerOpen ? (
-          <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/45 p-6">
-            <button
-              type="button"
-              aria-label="Close create post dialog"
-              className="absolute inset-0"
-              onClick={closeDesktopComposer}
-            />
-            <div className="relative z-[1] flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[34px] border border-white/80 bg-white shadow-[0_32px_96px_-34px_rgba(15,23,42,0.55)]">
-              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-                <div className="flex min-w-0 items-center gap-4">
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-slate-100 shadow-sm">
-                    {activePostAuthor.avatarUrl ? (
-                      <img
-                        src={activePostAuthor.avatarUrl}
-                        alt={activePostAuthor.label}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <Users className="h-5 w-5 text-slate-400" />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                      Posting as
-                    </p>
-                    <p className="truncate text-xl font-semibold text-slate-950">{activePostAuthor.label}</p>
-                    <p className="truncate text-sm text-slate-500">
-                      {activePostAuthor.subtitle} - {composerTitle}
-                    </p>
-                  </div>
+        <ComposerShell
+          open={desktopComposerOpen}
+          title="Create a post"
+          onClose={closeDesktopComposer}
+          statusMessage={composerStatusMessage}
+          header={
+            <>
+              <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 sm:h-14 sm:w-14">
+                  {activePostAuthor.avatarUrl ? (
+                    <img
+                      src={activePostAuthor.avatarUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      width={56}
+                      height={56}
+                    />
+                  ) : (
+                    <Users className="h-5 w-5 text-slate-400" aria-hidden="true" />
+                  )}
                 </div>
-                <div className="flex min-w-[240px] items-start gap-3">
-                  <label className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 shadow-sm">
-                    <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      Post from
-                    </span>
-                    <select
-                      value={postAuthorScopeId}
-                      onChange={(event) => handlePostAuthorScopeChange(event.target.value)}
-                      className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
-                    >
-                      {desktopPostAuthorOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                          {option.type === 'page' ? ' - Page' : ' - Personal'}
-                        </option>
-                      ))}
-                    </select>
-                    {ownedBusinessPagesLoading ? (
-                      <span className="mt-2 block text-[11px] text-slate-500">Loading your pages...</span>
-                    ) : null}
-                  </label>
-                  <button
-                    type="button"
-                    onClick={closeDesktopComposer}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
-                    aria-label="Close create post dialog"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Posting as</p>
+                  <p className="truncate text-base font-semibold text-slate-950 sm:text-lg">{activePostAuthor.label}</p>
+                  <p className="truncate text-sm text-slate-500">
+                    {activePostAuthor.subtitle} · {composerTitle}
+                  </p>
                 </div>
               </div>
+              <div className="flex w-full min-w-0 flex-wrap items-start gap-2 sm:w-auto sm:min-w-[240px] sm:flex-nowrap">
+                <label className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 sm:px-4">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Identity
+                  </span>
+                  <select
+                    value={postAuthorScopeId}
+                    onChange={(event) => handlePostAuthorScopeChange(event.target.value)}
+                    className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                    aria-label="Posting identity"
+                  >
+                    {desktopPostAuthorOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                        {option.type === 'page' ? ' — Page' : ' — Personal'}
+                      </option>
+                    ))}
+                  </select>
+                  {ownedBusinessPagesLoading ? (
+                    <span className="mt-1 block text-[11px] text-slate-500">Loading your pages…</span>
+                  ) : null}
+                </label>
+                <label className="min-w-[8.5rem] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Audience
+                  </span>
+                  <select
+                    value={postDraft.visibility}
+                    onChange={(event) =>
+                      setPostDraft((prev) => ({
+                        ...prev,
+                        visibility: event.target.value as PostDraft['visibility']
+                      }))
+                    }
+                    className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                    aria-label="Audience"
+                  >
+                    <option value="public">Public</option>
+                    <option value="network">Network</option>
+                    <option value="friends">Friends</option>
+                    <option value="private">Private</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={closeDesktopComposer}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  aria-label="Close create post dialog"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </>
+          }
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => postMediaInputRef.current?.click()}
+                  className={composerToolbarBtn}
+                  aria-label="Add media from device"
+                >
+                  <Video className="h-4 w-4" aria-hidden="true" />
+                  Media
+                </button>
+                <button type="button" onClick={startCamera} className={composerToolbarBtn} aria-label="Open camera">
+                  <Camera className="h-4 w-4" aria-hidden="true" />
+                  Camera
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeDesktopComposer}
+                  className={composerSecondaryBtn}
+                  disabled={posting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePostSubmit()}
+                  disabled={publishBlocked}
+                  className={composerPrimaryBtn}
+                  aria-busy={posting}
+                >
+                  {posting ? 'Publishing…' : 'Publish'}
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div
+            className="mx-auto max-w-3xl space-y-4"
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDrop={handleComposerDrop}
+            onPaste={handleComposerPaste}
+          >
+            {composerDraftNotice ? (
+              <div className={composerDraftBanner} role="status">
+                <span>{composerDraftNotice}</span>
+                <button type="button" onClick={discardComposerDraft} className="text-xs font-semibold underline">
+                  Discard draft
+                </button>
+              </div>
+            ) : null}
 
-              <div className="flex-1 overflow-y-auto px-6 py-6">
-                <div className="mx-auto max-w-4xl space-y-5">
-                  <div className="rounded-[28px] border border-slate-200 bg-slate-50/85 p-4">
-                    <MentionHashtagTextarea
-                      ref={composerInputRef}
-                      value={postDraft.content}
-                      onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
-                      placeholder="What do you want to talk about?"
-                      mentionsEnabled={mentionsEnabled}
-                      hashtagsEnabled={hashtagsEnabled}
-                      className="min-h-[180px] w-full resize-none rounded-[24px] border border-slate-200 bg-white p-4 text-[15px] leading-7 text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
-                    />
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {postAiActions.map((action) => (
-                        <button
-                          key={action.mode}
-                          type="button"
-                          onClick={() => void runPostAi(action.mode)}
-                          disabled={aiLoading || posting}
-                          className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mt-3 text-[11px] text-slate-500">
-                      {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
-                      {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI suggestions never publish without your approval.
-                    </p>
-                  </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+              <MentionHashtagTextarea
+                ref={composerInputRef}
+                value={postDraft.content}
+                onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
+                placeholder="What do you want to talk about?"
+                mentionsEnabled={mentionsEnabled}
+                hashtagsEnabled={hashtagsEnabled}
+                className={composerEditor}
+              />
+              <div className="mt-3">
+                <div className="flex flex-wrap gap-2">
+                  {postAiActions.map((action) => (
+                    <button
+                      key={action.mode}
+                      type="button"
+                      onClick={() => void runPostAi(action.mode)}
+                      disabled={aiLoading || posting}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] text-slate-500">
+                  {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
+                  {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI suggestions never
+                  publish without your approval. Drag and drop or paste images to attach.
+                </p>
+              </div>
+            </div>
 
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
                     <div className="space-y-4">
@@ -6444,25 +6744,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           value={postDraft.title}
                           onChange={(event) => setPostDraft((prev) => ({ ...prev, title: event.target.value }))}
                           placeholder="Post title (optional)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                          className={composerField}
                         />
-                        <select
-                          value={postDraft.visibility}
-                          onChange={(event) =>
-                            setPostDraft((prev) => ({
-                              ...prev,
-                              visibility: event.target.value as PostDraft['visibility']
-                            }))
-                          }
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
-                        >
-                          <option value="public">Public</option>
-                          <option value="network">Network</option>
-                          <option value="friends">Friends</option>
-                          <option value="private">Private</option>
-                        </select>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
                         <select
                           value={postDraft.commentPolicy}
                           onChange={(event) =>
@@ -6471,7 +6754,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               commentPolicy: event.target.value as PostDraft['commentPolicy']
                             }))
                           }
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                          className={composerField}
+                          aria-label="Who can comment"
                         >
                           {commentPolicyOptions.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -6479,7 +6763,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             </option>
                           ))}
                         </select>
-                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
                           <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                             Topic
                           </span>
@@ -6639,14 +6925,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             return (
                               <div
                                 key={media.localId}
-                                className="relative overflow-hidden rounded-[24px] border border-slate-200 bg-slate-50"
+                                className={composerAttachmentTile}
                               >
                                 <button
                                   type="button"
                                   onClick={() => handlePostMediaRemove(media.localId)}
                                   className="absolute right-3 top-3 z-10 rounded-full bg-white/90 p-1.5 text-slate-500 shadow-sm hover:text-slate-700"
+                                  aria-label={`Remove attachment ${media.name || ''}`.trim()}
                                 >
-                                  <X className="h-4 w-4" />
+                                  <X className="h-4 w-4" aria-hidden="true" />
                                 </button>
                                 {type === 'video' ? (
                                   <div
@@ -6742,57 +7029,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       <option key={region} value={region} />
                     ))}
                   </datalist>
-                </div>
-              </div>
-
-              <div className="border-t border-slate-200 bg-white/95 px-6 py-4">
-                <div className="mx-auto flex max-w-4xl flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => postMediaInputRef.current?.click()}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-                    >
-                      <Video className="h-4 w-4" />
-                      From device
-                    </button>
-                    <button
-                      type="button"
-                      onClick={startCamera}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-                    >
-                      <Camera className="h-4 w-4" />
-                      Camera
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={closeDesktopComposer}
-                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePostSubmit}
-                      disabled={posting || postDraft.media.some((item) => item.uploading)}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-2.5 text-xs font-semibold uppercase tracking-wide text-white shadow-sm disabled:opacity-60"
-                    >
-                      {posting ? 'Posting...' : 'Post update'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
-        ) : null}
+        </ComposerShell>
       </>
     );
   }, [
     activePostAuthor,
     activePostBusinessPageId,
     aiLoading,
+    composerDraftNotice,
+    composerStatusMessage,
+    discardComposerDraft,
+    handleComposerDrop,
+    handleComposerPaste,
+    handlePostSubmit,
     aiRunningMode,
     closeDesktopComposer,
     composerTitle,
