@@ -172,7 +172,11 @@ const Messages = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useUser();
   const { showNotification } = useNotification();
-  const { refreshMessages } = useMessages();
+  const {
+    refreshMessages,
+    registerVisibleConversation,
+    unregisterVisibleConversation
+  } = useMessages();
   const { socket } = useSocket();
   const { settings } = useContent();
   
@@ -621,6 +625,13 @@ const Messages = () => {
           }
       }
   }, [conversationId, dedupedConversations.length, user]);
+
+  // Keep shared messaging surfaces (header badge + dock) aligned with full-page visibility.
+  useEffect(() => {
+      if (!activeConvoId) return;
+      registerVisibleConversation(activeConvoId);
+      return () => unregisterVisibleConversation(activeConvoId);
+  }, [activeConvoId, registerVisibleConversation, unregisterVisibleConversation]);
 
   useEffect(() => {
       if (!conversationId && isMobileViewport) {
@@ -1493,11 +1504,19 @@ const Messages = () => {
                   if (!matchesThread) return c;
                   found = true;
                   const exists = c.messages.some(m => m.id === message.id);
-                  const nextMessages = exists ? c.messages : [...c.messages, message];
+                  const nextMessages = exists
+                      ? c.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m))
+                      : [...c.messages, message];
                   const isActive = activeConvoIdRef.current === convoId;
                   const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
-                  const unreadBase = c.unreadCount ?? c.unread_count ?? 0;
-                  const unreadCount = isActive || !isFromOther ? unreadBase : unreadBase + 1;
+                  const unreadBase = Number(c.unreadCount ?? c.unread_count ?? 0) || 0;
+                  // Full-page local thread state only. Shared badge unread is owned by MessageContext.
+                  // Do not re-increment when the same message id is re-delivered.
+                  const unreadCount = isActive
+                      ? 0
+                      : !isFromOther || exists
+                        ? Math.max(0, unreadBase)
+                        : Math.max(0, unreadBase) + 1;
                   const lastMessageText = resolveMessagePreviewText(message);
                   return {
                       ...c,
@@ -1542,7 +1561,8 @@ const Messages = () => {
                   };
               }));
           }
-          refreshMessages();
+          // Shared list/unread/badge reconciliation is owned by MessageContext socket handlers.
+          // Do not call refreshMessages() here — that double-owned badge updates and caused thrash.
       };
 
       const handleRead = (payload: any) => {

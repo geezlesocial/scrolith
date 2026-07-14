@@ -43,6 +43,7 @@ const BIOMETRIC_PREF_KEY = 'Scrolith.pref.biometric.enabled';
 const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 const AuthenticatedRuntimeProviders = lazy(() => import('./context/AuthenticatedRuntimeProviders'));
+const DesktopMessagingDock = lazy(() => import('./components/messaging/DesktopMessagingDock'));
 
 const getCapacitorRuntime = () => {
   if (typeof window === 'undefined') return null;
@@ -1337,6 +1338,17 @@ const AppContent = () => {
         !isMobileShellRoute &&
         !isScrollRoute &&
         !isMobileStandaloneRoute && <Navbar />}
+      {isAuthenticated &&
+        user &&
+        !isAdminRoute &&
+        !isMobileShellRoute &&
+        !isMobileStandaloneRoute &&
+        !shouldRenderForcedMobileHome &&
+        nonCriticalUiReady && (
+          <Suspense fallback={null}>
+            <DesktopMessagingDock />
+          </Suspense>
+        )}
       <main className="flex-grow">
         {shouldRenderForcedMobileHome ? (
           <ErrorBoundary key="forced-mobile-home">
