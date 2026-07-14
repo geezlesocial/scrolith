@@ -1,8 +1,14 @@
 /**
- * Phase 3A/3B.2 — processing queue abstraction.
+ * Phase 3A/3B.2/3B.4 — processing queue abstraction.
  * Default: disabled. Optional in-process async for local/dev only.
- * Designed to swap to Cloud Tasks without changing call sites.
+ * Production path: cloud_tasks → Cloud Tasks → dedicated media worker.
+ * Designed so filesController / enqueue facade call sites stay stable.
  */
+
+import {
+  createMediaCloudTasksClient,
+  type MediaCloudTasksClient
+} from './mediaCloudTasks.client';
 
 export type MediaJobKind = 'image_variants' | 'video_metadata';
 
@@ -21,52 +27,72 @@ export type MediaProcessingQueue = {
   enqueueVideoProcessing: (fileId: string, processingVersion?: number) => Promise<void>;
 };
 
-export type MediaProcessingMode = 'disabled' | 'inline_async';
+export type MediaProcessingMode = 'disabled' | 'inline_async' | 'cloud_tasks';
 
-const parseMode = (): MediaProcessingMode => {
-  const mode = String(process.env.MEDIA_PROCESSING_MODE || 'disabled')
+const truthy = (v: unknown) =>
+  ['1', 'true', 'yes', 'on'].includes(String(v ?? '').trim().toLowerCase());
+
+/** Raw env mode string (does not collapse flags). */
+export const getRawMediaProcessingMode = (
+  env: NodeJS.ProcessEnv = process.env
+): string =>
+  String(env.MEDIA_PROCESSING_MODE || 'disabled')
     .trim()
     .toLowerCase();
+
+/**
+ * True when this process is the dedicated media worker (executes processors).
+ * API Cloud Run must leave this unset/false so it never runs ffmpeg.
+ */
+export const isMediaWorkerService = (env: NodeJS.ProcessEnv = process.env): boolean =>
+  truthy(env.MEDIA_WORKER_SERVICE);
+
+const parseMode = (): MediaProcessingMode => {
+  const mode = getRawMediaProcessingMode();
+  if (mode === 'cloud_tasks') return 'cloud_tasks';
   if (mode !== 'inline_async') return 'disabled';
 
-  const imageOn = ['1', 'true', 'yes', 'on'].includes(
-    String(process.env.MEDIA_IMAGE_PROCESSING_ENABLED || 'false')
-      .trim()
-      .toLowerCase()
-  );
-  const videoOn = ['1', 'true', 'yes', 'on'].includes(
-    String(process.env.MEDIA_VIDEO_PROCESSING_ENABLED || 'false')
-      .trim()
-      .toLowerCase()
-  );
+  const imageOn = truthy(process.env.MEDIA_IMAGE_PROCESSING_ENABLED);
+  const videoOn = truthy(process.env.MEDIA_VIDEO_PROCESSING_ENABLED);
   // Mode is only "active" when at least one processor is enabled (preserves 3A tests).
   if (imageOn || videoOn) return 'inline_async';
   return 'disabled';
 };
 
+/** Enqueue gate for image jobs: flag + active queue mode. */
 export const isMediaImageProcessingEnabled = () => {
-  const enabled = String(process.env.MEDIA_IMAGE_PROCESSING_ENABLED || 'false')
-    .trim()
-    .toLowerCase();
-  return (
-    ['1', 'true', 'yes', 'on'].includes(enabled) &&
-    String(process.env.MEDIA_PROCESSING_MODE || 'disabled')
-      .trim()
-      .toLowerCase() === 'inline_async'
-  );
+  if (!truthy(process.env.MEDIA_IMAGE_PROCESSING_ENABLED)) return false;
+  const mode = getRawMediaProcessingMode();
+  return mode === 'inline_async' || mode === 'cloud_tasks';
 };
 
+/** Enqueue gate for video jobs: flag + active queue mode. */
 export const isMediaVideoProcessingEnabled = () => {
-  const enabled = String(process.env.MEDIA_VIDEO_PROCESSING_ENABLED || 'false')
-    .trim()
-    .toLowerCase();
-  return (
-    ['1', 'true', 'yes', 'on'].includes(enabled) &&
-    String(process.env.MEDIA_PROCESSING_MODE || 'disabled')
-      .trim()
-      .toLowerCase() === 'inline_async'
-  );
+  if (!truthy(process.env.MEDIA_VIDEO_PROCESSING_ENABLED)) return false;
+  const mode = getRawMediaProcessingMode();
+  return mode === 'inline_async' || mode === 'cloud_tasks';
 };
+
+/**
+ * Processor execution gate (ffprobe/ffmpeg/Sharp).
+ * - inline_async: local/dev API may execute
+ * - media worker service: dedicated Cloud Run executes
+ * - cloud_tasks on API: enqueue only — never execute
+ */
+export const isMediaVideoExecutionAllowed = () => {
+  if (!truthy(process.env.MEDIA_VIDEO_PROCESSING_ENABLED)) return false;
+  if (isMediaWorkerService()) return true;
+  return getRawMediaProcessingMode() === 'inline_async';
+};
+
+export const isMediaImageExecutionAllowed = () => {
+  if (!truthy(process.env.MEDIA_IMAGE_PROCESSING_ENABLED)) return false;
+  if (isMediaWorkerService()) return true;
+  return getRawMediaProcessingMode() === 'inline_async';
+};
+
+/** True only when inline in-process handlers should be registered. */
+export const isInlineAsyncExecutionMode = () => getRawMediaProcessingMode() === 'inline_async';
 
 const inflight = new Set<string>();
 const pending = new Set<string>();
@@ -84,6 +110,9 @@ type Processor = (fileId: string) => Promise<void>;
 let imageProcessor: Processor | null = null;
 let videoProcessor: Processor | null = null;
 
+/** Injected Cloud Tasks client for tests / custom wiring */
+let injectedCloudTasksClient: MediaCloudTasksClient | null | undefined = undefined;
+
 /** Injected by mediaProcessing.service to avoid circular imports at load time */
 export const registerImageProcessingHandler = (fn: Processor) => {
   imageProcessor = fn;
@@ -92,6 +121,23 @@ export const registerImageProcessingHandler = (fn: Processor) => {
 /** Injected by mediaVideoProcessing.service */
 export const registerVideoProcessingHandler = (fn: Processor) => {
   videoProcessor = fn;
+};
+
+/**
+ * Test/prod injection for Cloud Tasks client.
+ * Pass null to force "unconfigured"; undefined clears injection (use factory).
+ */
+export const setMediaCloudTasksClientForTests = (
+  client: MediaCloudTasksClient | null | undefined
+) => {
+  injectedCloudTasksClient = client;
+};
+
+const resolveCloudTasksClient = (): MediaCloudTasksClient | null => {
+  if (injectedCloudTasksClient !== undefined) {
+    return injectedCloudTasksClient;
+  }
+  return createMediaCloudTasksClient();
 };
 
 const runNext = () => {
@@ -105,7 +151,6 @@ const runNext = () => {
   const parts = String(key).split(':');
   const kind = parts[0] as MediaJobKind;
   // fileId may contain colons in theory (cuid usually does not) — rejoin middle
-  const versionStr = parts[parts.length - 1];
   const fileId = parts.slice(1, -1).join(':');
   if (!fileId) {
     runNext();
@@ -140,13 +185,13 @@ const runNext = () => {
     });
 };
 
-const enqueueJob = async (job: MediaJob) => {
+const enqueueInlineJob = async (job: MediaJob) => {
   const id = String(job.fileId || '').trim();
   if (!id) return;
   const kind = job.kind === 'video_metadata' ? 'video_metadata' : 'image_variants';
   if (kind === 'image_variants' && !isMediaImageProcessingEnabled()) return;
   if (kind === 'video_metadata' && !isMediaVideoProcessingEnabled()) return;
-  if (parseMode() !== 'inline_async') return;
+  if (getRawMediaProcessingMode() !== 'inline_async') return;
 
   const key = dedupeKey(kind, id, Number(job.processingVersion) || 0);
   if (inflight.has(key) || pending.has(key)) {
@@ -161,6 +206,49 @@ const enqueueJob = async (job: MediaJob) => {
   setImmediate(() => runNext());
 };
 
+const enqueueCloudTasksJob = async (job: MediaJob) => {
+  const id = String(job.fileId || '').trim();
+  if (!id) return;
+  const kind = job.kind === 'video_metadata' ? 'video_metadata' : 'image_variants';
+  if (kind === 'image_variants' && !isMediaImageProcessingEnabled()) return;
+  if (kind === 'video_metadata' && !isMediaVideoProcessingEnabled()) return;
+  if (getRawMediaProcessingMode() !== 'cloud_tasks') return;
+
+  const client = resolveCloudTasksClient();
+  if (!client) {
+    console.error('[media-processing] cloud_tasks not configured (enqueue skipped)', {
+      kind,
+      fileIdPrefix: id.slice(0, 8)
+    });
+    return;
+  }
+
+  const processingVersion = Math.max(0, Number(job.processingVersion) || 0);
+  const result = await client.createMediaTask({
+    fileId: id,
+    kind,
+    processingVersion,
+    enqueuedAt: new Date().toISOString()
+  });
+
+  if (result.ok === false) {
+    console.error('[media-processing] cloud_tasks enqueue failed', {
+      kind,
+      fileIdPrefix: id.slice(0, 8),
+      errorCode: result.errorCode,
+      error: result.message
+    });
+    return;
+  }
+
+  console.info('[media-processing] queued', {
+    kind,
+    fileIdPrefix: id.slice(0, 8),
+    mode: 'cloud_tasks',
+    alreadyExists: Boolean(result.alreadyExists)
+  });
+};
+
 const disabledQueue: MediaProcessingQueue = {
   enqueue: async () => {},
   enqueueImageProcessing: async () => {},
@@ -168,16 +256,34 @@ const disabledQueue: MediaProcessingQueue = {
 };
 
 const inlineAsyncQueue: MediaProcessingQueue = {
-  enqueue: enqueueJob,
+  enqueue: enqueueInlineJob,
   enqueueImageProcessing: async (fileId: string, processingVersion = 0) => {
-    await enqueueJob({
+    await enqueueInlineJob({
       fileId,
       kind: 'image_variants',
       processingVersion
     });
   },
   enqueueVideoProcessing: async (fileId: string, processingVersion = 0) => {
-    await enqueueJob({
+    await enqueueInlineJob({
+      fileId,
+      kind: 'video_metadata',
+      processingVersion
+    });
+  }
+};
+
+const cloudTasksQueue: MediaProcessingQueue = {
+  enqueue: enqueueCloudTasksJob,
+  enqueueImageProcessing: async (fileId: string, processingVersion = 0) => {
+    await enqueueCloudTasksJob({
+      fileId,
+      kind: 'image_variants',
+      processingVersion
+    });
+  },
+  enqueueVideoProcessing: async (fileId: string, processingVersion = 0) => {
+    await enqueueCloudTasksJob({
       fileId,
       kind: 'video_metadata',
       processingVersion
@@ -189,9 +295,8 @@ export const getMediaProcessingMode = () => parseMode();
 
 export const getMediaProcessingQueue = (): MediaProcessingQueue => {
   // Prefer raw mode so per-kind flags can still gate inside enqueue when only one processor is on.
-  const modeRaw = String(process.env.MEDIA_PROCESSING_MODE || 'disabled')
-    .trim()
-    .toLowerCase();
+  const modeRaw = getRawMediaProcessingMode();
+  if (modeRaw === 'cloud_tasks') return cloudTasksQueue;
   if (modeRaw === 'inline_async') return inlineAsyncQueue;
   return disabledQueue;
 };
@@ -203,6 +308,7 @@ export const __resetMediaProcessingQueueForTests = () => {
   active = 0;
   imageProcessor = null;
   videoProcessor = null;
+  injectedCloudTasksClient = undefined;
 };
 
 export const __getMediaProcessingQueueStatsForTests = () => ({
