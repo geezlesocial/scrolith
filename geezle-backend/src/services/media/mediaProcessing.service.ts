@@ -41,7 +41,10 @@ export const buildVariantsManifest = async (fileId: string) => {
   });
   if (!file) return null;
   const variants = await listReadyVariants(fileId);
-  const thumb = variants.find((v) => v.kind === 'image_thumb') || null;
+  const imageThumb = variants.find((v) => v.kind === 'image_thumb') || null;
+  const videoThumb = variants.find((v) => v.kind === 'video_thumb') || null;
+  const videoPoster = variants.find((v) => v.kind === 'video_poster') || null;
+  const thumb = videoThumb || imageThumb;
   const stored =
     file.variantsManifest && typeof file.variantsManifest === 'object' && !Array.isArray(file.variantsManifest)
       ? (file.variantsManifest as Record<string, unknown>)
@@ -55,6 +58,9 @@ export const buildVariantsManifest = async (fileId: string) => {
       ? (storedVideo.metadata as Record<string, unknown>)
       : storedVideo;
 
+  const variantContentUrl = (variantId: string) =>
+    `/api/files/${encodeURIComponent(file.id)}/variants/${encodeURIComponent(variantId)}/content`;
+
   // Client-safe only: never expose storageKey, bucket, checksum, provider, or raw GCS paths.
   const manifest: Record<string, unknown> = {
     fileId: file.id,
@@ -64,9 +70,10 @@ export const buildVariantsManifest = async (fileId: string) => {
     durationSeconds: file.duration != null ? Number(file.duration) : null,
     mimeType: file.mimeType,
     originalUrl: `/api/files/content/${encodeURIComponent(file.id)}`,
+    posterUrl: videoPoster ? variantContentUrl(videoPoster.id) : null,
     thumbnailUrl:
       thumb
-        ? `/api/files/${encodeURIComponent(file.id)}/variants/${encodeURIComponent(thumb.id)}/content`
+        ? variantContentUrl(thumb.id)
         : // Prefer application routes; do not echo internal storage paths if thumbnailUrl was a raw key.
           file.thumbnailUrl && String(file.thumbnailUrl).startsWith('/api/files/')
             ? file.thumbnailUrl
@@ -80,11 +87,11 @@ export const buildVariantsManifest = async (fileId: string) => {
       format: v.format,
       mimeType: v.mimeType,
       sizeBytes: Number(v.sizeBytes || 0),
-      contentUrl: `/api/files/${encodeURIComponent(file.id)}/variants/${encodeURIComponent(v.id)}/content`
+      contentUrl: variantContentUrl(v.id)
     }))
   };
 
-  // Phase 3B.2 — additive client-safe video metadata block (no storage keys / raw probe).
+  // Phase 3B.2/3B.3 — additive client-safe video metadata block (no storage keys / raw probe).
   if (videoMeta && typeof videoMeta === 'object') {
     manifest.video = {
       rotation: (videoMeta as any).rotation ?? null,

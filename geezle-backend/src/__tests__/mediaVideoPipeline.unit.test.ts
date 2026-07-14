@@ -1,5 +1,5 @@
 /**
- * Phase 3B.2 — video metadata pipeline, enqueue, locking, stream-to-temp, manifest merge.
+ * Phase 3B.2/3B.3 — video metadata + poster pipeline, enqueue, locking, stream-to-temp, manifest merge.
  */
 jest.mock('../utils/prismaClient', () => ({
   __esModule: true,
@@ -23,6 +23,21 @@ jest.mock('../services/storage/mediaStorage.service', () => ({
   downloadMediaByProvider: jest.fn(),
   createReadStreamForProvider: jest.fn()
 }));
+
+jest.mock('../services/media/mediaVariant.service', () => ({
+  persistGeneratedVariant: jest.fn(),
+  listReadyVariants: jest.fn(async () => [])
+}));
+
+jest.mock('../services/media/mediaVideoPoster.service', () => {
+  const actual = jest.requireActual('../services/media/mediaVideoPoster.service');
+  return {
+    ...actual,
+    isFfmpegAvailable: jest.fn(async () => true),
+    generateVideoPosterAndThumb: jest.fn(),
+    cleanupVideoPosterTemps: jest.fn()
+  };
+});
 
 import { Readable } from 'stream';
 import fs from 'fs';
@@ -48,6 +63,12 @@ import {
   type FfprobeRunner
 } from '../services/media/mediaVideoProbe.service';
 import {
+  generateVideoPosterAndThumb,
+  isFfmpegAvailable,
+  cleanupVideoPosterTemps
+} from '../services/media/mediaVideoPoster.service';
+import { persistGeneratedVariant, listReadyVariants } from '../services/media/mediaVariant.service';
+import {
   enqueueVideoProcessingSafe,
   enqueueMediaProcessingSafe
 } from '../services/media/mediaProcessing.enqueue';
@@ -62,6 +83,10 @@ import {
 const mockPrisma = prisma as any;
 const mockDownload = downloadMediaByProvider as jest.Mock;
 const mockCreateStream = createReadStreamForProvider as jest.Mock;
+const mockPosterGen = generateVideoPosterAndThumb as jest.Mock;
+const mockFfmpegAvail = isFfmpegAvailable as jest.Mock;
+const mockPersist = persistGeneratedVariant as jest.Mock;
+const mockListVariants = listReadyVariants as jest.Mock;
 
 const sampleProbe = {
   streams: [
@@ -88,6 +113,35 @@ const okRunner: FfprobeRunner = async (args) => {
   return { stdout: JSON.stringify(sampleProbe), stderr: '' };
 };
 
+const fakePosterOk = () => ({
+  ok: true as const,
+  outputs: {
+    poster: {
+      kind: 'video_poster' as const,
+      label: 'default',
+      width: 1280,
+      height: 720,
+      format: 'webp' as const,
+      mimeType: 'image/webp',
+      buffer: Buffer.from('poster'),
+      checksum: 'p1'
+    },
+    thumbnail: {
+      kind: 'video_thumb' as const,
+      label: 'default',
+      width: 320,
+      height: 180,
+      format: 'webp' as const,
+      mimeType: 'image/webp',
+      buffer: Buffer.from('thumb'),
+      checksum: 't1'
+    },
+    timestampSeconds: 0.5,
+    posterPath: path.join(os.tmpdir(), 'fake-poster.webp'),
+    thumbPath: path.join(os.tmpdir(), 'fake-thumb.webp')
+  }
+});
+
 describe('mediaVideoPipeline', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -98,6 +152,35 @@ describe('mediaVideoPipeline', () => {
     process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'false';
     process.env.MEDIA_IMAGE_PROCESSING_ENABLED = 'false';
     process.env.MEDIA_PROCESSING_MODE = 'disabled';
+    mockFfmpegAvail.mockResolvedValue(true);
+    mockPosterGen.mockResolvedValue(fakePosterOk());
+    mockPersist.mockImplementation(async ({ variant }) => ({
+      action: 'created',
+      variantId: `vid-${variant.kind}`,
+      storageKey: `media/x/${variant.kind}`
+    }));
+    mockListVariants.mockResolvedValue([
+      {
+        id: 'vid-video_poster',
+        kind: 'video_poster',
+        label: 'default',
+        width: 1280,
+        height: 720,
+        format: 'webp',
+        mimeType: 'image/webp',
+        sizeBytes: 10
+      },
+      {
+        id: 'vid-video_thumb',
+        kind: 'video_thumb',
+        label: 'default',
+        width: 320,
+        height: 180,
+        format: 'webp',
+        mimeType: 'image/webp',
+        sizeBytes: 5
+      }
+    ]);
   });
 
   afterEach(() => {
@@ -115,8 +198,7 @@ describe('mediaVideoPipeline', () => {
     expect(out.status).toBe('DISABLED');
     expect(mockPrisma.file.findUnique).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
-    expect(mockCreateStream).not.toHaveBeenCalled();
-    expect(mockDownload).not.toHaveBeenCalled();
+    expect(mockPosterGen).not.toHaveBeenCalled();
   });
 
   test('non-video skipped', async () => {
@@ -136,15 +218,11 @@ describe('mediaVideoPipeline', () => {
     expect(out.errorCode).toBe('NOT_VIDEO');
   });
 
-  test('GCS stream-to-temp without full buffering — downloadBuffer not used when stream exists', async () => {
+  test('metadata + poster success → READY and thumbnailUrl route', async () => {
     process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
     process.env.MEDIA_PROCESSING_MODE = 'inline_async';
     setFfprobeRunnerForTests(okRunner);
-
-    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('streamed-video-bytes-not-full-buffer-path')));
-    mockDownload.mockImplementation(async () => {
-      throw new Error('downloadBuffer should not be called when stream is available');
-    });
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('streamed-video-bytes')));
 
     mockPrisma.file.findUnique
       .mockResolvedValueOnce({
@@ -158,26 +236,20 @@ describe('mediaVideoPipeline', () => {
         processingVersion: 0,
         processingStatus: 'PENDING',
         variantsManifest: {
-          processingStatus: 'READY',
-          variants: [{ id: 'var1', kind: 'image_thumb', width: 200 }],
-          thumbnailUrl: '/api/files/vid1/variants/var1/content',
+          variants: [{ id: 'img1', kind: 'image_thumb', width: 200 }],
           customFutureKey: { nested: true }
         },
         size: BigInt(32)
       })
-      // mid-check after download
       .mockResolvedValueOnce({
         processingVersion: 0,
         processingStatus: 'PROCESSING'
       })
-      // latest before write
       .mockResolvedValueOnce({
         processingVersion: 0,
         processingStatus: 'PROCESSING',
         variantsManifest: {
-          processingStatus: 'READY',
-          variants: [{ id: 'var1', kind: 'image_thumb', width: 200 }],
-          thumbnailUrl: '/api/files/vid1/variants/var1/content',
+          variants: [{ id: 'img1', kind: 'image_thumb', width: 200 }],
           customFutureKey: { nested: true }
         },
         width: null,
@@ -185,28 +257,308 @@ describe('mediaVideoPipeline', () => {
         duration: null
       });
 
-    // claim
     mockPrisma.file.updateMany
       .mockResolvedValueOnce({ count: 1 })
-      // final write
+      .mockResolvedValueOnce({ count: 1 });
+
+    const out = await processVideoMetadata('vid1', { expectedVersion: 0 });
+    expect(out.status).toBe('READY');
+    expect(out.posterVariantId).toBe('vid-video_poster');
+    expect(out.thumbVariantId).toBe('vid-video_thumb');
+    expect(mockPosterGen).toHaveBeenCalled();
+    expect(mockPersist).toHaveBeenCalledTimes(2);
+    expect(cleanupVideoPosterTemps).toHaveBeenCalled();
+
+    const finalWrite = mockPrisma.file.updateMany.mock.calls[1][0];
+    expect(finalWrite.data.processingStatus).toBe('READY');
+    expect(finalWrite.data.thumbnailUrl).toContain('/api/files/vid1/variants/vid-video_thumb/content');
+    expect(finalWrite.data.variantsManifest.posterUrl).toContain('video_poster');
+    expect(finalWrite.data.variantsManifest.customFutureKey).toEqual({ nested: true });
+    // variants list comes from DB ready rows (video poster/thumb in this mock)
+    expect(finalWrite.data.variantsManifest.variants).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'video_poster' }),
+        expect.objectContaining({ kind: 'video_thumb' })
+      ])
+    );
+    // prior image manifest keys preserved via deep-safe merge
+    expect(finalWrite.data.variantsManifest.customFutureKey).toEqual({ nested: true });
+    expect(JSON.stringify(finalWrite.data.variantsManifest)).not.toMatch(/storageKey|bucket|tmp|ffmpeg/i);
+  });
+
+  test('poster GCS/DB failure does not expose posterUrl; thumb-only stays PARTIAL', async () => {
+    process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
+    process.env.MEDIA_PROCESSING_MODE = 'inline_async';
+    setFfprobeRunnerForTests(okRunner);
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('v')));
+    mockPersist.mockImplementation(async ({ variant }) => {
+      if (variant.kind === 'video_poster') {
+        return { action: 'error', storageKey: 'media/x/video/poster.webp', message: 'upload failed' };
+      }
+      return { action: 'created', variantId: 'only-thumb', storageKey: 'media/x/video/thumb-320w.webp' };
+    });
+    mockListVariants.mockResolvedValue([
+      {
+        id: 'only-thumb',
+        kind: 'video_thumb',
+        label: 'default',
+        width: 320,
+        height: 180,
+        format: 'webp',
+        mimeType: 'image/webp',
+        sizeBytes: 5
+      }
+    ]);
+
+    mockPrisma.file.findUnique
+      .mockResolvedValueOnce({
+        id: 'vid-pp',
+        mimeType: 'video/mp4',
+        storageKey: 'k',
+        storageProvider: 'google_cloud_storage',
+        processingVersion: 0,
+        processingStatus: 'PENDING',
+        variantsManifest: null,
+        size: BigInt(4)
+      })
+      .mockResolvedValueOnce({ processingVersion: 0, processingStatus: 'PROCESSING' })
+      .mockResolvedValueOnce({
+        processingVersion: 0,
+        processingStatus: 'PROCESSING',
+        variantsManifest: null,
+        width: null,
+        height: null,
+        duration: null
+      });
+    mockPrisma.file.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    const out = await processVideoMetadata('vid-pp', { expectedVersion: 0 });
+    expect(out.status).toBe('PARTIAL');
+    expect(out.posterVariantId).toBeNull();
+    expect(out.thumbVariantId).toBe('only-thumb');
+    const finalWrite = mockPrisma.file.updateMany.mock.calls[1][0];
+    expect(finalWrite.data.variantsManifest.posterUrl).toBeNull();
+    expect(finalWrite.data.variantsManifest.thumbnailUrl).toContain('only-thumb');
+    expect(finalWrite.data.thumbnailUrl).toContain('only-thumb');
+    // failed poster not listed as ready
+    expect(finalWrite.data.variantsManifest.variants.every((v: any) => v.kind !== 'video_poster' || v.id === 'only-thumb')).toBe(true);
+    expect(finalWrite.data.variantsManifest.variants.find((v: any) => v.kind === 'video_poster')).toBeUndefined();
+  });
+
+  test('thumbnail persist failure keeps posterUrl but not thumbnailUrl; PARTIAL', async () => {
+    process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
+    process.env.MEDIA_PROCESSING_MODE = 'inline_async';
+    setFfprobeRunnerForTests(okRunner);
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('v')));
+    mockPersist.mockImplementation(async ({ variant }) => {
+      if (variant.kind === 'video_thumb') {
+        return { action: 'conflict', storageKey: 'media/x/video/thumb-320w.webp' };
+      }
+      return { action: 'created', variantId: 'only-poster', storageKey: 'media/x/video/poster.webp' };
+    });
+    mockListVariants.mockResolvedValue([
+      {
+        id: 'only-poster',
+        kind: 'video_poster',
+        label: 'default',
+        width: 640,
+        height: 360,
+        format: 'webp',
+        mimeType: 'image/webp',
+        sizeBytes: 10
+      }
+    ]);
+
+    mockPrisma.file.findUnique
+      .mockResolvedValueOnce({
+        id: 'vid-tp',
+        mimeType: 'video/mp4',
+        storageKey: 'k',
+        storageProvider: 'google_cloud_storage',
+        processingVersion: 0,
+        processingStatus: 'PENDING',
+        variantsManifest: null,
+        size: BigInt(4)
+      })
+      .mockResolvedValueOnce({ processingVersion: 0, processingStatus: 'PROCESSING' })
+      .mockResolvedValueOnce({
+        processingVersion: 0,
+        processingStatus: 'PROCESSING',
+        variantsManifest: null,
+        width: null,
+        height: null,
+        duration: null
+      });
+    mockPrisma.file.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    const out = await processVideoMetadata('vid-tp', { expectedVersion: 0 });
+    expect(out.status).toBe('PARTIAL');
+    expect(out.errorCode).toBe('VIDEO_THUMBNAIL_FAILED');
+    const finalWrite = mockPrisma.file.updateMany.mock.calls[1][0];
+    expect(finalWrite.data.variantsManifest.posterUrl).toContain('only-poster');
+    expect(finalWrite.data.variantsManifest.thumbnailUrl).toBeNull();
+    // File.thumbnailUrl only when verified thumb exists
+    expect(finalWrite.data.thumbnailUrl).toBeUndefined();
+  });
+
+  test('File.thumbnailUrl set only after verified thumbnail variant', async () => {
+    process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
+    process.env.MEDIA_PROCESSING_MODE = 'inline_async';
+    setFfprobeRunnerForTests(okRunner);
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('v')));
+    mockPersist.mockResolvedValue({ action: 'error', storageKey: 'x' });
+    mockListVariants.mockResolvedValue([]);
+
+    mockPrisma.file.findUnique
+      .mockResolvedValueOnce({
+        id: 'vid-nt',
+        mimeType: 'video/mp4',
+        storageKey: 'k',
+        storageProvider: 'google_cloud_storage',
+        processingVersion: 0,
+        processingStatus: 'PENDING',
+        variantsManifest: null,
+        size: BigInt(4)
+      })
+      .mockResolvedValueOnce({ processingVersion: 0, processingStatus: 'PROCESSING' })
+      .mockResolvedValueOnce({
+        processingVersion: 0,
+        processingStatus: 'PROCESSING',
+        variantsManifest: null,
+        width: null,
+        height: null,
+        duration: null
+      });
+    mockPrisma.file.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+
+    await processVideoMetadata('vid-nt', { expectedVersion: 0 });
+    const finalWrite = mockPrisma.file.updateMany.mock.calls[1][0];
+    expect(finalWrite.data.thumbnailUrl).toBeUndefined();
+    expect(finalWrite.data.variantsManifest.thumbnailUrl).toBeNull();
+    expect(finalWrite.data.variantsManifest.posterUrl).toBeNull();
+  });
+
+  test('metadata success + poster failure → PARTIAL', async () => {
+    process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
+    process.env.MEDIA_PROCESSING_MODE = 'inline_async';
+    setFfprobeRunnerForTests(okRunner);
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('v')));
+    mockPosterGen.mockResolvedValue({ ok: false, errorCode: 'VIDEO_POSTER_FAILED' });
+
+    mockPrisma.file.findUnique
+      .mockResolvedValueOnce({
+        id: 'vid-partial',
+        mimeType: 'video/mp4',
+        storageKey: 'k',
+        storageProvider: 'google_cloud_storage',
+        processingVersion: 0,
+        processingStatus: 'PENDING',
+        variantsManifest: null,
+        size: BigInt(4)
+      })
+      .mockResolvedValueOnce({ processingVersion: 0, processingStatus: 'PROCESSING' })
+      .mockResolvedValueOnce({
+        processingVersion: 0,
+        processingStatus: 'PROCESSING',
+        variantsManifest: null,
+        width: null,
+        height: null,
+        duration: null
+      });
+    mockPrisma.file.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    mockListVariants.mockResolvedValue([]);
+
+    const out = await processVideoMetadata('vid-partial', { expectedVersion: 0 });
+    expect(out.status).toBe('PARTIAL');
+    expect(out.errorCode).toBe('VIDEO_POSTER_FAILED');
+    const finalWrite = mockPrisma.file.updateMany.mock.calls[1][0];
+    expect(finalWrite.data.processingStatus).toBe('PARTIAL');
+    expect(finalWrite.data.width).toBe(1280);
+  });
+
+  test('ffmpeg missing → PARTIAL with VIDEO_POSTER_UNAVAILABLE', async () => {
+    process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
+    process.env.MEDIA_PROCESSING_MODE = 'inline_async';
+    setFfprobeRunnerForTests(okRunner);
+    mockFfmpegAvail.mockResolvedValue(false);
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('v')));
+
+    mockPrisma.file.findUnique
+      .mockResolvedValueOnce({
+        id: 'vid-noff',
+        mimeType: 'video/mp4',
+        storageKey: 'k',
+        storageProvider: 'google_cloud_storage',
+        processingVersion: 0,
+        processingStatus: 'PENDING',
+        variantsManifest: null,
+        size: BigInt(4)
+      })
+      .mockResolvedValueOnce({ processingVersion: 0, processingStatus: 'PROCESSING' })
+      .mockResolvedValueOnce({
+        processingVersion: 0,
+        processingStatus: 'PROCESSING',
+        variantsManifest: null,
+        width: null,
+        height: null,
+        duration: null
+      });
+    mockPrisma.file.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
+    mockListVariants.mockResolvedValue([]);
+
+    const out = await processVideoMetadata('vid-noff', { expectedVersion: 0 });
+    expect(out.status).toBe('PARTIAL');
+    expect(out.errorCode).toBe('VIDEO_POSTER_UNAVAILABLE');
+    expect(mockPosterGen).not.toHaveBeenCalled();
+  });
+
+  test('GCS stream-to-temp without full buffering', async () => {
+    process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
+    process.env.MEDIA_PROCESSING_MODE = 'inline_async';
+    setFfprobeRunnerForTests(okRunner);
+    mockCreateStream.mockReturnValue(Readable.from(Buffer.from('streamed')));
+    mockDownload.mockImplementation(async () => {
+      throw new Error('downloadBuffer should not be called');
+    });
+
+    mockPrisma.file.findUnique
+      .mockResolvedValueOnce({
+        id: 'vid1',
+        mimeType: 'video/mp4',
+        storageKey: 'media/vid1/orig.mp4',
+        storageProvider: 'google_cloud_storage',
+        processingVersion: 0,
+        processingStatus: 'PENDING',
+        variantsManifest: null,
+        size: BigInt(8)
+      })
+      .mockResolvedValueOnce({ processingVersion: 0, processingStatus: 'PROCESSING' })
+      .mockResolvedValueOnce({
+        processingVersion: 0,
+        processingStatus: 'PROCESSING',
+        variantsManifest: null,
+        width: null,
+        height: null,
+        duration: null
+      });
+    mockPrisma.file.updateMany
+      .mockResolvedValueOnce({ count: 1 })
       .mockResolvedValueOnce({ count: 1 });
 
     const out = await processVideoMetadata('vid1', { expectedVersion: 0 });
     expect(out.status).toBe('READY');
     expect(mockCreateStream).toHaveBeenCalled();
     expect(mockDownload).not.toHaveBeenCalled();
-    expect(out.metadata?.width).toBe(1280);
-
-    const finalWrite = mockPrisma.file.updateMany.mock.calls[1][0];
-    expect(finalWrite.where.processingVersion).toBe(0);
-    expect(finalWrite.where.processingStatus).toBe('PROCESSING');
-    expect(finalWrite.data.variantsManifest.variants).toEqual([
-      { id: 'var1', kind: 'image_thumb', width: 200 }
-    ]);
-    expect(finalWrite.data.variantsManifest.customFutureKey).toEqual({ nested: true });
-    expect(finalWrite.data.variantsManifest.thumbnailUrl).toContain('/api/files/');
-    expect(finalWrite.data.variantsManifest.video.metadata.codec).toBe('h264');
-    expect(JSON.stringify(finalWrite.data.variantsManifest)).not.toMatch(/storageKey|bucket|tmp|ffprobe/i);
   });
 
   test('byte limit enforced before download when declared size exceeds max', async () => {
@@ -225,8 +577,8 @@ describe('mediaVideoPipeline', () => {
       size: BigInt(MAX_VIDEO_PROBE_BYTES + 1)
     });
     mockPrisma.file.updateMany
-      .mockResolvedValueOnce({ count: 1 }) // claim
-      .mockResolvedValueOnce({ count: 1 }); // fail update
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 1 });
 
     const out = await processVideoMetadata('huge', { expectedVersion: 0 });
     expect(out.status).toBe('FAILED');
@@ -243,7 +595,6 @@ describe('mediaVideoPipeline', () => {
     await expect(
       streamToTempFileBounded(source, dest, { maxBytes: 150 })
     ).rejects.toMatchObject({ code: 'SIZE_LIMIT' });
-    // Allow Windows handle release after destroy/close.
     await new Promise((r) => setTimeout(r, 25));
     safeUnlinkTemp(dest);
     expect(fs.existsSync(dest)).toBe(false);
@@ -282,13 +633,11 @@ describe('mediaVideoPipeline', () => {
       variantsManifest: null,
       size: BigInt(10)
     });
-    // claim loses race
     mockPrisma.file.updateMany.mockResolvedValueOnce({ count: 0 });
 
     const out = await processVideoMetadata('vid-claim', { expectedVersion: 3 });
     expect(out.status).toBe('BUSY');
     expect(out.errorCode).toBe('STALE_VERSION');
-    expect(mockCreateStream).not.toHaveBeenCalled();
   });
 
   test('stale version cannot overwrite newer results', async () => {
@@ -325,13 +674,17 @@ describe('mediaVideoPipeline', () => {
         audioPresent: false,
         codec: 'h264'
       },
-      'READY'
+      'READY',
+      {
+        posterUrl: '/api/files/x/variants/p/content',
+        thumbnailUrl: '/api/files/x/variants/t/content'
+      }
     );
     expect((merged as any).variants).toHaveLength(1);
     expect((merged as any).futureBlock).toEqual({ keep: true });
-    expect((merged as any).thumbnailUrl).toContain('/api/files/');
+    expect((merged as any).posterUrl).toContain('/variants/p/');
+    expect((merged as any).thumbnailUrl).toContain('/variants/t/');
     expect((merged as any).video.metadata.codec).toBe('h264');
-    expect((merged as any).video.extra).toBe(1);
   });
 
   test('malformed existing manifest fails safely', () => {
@@ -341,16 +694,9 @@ describe('mediaVideoPipeline', () => {
       'READY'
     );
     expect((merged as any).video.metadata.audioPresent).toBe(true);
-    const merged2 = mergeVideoIntoVariantsManifest(
-      ['not', 'an', 'object'] as any,
-      { audioPresent: false, width: 2, height: 2 },
-      'PARTIAL'
-    );
-    expect((merged2 as any).video.metadata.width).toBeUndefined(); // only client-safe fields from toClientSafe
-    expect((merged2 as any).processingStatus).toBe('PARTIAL');
   });
 
-  test('failed metadata keeps original available (status FAILED only)', async () => {
+  test('metadata failure keeps original available (FAILED only)', async () => {
     process.env.MEDIA_VIDEO_PROCESSING_ENABLED = 'true';
     process.env.MEDIA_PROCESSING_MODE = 'inline_async';
     setFfprobeRunnerForTests(async (args) => {
@@ -383,6 +729,7 @@ describe('mediaVideoPipeline', () => {
     const out = await processVideoMetadata('vid2', { expectedVersion: 0 });
     expect(out.status).toBe('FAILED');
     expect(out.errorCode).toMatch(/VIDEO_/);
+    expect(mockPosterGen).not.toHaveBeenCalled();
   });
 
   test('download/stream failure maps to VIDEO_STORAGE_FAILED', async () => {

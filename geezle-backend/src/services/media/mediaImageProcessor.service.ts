@@ -19,7 +19,7 @@ export type { ImageCategory };
 export { isEligibleImageMime, inferImageCategory, planVariantWidths, planThumbWidths };
 
 export type GeneratedVariant = {
-  kind: 'image_size' | 'image_thumb';
+  kind: 'image_size' | 'image_thumb' | 'video_poster' | 'video_thumb';
   label: string;
   width: number;
   height: number;
@@ -217,7 +217,7 @@ export const generateImageVariants = async (params: {
 
 export const buildVariantObjectKey = (params: {
   fileId: string;
-  kind: 'image_size' | 'image_thumb';
+  kind: 'image_size' | 'image_thumb' | 'video_poster' | 'video_thumb';
   width: number;
   format: string;
 }) => {
@@ -226,6 +226,13 @@ export const buildVariantObjectKey = (params: {
   const format = String(params.format || 'webp')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
+  // Phase 3B.3 — deterministic video derivative keys
+  if (params.kind === 'video_poster') {
+    return `media/${id}/video/poster.${format}`;
+  }
+  if (params.kind === 'video_thumb') {
+    return `media/${id}/video/thumb-${width}w.${format}`;
+  }
   if (params.kind === 'image_thumb') {
     return `media/${id}/thumb/${width}w.${format}`;
   }
