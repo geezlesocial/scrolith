@@ -93,14 +93,33 @@ test('ComposerShell Escape respects defaultPrevented from nested popup handlers'
 
 test('ComposerShell excludes tabindex=-1 suggestion rows from trap list', () => {
   assert.match(shellSource, /button:not\(\[disabled\]\):not\(\[tabindex="-1"\]\)/);
+  assert.match(shellSource, /\[tabindex\]:not\(\[tabindex="-1"\]\)/);
+});
+
+test('ComposerShell re-queries focusables on each Tab (not frozen at open)', () => {
+  // getFocusable must live inside the keydown handler path so dynamic media controls stay trapped.
+  assert.match(shellSource, /const getFocusable = \(\) =>/);
+  assert.match(shellSource, /if \(event\.key !== 'Tab'/);
+  assert.match(shellSource, /const list = getFocusable\(\);/);
+  // Initial open path also calls getFocusable, and Tab path must call it again (at least twice).
+  const calls = shellSource.match(/getFocusable\(\)/g) || [];
+  assert.ok(calls.length >= 2, 'getFocusable invoked for initial focus and Tab handling');
+});
+
+test('ComposerShell reads latest onClose through a ref (Escape + backdrop)', () => {
+  assert.match(shellSource, /const onCloseRef = useRef\(onClose\)/);
+  assert.match(shellSource, /onCloseRef\.current\(\)/);
+  // Escape path must not close on a stale captured onClose identity.
+  assert.match(shellSource, /if \(event\.key === 'Escape'\)[\s\S]*?onCloseRef\.current\(\)/);
 });
 
 test('MentionHashtagTextarea Escape stops propagation so composer stays open', () => {
   assert.match(mentionSource, /event\.stopPropagation\(\)/);
   assert.match(mentionSource, /event\.key === 'Escape'/);
+  assert.match(mentionSource, /event\.preventDefault\(\)/);
 });
 
-test('MentionHashtagTextarea suggestion rows prevent mousedown blur', () => {
+test('MentionHashtagTextarea suggestion rows prevent mouse/pointer blur', () => {
   assert.match(mentionSource, /onMouseDown=\{\(e\) => e\.preventDefault\(\)\}/);
   assert.match(mentionSource, /onPointerDown=\{\(e\) => e\.preventDefault\(\)\}/);
   assert.match(mentionSource, /tabIndex=\{-1\}/);
@@ -110,12 +129,28 @@ test('MentionHashtagTextarea keeps DOM focus on editor via aria-activedescendant
   assert.match(mentionSource, /aria-activedescendant/);
   assert.match(mentionSource, /role="combobox"/);
   assert.match(mentionSource, /role="listbox"/);
+  assert.match(mentionSource, /role="option"/);
+  // Popup must not steal focus with autoFocus.
+  assert.equal(mentionSource.includes('autoFocus'), false);
+});
+
+test('MentionHashtagTextarea arrow navigation changes highlight only (no DOM focus move)', () => {
+  assert.match(mentionSource, /event\.key === 'ArrowDown'/);
+  assert.match(mentionSource, /event\.key === 'ArrowUp'/);
+  assert.match(mentionSource, /setHighlightIndex/);
+  // Arrow handlers must not call .focus() on suggestion rows.
+  const arrowBlock = mentionSource.match(
+    /if \(event\.key === 'ArrowDown'\) \{[\s\S]*?if \(event\.key === 'ArrowUp'\) \{[\s\S]*?return;\s*\}/
+  );
+  assert.ok(arrowBlock, 'arrow handlers present');
+  assert.equal(/\.focus\(/.test(arrowBlock![0]), false);
 });
 
 test('MemberHomeSection closeDesktopComposer is stable (empty deps / refs)', () => {
   assert.match(memberHomeSource, /const closeDesktopComposer = useCallback\(\(\) => \{/);
   assert.match(memberHomeSource, /postDraftRef\.current/);
   assert.match(memberHomeSource, /composerDraftKeyRef\.current/);
+  assert.match(memberHomeSource, /postingRef\.current/);
   // Empty dependency array — identity does not change on draft keystrokes.
   assert.match(memberHomeSource, /setPostLocationPickerOpen\(false\);\s*\}, \[\]\);/s);
 });
@@ -134,4 +169,6 @@ test('Draft autosave is debounced and does not remount editor (session text only
   assert.match(memberHomeSource, /450/);
   assert.equal(memberHomeSource.includes('key={postDraft.content}'), false);
   assert.equal(memberHomeSource.includes('key={composerDraftKey}'), false);
+  // Close path also persists draft from refs (not only the debounce effect).
+  assert.match(memberHomeSource, /saveComposerDraft\(composerDraftKeyRef\.current/);
 });
