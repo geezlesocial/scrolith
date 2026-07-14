@@ -31,21 +31,37 @@ export const buildVariantsManifest = async (fileId: string) => {
       id: true,
       width: true,
       height: true,
+      duration: true,
       mimeType: true,
       processingStatus: true,
       thumbnailUrl: true,
-      url: true
+      url: true,
+      variantsManifest: true
     }
   });
   if (!file) return null;
   const variants = await listReadyVariants(fileId);
   const thumb = variants.find((v) => v.kind === 'image_thumb') || null;
+  const stored =
+    file.variantsManifest && typeof file.variantsManifest === 'object' && !Array.isArray(file.variantsManifest)
+      ? (file.variantsManifest as Record<string, unknown>)
+      : {};
+  const storedVideo =
+    stored.video && typeof stored.video === 'object' && !Array.isArray(stored.video)
+      ? (stored.video as Record<string, unknown>)
+      : null;
+  const videoMeta =
+    storedVideo?.metadata && typeof storedVideo.metadata === 'object'
+      ? (storedVideo.metadata as Record<string, unknown>)
+      : storedVideo;
+
   // Client-safe only: never expose storageKey, bucket, checksum, provider, or raw GCS paths.
-  return {
+  const manifest: Record<string, unknown> = {
     fileId: file.id,
     processingStatus: file.processingStatus,
     width: file.width,
     height: file.height,
+    durationSeconds: file.duration != null ? Number(file.duration) : null,
     mimeType: file.mimeType,
     originalUrl: `/api/files/content/${encodeURIComponent(file.id)}`,
     thumbnailUrl:
@@ -67,6 +83,22 @@ export const buildVariantsManifest = async (fileId: string) => {
       contentUrl: `/api/files/${encodeURIComponent(file.id)}/variants/${encodeURIComponent(v.id)}/content`
     }))
   };
+
+  // Phase 3B.2 — additive client-safe video metadata block (no storage keys / raw probe).
+  if (videoMeta && typeof videoMeta === 'object') {
+    manifest.video = {
+      rotation: (videoMeta as any).rotation ?? null,
+      displayAspectRatio: (videoMeta as any).displayAspectRatio ?? null,
+      codec: (videoMeta as any).codec ?? null,
+      container: (videoMeta as any).container ?? null,
+      bitrate: (videoMeta as any).bitrate ?? null,
+      frameRate: (videoMeta as any).frameRate ?? null,
+      audioPresent: Boolean((videoMeta as any).audioPresent),
+      audioCodec: (videoMeta as any).audioCodec ?? null
+    };
+  }
+
+  return manifest;
 };
 
 /**
@@ -271,8 +303,12 @@ export const processImageFile = async (
   }
 };
 
-// Enqueue lives in mediaProcessing.enqueue.ts so the upload path never loads Sharp.
-export { enqueueImageProcessingSafe } from './mediaProcessing.enqueue';
+// Enqueue lives in mediaProcessing.enqueue.ts so the upload path never loads Sharp / ffprobe.
+export {
+  enqueueImageProcessingSafe,
+  enqueueVideoProcessingSafe,
+  enqueueMediaProcessingSafe
+} from './mediaProcessing.enqueue';
 
 export const MediaProcessingService = {
   processImageFile,

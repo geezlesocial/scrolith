@@ -10,6 +10,7 @@ import {
   buildVariantsManifest,
   MediaProcessingService
 } from '../services/media/mediaProcessing.service';
+import { isEligibleVideoMime } from '../services/media/mediaVideoProbe.service';
 import { findVariantById } from '../services/media/mediaVariant.service';
 import {
   createGcsMediaReadStream,
@@ -133,7 +134,8 @@ export const getFileProcessingStatus = async (req: Request, res: Response) => {
         processingStartedAt: true,
         processingCompletedAt: true,
         width: true,
-        height: true
+        height: true,
+        duration: true
       }
     });
     if (!file) {
@@ -155,7 +157,9 @@ export const getFileProcessingStatus = async (req: Request, res: Response) => {
         processingCompletedAt: file.processingCompletedAt,
         width: file.width,
         height: file.height,
-        eligibleImage: MediaProcessingService.isEligibleImageMime(file.mimeType)
+        durationSeconds: file.duration != null ? Number(file.duration) : null,
+        eligibleImage: MediaProcessingService.isEligibleImageMime(file.mimeType),
+        eligibleVideo: isEligibleVideoMime(file.mimeType)
       }
     });
   } catch (error: any) {
