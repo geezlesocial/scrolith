@@ -16,6 +16,7 @@ import {
   LogOutIcon as LogOut,
   MailIcon as Mail,
   MessageSquareIcon as MessageSquare,
+  PlusIcon as Plus,
   SearchIcon as Search,
   SettingsIcon as Settings,
   ShieldIcon as Shield,
@@ -40,11 +41,13 @@ import { getNotificationActionUrl, getNotificationBucket, isExternalNotification
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
 import { HeaderMessagesPopover } from "./messaging";
 import { formatMessagingBadgeCount } from "../services/messagingSurfaces";
+import { HeaderUnreadBadge } from "./header";
+import "./header/enterpriseHeader.css";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
 
 const HEADER_SEARCH_PLACEHOLDER =
-  "Search for jobs, gigs, freelancers, businesses, communities...";
+  "Search people, jobs, gigs, posts, pages, communities, or marketplace";
 
 const formatBadgeCount = (count: number) => formatMessagingBadgeCount(count);
 
@@ -86,6 +89,7 @@ const NAVBAR_ICON_REGISTRY: Record<string, LucideIconComponent> = {
   LogOut,
   Mail,
   MessageSquare,
+  Plus,
   Search,
   Settings,
   Shield,
@@ -182,6 +186,7 @@ const Navbar = () => {
   const [showHelpDropdown, setShowHelpDropdown] = useState(false);
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [showGuestPrimaryDropdown, setShowGuestPrimaryDropdown] = useState(false);
   const [showGuestExploreDropdown, setShowGuestExploreDropdown] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -202,6 +207,7 @@ const Navbar = () => {
   const helpRef = useRef<HTMLDivElement>(null);
   const currencyRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+  const createRef = useRef<HTMLDivElement>(null);
   const guestPrimaryRef = useRef<HTMLDivElement>(null);
   const guestExploreRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -357,20 +363,78 @@ const Navbar = () => {
     return () => window.clearInterval(id);
   }, [socket, refreshConfigs]);
 
+  const closeAllHeaderPopovers = useCallback(() => {
+    setShowNotifications(false);
+    setShowMessagesDropdown(false);
+    setShowHelpDropdown(false);
+    setShowCurrencyDropdown(false);
+    setShowProfileDropdown(false);
+    setShowCreateMenu(false);
+    setShowGuestPrimaryDropdown(false);
+    setShowGuestExploreDropdown(false);
+  }, []);
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(event.target as Node)) setShowNotifications(false);
-      if (msgRef.current && !msgRef.current.contains(event.target as Node)) setShowMessagesDropdown(false);
-      if (helpRef.current && !helpRef.current.contains(event.target as Node)) setShowHelpDropdown(false);
-      if (currencyRef.current && !currencyRef.current.contains(event.target as Node)) setShowCurrencyDropdown(false);
-      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setShowProfileDropdown(false);
-      if (guestPrimaryRef.current && !guestPrimaryRef.current.contains(event.target as Node)) setShowGuestPrimaryDropdown(false);
-      if (guestExploreRef.current && !guestExploreRef.current.contains(event.target as Node)) setShowGuestExploreDropdown(false);
+      const target = event.target as Node;
+      if (notifRef.current && !notifRef.current.contains(target)) setShowNotifications(false);
+      if (msgRef.current && !msgRef.current.contains(target)) setShowMessagesDropdown(false);
+      if (helpRef.current && !helpRef.current.contains(target)) setShowHelpDropdown(false);
+      if (currencyRef.current && !currencyRef.current.contains(target)) setShowCurrencyDropdown(false);
+      if (profileRef.current && !profileRef.current.contains(target)) setShowProfileDropdown(false);
+      if (createRef.current && !createRef.current.contains(target)) setShowCreateMenu(false);
+      if (guestPrimaryRef.current && !guestPrimaryRef.current.contains(target)) setShowGuestPrimaryDropdown(false);
+      if (guestExploreRef.current && !guestExploreRef.current.contains(target)) setShowGuestExploreDropdown(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Escape closes the topmost open header popover first.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (showCreateMenu) {
+        event.preventDefault();
+        setShowCreateMenu(false);
+        return;
+      }
+      if (showProfileDropdown) {
+        event.preventDefault();
+        setShowProfileDropdown(false);
+        return;
+      }
+      if (showHelpDropdown) {
+        event.preventDefault();
+        setShowHelpDropdown(false);
+        return;
+      }
+      if (showMessagesDropdown) {
+        event.preventDefault();
+        setShowMessagesDropdown(false);
+        return;
+      }
+      if (showNotifications) {
+        event.preventDefault();
+        setShowNotifications(false);
+        return;
+      }
+      if (showCurrencyDropdown) {
+        event.preventDefault();
+        setShowCurrencyDropdown(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [
+    showCreateMenu,
+    showProfileDropdown,
+    showHelpDropdown,
+    showMessagesDropdown,
+    showNotifications,
+    showCurrencyDropdown
+  ]);
 
   // Desktop sticky header: subtle shadow after scroll (no layout jump)
   useEffect(() => {
@@ -567,19 +631,9 @@ const Navbar = () => {
     );
   };
 
-  const renderCountBadge = (count: number, color?: string, className = "") => {
-    const label = formatBadgeCount(count);
-    if (!label) return null;
-    return (
-      <span
-        className={`scrolith-nav-badge absolute top-0.5 right-0.5 z-[1] flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none text-white shadow-sm ${className}`}
-        style={{ backgroundColor: color || acBadgeColor || "#EF4444" }}
-        aria-hidden="true"
-      >
-        {label}
-      </span>
-    );
-  };
+  const renderCountBadge = (count: number, color?: string, className = "") => (
+    <HeaderUnreadBadge count={count} color={color || acBadgeColor || "#EF4444"} className={className} />
+  );
 
   const renderDesktopNavLink = (item: any) => {
     const url = resolveUrl(item);
@@ -589,32 +643,17 @@ const Navbar = () => {
     const iconKey = resolveNavIconKey({ label: item.label, url, icon: item.icon });
     const iconEl = getDynamicIcon(iconKey, 22, active ? "filled" : acIconStyle);
     const className = [
-      "scrolith-desktop-nav-item group relative flex min-w-[64px] flex-col items-center justify-center gap-0.5 px-2.5 pt-1.5 pb-1",
-      "text-[11px] leading-tight motion-safe:transition-colors motion-safe:duration-150",
-      "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-1 rounded-sm",
-      active
-        ? "font-semibold text-blue-600"
-        : "font-medium text-slate-600 hover:text-slate-900"
-    ].join(" ");
+      "scrolith-header-nav-item scrolith-desktop-nav-item",
+      active ? "is-active" : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
 
     const content = (
       <>
-        <span
-          className={[
-            "flex h-7 w-7 items-center justify-center motion-safe:transition-transform motion-safe:duration-150",
-            "group-hover:-translate-y-px",
-            active ? "text-blue-600" : "text-slate-500 group-hover:text-slate-800"
-          ].join(" ")}
-        >
-          {iconEl}
-        </span>
-        <span className="max-w-[5.5rem] truncate">{item.label}</span>
-        {active ? (
-          <span
-            className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-blue-600 motion-safe:transition-all"
-            aria-hidden="true"
-          />
-        ) : null}
+        <span className="scrolith-header-nav-item__icon">{iconEl}</span>
+        <span className="max-w-[5.75rem] truncate">{item.label}</span>
+        {active ? <span className="scrolith-header-nav-item__marker" aria-hidden="true" /> : null}
       </>
     );
 
@@ -866,11 +905,12 @@ const Navbar = () => {
     | "xl";
 
   const headerWrapperClass = [
+    "scrolith-enterprise-header",
     isHome ? "relative" : "sticky top-0",
-    "z-40 bg-white border-b border-gray-200/90",
-    "motion-safe:transition-shadow motion-safe:duration-200",
-    isScrolled && !isHome ? "shadow-md shadow-slate-900/8" : "shadow-none"
-  ].join(" ");
+    isScrolled && !isHome ? "is-scrolled" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const filteredNavigation = useMemo(() => {
     const rawNav = Array.isArray((headerConfig as any)?.navigation)
@@ -1306,16 +1346,35 @@ const Navbar = () => {
 
   const handleActivityIconClick = (icon: any) => {
     const actionType = icon.actionType || icon.type;
-    if (actionType === "notifications") setShowNotifications(!showNotifications);
-    if (actionType === "messages") setShowMessagesDropdown(!showMessagesDropdown);
+    // One intentional top-level header surface at a time.
+    if (actionType === "notifications") {
+      const next = !showNotifications;
+      closeAllHeaderPopovers();
+      setShowNotifications(next);
+      return;
+    }
+    if (actionType === "messages") {
+      const next = !showMessagesDropdown;
+      closeAllHeaderPopovers();
+      setShowMessagesDropdown(next);
+      return;
+    }
     if (actionType === "profile") {
       if (profileEnabled) {
-        setShowProfileDropdown(!showProfileDropdown);
+        const next = !showProfileDropdown;
+        closeAllHeaderPopovers();
+        setShowProfileDropdown(next);
       } else {
         navigate("/profile/edit");
       }
+      return;
     }
-    if (actionType === "help") setShowHelpDropdown(!showHelpDropdown);
+    if (actionType === "help") {
+      const next = !showHelpDropdown;
+      closeAllHeaderPopovers();
+      setShowHelpDropdown(next);
+      return;
+    }
     if (actionType === "favorites") {
       const favUrl = icon.url ?? icon.link ?? icon.href ?? "";
       if (favUrl) {
@@ -1360,18 +1419,22 @@ const Navbar = () => {
             : undefined;
 
     const buttonClass = desktopStyle
-      ? [
-          "scrolith-desktop-nav-item group relative flex min-w-[64px] flex-col items-center justify-center gap-0.5 px-2.5 pt-1.5 pb-1",
-          "text-[11px] leading-tight motion-safe:transition-colors motion-safe:duration-150",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 focus-visible:ring-offset-1 rounded-sm",
-          active ? "font-semibold text-blue-600" : "font-medium text-slate-600 hover:text-slate-900"
-        ].join(" ")
+      ? ["scrolith-header-nav-item scrolith-desktop-nav-item", active ? "is-active" : ""]
+          .filter(Boolean)
+          .join(" ")
       : [
-          "relative flex items-center rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900",
+          "relative flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900",
           "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
           "motion-safe:transition-colors",
           icon.showLabel ? "flex-col space-y-1" : ""
         ].join(" ");
+
+    const ariaCountLabel =
+      actionType === "messages" && messagesUnreadCount > 0
+        ? `Messages, ${messagesUnreadCount} unread`
+        : actionType === "notifications" && badgeCount > 0
+          ? `Notifications, ${badgeCount} unread`
+          : icon.label || actionType;
 
     return (
       <div key={icon.id || actionType} className="relative" ref={ref}>
@@ -1380,11 +1443,7 @@ const Navbar = () => {
           onClick={() => handleActivityIconClick(icon)}
           className={buttonClass}
           title={icon.label}
-          aria-label={
-            actionType === "messages" && messagesUnreadCount > 0
-              ? `Messages, ${messagesUnreadCount} unread`
-              : icon.label || actionType
-          }
+          aria-label={ariaCountLabel}
           aria-expanded={
             actionType === "notifications"
               ? showNotifications
@@ -1408,11 +1467,8 @@ const Navbar = () => {
           <span
             className={
               desktopStyle
-                ? [
-                    "relative flex h-7 w-7 items-center justify-center motion-safe:transition-transform motion-safe:duration-150 group-hover:-translate-y-px",
-                    active ? "text-blue-600" : "text-slate-500 group-hover:text-slate-800"
-                  ].join(" ")
-                : "relative flex items-center justify-center"
+                ? "scrolith-header-nav-item__icon"
+                : "relative flex h-7 w-7 items-center justify-center"
             }
           >
             {getDynamicIcon(
@@ -1420,21 +1476,18 @@ const Navbar = () => {
               desktopStyle ? 22 : acIconSize,
               active ? "filled" : acIconStyle
             )}
-            {acShowBadges && badgeCount > 0
-              ? renderCountBadge(badgeCount, acBadgeColor, desktopStyle ? "top-[-2px] right-[-6px]" : "")
+            {acShowBadges
+              ? renderCountBadge(badgeCount, acBadgeColor, desktopStyle ? "" : "top-0 right-0")
               : null}
           </span>
           {desktopStyle && showDesktopLabel ? (
-            <span className="max-w-[5.5rem] truncate">{icon.label || actionType}</span>
+            <span className="max-w-[5.75rem] truncate">{icon.label || actionType}</span>
           ) : null}
           {!desktopStyle && icon.showLabel ? (
             <span className="hidden text-[10px] font-medium lg:block">{icon.label}</span>
           ) : null}
           {desktopStyle && active ? (
-            <span
-              className="absolute inset-x-2 bottom-0 h-[2px] rounded-full bg-blue-600"
-              aria-hidden="true"
-            />
+            <span className="scrolith-header-nav-item__marker" aria-hidden="true" />
           ) : null}
         </button>
 
@@ -1462,53 +1515,105 @@ const Navbar = () => {
   const renderFavoritesControl = (compact = false) => (
     <Link
       to="/favorites"
-      className={[
-        "group relative inline-flex items-center justify-center gap-1.5 font-semibold text-slate-600",
-        "motion-safe:transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
-        compact
-          ? "rounded-full p-2 hover:bg-slate-100"
-          : "rounded-full border border-slate-200/90 bg-white px-3 py-2 text-sm shadow-sm hover:border-slate-300 hover:bg-slate-50"
-      ].join(" ")}
+      className={["scrolith-header-utility relative", compact ? "is-compact" : ""].filter(Boolean).join(" ")}
       aria-label={`Favorites${favoritesCount ? `, ${favoritesCount} saved` : ""}`}
+      title="Favorites"
     >
-      <Heart
-        className={`h-4 w-4 motion-safe:transition-transform group-hover:scale-105 ${
-          favoritesCount ? "fill-current text-red-500" : "text-slate-500"
-        }`}
-      />
-      {!compact ? <span className="hidden sm:inline">Favorites</span> : null}
-      {favoritesCount > 0 ? renderCountBadge(favoritesCount, "#EF4444", compact ? "" : "-top-1 -right-1") : null}
+      <span className="relative inline-flex h-5 w-5 items-center justify-center">
+        <Heart
+          className={`h-4 w-4 ${favoritesCount ? "fill-current text-red-500" : "text-slate-500"}`}
+        />
+        {renderCountBadge(favoritesCount, "#EF4444", "top-[-6px] right-[-8px]")}
+      </span>
+      {!compact ? <span className="hidden xl:inline">Favorites</span> : null}
     </Link>
   );
 
   const renderCartControl = (compact = false) => (
     <Link
       to="/cart"
-      className={[
-        "group relative inline-flex items-center justify-center gap-1.5 font-semibold text-slate-600",
-        "motion-safe:transition-colors hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
-        compact
-          ? "rounded-full p-2 hover:bg-slate-100"
-          : "rounded-full border border-slate-200/90 bg-white px-3 py-2 text-sm shadow-sm hover:border-slate-300 hover:bg-slate-50"
-      ].join(" ")}
+      className={["scrolith-header-utility relative", compact ? "is-compact" : ""].filter(Boolean).join(" ")}
       aria-label={`Cart${cartCount ? `, ${cartCount} items` : ""}`}
+      title="Cart"
     >
-      <ShoppingCart
-        className={`h-4 w-4 motion-safe:transition-transform group-hover:scale-105 ${
-          cartCount ? "text-blue-600" : "text-slate-500"
-        }`}
-      />
-      {!compact ? <span className="hidden sm:inline">Cart</span> : null}
-      {cartCount > 0 ? renderCountBadge(cartCount, "#2563EB", compact ? "" : "-top-1 -right-1") : null}
+      <span className="relative inline-flex h-5 w-5 items-center justify-center">
+        <ShoppingCart className={`h-4 w-4 ${cartCount ? "text-blue-600" : "text-slate-500"}`} />
+        {renderCountBadge(cartCount, "#2563EB", "top-[-6px] right-[-8px]")}
+      </span>
+      {!compact ? <span className="hidden xl:inline">Cart</span> : null}
     </Link>
   );
 
+  const createMenuItems = useMemo(() => {
+    // Only surface create actions already available on the platform via existing routes.
+    const items: Array<{ id: string; label: string; url: string; roles?: string[] }> = [
+      { id: "create-post", label: "Post", url: "/member-home" },
+      { id: "create-job", label: "Job", url: "/create-job", roles: ["employer", "admin"] },
+      { id: "create-gig", label: "Gig", url: "/create-gig", roles: ["freelancer", "admin"] },
+      { id: "create-marketplace", label: "Marketplace listing", url: "/marketplace/create" }
+    ];
+    return items.filter((item) => {
+      if (!item.roles || item.roles.length === 0) return true;
+      return item.roles.includes(normalizedUserRole) || normalizedUserRole === "admin";
+    });
+  }, [normalizedUserRole]);
+
+  const renderCreateControl = () => {
+    if (!isAuthenticated || createMenuItems.length === 0) return null;
+    return (
+      <div className="relative" ref={createRef}>
+        <button
+          type="button"
+          className="scrolith-header-utility !border-blue-200 !bg-blue-600 !text-white hover:!bg-blue-700 hover:!text-white"
+          aria-label="Create"
+          aria-expanded={showCreateMenu}
+          aria-haspopup="menu"
+          title="Create"
+          onClick={() => {
+            const next = !showCreateMenu;
+            closeAllHeaderPopovers();
+            setShowCreateMenu(next);
+          }}
+        >
+          <Plus className="h-4 w-4" />
+          <span className="hidden xl:inline">Create</span>
+        </button>
+        {showCreateMenu ? (
+          <div
+            role="menu"
+            aria-label="Create content"
+            className="absolute right-0 z-[70] mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+          >
+            {createMenuItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                className="block w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-700 focus:outline-none focus-visible:bg-blue-50"
+                onClick={() => {
+                  setShowCreateMenu(false);
+                  navigate(item.url);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderProfileMenu = () =>
     showProfileDropdown ? (
-      <div className="origin-top-right absolute right-0 mt-2 w-72 rounded-xl shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50 animate-fade-in-up">
-        <div className="border-b border-gray-100 px-4 py-3">
-          <p className="truncate text-sm font-semibold text-gray-900">{avatarName || "Account"}</p>
-          <p className="truncate text-xs text-gray-500 capitalize">{normalizedUserRole}</p>
+      <div
+        role="menu"
+        aria-label="Account menu"
+        className="absolute right-0 z-[70] mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5"
+      >
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-4 py-3">
+          <p className="truncate text-sm font-semibold text-slate-900">{avatarName || "Account"}</p>
+          <p className="truncate text-xs capitalize text-slate-500">{normalizedUserRole}</p>
         </div>
         <div className="py-2">
           {(["primary", "business_tools", "utilities"] as const).map((groupKey, index) => {
@@ -1518,10 +1623,10 @@ const Navbar = () => {
             return (
               <div
                 key={groupKey}
-                className={index === 0 ? "pb-1" : "border-t border-gray-100 pt-2 pb-1"}
+                className={index === 0 ? "pb-1" : "border-t border-slate-100 pt-2 pb-1"}
               >
                 {groupLabel ? (
-                  <div className="px-4 pb-1 text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
+                  <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                     {groupLabel}
                   </div>
                 ) : null}
@@ -1535,37 +1640,42 @@ const Navbar = () => {
 
   const renderAvatarControl = () =>
     isAuthenticated && user && profileEnabled ? (
-      <div className="relative ml-1 lg:ml-2" ref={profileRef}>
+      <div className="relative ml-1 lg:ml-1.5" ref={profileRef}>
         <button
           type="button"
-          onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-          className={[
-            "flex items-center gap-1.5 rounded-full py-1 pl-1 pr-1.5",
-            "hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
-            "motion-safe:transition-colors"
-          ].join(" ")}
+          onClick={() => {
+            const next = !showProfileDropdown;
+            closeAllHeaderPopovers();
+            setShowProfileDropdown(next);
+          }}
+          className="scrolith-header-profile"
           aria-label="Open account menu"
           aria-expanded={showProfileDropdown}
           aria-haspopup="menu"
         >
           {avatarUrl ? (
             <img
-              className="h-8 w-8 rounded-full object-cover border border-blue-200 ring-2 ring-white shadow-sm lg:h-9 lg:w-9"
+              className="scrolith-header-profile__avatar"
               src={avatarUrl}
-              alt={avatarName || ""}
+              alt=""
               width={36}
               height={36}
               loading="lazy"
               decoding="async"
             />
           ) : (
-            <div className="h-8 w-8 rounded-full bg-gray-200 lg:h-9 lg:w-9" aria-hidden="true" />
+            <div
+              className="scrolith-header-profile__avatar flex items-center justify-center bg-slate-200 text-xs font-bold text-slate-600"
+              aria-hidden="true"
+            >
+              {(avatarName || "U").slice(0, 1).toUpperCase()}
+            </div>
           )}
-          <span className="hidden max-w-[7rem] truncate text-sm font-medium text-gray-700 xl:block">
-            {avatarName}
+          <span className="hidden max-w-[7.5rem] truncate text-sm font-semibold text-slate-800 xl:block">
+            {avatarName || "Account"}
           </span>
           <ChevronDown
-            className={`h-4 w-4 text-gray-400 motion-safe:transition-transform ${
+            className={`h-4 w-4 text-slate-400 motion-safe:transition-transform ${
               showProfileDropdown ? "rotate-180" : ""
             }`}
           />
@@ -1578,19 +1688,20 @@ const Navbar = () => {
     return (
       <nav className={headerWrapperClass} aria-busy="true" aria-label="Main navigation loading">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-16 items-center justify-between lg:h-[76px]">
+          <div className="scrolith-enterprise-header__inner justify-between">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 animate-pulse rounded bg-gray-200" />
-              <div className="hidden h-9 w-64 animate-pulse rounded-full bg-gray-200 lg:block" />
+              <div className="h-8 w-8 animate-pulse rounded-lg bg-slate-200" />
+              <div className="hidden h-10 w-72 animate-pulse rounded-full bg-slate-200 lg:block" />
             </div>
-            <div className="hidden items-center gap-4 lg:flex">
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-10 w-12 animate-pulse rounded bg-gray-200" />
+            <div className="hidden items-center gap-2 lg:flex">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="h-11 w-14 animate-pulse rounded-xl bg-slate-200" />
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <div className="h-8 w-8 animate-pulse rounded-full bg-gray-200" />
-              <div className="h-8 w-8 animate-pulse rounded-full bg-gray-200" />
+              <div className="h-10 w-10 animate-pulse rounded-full bg-slate-200" />
+              <div className="h-10 w-10 animate-pulse rounded-full bg-slate-200" />
+              <div className="h-10 w-28 animate-pulse rounded-full bg-slate-200" />
             </div>
           </div>
         </div>
@@ -1599,39 +1710,45 @@ const Navbar = () => {
   }
 
   return (
-    <div className={`${headerWrapperClass} overflow-x-clip`}>
-      <nav className="bg-white transition-colors" aria-label="Primary">
+    <div className={`${headerWrapperClass} overflow-x-clip`} data-testid="scrolith-enterprise-header">
+      <nav className="bg-transparent" aria-label="Primary">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {isDesktopNav ? (
             /* ===== Desktop enterprise header (lg+) ===== */
-            <div className="flex h-[76px] items-center gap-3 xl:gap-4">
-              {/* Left: Logo + Global Search */}
-              <div className="flex min-w-0 flex-[1.15] items-center gap-3 xl:gap-4">
+            <div className="scrolith-enterprise-header__inner">
+              {/* LEFT: Brand + Search */}
+              <div className="flex min-w-0 flex-[1.2] items-center gap-3 xl:gap-4">
                 <Link
                   to={homeUrl}
-                  className="flex min-w-0 shrink-0 items-center gap-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                  className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                  aria-label={brandName ? `${brandName} home` : "Scrolith home"}
                 >
                   {brandLogoSrc ? (
                     <img
                       src={brandLogoSrc}
-                      alt={brandName || "Scrolith"}
+                      alt=""
                       width={160}
                       height={32}
                       decoding="async"
-                      className="h-8 w-auto max-w-[9rem] object-contain"
+                      className="h-8 w-auto max-w-[8.5rem] object-contain xl:max-w-[9.5rem]"
                     />
                   ) : (
-                    <div className="h-8 w-8 flex-shrink-0 rounded-lg bg-gray-200" aria-hidden="true" />
+                    <div
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white"
+                      aria-hidden="true"
+                    >
+                      S
+                    </div>
                   )}
                   {brandName ? (
-                    <span className="hidden truncate text-lg font-bold tracking-tight text-gray-900 xl:block">
+                    <span className="hidden truncate text-[1.05rem] font-bold tracking-tight text-slate-900 xl:block">
                       {brandName}
                     </span>
                   ) : null}
                 </Link>
 
                 {showHeaderSearch ? (
-                  <div className="min-w-0 max-w-[280px] flex-1 xl:max-w-[340px]">
+                  <div className="scrolith-header-search-shell">
                     <SearchInput
                       placeholder={searchPlaceholder}
                       size="header"
@@ -1644,9 +1761,13 @@ const Navbar = () => {
                 ) : null}
               </div>
 
-              {/* Center: Icon navigation */}
-              <div className="flex flex-1 items-stretch justify-center self-stretch">
-                <div className="flex h-full items-stretch justify-center gap-0.5 xl:gap-1">
+              {/* CENTER: Primary navigation */}
+              <div className="flex flex-[1.15] items-stretch justify-center self-stretch">
+                <div
+                  className="flex h-full items-stretch justify-center gap-0.5 xl:gap-1"
+                  role="navigation"
+                  aria-label="Main sections"
+                >
                   {!isAuthenticated ? (
                     <div className="flex items-center gap-2 px-2">
                       {renderDropdown(
@@ -1675,7 +1796,7 @@ const Navbar = () => {
                 </div>
               </div>
 
-              {/* Right: Favorites, Cart, extras, avatar */}
+              {/* RIGHT: Utilities + account */}
               <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 xl:gap-2">
                 {isAuthenticated
                   ? desktopRightActivityIcons.map((icon: any) =>
@@ -1684,16 +1805,17 @@ const Navbar = () => {
                   : null}
 
                 {isAuthenticated ? (
-                  <>
+                  <div className="flex items-center gap-1.5 rounded-full bg-slate-50/80 p-1 ring-1 ring-slate-200/70">
                     {renderFavoritesControl(false)}
                     {renderCartControl(false)}
-                  </>
+                    {renderCreateControl()}
+                  </div>
                 ) : null}
 
                 {isAuthenticated && showRoleSwitch
                   ? renderLink(
                       { id: "role-switch-nav", label: roleSwitchLabel, url: roleSwitchUrl },
-                      "hidden xl:inline-flex items-center rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                      "scrolith-header-utility hidden xl:inline-flex !px-3 !py-1.5 text-xs"
                     )
                   : null}
 
