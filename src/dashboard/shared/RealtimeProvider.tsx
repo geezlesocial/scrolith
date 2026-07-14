@@ -1,13 +1,12 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useUser } from '../../context/UserContext';
-import type { UserRole } from '../../types';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
-import { MessagingService } from '../../services/messaging';
+import { useNetworkStatus } from '../../context/NetworkStatusContext';
 import { ordersApi as OrdersService } from '../../services/orders';
 import { ContractService } from '../../services/contract';
 import { walletApi as WalletApi } from '../../services/wallet';
-import { USER_ROLES } from '../../utils/userRoles';
+import { decideMessagingFallbackPolling } from '../../services/messagingEngine/pollingPolicy';
 
 type RealtimeContextType = {
   socketConnected: boolean;
@@ -23,30 +22,21 @@ const normalizeRole = (role?: string) => {
   return normalized;
 };
 
+/**
+ * Non-messaging realtime side effects (orders, wallet, contracts, notifications refresh).
+ * Conversation list / unread ownership remains MessageContext — this provider must NOT
+ * call getAllConversations or discard list fetches on messages:new.
+ */
 const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, updateAdminProfile, updateUser } = useUser();
-  const { socket } = useSocket();
+  const { socket, isConnected, connectionHealth } = useSocket();
   const { refreshNotifications } = useNotification();
+  const { isOnline } = useNetworkStatus();
   const [socketConnected, setSocketConnected] = useState(false);
   const pollRef = useRef<number | null>(null);
   const lastNotificationRefreshAtRef = useRef<number>(0);
-
-  const startPolling = () => {
-    if (pollRef.current) return;
-    pollRef.current = window.setInterval(async () => {
-      if (!user) return;
-      const roleStr = normalizeRole(String(user.role));
-      const messagingRole = roleStr === 'freelancer' ? USER_ROLES.FREELANCER : roleStr === 'client' ? USER_ROLES.EMPLOYER : roleStr === 'admin' ? USER_ROLES.ADMIN : USER_ROLES.GUEST;
-      const contractRole = roleStr === 'client' ? 'client' : roleStr === 'freelancer' ? 'freelancer' : roleStr === 'admin' ? 'admin' : 'client';
-      await Promise.allSettled([
-        refreshNotifications?.(),
-        MessagingService.getAllConversations?.(user.id, messagingRole),
-        OrdersService.getOrders?.({ ownerId: 'me', role: contractRole, limit: 1 }),
-        ContractService.getContracts?.(user.id, contractRole),
-        WalletApi.getWalletInfo?.(),
-      ]);
-    }, 45000);
-  };
+  const disconnectedSinceRef = useRef<number | null>(null);
+  const graceTimerRef = useRef<number | null>(null);
 
   const stopPolling = () => {
     if (!pollRef.current) return;
@@ -54,31 +44,100 @@ const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ childre
     pollRef.current = null;
   };
 
+  const startNonMessagingPolling = (intervalMs: number) => {
+    if (pollRef.current) return;
+    pollRef.current = window.setInterval(async () => {
+      if (!user || !isOnline) return;
+      const roleStr = normalizeRole(String(user.role));
+      const contractRole =
+        roleStr === 'client'
+          ? 'client'
+          : roleStr === 'freelancer'
+            ? 'freelancer'
+            : roleStr === 'admin'
+              ? 'admin'
+              : 'client';
+      // Intentionally omit MessagingService.getAllConversations — MessageContext owns inbox.
+      await Promise.allSettled([
+        refreshNotifications?.(),
+        OrdersService.getOrders?.({ ownerId: 'me', role: contractRole, limit: 1 }),
+        ContractService.getContracts?.(user.id, contractRole),
+        WalletApi.getWalletInfo?.()
+      ]);
+    }, intervalMs);
+  };
+
   useEffect(() => {
     if (!isAuthenticated || !user) {
       stopPolling();
       setSocketConnected(false);
+      disconnectedSinceRef.current = null;
+      if (graceTimerRef.current) {
+        window.clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = null;
+      }
       return;
+    }
+
+    setSocketConnected(Boolean(isConnected));
+
+    if (isConnected) {
+      disconnectedSinceRef.current = null;
+      stopPolling();
+      if (graceTimerRef.current) {
+        window.clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = null;
+      }
+      if (socket) {
+        try {
+          socket.emit('auth:join', { userId: user.id, role: user.role });
+        } catch {
+          // ignore
+        }
+      }
+    } else if (!disconnectedSinceRef.current) {
+      disconnectedSinceRef.current = Date.now();
+    }
+
+    const evaluatePolling = () => {
+      const decision = decideMessagingFallbackPolling({
+        health: connectionHealth || (isConnected ? 'connected' : 'disconnected'),
+        isOnline,
+        disconnectedSince: disconnectedSinceRef.current,
+        tabHidden: typeof document !== 'undefined' && document.visibilityState === 'hidden'
+      });
+      if (!decision.shouldPoll) {
+        stopPolling();
+        return;
+      }
+      stopPolling();
+      startNonMessagingPolling(decision.intervalMs);
+    };
+
+    evaluatePolling();
+    if (
+      !isConnected &&
+      isOnline &&
+      (connectionHealth === 'reconnecting' ||
+        connectionHealth === 'connecting' ||
+        connectionHealth === 'degraded' ||
+        connectionHealth === 'disconnected')
+    ) {
+      if (graceTimerRef.current) window.clearTimeout(graceTimerRef.current);
+      graceTimerRef.current = window.setTimeout(() => {
+        evaluatePolling();
+      }, 8_500);
     }
 
     if (!socket) {
-      startPolling();
-      return;
+      return () => {
+        stopPolling();
+        if (graceTimerRef.current) {
+          window.clearTimeout(graceTimerRef.current);
+          graceTimerRef.current = null;
+        }
+      };
     }
-
-    const onConnect = () => {
-      setSocketConnected(true);
-      stopPolling();
-      socket.emit('auth:join', { userId: user.id, role: user.role });
-    };
-
-    const onDisconnect = () => {
-      setSocketConnected(false);
-      startPolling();
-    };
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
 
     const onNotificationsNew = () => {
       const now = Date.now();
@@ -87,21 +146,32 @@ const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ childre
       refreshNotifications?.().catch(() => {});
     };
 
-    const onMessagesNew = () => {
-      const mRole = normalizeRole(String(user.role));
-      const messagingRole = mRole === 'freelancer' ? USER_ROLES.FREELANCER : mRole === 'client' ? USER_ROLES.EMPLOYER : mRole === 'admin' ? USER_ROLES.ADMIN : USER_ROLES.GUEST;
-      MessagingService.getAllConversations?.(user.id, messagingRole).catch(() => {});
-    };
+    // Message list/unread ownership: MessageContext only.
+    // Do not fetch getAllConversations or re-publish messages:new here.
 
     const onOrdersUpdated = () => {
       const oRole = normalizeRole(String(user.role));
-      const contractRole = oRole === 'client' ? 'client' : oRole === 'freelancer' ? 'freelancer' : oRole === 'admin' ? 'admin' : 'client';
+      const contractRole =
+        oRole === 'client'
+          ? 'client'
+          : oRole === 'freelancer'
+            ? 'freelancer'
+            : oRole === 'admin'
+              ? 'admin'
+              : 'client';
       OrdersService.getOrders?.({ ownerId: 'me', role: contractRole, limit: 1 }).catch(() => {});
     };
 
     const onContractsUpdated = () => {
       const cRole = normalizeRole(String(user.role));
-      const contractRole = cRole === 'client' ? 'client' : cRole === 'freelancer' ? 'freelancer' : cRole === 'admin' ? 'admin' : 'client';
+      const contractRole =
+        cRole === 'client'
+          ? 'client'
+          : cRole === 'freelancer'
+            ? 'freelancer'
+            : cRole === 'admin'
+              ? 'admin'
+              : 'client';
       ContractService.getContracts?.(user.id, contractRole).catch(() => {});
     };
 
@@ -109,11 +179,15 @@ const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ childre
       WalletApi.getWalletInfo?.().catch(() => {});
     };
 
-    // Admin profile updates (from other sessions)
     const onAdminProfileUpdated = (payload: any) => {
       try {
         if (updateAdminProfile) updateAdminProfile(payload);
-        if (updateUser) updateUser({ name: payload.username || payload.name, email: payload.email, avatar: payload.avatar });
+        if (updateUser)
+          updateUser({
+            name: payload.username || payload.name,
+            email: payload.email,
+            avatar: payload.avatar
+          });
       } catch (e) {
         console.warn('Failed to apply remote admin profile update', e);
       }
@@ -123,7 +197,6 @@ const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ childre
     const onJobsStatusUpdated = () => {};
 
     socket.on('notifications:new', onNotificationsNew);
-    socket.on('messages:new', onMessagesNew);
     socket.on('orders:updated', onOrdersUpdated);
     socket.on('contracts:updated', onContractsUpdated);
     socket.on('wallet:updated', onWalletUpdated);
@@ -131,13 +204,8 @@ const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ childre
     socket.on('gigs:status_updated', onGigsStatusUpdated);
     socket.on('jobs:status_updated', onJobsStatusUpdated);
 
-    if (socket.connected) onConnect();
-
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
       socket.off('notifications:new', onNotificationsNew);
-      socket.off('messages:new', onMessagesNew);
       socket.off('orders:updated', onOrdersUpdated);
       socket.off('contracts:updated', onContractsUpdated);
       socket.off('wallet:updated', onWalletUpdated);
@@ -145,8 +213,23 @@ const RealtimeProviderCore: React.FC<{ children: React.ReactNode }> = ({ childre
       socket.off('gigs:status_updated', onGigsStatusUpdated);
       socket.off('jobs:status_updated', onJobsStatusUpdated);
       stopPolling();
+      if (graceTimerRef.current) {
+        window.clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = null;
+      }
     };
-  }, [socket, isAuthenticated, user?.id, user?.role, refreshNotifications]);
+  }, [
+    socket,
+    isConnected,
+    connectionHealth,
+    isOnline,
+    isAuthenticated,
+    user?.id,
+    user?.role,
+    refreshNotifications,
+    updateAdminProfile,
+    updateUser
+  ]);
 
   const value = useMemo(() => ({ socketConnected }), [socketConnected]);
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

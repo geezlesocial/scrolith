@@ -32,6 +32,13 @@ import { getRecoverableActionMessage } from '../mobile/runtime/requestRecovery';
 import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDialog';
 import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
+import {
+  markOutgoingState,
+  subscribeMessagingEvent,
+  trackOutgoingMessage
+} from '../services/messagingEngine';
+import { buildClientSendId } from '../services/messagingComposer';
+import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/messagingSurfaces';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -179,7 +186,7 @@ const Messages = () => {
     registerVisibleConversation,
     unregisterVisibleConversation
   } = useMessages();
-  const { socket } = useSocket();
+  const { socket, isConnected, connectionHealth } = useSocket();
   const { settings } = useContent();
   
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
@@ -634,6 +641,61 @@ const Messages = () => {
       registerVisibleConversation(activeConvoId);
       return () => unregisterVisibleConversation(activeConvoId);
   }, [activeConvoId, registerVisibleConversation, unregisterVisibleConversation]);
+
+  // Enterprise engine bridge: dock / multi-tab / recovery updates without page refresh.
+  // Socket-origin events are ignored here because Messages.tsx already owns local thread
+  // socket handlers; shared badge ownership remains in MessageContext.
+  useEffect(() => {
+      const unsubCreated = subscribeMessagingEvent('MESSAGE_CREATED', (event) => {
+          if (event.source === 'socket') return;
+          const message = event.payload as Message | undefined;
+          const conversationId = String(
+              event.conversationId ||
+                  (message as any)?.conversationId ||
+                  (message as any)?.conversation_id ||
+                  ''
+          ).trim();
+          if (!conversationId || !message?.id) return;
+          setConversations((prev) => {
+              const has = prev.some((entry) => entry.id === conversationId);
+              if (!has) {
+                  void refreshMessages();
+                  return prev;
+              }
+              return prev.map((entry) => {
+                  if (entry.id !== conversationId) return entry;
+                  const existing = Array.isArray(entry.messages) ? entry.messages : [];
+                  if (existing.some((row) => row.id === message.id)) {
+                      return {
+                          ...entry,
+                          messages: existing.map((row) =>
+                              row.id === message.id ? { ...row, ...message } : row
+                          ),
+                          lastMessage: String(message.text || entry.lastMessage || ''),
+                          last_message: String(message.text || entry.last_message || ''),
+                          lastMessageAt: message.timestamp || entry.lastMessageAt,
+                          last_message_at: message.timestamp || entry.last_message_at
+                      };
+                  }
+                  return {
+                      ...entry,
+                      messages: [...existing, message],
+                      lastMessage: String(message.text || entry.lastMessage || ''),
+                      last_message: String(message.text || entry.last_message || ''),
+                      lastMessageAt: message.timestamp || entry.lastMessageAt,
+                      last_message_at: message.timestamp || entry.last_message_at
+                  };
+              });
+          });
+      });
+      const unsubRecovery = subscribeMessagingEvent('MISSED_EVENTS_RECOVERY', () => {
+          void refreshMessages();
+      });
+      return () => {
+          unsubCreated();
+          unsubRecovery();
+      };
+  }, [refreshMessages]);
 
   useEffect(() => {
       if (!conversationId && isMobileViewport) {
@@ -1412,13 +1474,22 @@ const Messages = () => {
       }
   };
 
+  // Fallback poll only when socket is unhealthy (grace handled by health state).
+  // Healthy sockets rely on event-driven updates — no routine 30s polling.
   useEffect(() => {
       if (!user) return;
-      const interval = setInterval(() => {
-          refreshConversationData({ silent: true });
-      }, 30000);
-                            return () => clearInterval(interval);
-  }, [user, messageInput, editingMessageId, replyToMessage, pendingAttachments.length]);
+      if (isConnected || connectionHealth === 'connected') return;
+      if (connectionHealth === 'offline') return;
+      if (connectionHealth === 'connecting' || connectionHealth === 'reconnecting') {
+          // Brief reconnect window — no poll storm.
+          return;
+      }
+      const interval = window.setInterval(() => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+          void refreshConversationData({ silent: true });
+      }, 30_000);
+      return () => window.clearInterval(interval);
+  }, [user, isConnected, connectionHealth]);
 
   const handleMessagesScroll = () => {
       const container = messagesContainerRef.current;
@@ -1492,18 +1563,17 @@ const Messages = () => {
                   const matchesThread = messageMatchesConversation(message, c);
                   if (!matchesThread) return c;
                   found = true;
-                  const exists = c.messages.some(m => m.id === message.id);
-                  const nextMessages = exists
-                      ? c.messages.map((m) => (m.id === message.id ? { ...m, ...message } : m))
-                      : [...c.messages, message];
+                  // Reconcile optimistic clientSendId rows the same way as dock.
+                  const nextMessages = reconcileOptimisticMessage(c.messages || [], message);
                   const isActive = activeConvoIdRef.current === convoId;
                   const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
                   const unreadBase = Number(c.unreadCount ?? c.unread_count ?? 0) || 0;
                   // Full-page local thread state only. Shared badge unread is owned by MessageContext.
                   // Do not re-increment when the same message id is re-delivered.
+                  const alreadyHad = (c.messages || []).some((m) => m.id === message.id);
                   const unreadCount = isActive
                       ? 0
-                      : !isFromOther || exists
+                      : !isFromOther || alreadyHad
                         ? Math.max(0, unreadBase)
                         : Math.max(0, unreadBase) + 1;
                   const lastMessageText = resolveMessagePreviewText(message);
@@ -2168,36 +2238,99 @@ const Messages = () => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
+      const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
+      const replyToMessageId = replyToMessage?.id || null;
+      const clientSendId = buildClientSendId(activeConvoId, Date.now());
       traceClient('ui.send_message.request', {
           conversationId: activeConvoId,
           textLength: trimmed.length,
-          attachmentsCount: pendingAttachments.length,
-          replyToMessageId: replyToMessage?.id || null
+          attachmentsCount: attachmentIds.length,
+          replyToMessageId,
+          clientSendId
       });
 
+      const optimistic: Message = {
+          id: clientSendId,
+          conversationId: activeConvoId,
+          conversation_id: activeConvoId,
+          senderId: user.id,
+          sender_id: user.id,
+          text: trimmed,
+          timestamp: new Date().toISOString(),
+          is_read: true,
+          isRead: true,
+          message_type: attachmentIds.length ? 'file' : 'text',
+          messageType: attachmentIds.length ? 'file' : 'text',
+          attachments: attachmentIds,
+          replyToMessageId,
+          reply_to_message_id: replyToMessageId,
+          metadata: { clientSendId }
+      } as Message;
+
+      trackOutgoingMessage({
+          clientSendId,
+          conversationId: activeConvoId,
+          text: trimmed,
+          attachmentIds,
+          replyToMessageId,
+          state: 'sending'
+      });
+      applyConversationMessageChanges(activeConvoId, (messages) =>
+          dedupeMessagesById([...messages.filter((row) => row.id !== clientSendId), optimistic])
+      );
+      setMessageInput('');
+      setPendingAttachments([]);
+      setReplyToMessage(null);
+      emitTypingState(false);
+      resetTypingTimers();
+
       try {
-          const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
           const newMessage = await MessagingService.sendMessage(
-              activeConvoId, 
-              user.id, 
-              trimmed, 
+              activeConvoId,
+              user.id,
+              trimmed,
               user.role,
               attachmentIds,
-              replyToMessage?.id || null
+              replyToMessageId
           );
-
-          emitTypingState(false);
-          applyConversationMessageChanges(activeConvoId, (messages) => [...messages, newMessage]);
-          setMessageInput('');
-          setPendingAttachments([]);
-          setReplyToMessage(null);
-          resetTypingTimers();
-          refreshMessages(); 
+          const reconciled = {
+              ...newMessage,
+              metadata: {
+                  ...((newMessage as any)?.metadata || {}),
+                  clientSendId
+              }
+          } as Message;
+          markOutgoingState(clientSendId, 'sent', { serverMessageId: String(newMessage?.id || '') });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              reconcileOptimisticMessage(messages, reconciled)
+          );
+          refreshMessages();
           traceClient('ui.send_message.success', {
               conversationId: activeConvoId,
-              messageId: newMessage?.id || null
+              messageId: newMessage?.id || null,
+              clientSendId
           });
       } catch (error) {
+          markOutgoingState(clientSendId, 'failed', {
+              error: getRecoverableActionMessage('Message send', error)
+          });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              messages.map((entry) =>
+                  entry.id === clientSendId
+                      ? ({
+                            ...entry,
+                            metadata: {
+                                ...(entry.metadata || {}),
+                                sendFailed: true,
+                                clientSendId,
+                                failedText: trimmed,
+                                failedAttachmentIds: attachmentIds,
+                                failedReplyToMessageId: replyToMessageId
+                            }
+                        } as Message)
+                      : entry
+              )
+          );
           console.error("Failed to send message", error);
           showNotification(
               'error',
@@ -2206,7 +2339,8 @@ const Messages = () => {
           );
           traceClient('ui.send_message.error', {
               conversationId: activeConvoId,
-              error: String((error as any)?.message || error)
+              error: String((error as any)?.message || error),
+              clientSendId
           });
       }
   };
@@ -2229,12 +2363,29 @@ const Messages = () => {
               visibility: 'private'
           });
 
+          const clientSendId = buildClientSendId(activeConvoId, Date.now());
+          trackOutgoingMessage({
+              clientSendId,
+              conversationId: activeConvoId,
+              text: 'Voice note',
+              attachmentIds: [String(uploaded.id || uploaded.fileId || '').trim()],
+              state: 'sending'
+          });
           const message = await MessagingService.sendVoiceNote(activeConvoId, {
               fileId: String(uploaded.id || uploaded.fileId || '').trim(),
               durationMs: Math.max(1, Math.trunc(durationMs))
           });
-
-          applyConversationMessageChanges(activeConvoId, (messages) => [...messages, message]);
+          const reconciled = {
+              ...message,
+              metadata: {
+                  ...((message as any)?.metadata || {}),
+                  clientSendId
+              }
+          } as Message;
+          markOutgoingState(clientSendId, 'sent', { serverMessageId: String(message?.id || '') });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              reconcileOptimisticMessage(messages, reconciled)
+          );
           refreshMessages();
       } catch (error: any) {
           showNotification('error', 'Voice notes', getRecoverableActionMessage('Voice note send', error));

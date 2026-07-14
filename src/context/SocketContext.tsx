@@ -13,14 +13,25 @@ const trackRuntimeEvent = (eventName: string, payload: Record<string, unknown>, 
     .catch(() => {})
 }
 
+export type SocketConnectionHealth =
+  | 'connecting'
+  | 'connected'
+  | 'degraded'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'offline'
+
 export interface SocketContextType {
   socket: Socket | null
   isConnected: boolean
+  /** Stable health signal for polling policy — do not use socket === null alone. */
+  connectionHealth: SocketConnectionHealth
 }
 
 const DEFAULT_SOCKET_CONTEXT: SocketContextType = {
   socket: null,
-  isConnected: false
+  isConnected: false,
+  connectionHealth: 'disconnected'
 }
 
 export const SocketContext = createContext<SocketContextType>(DEFAULT_SOCKET_CONTEXT)
@@ -46,12 +57,35 @@ const buildSocketSignature = (input: {
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const [connectionHealth, setConnectionHealth] = useState<SocketConnectionHealth>('disconnected')
   const { user, isAuthenticated, isLoading } = useUser()
-  const { shouldAttemptLiveConnections, recoveryTick } = useNetworkStatus()
+  const { shouldAttemptLiveConnections, recoveryTick, isOnline } = useNetworkStatus()
   const lastOptionsRef = useRef<any>(null)
   const hasEverConnectedRef = useRef(false)
   const pendingReconnectTelemetryRef = useRef(false)
   const mountedRef = useRef(true)
+  const socketRef = useRef<Socket | null>(null)
+
+  useEffect(() => {
+    if (!isOnline) {
+      setConnectionHealth('offline')
+      setIsConnected(false)
+      return
+    }
+    if (!isAuthenticated || !user?.id || !shouldAttemptLiveConnections) {
+      if (!socketRef.current) setConnectionHealth('disconnected')
+      return
+    }
+    if (isConnected) {
+      setConnectionHealth('connected')
+      return
+    }
+    if (socketRef.current) {
+      setConnectionHealth(hasEverConnectedRef.current ? 'reconnecting' : 'connecting')
+      return
+    }
+    setConnectionHealth('connecting')
+  }, [isOnline, isAuthenticated, user?.id, shouldAttemptLiveConnections, isConnected])
 
   useEffect(() => {
     // Attach community event listeners when socket is available
@@ -221,9 +255,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     const cleanupSocket = () => {
       socketService.disconnect()
+      socketRef.current = null
       if (mountedRef.current) {
         setSocket(null)
         setIsConnected(false)
+        setConnectionHealth(isOnline ? 'disconnected' : 'offline')
       }
     }
 
@@ -265,8 +301,16 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Reuse the current socket only when its identity matches the current
       // auth state. This prevents a guest socket from surviving after login.
       if (existingSocket && existingSignature === nextSignature) {
+        socketRef.current = existingSocket
         setSocket(existingSocket)
         setIsConnected(Boolean(existingSocket.connected))
+        setConnectionHealth(
+          existingSocket.connected
+            ? 'connected'
+            : hasEverConnectedRef.current
+              ? 'reconnecting'
+              : 'connecting'
+        )
         if (!existingSocket.connected) {
           socketService.connect(lastOptionsRef.current || {
             url: socketUrl,
@@ -283,6 +327,8 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         cleanupSocket()
       }
 
+      setConnectionHealth(hasEverConnectedRef.current ? 'reconnecting' : 'connecting')
+
       const options = {
         url: socketUrl,
         namespace: '/community',
@@ -290,8 +336,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         role: user?.role || 'guest',
         token,
         onConnect: (connectedSocket) => {
+          socketRef.current = connectedSocket
           setIsConnected(true)
+          // Keep a stable React socket identity across brief reconnects when possible.
           setSocket(connectedSocket)
+          setConnectionHealth('connected')
           if (hasEverConnectedRef.current || pendingReconnectTelemetryRef.current) {
             trackRuntimeEvent(
               'socket_reconnected',
@@ -321,14 +370,19 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         },
         onDisconnect: () => {
+          // Do NOT clear socket to null on brief disconnects — that forces consumers
+          // to tear down listeners and start polling storms. Keep the instance and
+          // mark health as reconnecting/disconnected instead.
           setIsConnected(false)
-          setSocket(null)
+          setConnectionHealth(hasEverConnectedRef.current ? 'reconnecting' : 'disconnected')
+          pendingReconnectTelemetryRef.current = true
         },
         onConnectError: (error) => {
           if (isSocketTraceEnabled()) {
             console.error('Socket connect error:', error.message)
           }
           setIsConnected(false)
+          setConnectionHealth(hasEverConnectedRef.current ? 'degraded' : 'disconnected')
           pendingReconnectTelemetryRef.current = true
           trackRuntimeEvent(
             'socket_connect_error',
@@ -372,7 +426,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [user?.id, user?.role, isAuthenticated, isLoading, shouldAttemptLiveConnections, recoveryTick])
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, isConnected, connectionHealth }}>
       {children}
     </SocketContext.Provider>
   )
