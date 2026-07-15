@@ -241,7 +241,8 @@ describe('aiController Scrolitha prompt policy enforcement', () => {
     expect(payload.success).toBe(true);
     expect(payload.data.reply).toContain('Project Title:');
     expect(payload.data.reply).toContain('- Milestone | Duration | Deliverable');
-    expect(payload.data.reply).toContain('Immediate next steps:');
+    // Policy stripper normalizes LLM markdown headings to "Recommended next steps:"
+    expect(payload.data.reply).toContain('Recommended next steps:');
     expect(payload.data.reply).not.toContain('###');
     expect(payload.data.reply).not.toContain('**');
     expect(payload.data.reply).not.toContain('| --- |');
