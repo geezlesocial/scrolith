@@ -234,6 +234,216 @@ export class ScrolithaService {
     return extractData<any>(response);
   }
 
+  static async platformIdentity(): Promise<{
+    id: string;
+    username: string;
+    name: string;
+    avatar: string | null;
+    isVerified: boolean;
+    isScrolitha: boolean;
+    systemLabel: string;
+    disclosure: string;
+    capabilities?: string[];
+    limitations?: string[];
+    featureFlags?: { enabled?: boolean; proactiveSuggestions?: boolean };
+  }> {
+    const response = await api.get('/scrolitha/platform-identity');
+    return extractData<any>(response);
+  }
+
+  static async contextualAsk(payload: {
+    postId: string;
+    question: string;
+    commentId?: string | null;
+  }): Promise<{
+    commentId: string;
+    postId: string;
+    status: string;
+    message?: string;
+    platformUserId?: string;
+  }> {
+    const response = await api.post('/scrolitha/contextual/ask', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS
+    });
+    return extractData<any>(response);
+  }
+
+  static async contextualStatus(payload: {
+    postId: string;
+    commentId: string;
+  }): Promise<{ requestId: string; status: string; responseCommentId?: string | null }> {
+    const params = new URLSearchParams({
+      postId: payload.postId,
+      commentId: payload.commentId
+    });
+    const response = await api.get(`/scrolitha/contextual/status?${params.toString()}`);
+    return extractData<any>(response);
+  }
+
+  static async contextualRetry(payload: {
+    postId: string;
+    commentId: string;
+  }): Promise<{ postId: string; commentId: string; status: string }> {
+    const response = await api.post('/scrolitha/contextual/retry', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS
+    });
+    return extractData<any>(response);
+  }
+
+  static async contextualSuggestions(postId: string): Promise<{ suggestions: string[] }> {
+    const response = await api.get(
+      `/scrolitha/contextual/suggestions?postId=${encodeURIComponent(postId)}`
+    );
+    const data = extractData<any>(response);
+    return {
+      suggestions: Array.isArray(data?.suggestions) ? data.suggestions.map(String) : []
+    };
+  }
+
+  static async intelligenceAsk(payload: {
+    question: string;
+    surface?: string;
+    entityType?: string;
+    entityId?: string;
+    postId?: string;
+    sessionId?: string;
+    includeModeration?: boolean;
+  }): Promise<{
+    requestId: string;
+    answer: string;
+    intent: string;
+    mode: string;
+    classification: string;
+    confidence: number;
+    sources: string[];
+    suggestedFollowUps: string[];
+    recommendations: string[];
+    sessionKey: string;
+    disclosure: string;
+    diagnostics?: Record<string, unknown>;
+    moderation?: {
+      summary?: string;
+      autoActionTaken?: boolean;
+      disclosure?: string;
+      signals?: Array<{ signal: string; confidence: number; rationale: string; suggestedAction: string }>;
+    } | null;
+    confidenceBand?: string;
+    confidenceLabel?: string;
+    explanation?: {
+      summary?: string;
+      basis?: Array<{ label: string; detail?: string }>;
+      skillsUsed?: string[];
+      confidence?: { band: string; label: string; score: number };
+      caveats?: string[];
+    };
+    explanationText?: string;
+    workflow?: { workflowId?: string; pipeline?: string[]; skills?: string[] };
+  }> {
+    const response = await api.post('/scrolitha/intelligence/ask', payload, {
+      timeout: SCROLITHA_CHAT_TIMEOUT_MS,
+      headers: payload.sessionId ? { 'x-scrolitha-session': payload.sessionId } : undefined
+    });
+    return extractData<any>(response);
+  }
+
+  static async intelligenceDismiss(payload: {
+    sessionKey: string;
+    suggestionKey: string;
+  }): Promise<{ sessionKey: string; dismissedSuggestionKeys: string[] }> {
+    const response = await api.post('/scrolitha/intelligence/dismiss', payload);
+    return extractData<any>(response);
+  }
+
+  static async moderationAssist(payload: {
+    postId?: string;
+    commentId?: string;
+    postContent?: string;
+    commentContent?: string;
+    allowMemberPreview?: boolean;
+  }): Promise<any> {
+    const response = await api.post('/scrolitha/moderation/assist', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS
+    });
+    return extractData<any>(response);
+  }
+
+  static async intelligenceSkills(): Promise<{ skills: Array<{ id: string; name: string; description: string }> }> {
+    const response = await api.get('/scrolitha/intelligence/skills');
+    return extractData<any>(response);
+  }
+
+  static async intelligenceNetworkStatus(): Promise<any> {
+    const response = await api.get('/scrolitha/intelligence/network-status');
+    return extractData<any>(response);
+  }
+
+  static async osBootstrap(payload: {
+    page?: Record<string, unknown>;
+    sessionId?: string;
+    viewport?: string;
+    activity?: string;
+    questionHint?: string;
+  }): Promise<any> {
+    const response = await api.post('/scrolitha/os/bootstrap', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS,
+      headers: payload.sessionId ? { 'x-scrolitha-session': payload.sessionId } : undefined
+    });
+    return extractData<any>(response);
+  }
+
+  static async osAsk(
+    payload: {
+      question?: string;
+      page?: Record<string, unknown>;
+      sessionId?: string;
+      viewport?: string;
+      activity?: string;
+      actionCardId?: string;
+      includeModeration?: boolean;
+      requestId?: string;
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<any> {
+    const response = await api.post('/scrolitha/os/ask', payload, {
+      timeout: SCROLITHA_CHAT_TIMEOUT_MS,
+      signal: options?.signal,
+      headers: payload.sessionId ? { 'x-scrolitha-session': payload.sessionId } : undefined
+    });
+    return extractData<any>(response);
+  }
+
+  static async osCancel(requestId: string): Promise<{ cancelled: boolean }> {
+    const response = await api.post('/scrolitha/os/cancel', { requestId });
+    return extractData<any>(response);
+  }
+
+  static async deepSearch(payload: {
+    query: string;
+    limit?: number;
+    intent?: string;
+    mode?: string;
+  }): Promise<any> {
+    const response = await api.post('/scrolitha/intelligence/search', payload, {
+      timeout: SCROLITHA_EXECUTE_TIMEOUT_MS
+    });
+    return extractData<any>(response);
+  }
+
+  static async intelligenceDiagnostics(): Promise<any> {
+    const response = await api.get('/scrolitha/intelligence/diagnostics');
+    return extractData<any>(response);
+  }
+
+  static async intelligenceHealth(): Promise<any> {
+    const response = await api.get('/scrolitha/intelligence/health');
+    return extractData<any>(response);
+  }
+
+  static async intelligenceRollout(): Promise<any> {
+    const response = await api.get('/scrolitha/intelligence/rollout');
+    return extractData<any>(response);
+  }
+
   static async adminGetConfig(scope?: 'user' | 'admin'): Promise<any> {
     const query = scope ? `?scope=${encodeURIComponent(scope)}` : '';
     const response = await api.get(`/admin/scrolitha/config${query}`);

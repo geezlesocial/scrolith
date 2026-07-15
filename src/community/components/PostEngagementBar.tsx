@@ -10,9 +10,11 @@ import {
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
+import { useScrolithaOs } from '../../context/ScrolithaOsContext';
 import { CommunityService } from '../../services/community';
 import { postOptionsApi } from '../../services/postOptions';
 import PostComments from '../../components/PostComments';
+import AskScrolithaPanel from '../../components/post/AskScrolithaPanel';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
@@ -182,7 +184,21 @@ const PostEngagementBar: React.FC<Props> = ({
   const { user } = useUser();
   const { settings } = useContent();
   const { showNotification } = useNotification();
+  const scrolithaOs = useScrolithaOs();
   const isCoarsePointer = useIsCoarsePointer();
+
+  useEffect(() => {
+    if (!postId) return;
+    scrolithaOs.setPageContext({
+      surface: 'post',
+      pageType: 'post',
+      entityType: 'post',
+      entityId: postId,
+      postId,
+      title: postTitle || undefined,
+      module: 'feed'
+    });
+  }, [postId, postTitle, scrolithaOs]);
 
   const reactionsSettings = (settings as any)?.reactions || {};
   const memberHomeSettings = (settings as any)?.memberHome || {};
@@ -759,6 +775,17 @@ const PostEngagementBar: React.FC<Props> = ({
       />
 
       <div ref={commentsAnchorRef} />
+      {commentsEnabled && commentsOpen && user?.id ? (
+        <AskScrolithaPanel
+          postId={postId}
+          postPreview={postContent || postTitle || ''}
+          compact
+          className="mb-3 mt-2"
+          onRequestStarted={() => {
+            // Expand comment tree so pending + reply appear without layout thrash.
+          }}
+        />
+      ) : null}
       {commentsEnabled ? (
         <PostComments
           postId={postId}

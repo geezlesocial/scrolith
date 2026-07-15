@@ -20,6 +20,7 @@ import { CartProvider } from './context/CartContext';
 import { NetworkStatusProvider } from './context/NetworkStatusContext';
 import { UserProvider, useUser } from './context/UserContext';
 import { SocketProvider } from './context/SocketContext';
+import { ScrolithaOsProvider } from './context/ScrolithaOsContext';
 import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
@@ -355,6 +356,7 @@ const DynamicFooter = React.lazy(() => import('./components/DynamicFooter'));
 const IntegrationsManager = React.lazy(() => import('./components/IntegrationsManager'));
 const AppDistributionPrompt = React.lazy(() => import('./components/AppDistributionPrompt'));
 const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
+const ScrolithaOsSurface = React.lazy(() => import('./components/scrolitha/ScrolithaOsSurface'));
 const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
 const AdminDashboard = React.lazy(() => import('./dashboard/AdminDashboard'));
 const CreateJob = React.lazy(() => import('./create-job-post/CreateJob'));
@@ -1818,6 +1820,12 @@ const AppContent = () => {
           <SupportWidget />
         </Suspense>
       )}
+      {/* Global Scrolitha Intelligence OS surface — single reusable adaptive assistant */}
+      {nonCriticalUiReady && user && (
+        <Suspense fallback={null}>
+          <ScrolithaOsSurface />
+        </Suspense>
+      )}
       {!isAdminRoute && !isMobileShellRoute && !isMobileStandaloneRoute && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <MarketingPopups />
@@ -2002,27 +2010,29 @@ function App() {
             one physical socket lives in socketService; this only provides context.
           */}
           <SocketProvider>
-            <PreloaderProvider>
-              <ContentProvider>
-                <I18nProvider>
-                  <NotificationProvider>
-                    <ToastContainer />
-                    <CurrencyProvider>
-                      <FavoritesProvider>
-                        <CartProvider>
-                          <LiveFeatureProvider>
-                            <AuthenticatedRuntimeBoundary>
-                              <GlobalPreloader />
-                              <AppContent />
-                            </AuthenticatedRuntimeBoundary>
-                          </LiveFeatureProvider>
-                        </CartProvider>
-                      </FavoritesProvider>
-                    </CurrencyProvider>
-                  </NotificationProvider>
-                </I18nProvider>
-              </ContentProvider>
-            </PreloaderProvider>
+            <ScrolithaOsProvider>
+              <PreloaderProvider>
+                <ContentProvider>
+                  <I18nProvider>
+                    <NotificationProvider>
+                      <ToastContainer />
+                      <CurrencyProvider>
+                        <FavoritesProvider>
+                          <CartProvider>
+                            <LiveFeatureProvider>
+                              <AuthenticatedRuntimeBoundary>
+                                <GlobalPreloader />
+                                <AppContent />
+                              </AuthenticatedRuntimeBoundary>
+                            </LiveFeatureProvider>
+                          </CartProvider>
+                        </FavoritesProvider>
+                      </CurrencyProvider>
+                    </NotificationProvider>
+                  </I18nProvider>
+                </ContentProvider>
+              </PreloaderProvider>
+            </ScrolithaOsProvider>
           </SocketProvider>
         </UserProvider>
       </NetworkStatusProvider>
