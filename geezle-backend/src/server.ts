@@ -30,6 +30,7 @@ import locationRoutes from './routes/location.routes';
 import settingsRoutes from './routes/settings.routes';
 import commerceRoutes from './routes/commerce';
 import searchRoutes from './routes/search';
+import enterpriseSearchRoutes from './routes/enterpriseSearch.routes';
 import discoveryV2Routes from './routes/discovery.v2.routes';
 import discoveryEngineRoutes from './routes/discoveryEngine.routes';
 import feedRoutes from './routes/feed';
@@ -2398,6 +2399,14 @@ try {
 } catch {
   // optional if module unavailable
 }
+try {
+  // Phase 9.4 — enterprise search realtime invalidation (same Socket.IO)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { bindSearchRealtimeApp } = require('./services/enterpriseSearch/realtime/realtime');
+  bindSearchRealtimeApp(app);
+} catch {
+  // optional if module unavailable
+}
 app.set('communityIo', communityNs);
 app.set('communityNs', communityNs);
 // Expose io and community namespace globally for webhook handlers that don't have app context
@@ -2879,7 +2888,8 @@ const buildHealthPayload = () => ({
       health: '/api/search/health',
       unified: '/api/search/unified',
       suggestions: '/api/search/suggestions',
-      discoveryV2: '/api/discovery/v2'
+      discoveryV2: '/api/discovery/v2',
+      enterpriseV2: '/api/search/v2/health'
     },
     phase2: {
       discovery: '/api/discovery/v2/feed',
@@ -3083,6 +3093,8 @@ app.use('/api/feed', feedRoutes);
 app.use('/api/topics', topicsRoutes);
 app.use('/api/pipeline', pipelineRoutes);
 app.use('/api/search', searchRoutes);
+/** Enterprise Search v2 — foundation only; flags default OFF (Phase 9.2) */
+app.use('/api/search/v2', enterpriseSearchRoutes);
 app.use('/api/discovery', discoveryV2Routes);
 app.use('/api/discovery-engine', discoveryEngineRoutes);
 app.use('/api/ai', aiRoutes);
