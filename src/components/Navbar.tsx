@@ -41,7 +41,7 @@ import { getNotificationActionUrl, getNotificationBucket, isExternalNotification
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
 import { HeaderMessagesPopover } from "./messaging";
 import { formatMessagingBadgeCount } from "../services/messagingSurfaces";
-import { HeaderUnreadBadge } from "./header";
+import { HeaderPrimaryNavItem, HeaderUnreadBadge } from "./header";
 import "./header/enterpriseHeader.css";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
@@ -640,47 +640,22 @@ const Navbar = () => {
     if (!item || !item.label || !url || !isVisibleToRole(item)) return null;
     const isExternal = url.startsWith("http");
     const active = !isExternal && isPathActive(url);
+    // Prefer CMS-provided icon; fall back to label/url heuristics only when icon is absent.
     const iconKey = resolveNavIconKey({ label: item.label, url, icon: item.icon });
-    const iconEl = getDynamicIcon(iconKey, 22, active ? "filled" : acIconStyle);
-    const className = [
-      "scrolith-header-nav-item scrolith-desktop-nav-item",
-      active ? "is-active" : ""
-    ]
-      .filter(Boolean)
-      .join(" ");
-
-    const content = (
-      <>
-        <span className="scrolith-header-nav-item__icon">{iconEl}</span>
-        <span className="max-w-[5.75rem] truncate">{item.label}</span>
-        {active ? <span className="scrolith-header-nav-item__marker" aria-hidden="true" /> : null}
-      </>
-    );
-
-    if (isExternal) {
-      return (
-        <a
-          key={item.id || url}
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className={className}
-          aria-current={active ? "page" : undefined}
-        >
-          {content}
-        </a>
-      );
-    }
+    const iconEl = getDynamicIcon(iconKey, 20, active ? "filled" : acIconStyle);
 
     return (
-      <Link
+      <HeaderPrimaryNavItem
         key={item.id || url}
-        to={url}
-        className={className}
-        aria-current={active ? "page" : undefined}
-      >
-        {content}
-      </Link>
+        label={String(item.label)}
+        icon={iconEl}
+        href={url}
+        external={isExternal}
+        active={active}
+        as="link"
+        ariaCurrent={active ? "page" : undefined}
+        title={String(item.label)}
+      />
     );
   };
 
@@ -1418,23 +1393,85 @@ const Navbar = () => {
             ? helpRef
             : undefined;
 
-    const buttonClass = desktopStyle
-      ? ["scrolith-header-nav-item scrolith-desktop-nav-item", active ? "is-active" : ""]
-          .filter(Boolean)
-          .join(" ")
-      : [
-          "relative flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900",
-          "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
-          "motion-safe:transition-colors",
-          icon.showLabel ? "flex-col space-y-1" : ""
-        ].join(" ");
-
+    // CMS-provided label/icon remain authoritative for desktop primary shell.
+    const cmsLabel = String(icon.label || actionType);
     const ariaCountLabel =
       actionType === "messages" && messagesUnreadCount > 0
-        ? `Messages, ${messagesUnreadCount} unread`
+        ? `${cmsLabel}, ${messagesUnreadCount} unread`
         : actionType === "notifications" && badgeCount > 0
-          ? `Notifications, ${badgeCount} unread`
-          : icon.label || actionType;
+          ? `${cmsLabel}, ${badgeCount} unread`
+          : cmsLabel;
+
+    const expanded =
+      actionType === "notifications"
+        ? showNotifications
+        : actionType === "messages"
+          ? showMessagesDropdown
+          : actionType === "help"
+            ? showHelpDropdown
+            : actionType === "profile"
+              ? showProfileDropdown
+              : undefined;
+
+    const hasPopup = ["notifications", "messages", "help", "profile"].includes(actionType);
+    const iconKey = icon.displayType || icon.type || icon.actionType || icon.icon;
+
+    if (desktopStyle) {
+      return (
+        <div
+          key={icon.id || actionType}
+          className="relative flex-shrink-0"
+          ref={ref}
+          data-header-activity={actionType}
+        >
+          <HeaderPrimaryNavItem
+            as="button"
+            label={cmsLabel}
+            icon={getDynamicIcon(iconKey, 20, active ? "filled" : acIconStyle)}
+            active={active || Boolean(expanded)}
+            badgeCount={badgeCount}
+            badgeColor={acBadgeColor}
+            showBadge={Boolean(acShowBadges)}
+            onClick={() => handleActivityIconClick(icon)}
+            title={cmsLabel}
+            ariaLabel={ariaCountLabel}
+            ariaExpanded={expanded}
+            ariaControls={
+              actionType === "messages" && showMessagesDropdown && isDesktopNav
+                ? messagesPopoverId
+                : undefined
+            }
+            ariaHaspopup={hasPopup ? "dialog" : undefined}
+          />
+
+          {actionType === "notifications" ? renderNotificationsDropdown() : null}
+          {actionType === "messages" ? renderMessagesDropdown() : null}
+
+          {actionType === "help" && showHelpDropdown ? (
+            <div className="absolute right-0 z-[70] mt-2 w-64 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
+              <div className="py-2">
+                {ensureArray<any>((activityConfig as any)?.helpMenu).map((link: any) => {
+                  if (!link?.label || !resolveUrl(link) || link.isEnabled === false) return null;
+                  return renderLink(
+                    link,
+                    "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
+                    () => setShowHelpDropdown(false)
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    // Mobile / non-desktop activity controls (structure preserved).
+    const buttonClass = [
+      "relative flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900",
+      "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
+      "motion-safe:transition-colors",
+      icon.showLabel ? "flex-col space-y-1" : ""
+    ].join(" ");
 
     return (
       <div key={icon.id || actionType} className="relative" ref={ref}>
@@ -1442,52 +1479,22 @@ const Navbar = () => {
           type="button"
           onClick={() => handleActivityIconClick(icon)}
           className={buttonClass}
-          title={icon.label}
+          title={cmsLabel}
           aria-label={ariaCountLabel}
-          aria-expanded={
-            actionType === "notifications"
-              ? showNotifications
-              : actionType === "messages"
-                ? showMessagesDropdown
-                : actionType === "help"
-                  ? showHelpDropdown
-                  : actionType === "profile"
-                    ? showProfileDropdown
-                    : undefined
-          }
+          aria-expanded={expanded}
           aria-controls={
             actionType === "messages" && showMessagesDropdown && isDesktopNav
               ? messagesPopoverId
               : undefined
           }
-          aria-haspopup={
-            ["notifications", "messages", "help", "profile"].includes(actionType) ? "dialog" : undefined
-          }
+          aria-haspopup={hasPopup ? "dialog" : undefined}
         >
-          <span
-            className={
-              desktopStyle
-                ? "scrolith-header-nav-item__icon"
-                : "relative flex h-7 w-7 items-center justify-center"
-            }
-          >
-            {getDynamicIcon(
-              icon.displayType || icon.type || icon.actionType,
-              desktopStyle ? 22 : acIconSize,
-              active ? "filled" : acIconStyle
-            )}
-            {acShowBadges
-              ? renderCountBadge(badgeCount, acBadgeColor, desktopStyle ? "" : "top-0 right-0")
-              : null}
+          <span className="relative flex h-7 w-7 items-center justify-center">
+            {getDynamicIcon(iconKey, acIconSize, active ? "filled" : acIconStyle)}
+            {acShowBadges ? renderCountBadge(badgeCount, acBadgeColor, "top-0 right-0") : null}
           </span>
-          {desktopStyle && showDesktopLabel ? (
-            <span className="max-w-[5.75rem] truncate">{icon.label || actionType}</span>
-          ) : null}
-          {!desktopStyle && icon.showLabel ? (
-            <span className="hidden text-[10px] font-medium lg:block">{icon.label}</span>
-          ) : null}
-          {desktopStyle && active ? (
-            <span className="scrolith-header-nav-item__marker" aria-hidden="true" />
+          {showDesktopLabel || icon.showLabel ? (
+            <span className="hidden text-[10px] font-medium lg:block">{cmsLabel}</span>
           ) : null}
         </button>
 
@@ -1495,7 +1502,7 @@ const Navbar = () => {
         {actionType === "messages" ? renderMessagesDropdown() : null}
 
         {actionType === "help" && showHelpDropdown ? (
-          <div className="absolute right-0 mt-2 w-64 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+          <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
             <div className="py-2">
               {ensureArray<any>((activityConfig as any)?.helpMenu).map((link: any) => {
                 if (!link?.label || !resolveUrl(link) || link.isEnabled === false) return null;
@@ -1525,7 +1532,7 @@ const Navbar = () => {
         />
         {renderCountBadge(favoritesCount, "#EF4444", "top-[-6px] right-[-8px]")}
       </span>
-      {!compact ? <span className="hidden xl:inline">Favorites</span> : null}
+      {!compact ? <span className="hidden 2xl:inline">Favorites</span> : null}
     </Link>
   );
 
@@ -1540,7 +1547,7 @@ const Navbar = () => {
         <ShoppingCart className={`h-4 w-4 ${cartCount ? "text-blue-600" : "text-slate-500"}`} />
         {renderCountBadge(cartCount, "#2563EB", "top-[-6px] right-[-8px]")}
       </span>
-      {!compact ? <span className="hidden xl:inline">Cart</span> : null}
+      {!compact ? <span className="hidden 2xl:inline">Cart</span> : null}
     </Link>
   );
 
@@ -1576,7 +1583,7 @@ const Navbar = () => {
           }}
         >
           <Plus className="h-4 w-4" />
-          <span className="hidden xl:inline">Create</span>
+          <span className="hidden 2xl:inline">Create</span>
         </button>
         {showCreateMenu ? (
           <div
@@ -1671,7 +1678,7 @@ const Navbar = () => {
               {(avatarName || "U").slice(0, 1).toUpperCase()}
             </div>
           )}
-          <span className="hidden max-w-[7.5rem] truncate text-sm font-semibold text-slate-800 xl:block">
+          <span className="hidden max-w-[7.5rem] truncate text-sm font-semibold text-slate-800 2xl:block">
             {avatarName || "Account"}
           </span>
           <ChevronDown
@@ -1715,9 +1722,12 @@ const Navbar = () => {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           {isDesktopNav ? (
             /* ===== Desktop enterprise header (lg+) ===== */
-            <div className="scrolith-enterprise-header__inner">
-              {/* LEFT: Brand + Search */}
-              <div className="flex min-w-0 flex-[1.2] items-center gap-3 xl:gap-4">
+            <div
+              className="scrolith-enterprise-header__inner"
+              data-header-layout="three-zone-grid"
+            >
+              {/* LEFT: Brand + Search — may shrink; search compresses first */}
+              <div className="scrolith-header-zone scrolith-header-zone--left" data-header-zone="left">
                 <Link
                   to={homeUrl}
                   className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
@@ -1730,7 +1740,7 @@ const Navbar = () => {
                       width={160}
                       height={32}
                       decoding="async"
-                      className="h-8 w-auto max-w-[8.5rem] object-contain xl:max-w-[9.5rem]"
+                      className="h-8 w-auto max-w-[7.5rem] object-contain xl:max-w-[9.5rem]"
                     />
                   ) : (
                     <div
@@ -1761,12 +1771,16 @@ const Navbar = () => {
                 ) : null}
               </div>
 
-              {/* CENTER: Primary navigation */}
-              <div className="flex flex-[1.15] items-stretch justify-center self-stretch">
+              {/* CENTER: CMS navigation + Messages/Notifications activity (admin-owned) */}
+              <div
+                className="scrolith-header-zone scrolith-header-zone--center"
+                data-header-zone="center"
+              >
                 <div
-                  className="flex h-full items-stretch justify-center gap-0.5 xl:gap-1"
+                  className="scrolith-header-nav-track"
                   role="navigation"
                   aria-label="Main sections"
+                  data-testid="scrolith-header-primary-nav"
                 >
                   {!isAuthenticated ? (
                     <div className="flex items-center gap-2 px-2">
@@ -1796,8 +1810,11 @@ const Navbar = () => {
                 </div>
               </div>
 
-              {/* RIGHT: Utilities + account */}
-              <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 xl:gap-2">
+              {/* RIGHT: Fixed utilities + account — never underlaps center nav */}
+              <div
+                className="scrolith-header-zone scrolith-header-zone--right"
+                data-header-zone="right"
+              >
                 {isAuthenticated
                   ? desktopRightActivityIcons.map((icon: any) =>
                       renderActivityIconControl(icon, { desktopStyle: false })
@@ -1805,7 +1822,7 @@ const Navbar = () => {
                   : null}
 
                 {isAuthenticated ? (
-                  <div className="flex items-center gap-1.5 rounded-full bg-slate-50/80 p-1 ring-1 ring-slate-200/70">
+                  <div className="scrolith-header-utility-cluster" data-testid="scrolith-header-utility-cluster">
                     {renderFavoritesControl(false)}
                     {renderCartControl(false)}
                     {renderCreateControl()}
