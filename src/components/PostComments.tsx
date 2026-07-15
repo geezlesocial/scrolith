@@ -1,21 +1,31 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Edit3, Heart, Loader2, MessageCircle, Paperclip, Send, Trash2, X } from 'lucide-react';
+import { Edit3, Heart, Loader2, MessageCircle, Paperclip, RefreshCw, Send, Trash2, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { CommunityService } from '../services/community';
 import { FileService } from '../services/files';
 import { ReactionsService } from '../services/reactions';
+import ScrolithaService from '../services/scrolitha';
 import ReactionBar from '../community/components/ReactionBar';
 import MentionText from '../community/components/MentionText';
 import { UploadedFile } from '../types';
 import CommentAiAssist from './post/CommentAiAssist';
+import ScrolithaCommentBadge from './post/ScrolithaCommentBadge';
+import {
+  broadcastScrolithaPending,
+  isScrolithaComment,
+  mentionsScrolitha,
+  subscribeScrolithaPending
+} from '../utils/scrolithaIdentity';
 
 type CommentAuthor = {
   id?: string;
   name?: string;
   username?: string;
   avatar?: string | null;
+  isVerified?: boolean;
+  isScrolitha?: boolean;
 };
 
 type PostComment = {
@@ -38,6 +48,17 @@ type PostComment = {
   canEdit?: boolean;
   canDelete?: boolean;
   replies?: PostComment[];
+  isScrolitha?: boolean;
+  isAiGenerated?: boolean;
+  systemLabel?: string;
+  disclosure?: string;
+  scrolithaPending?: boolean;
+  scrolitha?: {
+    classification?: string;
+    confidence?: number;
+    mode?: string;
+    externalSearchAvailable?: boolean;
+  } | null;
 };
 
 type PendingAttachment = {
@@ -307,6 +328,10 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const [commentReactionSummary, setCommentReactionSummary] = useState<
     Record<string, { counts: Record<string, number>; userReaction: string | null }>
   >({});
+  /** commentId -> pending Scrolitha review state */
+  const [scrolithaPendingByComment, setScrolithaPendingByComment] = useState<
+    Record<string, { status: 'reviewing' | 'failed'; message?: string }>
+  >({});
   const onCountChangeRef = useRef<typeof onCountChange>(onCountChange);
   const initialCountRef = useRef<number>(normalizeCount(initialCount));
   const lastNotifiedCountRef = useRef<number>(normalizeCount(initialCount));
@@ -533,6 +558,22 @@ const PostComments: React.FC<PostCommentsProps> = ({
         if (shouldIncrease) {
           setCount((prev) => prev + 1);
         }
+        // Non-blocking pending indicator when @Scrolitha was invoked.
+        if (created.scrolithaPending || mentionsScrolitha(text)) {
+          setScrolithaPendingByComment((prev) => ({
+            ...prev,
+            [String(created.id)]: {
+              status: 'reviewing',
+              message: 'Scrolitha is reviewing this post…'
+            }
+          }));
+          setExpandedReplies((prev) => ({ ...prev, [String(created.id)]: true }));
+          broadcastScrolithaPending({
+            postId,
+            commentId: String(created.id),
+            status: 'reviewing'
+          });
+        }
       }
       if (parentId) {
         setReplyDraft('');
@@ -712,11 +753,94 @@ const PostComments: React.FC<PostCommentsProps> = ({
         }
         return insertComment(prev, { ...incoming, replies: incoming.replies || [] });
       });
+      if (incoming.parentId && isScrolithaComment(incoming)) {
+        setExpandedReplies((prev) => ({ ...prev, [String(incoming.parentId)]: true }));
+        setScrolithaPendingByComment((prev) => {
+          if (!incoming.parentId || !prev[incoming.parentId]) return prev;
+          const next = { ...prev };
+          delete next[incoming.parentId];
+          return next;
+        });
+      }
     }
     if (shouldIncrease) {
       setCount((prev) => prev + 1);
     }
   }, [postId]);
+
+  const onScrolithaStarted = useCallback((event: Event) => {
+    const detail = (event as CustomEvent).detail || {};
+    if (String(detail.postId || '') !== postId) return;
+    const commentId = String(detail.commentId || '').trim();
+    if (!commentId) return;
+    setScrolithaPendingByComment((prev) => ({
+      ...prev,
+      [commentId]: {
+        status: 'reviewing',
+        message: String(detail.message || 'Scrolitha is reviewing this post…')
+      }
+    }));
+    setExpandedReplies((prev) => ({ ...prev, [commentId]: true }));
+  }, [postId]);
+
+  const onScrolithaResponseCreated = useCallback((event: Event) => {
+    const detail = (event as CustomEvent).detail || {};
+    if (String(detail.postId || '') !== postId) return;
+    const parentCommentId = String(detail.commentId || '').trim();
+    if (parentCommentId) {
+      setScrolithaPendingByComment((prev) => {
+        if (!prev[parentCommentId]) return prev;
+        const next = { ...prev };
+        delete next[parentCommentId];
+        return next;
+      });
+    }
+    const responseComment = detail.comment as PostComment | undefined;
+    if (responseComment?.id && expandedRef.current) {
+      setComments((prev) => {
+        if (commentExists(prev, responseComment.id)) {
+          return updateCommentInTree(prev, { ...responseComment, replies: responseComment.replies || [] });
+        }
+        return insertComment(prev, { ...responseComment, replies: responseComment.replies || [] });
+      });
+      if (responseComment.parentId) {
+        setExpandedReplies((prev) => ({ ...prev, [String(responseComment.parentId)]: true }));
+      }
+    }
+  }, [postId]);
+
+  const onScrolithaFailed = useCallback((event: Event) => {
+    const detail = (event as CustomEvent).detail || {};
+    if (String(detail.postId || '') !== postId) return;
+    const commentId = String(detail.commentId || '').trim();
+    if (!commentId) return;
+    setScrolithaPendingByComment((prev) => ({
+      ...prev,
+      [commentId]: {
+        status: 'failed',
+        message: String(detail.message || 'Scrolitha could not finish reviewing.')
+      }
+    }));
+  }, [postId]);
+
+  const retryScrolitha = useCallback(
+    async (commentId: string) => {
+      try {
+        await ScrolithaService.contextualRetry({ postId, commentId });
+        setScrolithaPendingByComment((prev) => ({
+          ...prev,
+          [commentId]: { status: 'reviewing', message: 'Scrolitha is reviewing this post…' }
+        }));
+      } catch (error: any) {
+        showNotification(
+          'error',
+          'Scrolitha',
+          error?.response?.data?.message || error?.message || 'Retry failed.'
+        );
+      }
+    },
+    [postId, showNotification]
+  );
 
   const onCommentUpdated = useCallback((event: Event) => {
     const detail = (event as CustomEvent).detail;
@@ -785,14 +909,107 @@ const PostComments: React.FC<PostCommentsProps> = ({
     window.addEventListener('community:post_comment_deleted', onCommentDeleted as EventListener);
     window.addEventListener('community:post_comment_like_toggled', onCommentLikeToggled as EventListener);
     window.addEventListener('reactions:updated', onCommentReactionUpdated as EventListener);
+    window.addEventListener('scrolitha:request_started', onScrolithaStarted as EventListener);
+    window.addEventListener('scrolitha:response_created', onScrolithaResponseCreated as EventListener);
+    window.addEventListener('scrolitha:response_failed', onScrolithaFailed as EventListener);
+    const unsubPending = subscribeScrolithaPending((payload) => {
+      if (payload.postId !== postId || !payload.commentId) return;
+      if (payload.status === 'completed') {
+        setScrolithaPendingByComment((prev) => {
+          if (!prev[payload.commentId]) return prev;
+          const next = { ...prev };
+          delete next[payload.commentId];
+          return next;
+        });
+        return;
+      }
+      setScrolithaPendingByComment((prev) => ({
+        ...prev,
+        [payload.commentId]: {
+          status: payload.status === 'failed' ? 'failed' : 'reviewing',
+          message:
+            payload.status === 'failed'
+              ? 'Scrolitha could not finish reviewing.'
+              : 'Scrolitha is reviewing this post…'
+        }
+      }));
+    });
     return () => {
       window.removeEventListener('community:post_comment_created', onCommentCreated as EventListener);
       window.removeEventListener('community:post_comment_updated', onCommentUpdated as EventListener);
       window.removeEventListener('community:post_comment_deleted', onCommentDeleted as EventListener);
       window.removeEventListener('community:post_comment_like_toggled', onCommentLikeToggled as EventListener);
       window.removeEventListener('reactions:updated', onCommentReactionUpdated as EventListener);
+      window.removeEventListener('scrolitha:request_started', onScrolithaStarted as EventListener);
+      window.removeEventListener('scrolitha:response_created', onScrolithaResponseCreated as EventListener);
+      window.removeEventListener('scrolitha:response_failed', onScrolithaFailed as EventListener);
+      unsubPending?.();
     };
-  }, [onCommentCreated, onCommentUpdated, onCommentDeleted, onCommentLikeToggled, onCommentReactionUpdated]);
+  }, [
+    onCommentCreated,
+    onCommentUpdated,
+    onCommentDeleted,
+    onCommentLikeToggled,
+    onCommentReactionUpdated,
+    onScrolithaStarted,
+    onScrolithaResponseCreated,
+    onScrolithaFailed,
+    postId
+  ]);
+
+  // Browser refresh / reconnect recovery: one-shot reconcile for reviewing states.
+  const scrolithaPendingKey = useMemo(
+    () =>
+      Object.entries(scrolithaPendingByComment)
+        .filter(([, value]) => value?.status === 'reviewing')
+        .map(([id]) => id)
+        .sort()
+        .join(','),
+    [scrolithaPendingByComment]
+  );
+  useEffect(() => {
+    if (!expanded || !user?.id || !scrolithaPendingKey) return;
+    const pendingIds = scrolithaPendingKey.split(',').filter(Boolean);
+    let cancelled = false;
+    let reloaded = false;
+    const timer = window.setTimeout(() => {
+      void Promise.all(
+        pendingIds.map(async (commentId) => {
+          try {
+            const status = await ScrolithaService.contextualStatus({ postId, commentId });
+            if (cancelled) return;
+            if (status.status === 'completed') {
+              setScrolithaPendingByComment((prev) => {
+                if (!prev[commentId]) return prev;
+                const next = { ...prev };
+                delete next[commentId];
+                return next;
+              });
+              broadcastScrolithaPending({ postId, commentId, status: 'completed' });
+              if (!reloaded) {
+                reloaded = true;
+                void loadComments();
+              }
+            } else if (status.status === 'failed') {
+              setScrolithaPendingByComment((prev) => ({
+                ...prev,
+                [commentId]: {
+                  status: 'failed',
+                  message: 'Scrolitha could not finish reviewing.'
+                }
+              }));
+            }
+          } catch {
+            // ignore status reconciliation errors
+          }
+        })
+      );
+    }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [expanded, loadComments, postId, scrolithaPendingKey, user?.id]);
 
   const renderAttachments = (attachments?: PostComment['attachments']) => {
     if (!attachments?.length) return null;
@@ -887,8 +1104,9 @@ const PostComments: React.FC<PostCommentsProps> = ({
 
   const renderComment = (comment: PostComment, depth = 0) => {
     const isDeleted = comment.status === 'deleted';
-    const canEdit = comment.canEdit && !isDeleted;
-    const canDelete = comment.canDelete && !isDeleted;
+    const scrolithaReply = isScrolithaComment(comment);
+    const canEdit = comment.canEdit && !isDeleted && !scrolithaReply;
+    const canDelete = comment.canDelete && !isDeleted && !scrolithaReply;
     const isEditing = editingId === comment.id;
     const reactionSummary = commentReactionSummary[comment.id];
     const reactionCount = sumReactionTotals(reactionSummary?.counts);
@@ -897,8 +1115,9 @@ const PostComments: React.FC<PostCommentsProps> = ({
     const commentAuthorAvatar = resolveCommentAvatar(comment);
     const commentAuthorName = comment.userName || comment.author?.name || 'Community member';
     const commentAuthorUsername = resolveCommentUsername(comment);
-    const repliesExpanded = !!expandedReplies[comment.id] || replyToId === comment.id;
+    const repliesExpanded = !!expandedReplies[comment.id] || replyToId === comment.id || !!scrolithaPendingByComment[comment.id];
     const visibleReplies = repliesExpanded ? comment.replies || [] : [];
+    const pendingScrolitha = scrolithaPendingByComment[comment.id];
     return (
       <div
         key={comment.id}
@@ -906,23 +1125,29 @@ const PostComments: React.FC<PostCommentsProps> = ({
         className={`mt-4 transition-colors ${depth > 0 ? 'ml-6 border-l border-slate-100 pl-4' : ''}`}
       >
         <div className="flex items-start gap-3">
-          <Link to={commentProfileUrl} className="h-10 w-10 overflow-hidden rounded-full bg-slate-100 shadow-sm">
+          <Link to={commentProfileUrl} className={`h-10 w-10 overflow-hidden rounded-full shadow-sm ${scrolithaReply ? 'bg-cyan-100 ring-2 ring-cyan-200' : 'bg-slate-100'}`}>
             {commentAuthorAvatar ? (
               <img src={commentAuthorAvatar} alt={commentAuthorName} className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-slate-500">
-                {commentAuthorName.slice(0, 1)}
+              <div className={`flex h-full w-full items-center justify-center text-[10px] font-semibold ${scrolithaReply ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>
+                {scrolithaReply ? 'AI' : commentAuthorName.slice(0, 1)}
               </div>
             )}
           </Link>
           <div className="min-w-0 flex-1">
-            <div className="rounded-3xl border border-slate-100 bg-white px-4 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
+            <div className={`rounded-3xl border px-4 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.05)] ${scrolithaReply ? 'border-cyan-100 bg-gradient-to-br from-cyan-50/70 to-white' : 'border-slate-100 bg-white'}`}>
               <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
                 <Link to={commentProfileUrl} className="font-semibold text-slate-900 hover:text-slate-700 hover:underline">
                   {commentAuthorName}
                 </Link>
                 {commentAuthorUsername ? (
                   <span className="truncate text-xs text-slate-400">@{commentAuthorUsername}</span>
+                ) : null}
+                {scrolithaReply ? (
+                  <ScrolithaCommentBadge
+                    classification={comment.scrolitha?.classification}
+                    confidence={comment.scrolitha?.confidence}
+                  />
                 ) : null}
                 {comment.createdAt && (
                   <span className="text-xs text-slate-500" title={formatTime(comment.createdAt)}>
@@ -972,7 +1197,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 </div>
               ) : (
                 <>
-                  <div className={`mt-2 text-[15px] leading-6 ${isDeleted ? 'italic text-slate-400' : 'text-slate-800'}`}>
+                  <div className={`mt-2 whitespace-pre-wrap text-[15px] leading-6 ${isDeleted ? 'italic text-slate-400' : 'text-slate-800'}`}>
                     {isDeleted ? (
                       'This comment has been deleted.'
                     ) : (
@@ -984,10 +1209,42 @@ const PostComments: React.FC<PostCommentsProps> = ({
                       />
                     )}
                   </div>
+                  {scrolithaReply && comment.disclosure ? (
+                    <p className="mt-2 text-[11px] leading-4 text-cyan-900/70" role="note">
+                      {comment.disclosure}
+                    </p>
+                  ) : null}
                   {!isDeleted && renderAttachments(comment.attachments)}
                 </>
               )}
             </div>
+
+            {pendingScrolitha ? (
+              <div
+                className="mt-2 flex flex-wrap items-center gap-2 rounded-2xl border border-cyan-100 bg-cyan-50/80 px-3 py-2 text-xs text-cyan-950"
+                role="status"
+                aria-live="polite"
+              >
+                {pendingScrolitha.status === 'reviewing' ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-700" aria-hidden />
+                    <span>{pendingScrolitha.message || 'Scrolitha is reviewing this post…'}</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{pendingScrolitha.message || 'Scrolitha could not finish reviewing.'}</span>
+                    <button
+                      type="button"
+                      onClick={() => void retryScrolitha(comment.id)}
+                      className="inline-flex items-center gap-1 rounded-full bg-white px-2.5 py-1 font-semibold text-cyan-800 shadow-sm ring-1 ring-cyan-200"
+                    >
+                      <RefreshCw className="h-3 w-3" aria-hidden />
+                      Retry
+                    </button>
+                  </>
+                )}
+              </div>
+            ) : null}
 
             {!isEditing && (
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-2 text-xs">
