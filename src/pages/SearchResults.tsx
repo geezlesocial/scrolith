@@ -29,6 +29,8 @@ import {
   type GlobalSearchGroups,
   type GlobalSearchItem
 } from '../services/globalSearch';
+import { isEnterpriseSearchUxEnabled } from '../search/enterpriseSearch.ux';
+import { EnterpriseSearchPage } from '../components/search';
 
 type SearchFilter = 'all' | GlobalSearchGroupKey;
 
@@ -85,6 +87,15 @@ const mergeUnique = (items: SearchItem[]) => {
 };
 
 const SearchResults = () => {
+  // Phase 9.5 — enterprise results experience (default OFF)
+  if (isEnterpriseSearchUxEnabled()) {
+    return <EnterpriseSearchPage />;
+  }
+
+  return <LegacySearchResults />;
+};
+
+const LegacySearchResults = () => {
   const [searchParams] = useSearchParams();
   const query = searchParams.get('q') || '';
   const mode = (searchParams.get('mode') || 'keyword') as 'keyword' | 'semantic';

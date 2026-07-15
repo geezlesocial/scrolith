@@ -19,6 +19,8 @@ import {
 import { SearchSuggestion } from '../types';
 import { useUser } from '../context/UserContext';
 import { CompassIcon as Compass, ShoppingCartIcon as ShoppingCart, UserIcon as User, UsersIcon as Users } from './icons/ShellIcons';
+import { isEnterpriseSearchUxEnabled } from '../search/enterpriseSearch.ux';
+import EnterpriseSearchCombobox from './search/EnterpriseSearchCombobox';
 
 interface SearchInputProps {
     placeholder?: string;
@@ -134,7 +136,29 @@ const suggestionVisualConfig: Record<SearchSuggestionVisualType, { icon: React.C
     }
 };
 
-const SearchInput: React.FC<SearchInputProps> = ({
+const SearchInput: React.FC<SearchInputProps> = (props) => {
+    // Phase 9.5 — Enterprise Search UX (default OFF). No change when flag disabled.
+    if (isEnterpriseSearchUxEnabled()) {
+        return (
+            <EnterpriseSearchCombobox
+                placeholder={props.placeholder || DEFAULT_HEADER_PLACEHOLDER}
+                className={props.className}
+                size={props.size || 'normal'}
+                showButton={props.showButton}
+                buttonLabel={props.buttonLabel}
+                buttonAriaLabel={props.buttonAriaLabel}
+                searchPath={props.searchPath}
+                initialQuery={props.initialQuery}
+                onSearch={props.onSearch}
+                disableNavigation={props.disableNavigation}
+            />
+        );
+    }
+
+    return <LegacySearchInput {...props} />;
+};
+
+const LegacySearchInput: React.FC<SearchInputProps> = ({
     placeholder = "",
     className = "",
     size = 'normal',

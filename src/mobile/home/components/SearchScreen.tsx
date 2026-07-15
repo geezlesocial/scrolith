@@ -5,6 +5,8 @@ import { mobileSearch } from '../../../services/mobileSearch';
 import OptimizedImage from '../../../components/media/OptimizedImage';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
+import { isEnterpriseSearchUxEnabled } from '../../../search/enterpriseSearch.ux';
+import EnterpriseMobileSearchPanel from '../../../components/search/EnterpriseMobileSearchPanel';
 
 export type SearchCategory = 'posts' | 'people' | 'pages' | 'jobs' | 'gigs';
 type SearchScope = SearchCategory | 'all';
@@ -58,6 +60,42 @@ const writeRecentSearches = (items: string[]) => {
 };
 
 export default function SearchScreen({
+  enabled,
+  categories,
+  onClose,
+  onNavigate,
+  onNavigateUrl
+}: {
+  enabled: boolean;
+  categories: SearchCategory[];
+  onClose: () => void;
+  onNavigate?: () => void;
+  onNavigateUrl?: (url: string) => void;
+}) {
+  // Phase 9.5 — enterprise mobile search (default OFF; no regression when disabled)
+  if (enabled && isEnterpriseSearchUxEnabled()) {
+    return (
+      <EnterpriseMobileSearchPanel
+        enabled={enabled}
+        onClose={onClose}
+        onNavigate={onNavigate}
+        onNavigateUrl={onNavigateUrl}
+      />
+    );
+  }
+
+  return (
+    <LegacySearchScreen
+      enabled={enabled}
+      categories={categories}
+      onClose={onClose}
+      onNavigate={onNavigate}
+      onNavigateUrl={onNavigateUrl}
+    />
+  );
+}
+
+function LegacySearchScreen({
   enabled,
   categories,
   onClose,
