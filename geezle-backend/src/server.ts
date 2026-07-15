@@ -31,6 +31,7 @@ import settingsRoutes from './routes/settings.routes';
 import commerceRoutes from './routes/commerce';
 import searchRoutes from './routes/search';
 import discoveryV2Routes from './routes/discovery.v2.routes';
+import discoveryEngineRoutes from './routes/discoveryEngine.routes';
 import feedRoutes from './routes/feed';
 import topicsRoutes from './routes/topics.routes';
 import pipelineRoutes from './routes/pipeline.routes';
@@ -2389,6 +2390,14 @@ io.use(async (socket, next) => {
 });
 
 app.set('io', io);
+try {
+  // Phase 8.1 — discovery realtime invalidation (no new socket stack)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { bindDiscoveryRealtimeApp } = require('./services/discoveryEngine/discoveryEngine.realtime');
+  bindDiscoveryRealtimeApp(app);
+} catch {
+  // optional if module unavailable
+}
 app.set('communityIo', communityNs);
 app.set('communityNs', communityNs);
 // Expose io and community namespace globally for webhook handlers that don't have app context
@@ -3075,6 +3084,7 @@ app.use('/api/topics', topicsRoutes);
 app.use('/api/pipeline', pipelineRoutes);
 app.use('/api/search', searchRoutes);
 app.use('/api/discovery', discoveryV2Routes);
+app.use('/api/discovery-engine', discoveryEngineRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/gigs', gigRoutes);
 app.use('/api/jobs', jobsRoutes);
