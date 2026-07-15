@@ -1,91 +1,32 @@
 import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { getPushRuntimeStatus, isPushEnabled, sendPushToUser } from '../services/pushNotifications';
-import { buildNotificationActionUrl, normalizeNotificationActionUrl } from '../services/notificationActionUrl.service';
+import {
+  notificationIntelligenceService
+} from '../services/notificationIntelligence';
 
 const ensureAuthId = (req: Request) => req.user?.id as string | undefined;
-const getObject = (value: unknown) =>
-  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, any>) : {};
 
-const toApiNotification = (notification: any) => {
-  const meta = getObject(notification.meta);
-  const actionUrl =
-    normalizeNotificationActionUrl(meta.action_url || meta.actionUrl || meta.link) ||
-    buildNotificationActionUrl(notification.type, {
-      ...meta,
-      actorId: notification.actorId || meta.actorId || null
-    });
-  const actorId = notification.actorId || meta.actorId || null;
-  const actorName = meta.actorName || null;
-  const actorAvatar = meta.actorAvatar || null;
-  const entityType = meta.entityType || meta.entity_type || null;
-  const entityId = meta.entityId || meta.entity_id || null;
-  const parentId = meta.parentId || meta.parent_id || null;
-  return {
-    id: notification.id,
-    type: notification.type,
-    title: notification.title,
-    body: notification.body,
-    message: notification.body || '',
-    actor_id: actorId,
-    actorId,
-    actor_name: actorName,
-    actorName,
-    actor_avatar: actorAvatar,
-    actorAvatar,
-    entity_type: entityType,
-    entityType,
-    entity_id: entityId,
-    entityId,
-    parent_id: parentId,
-    parentId,
-    is_read: notification.isRead,
-    isRead: notification.isRead,
-    meta,
-    metadata: meta,
-    action_url: actionUrl,
-    actionUrl,
-    created_at: notification.createdAt,
-    createdAt: notification.createdAt
-  };
-};
+const isAdminRole = (role: unknown) => String(role || '').toLowerCase().includes('admin');
 
-const parseLimit = (value: unknown, fallback: number, min: number, max: number) => {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-};
+const requestIdOf = (req: Request) =>
+  String(req.headers['x-request-id'] || req.headers['x-correlation-id'] || '').trim() || null;
 
 export const listNotifications = async (req: Request, res: Response) => {
   try {
     const authId = ensureAuthId(req);
     if (!authId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    const limit = parseLimit(req.query?.limit, 50, 10, 100);
-    const cursorId = String(req.query?.cursor || '').trim();
-    const rows = await prisma.notification.findMany({
-      where: { userId: authId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        body: true,
-        actorId: true,
-        meta: true,
-        isRead: true,
-        createdAt: true
-      }
+    const result = await notificationIntelligenceService.listForViewer({
+      viewerId: authId,
+      limit: req.query?.limit,
+      cursor: req.query?.cursor,
+      requestId: requestIdOf(req)
     });
-    const hasMore = rows.length > limit;
-    const pageRows = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore ? String(pageRows[pageRows.length - 1]?.id || '') : null;
     return res.json({
       success: true,
-      data: pageRows.map(toApiNotification),
-      pagination: { limit, hasMore, nextCursor }
+      data: result.items,
+      pagination: result.pagination
     });
   } catch (error: any) {
     console.error('List notifications error:', error);
@@ -99,9 +40,18 @@ export const markAsRead = async (req: Request, res: Response) => {
     if (!authId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
-    if (!ids.length) return res.status(400).json({ success: false, error: 'ids required' });
-
-    await prisma.notification.updateMany({ where: { id: { in: ids }, userId: authId }, data: { isRead: true } });
+    try {
+      await notificationIntelligenceService.markRead({
+        viewerId: authId,
+        ids,
+        requestId: requestIdOf(req)
+      });
+    } catch (err: any) {
+      if (Number(err?.statusCode) === 400) {
+        return res.status(400).json({ success: false, error: err.message || 'ids required' });
+      }
+      throw err;
+    }
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Mark notifications read error:', error);
@@ -114,7 +64,10 @@ export const markAllRead = async (req: Request, res: Response) => {
     const authId = ensureAuthId(req);
     if (!authId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    await prisma.notification.updateMany({ where: { userId: authId, isRead: false }, data: { isRead: true } });
+    await notificationIntelligenceService.markAllRead({
+      viewerId: authId,
+      requestId: requestIdOf(req)
+    });
     return res.json({ success: true });
   } catch (error: any) {
     console.error('Mark all notifications read error:', error);
@@ -122,12 +75,35 @@ export const markAllRead = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Create notification.
+ * Phase 10.2 security: recipient must be the authenticated user, or caller must be admin.
+ * Does not widen permissions; closes IDOR (Phase 10.1.5 R1) without new write APIs.
+ */
 export const createNotification = async (req: Request, res: Response) => {
   try {
+    const authId = ensureAuthId(req);
+    if (!authId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
     const { userId, actorId, type, title, body } = req.body || {};
     if (!userId || !type) return res.status(400).json({ success: false, error: 'userId and type are required' });
 
-    const created = await prisma.notification.create({ data: { userId, actorId: actorId || null, type, title: title || '', body: body || '', isRead: false } });
+    const targetUserId = String(userId).trim();
+    const admin = isAdminRole(req.user?.role);
+    if (targetUserId !== authId && !admin) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+
+    const created = await prisma.notification.create({
+      data: {
+        userId: targetUserId,
+        actorId: actorId || null,
+        type,
+        title: title || '',
+        body: body || '',
+        isRead: false
+      }
+    });
     return res.json({ success: true, data: { id: created.id } });
   } catch (error: any) {
     console.error('Create notification error:', error);
@@ -137,36 +113,21 @@ export const createNotification = async (req: Request, res: Response) => {
 
 export const listNotificationsForUser = async (req: Request, res: Response) => {
   try {
-    // Admin-only
     const role = req.user?.role || '';
-    if (!role.toString().toLowerCase().includes('admin')) return res.status(403).json({ success: false, error: 'Forbidden' });
+    if (!isAdminRole(role)) return res.status(403).json({ success: false, error: 'Forbidden' });
     const userId = req.params.userId;
     if (!userId) return res.status(400).json({ success: false, error: 'userId required' });
-    const limit = parseLimit(req.query?.limit, 80, 10, 200);
-    const cursorId = String(req.query?.cursor || '').trim();
-    const rows = await prisma.notification.findMany({
-      where: { userId },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      take: limit + 1,
-      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-      select: {
-        id: true,
-        type: true,
-        title: true,
-        body: true,
-        actorId: true,
-        meta: true,
-        isRead: true,
-        createdAt: true
-      }
+
+    const result = await notificationIntelligenceService.listForUserAdmin({
+      userId,
+      limit: req.query?.limit,
+      cursor: req.query?.cursor,
+      requestId: requestIdOf(req)
     });
-    const hasMore = rows.length > limit;
-    const pageRows = hasMore ? rows.slice(0, limit) : rows;
-    const nextCursor = hasMore ? String(pageRows[pageRows.length - 1]?.id || '') : null;
     return res.json({
       success: true,
-      data: pageRows.map(toApiNotification),
-      pagination: { limit, hasMore, nextCursor }
+      data: result.items,
+      pagination: result.pagination
     });
   } catch (error: any) {
     console.error('List notifications for user error:', error);
