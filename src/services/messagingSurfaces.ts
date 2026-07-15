@@ -12,6 +12,269 @@ export const MESSAGING_WIDE_CHAT_WIDTH = 1440;
 export const MESSAGING_MAX_CHAT_WINDOWS_NARROW = 1;
 export const MESSAGING_MAX_CHAT_WINDOWS_WIDE = 3;
 
+/** Collapsed desktop Messaging bar footprint (Phase 6.2 / 6.2.1). */
+export const MESSAGING_DOCK_COLLAPSED_MAX_WIDTH_PX = 280;
+export const MESSAGING_DOCK_COLLAPSED_MIN_WIDTH_PX = 240;
+export const MESSAGING_DOCK_COLLAPSED_HEIGHT_PX = 48;
+export const MESSAGING_DOCK_COMPACT_WIDTH_PX = 228;
+export const MESSAGING_DOCK_COMPACT_HEIGHT_PX = 46;
+export const MESSAGING_DOCK_ICON_SIZE_PX = 48;
+export const MESSAGING_DOCK_EDGE_OFFSET_PX = 16;
+export const MESSAGING_DOCK_SAFE_GAP_PX = 12;
+export const MESSAGING_DOCK_MIN_GAP_PX = 8;
+
+export type MessagingDockMode = 'normal' | 'compact' | 'icon-only' | 'hidden';
+
+export type MessagingDockRect = {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
+};
+
+export type MessagingDockPlacement = {
+  mode: MessagingDockMode;
+  /** CSS `bottom` in px */
+  bottom: number;
+  /** CSS `right` in px */
+  right: number;
+  width: number;
+  height: number;
+};
+
+export const messagingDockRectsIntersect = (
+  a: MessagingDockRect,
+  b: MessagingDockRect,
+  gap = 0
+): boolean => {
+  const g = Math.max(0, gap);
+  return !(
+    a.right + g <= b.left ||
+    b.right + g <= a.left ||
+    a.bottom + g <= b.top ||
+    b.bottom + g <= a.top
+  );
+};
+
+const dockRectFromBottomRight = (
+  viewportWidth: number,
+  viewportHeight: number,
+  bottom: number,
+  right: number,
+  width: number,
+  height: number
+): MessagingDockRect => {
+  const left = viewportWidth - right - width;
+  const top = viewportHeight - bottom - height;
+  return {
+    top,
+    left,
+    right: left + width,
+    bottom: top + height,
+    width,
+    height
+  };
+};
+
+const fitsInViewport = (
+  viewportWidth: number,
+  viewportHeight: number,
+  rect: MessagingDockRect,
+  edge: number
+): boolean =>
+  rect.left >= edge - 0.5 &&
+  rect.top >= edge - 0.5 &&
+  rect.right <= viewportWidth - edge + 0.5 &&
+  rect.bottom <= viewportHeight - edge + 0.5;
+
+/**
+ * Deterministic adaptive placement for the collapsed Messaging bar.
+ * Prefer keeping the dock visible outside modal geometry; hide only as last resort.
+ */
+export const resolveMessagingDockPlacement = (input: {
+  viewportWidth: number;
+  viewportHeight: number;
+  modal: MessagingDockRect | null;
+  edge?: number;
+  preferredGap?: number;
+  minGap?: number;
+}): MessagingDockPlacement => {
+  const vw = input.viewportWidth;
+  const vh = input.viewportHeight;
+  const edge = input.edge ?? MESSAGING_DOCK_EDGE_OFFSET_PX;
+  const preferredGap = input.preferredGap ?? MESSAGING_DOCK_SAFE_GAP_PX;
+  const minGap = input.minGap ?? MESSAGING_DOCK_MIN_GAP_PX;
+
+  if (!Number.isFinite(vw) || !Number.isFinite(vh) || vw < 1 || vh < 1) {
+    return {
+      mode: 'hidden',
+      bottom: edge,
+      right: edge,
+      width: 0,
+      height: 0
+    };
+  }
+
+  type Candidate = {
+    mode: Exclude<MessagingDockMode, 'hidden'>;
+    bottom: number;
+    right: number;
+    width: number;
+    height: number;
+    gap: number;
+  };
+
+  const sizes: Array<{ mode: Candidate['mode']; width: number; height: number }> = [
+    {
+      mode: 'normal',
+      width: MESSAGING_DOCK_COLLAPSED_MAX_WIDTH_PX,
+      height: MESSAGING_DOCK_COLLAPSED_HEIGHT_PX
+    },
+    {
+      mode: 'compact',
+      width: MESSAGING_DOCK_COMPACT_WIDTH_PX,
+      height: MESSAGING_DOCK_COMPACT_HEIGHT_PX
+    },
+    {
+      mode: 'icon-only',
+      width: MESSAGING_DOCK_ICON_SIZE_PX,
+      height: MESSAGING_DOCK_ICON_SIZE_PX
+    }
+  ];
+
+  const candidates: Candidate[] = [];
+
+  for (const size of sizes) {
+    // A/B: bottom-right and bottom-left at preferred edge
+    candidates.push({
+      mode: size.mode,
+      bottom: edge,
+      right: edge,
+      width: size.width,
+      height: size.height,
+      gap: preferredGap
+    });
+    candidates.push({
+      mode: size.mode,
+      bottom: edge,
+      right: Math.max(edge, vw - edge - size.width),
+      width: size.width,
+      height: size.height,
+      gap: preferredGap
+    });
+
+    if (input.modal) {
+      const m = input.modal;
+      // C: sit above modal (dock bottom edge above modal top)
+      const aboveBottom = Math.max(edge, vh - m.top + preferredGap);
+      candidates.push({
+        mode: size.mode,
+        bottom: aboveBottom,
+        right: edge,
+        width: size.width,
+        height: size.height,
+        gap: preferredGap
+      });
+      candidates.push({
+        mode: size.mode,
+        bottom: aboveBottom,
+        right: Math.max(edge, vw - edge - size.width),
+        width: size.width,
+        height: size.height,
+        gap: preferredGap
+      });
+
+      // B: to the right of modal (CSS right when dock left = m.right + gap)
+      const rightCssForRightOfModal = vw - (m.right + preferredGap + size.width);
+      if (rightCssForRightOfModal >= edge - 0.5) {
+        candidates.push({
+          mode: size.mode,
+          bottom: edge,
+          right: rightCssForRightOfModal,
+          width: size.width,
+          height: size.height,
+          gap: preferredGap
+        });
+        // Vertically align toward modal bottom if possible
+        const bottomAlign = Math.max(edge, vh - m.bottom);
+        candidates.push({
+          mode: size.mode,
+          bottom: bottomAlign,
+          right: rightCssForRightOfModal,
+          width: size.width,
+          height: size.height,
+          gap: preferredGap
+        });
+      }
+
+      // B: to the left of modal (dock right edge left of modal left)
+      const leftCss = m.left - preferredGap - size.width;
+      if (leftCss >= edge - 0.5) {
+        const rightCss = vw - (leftCss + size.width);
+        candidates.push({
+          mode: size.mode,
+          bottom: edge,
+          right: rightCss,
+          width: size.width,
+          height: size.height,
+          gap: preferredGap
+        });
+        const bottomAlign = Math.max(edge, vh - m.bottom);
+        candidates.push({
+          mode: size.mode,
+          bottom: bottomAlign,
+          right: rightCss,
+          width: size.width,
+          height: size.height,
+          gap: preferredGap
+        });
+      }
+
+      // Retry above with emergency min gap
+      const aboveBottomMin = Math.max(edge, vh - m.top + minGap);
+      candidates.push({
+        mode: size.mode,
+        bottom: aboveBottomMin,
+        right: edge,
+        width: size.width,
+        height: size.height,
+        gap: minGap
+      });
+    }
+  }
+
+  // Deduplicate near-identical candidates
+  const seen = new Set<string>();
+  for (const c of candidates) {
+    const key = `${c.mode}:${Math.round(c.bottom)}:${Math.round(c.right)}:${c.width}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const rect = dockRectFromBottomRight(vw, vh, c.bottom, c.right, c.width, c.height);
+    if (!fitsInViewport(vw, vh, rect, Math.min(edge, 8))) continue;
+    if (input.modal && messagingDockRectsIntersect(rect, input.modal, c.gap)) continue;
+
+    return {
+      mode: c.mode,
+      bottom: Math.round(c.bottom),
+      right: Math.round(c.right),
+      width: c.width,
+      height: c.height
+    };
+  }
+
+  // E: no safe placement
+  return {
+    mode: 'hidden',
+    bottom: edge,
+    right: edge,
+    width: 0,
+    height: 0
+  };
+};
+
 export type MessagingInboxTab = 'all' | 'unread' | 'groups' | 'communities';
 
 export type OpenChatWindowState = {

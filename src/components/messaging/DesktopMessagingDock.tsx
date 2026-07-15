@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link } from 'react-router-dom';
 import { ChevronDown, ChevronUp, MessageSquare, RefreshCw } from 'lucide-react';
@@ -8,14 +8,30 @@ import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import {
   formatMessagingBadgeCount,
   isDesktopMessagingViewport,
+  MESSAGING_DOCK_COLLAPSED_HEIGHT_PX,
+  MESSAGING_DOCK_COLLAPSED_MAX_WIDTH_PX,
+  MESSAGING_DOCK_COMPACT_HEIGHT_PX,
+  MESSAGING_DOCK_COMPACT_WIDTH_PX,
+  MESSAGING_DOCK_EDGE_OFFSET_PX,
+  MESSAGING_DOCK_ICON_SIZE_PX,
   MESSAGING_PREVIEW_LIMIT,
+  resolveMessagingDockPlacement,
+  type MessagingDockPlacement,
   type MessagingInboxTab
 } from '../../services/messagingSurfaces';
 import MessagingTabs from './MessagingTabs';
 import MessagingSearch from './MessagingSearch';
 import MessagingConversationList from './MessagingConversationList';
 import MessagingChatWindow from './MessagingChatWindow';
+import { useBlockingOverlaySnapshot } from './useBlockingOverlayActive';
 
+/**
+ * Desktop messaging dock with adaptive placement (Phase 6.2.1).
+ *
+ * Body-portal stacking can place the dock above #root modals. While a blocking
+ * dialog is open we collapse expanded chrome and reposition the compact bar
+ * outside the modal geometry; hide only when no safe slot exists.
+ */
 const DesktopMessagingDock: React.FC = () => {
   const { user, isAuthenticated } = useUser();
   const {
@@ -41,7 +57,18 @@ const DesktopMessagingDock: React.FC = () => {
     typeof window !== 'undefined' ? isDesktopMessagingViewport(window.innerWidth) : false
   );
   const [activeTab, setActiveTab] = useState<MessagingInboxTab>('all');
+  const [placement, setPlacement] = useState<MessagingDockPlacement>(() =>
+    resolveMessagingDockPlacement({
+      viewportWidth: typeof window !== 'undefined' ? window.innerWidth : 1280,
+      viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 800,
+      modal: null
+    })
+  );
   const panelId = useId();
+  const overlay = useBlockingOverlaySnapshot();
+  const restoreDockExpandedRef = useRef(false);
+  const restoreExpandedWindowsRef = useRef<string[]>([]);
+  const wasBlockingRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
@@ -56,6 +83,88 @@ const DesktopMessagingDock: React.FC = () => {
     return () => media.removeListener(update);
   }, []);
 
+  // Collapse expanded dock + minimize open chat chrome while blocking; restore once.
+  useEffect(() => {
+    if (overlay.active && !wasBlockingRef.current) {
+      restoreDockExpandedRef.current = dockExpanded;
+      restoreExpandedWindowsRef.current = openChatWindows
+        .filter((entry) => !entry.minimized)
+        .map((entry) => entry.conversationId);
+      if (dockExpanded) setDockExpanded(false);
+      restoreExpandedWindowsRef.current.forEach((id) => minimizeConversationWindow(id));
+    } else if (!overlay.active && wasBlockingRef.current) {
+      if (restoreDockExpandedRef.current) {
+        setDockExpanded(true);
+      }
+      restoreDockExpandedRef.current = false;
+      const toRestore = restoreExpandedWindowsRef.current;
+      restoreExpandedWindowsRef.current = [];
+      // Only restore windows still present (user-closed stay closed).
+      const openIds = new Set(openChatWindows.map((entry) => entry.conversationId));
+      toRestore.forEach((id) => {
+        if (openIds.has(id)) restoreConversationWindow(id);
+      });
+    }
+    wasBlockingRef.current = overlay.active;
+  }, [
+    overlay.active,
+    dockExpanded,
+    setDockExpanded,
+    openChatWindows,
+    minimizeConversationWindow,
+    restoreConversationWindow
+  ]);
+
+  // Adaptive placement from viewport + topmost modal geometry.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let raf = 0;
+    const compute = () => {
+      raf = 0;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      // If modal is active but not yet measurable, treat as full-viewport to avoid covering it.
+      const modal =
+        overlay.active
+          ? overlay.rect || {
+              top: 0,
+              left: 0,
+              right: vw,
+              bottom: vh,
+              width: vw,
+              height: vh
+            }
+          : null;
+      const next = resolveMessagingDockPlacement({
+        viewportWidth: vw,
+        viewportHeight: vh,
+        modal
+      });
+      setPlacement((prev) => {
+        if (
+          prev.mode === next.mode &&
+          prev.bottom === next.bottom &&
+          prev.right === next.right &&
+          prev.width === next.width &&
+          prev.height === next.height
+        ) {
+          return prev;
+        }
+        return next;
+      });
+    };
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(compute);
+    };
+    schedule();
+    window.addEventListener('resize', schedule, { passive: true });
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [overlay.active, overlay.rect]);
+
   const conversations = useMemo(
     () => getPreviewConversations(activeTab, MESSAGING_PREVIEW_LIMIT),
     [getPreviewConversations, activeTab]
@@ -65,10 +174,9 @@ const DesktopMessagingDock: React.FC = () => {
   const badge = formatMessagingBadgeCount(unreadCount);
 
   useEffect(() => {
-    if (!isDesktop || !dockExpanded) return;
+    if (!isDesktop || !dockExpanded || overlay.active) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      // Close topmost expanded chat first, else collapse dock
       const topOpen = [...openChatWindows].reverse().find((entry) => !entry.minimized);
       if (topOpen) {
         event.preventDefault();
@@ -85,6 +193,7 @@ const DesktopMessagingDock: React.FC = () => {
   }, [
     isDesktop,
     dockExpanded,
+    overlay.active,
     openChatWindows,
     closeConversationWindow,
     setDockExpanded
@@ -93,107 +202,189 @@ const DesktopMessagingDock: React.FC = () => {
   if (!isAuthenticated || !user || !isDesktop) return null;
   if (typeof document === 'undefined') return null;
 
+  // E: last resort — no safe geometry; keep MessageContext alive, leave a11y tree.
+  if (placement.mode === 'hidden' && overlay.active) {
+    return null;
+  }
+
   const openWindows = openChatWindows;
-  const expandedWindows = openWindows.filter((entry) => !entry.minimized);
-  const minimizedWindows = openWindows.filter((entry) => entry.minimized);
+  // Suppress chat-window chrome while a blocking modal is open (drafts stay in context).
+  const showChatWindows = !overlay.active;
+  const expandedWindows = showChatWindows
+    ? openWindows.filter((entry) => !entry.minimized)
+    : [];
+  const minimizedWindows = showChatWindows
+    ? openWindows.filter((entry) => entry.minimized)
+    : [];
+
+  const edge = MESSAGING_DOCK_EDGE_OFFSET_PX;
+  const isIconOnly = placement.mode === 'icon-only' || (overlay.active && placement.mode !== 'normal' && placement.width <= MESSAGING_DOCK_ICON_SIZE_PX + 1);
+  const collapsedWidth =
+    placement.mode === 'icon-only'
+      ? MESSAGING_DOCK_ICON_SIZE_PX
+      : placement.mode === 'compact'
+        ? MESSAGING_DOCK_COMPACT_WIDTH_PX
+        : placement.width || MESSAGING_DOCK_COLLAPSED_MAX_WIDTH_PX;
+  const collapsedHeight =
+    placement.mode === 'icon-only'
+      ? MESSAGING_DOCK_ICON_SIZE_PX
+      : placement.mode === 'compact'
+        ? MESSAGING_DOCK_COMPACT_HEIGHT_PX
+        : placement.height || MESSAGING_DOCK_COLLAPSED_HEIGHT_PX;
 
   const content = (
-    <div className="pointer-events-none fixed bottom-0 right-0 z-[60] flex items-end gap-2 p-3 sm:p-4">
-      {/* Inline chat windows stack to the left of the dock */}
-      <div className="pointer-events-none flex items-end gap-2">
-        {expandedWindows.map((entry, index) => (
-          <MessagingChatWindow
-            key={entry.conversationId}
-            conversationId={entry.conversationId}
-            minimized={false}
-            onClose={() => closeConversationWindow(entry.conversationId)}
-            onMinimize={() => minimizeConversationWindow(entry.conversationId)}
-            onRestore={() => restoreConversationWindow(entry.conversationId)}
-            style={{ zIndex: 10 + index }}
-          />
-        ))}
-        {minimizedWindows.map((entry, index) => (
-          <MessagingChatWindow
-            key={`min-${entry.conversationId}`}
-            conversationId={entry.conversationId}
-            minimized
-            onClose={() => closeConversationWindow(entry.conversationId)}
-            onMinimize={() => minimizeConversationWindow(entry.conversationId)}
-            onRestore={() => restoreConversationWindow(entry.conversationId)}
-            style={{ zIndex: 5 + index }}
-          />
-        ))}
-      </div>
+    <div
+      className="pointer-events-none fixed z-[35] flex items-end gap-2"
+      style={{
+        bottom: placement.bottom,
+        right: placement.right
+      }}
+      data-testid="scrolith-desktop-messaging-dock"
+      data-dock-mode={placement.mode}
+      data-dock-blocking={overlay.active ? 'true' : 'false'}
+    >
+      {showChatWindows ? (
+        <div className="pointer-events-none flex items-end gap-2">
+          {expandedWindows.map((entry, index) => (
+            <MessagingChatWindow
+              key={entry.conversationId}
+              conversationId={entry.conversationId}
+              minimized={false}
+              onClose={() => closeConversationWindow(entry.conversationId)}
+              onMinimize={() => minimizeConversationWindow(entry.conversationId)}
+              onRestore={() => restoreConversationWindow(entry.conversationId)}
+              style={{ zIndex: 10 + index }}
+            />
+          ))}
+          {minimizedWindows.map((entry, index) => (
+            <MessagingChatWindow
+              key={`min-${entry.conversationId}`}
+              conversationId={entry.conversationId}
+              minimized
+              onClose={() => closeConversationWindow(entry.conversationId)}
+              onMinimize={() => minimizeConversationWindow(entry.conversationId)}
+              onRestore={() => restoreConversationWindow(entry.conversationId)}
+              style={{ zIndex: 5 + index }}
+            />
+          ))}
+        </div>
+      ) : null}
 
-      <div className="pointer-events-auto w-[min(400px,calc(100vw-1.5rem))]">
+      <div
+        className="pointer-events-auto"
+        style={{
+          width: dockExpanded
+            ? `min(360px, calc(100vw - ${edge * 2}px))`
+            : collapsedWidth
+        }}
+        data-testid="scrolith-messaging-dock-shell"
+        data-dock-expanded={dockExpanded ? 'true' : 'false'}
+      >
         {!dockExpanded ? (
           <button
             type="button"
             onClick={() => setDockExpanded(true)}
             className={[
-              'flex w-full items-center gap-3 rounded-t-xl border border-slate-200 bg-slate-900 px-3 py-2.5 text-left text-white shadow-2xl',
-              'hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50'
+              'flex w-full items-center border border-slate-200 bg-slate-900 text-left text-white shadow-xl',
+              'hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50',
+              isIconOnly
+                ? 'justify-center rounded-xl px-0'
+                : 'gap-2 rounded-t-lg px-2.5'
             ].join(' ')}
+            style={{ minHeight: collapsedHeight, height: collapsedHeight }}
+            data-testid="scrolith-messaging-dock-collapsed"
+            data-dock-visual-mode={isIconOnly ? 'icon-only' : placement.mode}
+            title={
+              unreadCount > 0 ? `Messaging, ${unreadCount} unread` : 'Messaging'
+            }
             aria-expanded={false}
             aria-controls={panelId}
             aria-label={
               unreadCount > 0 ? `Messaging, ${unreadCount} unread` : 'Messaging'
             }
           >
-            <div className="relative h-8 w-8 shrink-0">
-              <div className="h-8 w-8 overflow-hidden rounded-full border border-white/20 bg-slate-700">
+            <div className={`relative shrink-0 ${isIconOnly ? 'h-8 w-8' : 'h-7 w-7'}`}>
+              <div
+                className={`overflow-hidden rounded-full border border-white/20 bg-slate-700 ${
+                  isIconOnly ? 'h-8 w-8' : 'h-7 w-7'
+                }`}
+              >
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-full w-full items-center justify-center">
-                    <MessageSquare className="h-4 w-4" />
+                    <MessageSquare className={isIconOnly ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
                   </div>
                 )}
               </div>
               <span
-                className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-slate-900 bg-emerald-400"
+                className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-slate-900 bg-emerald-400"
                 title="Online"
-                aria-label="Online"
+                aria-hidden="true"
               />
+              {isIconOnly ? (
+                <span
+                  className={[
+                    'absolute -right-1 -top-1 inline-flex h-4 min-w-[1rem] max-w-[1.5rem] items-center justify-center rounded-full px-0.5 text-[9px] font-bold leading-none',
+                    badge ? 'bg-blue-500 text-white' : 'opacity-0'
+                  ].join(' ')}
+                  aria-hidden="true"
+                  data-testid="scrolith-messaging-dock-badge"
+                >
+                  {badge || '0'}
+                </span>
+              ) : null}
             </div>
-            <span className="min-w-0 flex-1 text-sm font-semibold">Messaging</span>
-            {unreadCount > 0 ? (
-              <span className="rounded-full bg-blue-500 px-2 py-0.5 text-[11px] font-bold">
-                {badge}
-              </span>
+            {!isIconOnly ? (
+              <>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-none">
+                  Messaging
+                </span>
+                <span
+                  className={[
+                    'inline-flex h-5 min-w-[1.35rem] max-w-[2rem] shrink-0 items-center justify-center rounded-full px-1.5 text-[10px] font-bold leading-none',
+                    badge ? 'bg-blue-500 text-white' : 'opacity-0'
+                  ].join(' ')}
+                  aria-hidden="true"
+                  data-testid="scrolith-messaging-dock-badge"
+                >
+                  {badge || '0'}
+                </span>
+                <ChevronUp className="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
+              </>
             ) : null}
-            <ChevronUp className="h-4 w-4 opacity-80" aria-hidden="true" />
           </button>
         ) : (
           <div
             id={panelId}
-            className="flex h-[min(640px,calc(100vh-6rem))] max-h-[680px] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl"
+            className="flex h-[min(560px,calc(100vh-5.5rem))] max-h-[600px] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl"
             role="dialog"
             aria-label="Messaging dock"
+            data-testid="scrolith-messaging-dock-expanded"
           >
-            <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-900 px-3 py-2.5 text-white">
-              <div className="relative h-8 w-8 shrink-0">
-                <div className="h-8 w-8 overflow-hidden rounded-full border border-white/20 bg-slate-700">
+            <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-900 px-2.5 py-2 text-white">
+              <div className="relative h-7 w-7 shrink-0">
+                <div className="h-7 w-7 overflow-hidden rounded-full border border-white/20 bg-slate-700">
                   {avatarUrl ? (
                     <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
                   ) : null}
                 </div>
                 <span
-                  className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-slate-900 bg-emerald-400"
+                  className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-slate-900 bg-emerald-400"
                   title="Online"
-                  aria-label="Online"
+                  aria-hidden="true"
                 />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold">Messaging</div>
-                <div className="text-[11px] text-slate-300">
+                <div className="truncate text-[13px] font-semibold">Messaging</div>
+                <div className="truncate text-[10px] text-slate-300">
                   {unreadCount > 0 ? `${badge || unreadCount} unread` : 'Inbox'}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => void refreshMessages({ force: true })}
-                className="rounded p-1.5 text-slate-300 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
                 aria-label="Refresh conversations"
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -201,7 +392,7 @@ const DesktopMessagingDock: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setDockExpanded(false)}
-                className="rounded p-1.5 text-slate-300 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/40"
                 aria-expanded={true}
                 aria-controls={panelId}
                 aria-label="Collapse messaging"
@@ -210,7 +401,7 @@ const DesktopMessagingDock: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-2.5 border-b border-slate-100 px-3 py-2.5">
+            <div className="space-y-2 border-b border-slate-100 px-2.5 py-2">
               <MessagingSearch
                 value={searchQuery}
                 onChange={setSearchQuery}
@@ -241,10 +432,10 @@ const DesktopMessagingDock: React.FC = () => {
               />
             </div>
 
-            <div className="border-t border-slate-100 px-3 py-2">
+            <div className="border-t border-slate-100 px-2.5 py-2">
               <Link
                 to="/messages"
-                className="flex w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                className="flex min-h-10 w-full items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
               >
                 View all Messages
               </Link>

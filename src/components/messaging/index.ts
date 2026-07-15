@@ -1,5 +1,12 @@
 export { default as HeaderMessagesPopover } from './HeaderMessagesPopover';
 export { default as DesktopMessagingDock } from './DesktopMessagingDock';
+export {
+  useBlockingOverlayActive,
+  useBlockingOverlaySnapshot,
+  readBlockingOverlayActive,
+  readBlockingOverlaySnapshot,
+  findTopmostBlockingDialog
+} from './useBlockingOverlayActive';
 export { default as MessagingConversationList } from './MessagingConversationList';
 export { default as MessagingConversationRow } from './MessagingConversationRow';
 export { default as MessagingTabs } from './MessagingTabs';
