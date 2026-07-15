@@ -1,19 +1,27 @@
 /**
  * Phase 4 — shared enterprise member-home / feed visual primitives.
  * Pure class strings so MemberHomeSection and CommunityHome stay behavior-identical.
+ *
+ * Hotfix (layout collapse): structural `scrolith-mh-*` classes pair with
+ * index.css rules so desktop columns cannot shrink to a single ~300px track
+ * when Tailwind arbitrary grid utilities fail to apply or nested <main> quirks
+ * break auto-placement. Keep Tailwind utilities as progressive enhancement.
  */
 
-/** Outer page shell: centered, ~1440–1560px. */
+/** Outer page shell: centered, ~1440–1560px. Always fill available width. */
 export const enterprisePageShell =
-  'relative mx-auto w-full max-w-[1560px] px-4 sm:px-6 lg:px-8 xl:px-10';
+  'scrolith-mh-shell relative mx-auto box-border w-full min-w-0 max-w-[1560px] px-4 sm:px-6 lg:px-8 xl:px-10';
 
 /**
- * Desktop three-column grid.
- * - lg: left + main
- * - xl+: left + main (~640–760) + right
+ * Desktop multi-column grid.
+ * - default / <lg: single column stack (mobile)
+ * - lg+: left rail + main feed (right stacks or sits in third track via CSS)
+ * - xl+: left + main + right
+ *
+ * `scrolith-mh-grid` carries the authoritative grid-template-columns in CSS.
  */
 export const enterpriseMemberHomeGrid =
-  'relative z-0 grid w-full items-start gap-5 ' +
+  'scrolith-mh-grid relative z-0 grid w-full min-w-0 items-start gap-5 ' +
   'lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] lg:gap-6 ' +
   'xl:grid-cols-[minmax(280px,300px)_minmax(0,1fr)_minmax(300px,340px)] xl:gap-6 ' +
   '2xl:grid-cols-[minmax(300px,320px)_minmax(0,1fr)_minmax(320px,340px)] 2xl:gap-7';
@@ -83,12 +91,22 @@ export const enterpriseSponsoredLabel =
   'inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold ' +
   'uppercase tracking-wide text-amber-800';
 
-/** Main feed column — readable center priority without extreme width. */
+/**
+ * Main feed column — grows with the center track (minmax(0,1fr)).
+ * Soft max-width keeps readability without collapsing the page shell.
+ * Do NOT use nested <main> for this column (invalid HTML; can break grid placement).
+ */
 export const enterpriseFeedColumn =
-  'order-1 min-w-0 w-full space-y-4 lg:order-2 xl:max-w-[760px] xl:justify-self-center 2xl:max-w-[760px]';
+  'scrolith-mh-feed order-1 min-w-0 w-full max-w-full space-y-4 lg:order-2 ' +
+  'xl:max-w-[760px] xl:justify-self-stretch 2xl:max-w-[760px]';
 
-export const enterpriseLeftColumn = `order-2 space-y-4 lg:order-1 ${enterpriseStickyRail}`;
+export const enterpriseLeftColumn =
+  `scrolith-mh-left order-2 min-w-0 w-full space-y-4 lg:order-1 ${enterpriseStickyRail}`;
 
+/**
+ * Right rail — stays a single grid cell (never lg:col-span-2).
+ * Spanning 2 cols at lg forced a full-width second row and made the page look
+ * like a narrow left stack with empty right space on scaled desktops.
+ */
 export const enterpriseRightColumn =
-  `order-3 space-y-4 lg:col-span-2 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 ` +
-  `xl:col-span-1 xl:block xl:space-y-4 ${enterpriseStickyRailRight}`;
+  `scrolith-mh-right order-3 min-w-0 w-full space-y-4 ${enterpriseStickyRailRight}`;

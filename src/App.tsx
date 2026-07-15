@@ -1352,7 +1352,7 @@ const AppContent = () => {
             <DesktopMessagingDock />
           </Suspense>
         )}
-      <main className="flex-grow">
+      <main className="w-full min-w-0 flex-grow">
         {shouldRenderForcedMobileHome ? (
           <ErrorBoundary key="forced-mobile-home">
             <Suspense fallback={<RouteLoadingFallback />}>
