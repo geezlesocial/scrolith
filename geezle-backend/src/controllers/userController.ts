@@ -38,7 +38,12 @@ const RESERVED_USERNAMES = new Set([
   'register',
   'me',
   'profile',
-  'dashboard'
+  'dashboard',
+  // Scrolitha platform AI identity — cannot be claimed by normal users
+  'scrolitha',
+  'scrolitha_ai',
+  'scrolitha-bot',
+  'official_scrolitha'
 ]);
 
 const extractFileIdFromMediaUrl = (value?: string | null) => {
