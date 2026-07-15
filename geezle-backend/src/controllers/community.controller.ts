@@ -20,6 +20,16 @@ import {
   resolvePostAiSettings
 } from '../services/postAi.service';
 import {
+  maybeQueueScrolithaMentionReply,
+  resolveMentionedUsersIncludingScrolitha
+} from '../services/scrolitha/scrolitha.contextualPost';
+import {
+  getScrolithaPlatformUserId,
+  isScrolithaUsername
+} from '../services/scrolitha/scrolitha.platformIdentity';
+import { emitPlatformIntelligenceEvent } from '../services/scrolitha/scrolitha.eventIntelligence';
+import { processContractedEvent } from '../services/scrolitha/scrolitha.eventContracts';
+import {
   assessVideoIntegrityByAttachments,
   buildVideoIntegrityUpdate,
   isVideoMonetizationBlocked
@@ -3443,6 +3453,28 @@ export const createPost = async (req: Request, res: Response) => {
       console.error('Socket emit error (post_created):', e);
     }
     try { realtime.emitToPost(post.id, 'community:post_created', { post: payload }); } catch (e) {}
+    try {
+      processContractedEvent(
+        {
+          type: 'post.created',
+          postId: post.id,
+          entityType: 'post',
+          entityId: post.id,
+          actorId: userId
+        },
+        { producer: 'community.createPost' }
+      );
+    } catch (e) {
+      try {
+        emitPlatformIntelligenceEvent({
+          type: 'post.created',
+          postId: post.id,
+          entityType: 'post',
+          entityId: post.id,
+          actorId: userId
+        });
+      } catch {}
+    }
 
     if (shouldEnableAiInsight) {
       queuePostInsightGeneration({
@@ -4291,12 +4323,20 @@ export const createPostComment = async (req: Request, res: Response) => {
     }
 
     const commentContent = normalizedContent;
-    const mentionedUsersByUsername = await resolveMentionedUserIds(extractMentionUsernames(commentContent));
+    // Ensure @Scrolitha resolves to the platform identity when mentioned.
+    const mentionedUsersByUsername = await resolveMentionedUsersIncludingScrolitha(commentContent);
+    const scrolithaUserId = await getScrolithaPlatformUserId().catch(() => null);
     const rawMentionedUserIds: string[] = Array.from(
       new Set(
         mentionedUsersByUsername
           .map((user) => String(user.id || '').trim())
-          .filter((mentionedUserId) => mentionedUserId && mentionedUserId !== userId)
+          .filter(
+            (mentionedUserId) =>
+              mentionedUserId &&
+              mentionedUserId !== userId &&
+              // Never send "you were mentioned" notifications to the AI identity.
+              mentionedUserId !== scrolithaUserId
+          )
       )
     );
     const mentionedUserIds = await filterMentionTargetsForActor(userId, rawMentionedUserIds);
@@ -4310,7 +4350,7 @@ export const createPostComment = async (req: Request, res: Response) => {
         attachments: normalizedAttachmentIds
       },
       include: {
-        author: { select: { id: true, name: true, avatar: true } }
+        author: { select: { id: true, name: true, avatar: true, username: true, isVerified: true } }
       }
     });
 
@@ -4324,7 +4364,16 @@ export const createPostComment = async (req: Request, res: Response) => {
       parentId: comment.parentId,
       userId: comment.authorId,
       userName: comment.author?.name || 'Anonymous',
+      userUsername: comment.author?.username || null,
       userAvatar: comment.author?.avatar || null,
+      author: {
+        id: comment.author?.id || comment.authorId,
+        name: comment.author?.name || 'Anonymous',
+        username: comment.author?.username || null,
+        avatar: comment.author?.avatar || null,
+        isVerified: Boolean(comment.author?.isVerified),
+        isScrolitha: isScrolithaUsername(comment.author?.username)
+      },
       content: comment.content,
       attachmentFileIds: comment.attachments || [],
       attachments: await resolveAttachments(comment.attachments || []),
@@ -4335,12 +4384,53 @@ export const createPostComment = async (req: Request, res: Response) => {
       canEdit: true,
       canDelete: true,
       createdAt: comment.createdAt.toISOString(),
-      updatedAt: comment.updatedAt.toISOString()
+      updatedAt: comment.updatedAt.toISOString(),
+      scrolithaPending: Boolean(
+        scrolithaUserId &&
+          comment.authorId !== scrolithaUserId &&
+          extractMentionUsernames(commentContent).some((u) => isScrolithaUsername(u))
+      )
     };
 
     const io = getAppIo(req);
     try { io?.emit('community:post_comment_created', { comment: payload, postId }); } catch (e) {}
     try { realtime.emitToPost(postId, 'community:post_comment_created', { comment: payload, postId }); } catch (e) {}
+    try {
+      processContractedEvent(
+        {
+          type: parentId ? 'comment.reply' : 'comment.created',
+          postId,
+          entityType: 'comment',
+          entityId: comment.id,
+          actorId: userId,
+          metadata: { parentId: parentId || null }
+        },
+        { producer: 'community.createPostComment' }
+      );
+      if (payload.scrolithaPending) {
+        processContractedEvent(
+          {
+            type: 'mention.created',
+            postId,
+            entityType: 'comment',
+            entityId: comment.id,
+            actorId: userId
+          },
+          { producer: 'community.scrolithaMention' }
+        );
+      }
+    } catch (e) {
+      try {
+        emitPlatformIntelligenceEvent({
+          type: parentId ? 'comment.reply' : 'comment.created',
+          postId,
+          entityType: 'comment',
+          entityId: comment.id,
+          actorId: userId,
+          metadata: { parentId: parentId || null }
+        });
+      } catch {}
+    }
 
     try {
       const actor = await prisma.user.findUnique({
@@ -4351,7 +4441,7 @@ export const createPostComment = async (req: Request, res: Response) => {
       const snippet = buildSnippet(comment.content || '', 100);
       const actionUrl = `/post/${postId}?comment=${comment.id}`;
 
-      if (post.authorId && post.authorId !== userId) {
+      if (post.authorId && post.authorId !== userId && post.authorId !== scrolithaUserId) {
         await createEngagementNotification({
           recipientId: post.authorId,
           actorId: userId,
@@ -4404,6 +4494,20 @@ export const createPostComment = async (req: Request, res: Response) => {
       console.warn('[community.createPostComment] notification fanout failed', notifyError);
     }
 
+    // Non-blocking: @Scrolitha mention triggers contextual AI reply after user comment is already saved.
+    try {
+      maybeQueueScrolithaMentionReply({
+        postId,
+        commentId: comment.id,
+        content: commentContent,
+        authorId: userId,
+        parentId: parentId || null,
+        io
+      });
+    } catch (scrolithaQueueError) {
+      console.warn('[community.createPostComment] scrolitha queue failed', scrolithaQueueError);
+    }
+
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Create post comment error:', error);
@@ -4435,11 +4539,11 @@ export const getPostComments = async (req: Request, res: Response) => {
       orderBy: { createdAt: 'asc' },
       take: Number(limit),
       include: {
-        author: { select: { id: true, name: true, avatar: true } },
+        author: { select: { id: true, name: true, avatar: true, username: true, isVerified: true } },
         replies: {
           where: { postId },
           orderBy: { createdAt: 'asc' },
-          include: { author: { select: { id: true, name: true, avatar: true } } }
+          include: { author: { select: { id: true, name: true, avatar: true, username: true, isVerified: true } } }
         }
       }
     };
@@ -4452,6 +4556,7 @@ export const getPostComments = async (req: Request, res: Response) => {
     const comments = await prisma.communityPostComment.findMany(query);
     const allComments = comments.flatMap((c) => [c, ...(c.replies || [])]);
     const commentIds = allComments.map((c) => c.id);
+    const scrolithaUserIdForList = await getScrolithaPlatformUserId().catch(() => null);
 
     const [likeCounts, likedByMe] = await Promise.all([
       commentIds.length
@@ -4474,13 +4579,25 @@ export const getPostComments = async (req: Request, res: Response) => {
 
     const buildPayload = async (comment: any) => {
       const isDeleted = comment.status === 'deleted';
+      const isScrolitha =
+        Boolean(scrolithaUserIdForList && comment.authorId === scrolithaUserIdForList) ||
+        isScrolithaUsername(comment.author?.username);
       return {
         id: comment.id,
         postId: comment.postId,
         parentId: comment.parentId,
         userId: comment.authorId,
         userName: comment.author?.name || 'Anonymous',
+        userUsername: comment.author?.username || null,
         userAvatar: comment.author?.avatar || null,
+        author: {
+          id: comment.author?.id || comment.authorId,
+          name: comment.author?.name || 'Anonymous',
+          username: comment.author?.username || null,
+          avatar: comment.author?.avatar || null,
+          isVerified: Boolean(comment.author?.isVerified) || isScrolitha,
+          isScrolitha
+        },
         content: isDeleted ? '' : comment.content,
         attachmentFileIds: isDeleted ? [] : (comment.attachments || []),
         attachments: isDeleted ? [] : await resolveAttachments(comment.attachments || []),
@@ -4490,8 +4607,14 @@ export const getPostComments = async (req: Request, res: Response) => {
         updatedAt: comment.updatedAt.toISOString(),
         likesCount: likeCountMap.get(comment.id) || 0,
         likedByMe: likedSet.has(comment.id),
-        canEdit: !!userId && (comment.authorId === userId || isPrivilegedUser(req.user)),
-        canDelete: !!userId && (comment.authorId === userId || isPrivilegedUser(req.user))
+        canEdit: !isScrolitha && !!userId && (comment.authorId === userId || isPrivilegedUser(req.user)),
+        canDelete: !isScrolitha && !!userId && (comment.authorId === userId || isPrivilegedUser(req.user)),
+        isScrolitha,
+        isAiGenerated: isScrolitha,
+        systemLabel: isScrolitha ? 'AI assistant' : undefined,
+        disclosure: isScrolitha
+          ? 'This response was generated by Scrolitha, Scrolith’s AI assistant. Verify important claims independently.'
+          : undefined
       };
     };
 
