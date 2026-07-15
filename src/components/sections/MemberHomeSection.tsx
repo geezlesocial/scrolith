@@ -7383,13 +7383,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   ]);
 
   return (
-    <section className="relative bg-[#f3f2ef] py-5 sm:py-10 text-base sm:text-[17px] leading-relaxed">
+    <section
+      className="relative w-full min-w-0 bg-[#f3f2ef] py-5 sm:py-10 text-base sm:text-[17px] leading-relaxed"
+      data-testid="scrolith-member-home"
+    >
       <div className="pointer-events-none absolute inset-0 opacity-50">
         <div className="absolute -top-24 left-[-8%] h-72 w-72 rounded-full bg-[radial-gradient(circle_at_center,#e0f2fe,transparent_70%)]" />
         <div className="absolute top-16 right-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,#fef3c7,transparent_70%)]" />
       </div>
 
-      <div className={enterprisePageShell}>
+      <div className={enterprisePageShell} data-testid="scrolith-member-home-shell">
         <div className={`relative z-30 mb-6 overflow-visible flex flex-col gap-4 ${enterprisePanel} ${enterprisePanelPadding} bg-white/95 rise-fade`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 lg:flex-1">
@@ -7553,8 +7556,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           </div>
         </div>
 
-        <div className={enterpriseMemberHomeGrid}>
-          <aside className={enterpriseLeftColumn} aria-label="Profile and shortcuts">
+        <div className={enterpriseMemberHomeGrid} data-testid="scrolith-member-home-grid">
+          <aside className={enterpriseLeftColumn} aria-label="Profile and shortcuts" data-testid="scrolith-member-home-left">
             <div className={`${enterprisePanel} rise-fade-delay-1`}>
               <div className="relative h-24 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600 sm:h-28">
                 {selfProfileCover ? (
@@ -7951,7 +7954,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </div>
           </aside>
 
-          <main className={enterpriseFeedColumn} aria-label="Home feed">
+          {/* Use div+role, not nested <main> — invalid landmark nesting can break CSS grid placement */}
+          <div
+            className={enterpriseFeedColumn}
+            role="region"
+            aria-label="Home feed"
+            data-testid="scrolith-member-home-feed"
+          >
             {showSlider && sliderItems.length > 0 && (
               <div className="rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1">
                 <div className="flex items-center justify-between">
@@ -8947,9 +8956,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 </div>
               ) : null}
             </div>
-          </main>
+          </div>
 
-          <aside className={enterpriseRightColumn} aria-label="Recommendations and insights">
+          <aside
+            className={enterpriseRightColumn}
+            aria-label="Recommendations and insights"
+            data-testid="scrolith-member-home-right"
+          >
             <Suspense
               fallback={
                 <div className={`${enterprisePanel} ${enterprisePanelPadding} text-sm text-slate-500`}>
