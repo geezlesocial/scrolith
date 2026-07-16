@@ -476,21 +476,178 @@ type GuestScrolithaPanelProps = {
   onRequestAuth?: (tab: "login" | "signup") => void;
 };
 
+const GUEST_SCROLITHA_OPENING =
+  "I can help you explore gigs, hiring, AI briefs, and the right signup path before you create an account. Try a prompt below — then open Scrolitha or create a free account to keep drafts and full coaching.";
+
+const DEFAULT_GUEST_PROMPT_CHIPS = [
+  "Create a gig draft",
+  "Find freelancers for a launch",
+  "Write a hiring brief",
+  "Improve my proposal",
+  "What can I do on Scrolith?"
+];
+
+const GUEST_WORKFLOW_EXAMPLES = [
+  { title: "Gig draft", detail: "Outline offer, pricing, and delivery steps" },
+  { title: "Hiring brief", detail: "Scope role, skills, and success criteria" },
+  { title: "Proposal polish", detail: "Sharpen value, timeline, and trust" }
+] as const;
+
+type GuestSessionMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
+
+/** Curated guest-safe education replies — no protected APIs or private data. */
+const resolveGuestPreviewReply = (prompt: string) => {
+  const normalized = String(prompt || "").toLowerCase();
+  if (normalized.includes("gig") || normalized.includes("service")) {
+    return "Here's a guest-safe path: name the outcome, who it's for, deliverables, timeline, and starting price. Open Scrolitha to expand this into a full draft — saved only after you join.";
+  }
+  if (normalized.includes("freelancer") || normalized.includes("talent") || normalized.includes("hire")) {
+    return "For hiring, define the problem, must-have skills, budget band, and decision date. Scrolitha can turn that into a brief and suggest next steps once you're signed in.";
+  }
+  if (normalized.includes("brief") || normalized.includes("job")) {
+    return "A strong brief covers objective, constraints, success metrics, and review cadence. I can scaffold that structure here; create an account to generate and save a full brief.";
+  }
+  if (normalized.includes("proposal")) {
+    return "Lead with the client's outcome, prove fit in two lines, then timeline and clear next step. Guest preview stays high-level — join to rewrite with your profile context.";
+  }
+  if (normalized.includes("scrolith") || normalized.includes("what can")) {
+    return "Scrolith combines network, marketplace, jobs, communities, wallet, and Scrolitha AI in one graph. Guests can explore; members unlock personalization, history, and protected actions.";
+  }
+  return "I can outline first steps for gigs, hiring, proposals, and platform navigation. This guest session keeps a short memory of your prompts — create a free account for full coaching and saved drafts.";
+};
+
 export const GuestScrolithaPanel: React.FC<GuestScrolithaPanelProps> = ({ content, onRequestAuth }) => {
   const compactSurface = useCompactGuestSurface();
   const navigate = useNavigate();
   const location = useLocation();
   const settings = (content?.scrolitha || {}) as GuestHeroScrolithaEmbedContent;
   const promptChips = sanitizeLines(settings.promptChips);
+  const chips = (promptChips.length ? promptChips : DEFAULT_GUEST_PROMPT_CHIPS).slice(0, 6);
   const enabled = settings.enabled !== false;
+  const reduceMotion =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const logRef = React.useRef<HTMLDivElement | null>(null);
+  const typeTimerRef = React.useRef<number | null>(null);
+  const messageSeq = React.useRef(0);
+
+  const [messages, setMessages] = React.useState<GuestSessionMessage[]>([
+    {
+      id: "guest-open-user",
+      role: "user",
+      text: "I want help starting quickly on Scrolith."
+    },
+    {
+      id: "guest-open-assistant",
+      role: "assistant",
+      text: reduceMotion ? GUEST_SCROLITHA_OPENING : ""
+    }
+  ]);
+  const [streamingId, setStreamingId] = React.useState<string | null>(
+    reduceMotion ? null : "guest-open-assistant"
+  );
+  const [activeChip, setActiveChip] = React.useState<string | null>(null);
+  const [liveStatus, setLiveStatus] = React.useState("Scrolitha is ready");
+  const [sessionError, setSessionError] = React.useState("");
+
+  const streamAssistantText = React.useCallback(
+    (messageId: string, fullText: string) => {
+      if (typeTimerRef.current) {
+        window.clearInterval(typeTimerRef.current);
+        typeTimerRef.current = null;
+      }
+      if (reduceMotion) {
+        setMessages((prev) =>
+          prev.map((entry) => (entry.id === messageId ? { ...entry, text: fullText } : entry))
+        );
+        setStreamingId(null);
+        setLiveStatus("Scrolitha is ready");
+        return;
+      }
+      let index = 0;
+      setStreamingId(messageId);
+      setLiveStatus("Scrolitha is typing");
+      typeTimerRef.current = window.setInterval(() => {
+        index += 3;
+        if (index >= fullText.length) {
+          setMessages((prev) =>
+            prev.map((entry) => (entry.id === messageId ? { ...entry, text: fullText } : entry))
+          );
+          setStreamingId(null);
+          setLiveStatus("Scrolitha is ready");
+          if (typeTimerRef.current) {
+            window.clearInterval(typeTimerRef.current);
+            typeTimerRef.current = null;
+          }
+          return;
+        }
+        const slice = fullText.slice(0, index);
+        setMessages((prev) =>
+          prev.map((entry) => (entry.id === messageId ? { ...entry, text: slice } : entry))
+        );
+      }, 22);
+    },
+    [reduceMotion]
+  );
+
+  React.useEffect(() => {
+    if (!reduceMotion) {
+      streamAssistantText("guest-open-assistant", GUEST_SCROLITHA_OPENING);
+    }
+    return () => {
+      if (typeTimerRef.current) {
+        window.clearInterval(typeTimerRef.current);
+        typeTimerRef.current = null;
+      }
+    };
+    // Opening stream once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  React.useEffect(() => {
+    const node = logRef.current;
+    if (!node) return;
+    node.scrollTop = node.scrollHeight;
+  }, [messages, streamingId]);
 
   if (!enabled) return null;
 
   const primaryPrompt = String(settings.primaryPrompt || "Create a gig draft").trim();
   const secondaryUrl = String(settings.secondaryUrl || "/auth/signup").trim();
+  const isBusy = Boolean(streamingId);
+
   const launchScrolitha = (prompt?: string) => {
-    const nextPrompt = String(prompt || primaryPrompt).trim();
+    const nextPrompt = String(prompt || activeChip || primaryPrompt).trim();
+    setLiveStatus("Opening Scrolitha…");
     navigate(buildScrolithaPath(location.pathname, nextPrompt));
+  };
+
+  const previewPrompt = (prompt: string) => {
+    const nextPrompt = String(prompt || "").trim();
+    if (!nextPrompt || isBusy) return;
+    setSessionError("");
+    setActiveChip(nextPrompt);
+    messageSeq.current += 1;
+    const userId = `guest-user-${messageSeq.current}`;
+    const assistantId = `guest-assistant-${messageSeq.current}`;
+    const reply = resolveGuestPreviewReply(nextPrompt);
+
+    setMessages((prev) => {
+      const next = [
+        ...prev,
+        { id: userId, role: "user" as const, text: nextPrompt },
+        { id: assistantId, role: "assistant" as const, text: "" }
+      ];
+      // Keep guest session memory bounded (presentation-only, in-memory)
+      return next.slice(-8);
+    });
+    streamAssistantText(assistantId, reply);
   };
 
   const handleSecondary = () => {
@@ -506,56 +663,187 @@ export const GuestScrolithaPanel: React.FC<GuestScrolithaPanelProps> = ({ conten
     navigate(secondaryUrl);
   };
 
+  const resetGuestSession = () => {
+    if (typeTimerRef.current) {
+      window.clearInterval(typeTimerRef.current);
+      typeTimerRef.current = null;
+    }
+    setSessionError("");
+    setActiveChip(null);
+    setStreamingId(null);
+    setMessages([
+      {
+        id: "guest-open-user",
+        role: "user",
+        text: "I want help starting quickly on Scrolith."
+      },
+      {
+        id: "guest-open-assistant",
+        role: "assistant",
+        text: reduceMotion ? GUEST_SCROLITHA_OPENING : ""
+      }
+    ]);
+    streamAssistantText("guest-open-assistant", GUEST_SCROLITHA_OPENING);
+  };
+
   return (
-    <div className="min-w-0 overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-5 text-white shadow-[0_20px_65px_rgba(15,23,42,0.3)] sm:p-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
+    <section
+      aria-label="Scrolitha guest AI preview"
+      className="guest-scrolitha-panel min-w-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-5 text-white shadow-[0_24px_70px_-28px_rgba(15,23,42,0.55)] sm:p-6"
+    >
+      <div className="sr-only" aria-live="polite">
+        {liveStatus}
+      </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200/90">
             {settings.eyebrow || "Scrolitha Live Assistant"}
           </p>
-          <h3 className="mt-2 text-lg font-semibold leading-tight text-white sm:text-xl">
-            {settings.title || "Preview AI-guided onboarding directly on the homepage"}
+          <h3 className="mt-2 text-lg font-semibold leading-tight tracking-tight text-white sm:text-xl">
+            {settings.title || "See what Scrolitha can do before you sign up"}
           </h3>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300">
+            {settings.subtitle ||
+              "Enterprise AI for gigs, hiring, proposals, and first steps — guest-safe preview with session memory on this page only."}
+          </p>
         </div>
-        <div className="inline-flex items-center gap-2 self-start rounded-full border border-white/15 bg-white/10 px-3 py-1 text-[11px] font-medium text-cyan-50">
-          <span className="h-2 w-2 rounded-full bg-emerald-400" />
-          Live guest assist
+        <div className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1.5 text-[11px] font-semibold text-emerald-100">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40 motion-reduce:animate-none" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+          </span>
+          Live guest preview
         </div>
       </div>
-      {settings.subtitle ? <p className="mt-3 text-sm leading-relaxed text-slate-200">{settings.subtitle}</p> : null}
-      {settings.description ? <p className="mt-2 text-sm leading-relaxed text-slate-300">{settings.description}</p> : null}
+      {settings.description ? (
+        <p className="mt-3 text-sm leading-relaxed text-slate-300/90">{settings.description}</p>
+      ) : null}
 
-      <div className="mt-5 rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-        <div className="space-y-3">
-          <div className="ml-auto max-w-[92%] rounded-2xl rounded-br-md bg-cyan-400 px-4 py-3 text-sm font-medium text-slate-950 shadow-sm sm:max-w-[85%]">
-            I want help starting quickly on Scrolith.
+      <div className="mt-4 grid gap-2 sm:grid-cols-3" aria-label="Scrolitha workflow examples">
+        {GUEST_WORKFLOW_EXAMPLES.map((workflow) => (
+          <div
+            key={workflow.title}
+            className="rounded-2xl border border-white/10 bg-white/[0.05] px-3 py-2.5"
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-100/80">{workflow.title}</p>
+            <p className="mt-1 text-[11px] leading-4 text-slate-300">{workflow.detail}</p>
           </div>
-          <div className="flex max-w-[94%] gap-3 rounded-2xl rounded-bl-md border border-white/10 bg-white/10 px-4 py-3 text-sm leading-relaxed text-slate-100 shadow-sm sm:max-w-[88%]">
-            <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-2xl bg-white/10">
-              <Sparkles className="h-4 w-4 text-cyan-200" />
-            </div>
-            <div>
-              <p className="font-semibold text-white">Scrolitha</p>
-              <p className="mt-1 text-slate-200">
-                I can help you explore gigs, hiring, AI briefs, and the right signup path before you create an account.
-              </p>
-            </div>
-          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-inner backdrop-blur-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Conversation</p>
+          <button
+            type="button"
+            onClick={resetGuestSession}
+            className="text-[11px] font-semibold text-slate-400 underline-offset-2 transition hover:text-white hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+          >
+            Reset preview
+          </button>
         </div>
-        {promptChips.length ? (
-          <div className="mt-4 -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0">
-            {promptChips.slice(0, 6).map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                onClick={() => launchScrolitha(prompt)}
-                className="whitespace-nowrap rounded-full border border-white/12 bg-white/8 px-3 py-1.5 text-xs font-medium text-white transition hover:border-cyan-200/70 hover:bg-white/14"
-              >
-                {prompt}
-              </button>
-            ))}
+
+        {sessionError ? (
+          <div className="mb-3 rounded-2xl border border-amber-300/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-100" role="alert">
+            {sessionError}
           </div>
         ) : null}
+
+        <div
+          ref={logRef}
+          className="guest-scrolitha-log max-h-[16rem] space-y-3 overflow-y-auto pr-1"
+          role="log"
+          aria-label="Guest Scrolitha conversation"
+          aria-live="polite"
+        >
+          {messages.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 px-4 py-6 text-center text-sm text-slate-300">
+              Choose a prompt below to start a guest-safe Scrolitha preview.
+            </div>
+          ) : (
+            messages.map((message) => {
+              if (message.role === "user") {
+                return (
+                  <div
+                    key={message.id}
+                    className="ml-auto max-w-[92%] rounded-2xl rounded-br-md bg-gradient-to-br from-cyan-300 to-sky-400 px-4 py-3 text-sm font-medium text-slate-950 shadow-sm sm:max-w-[85%]"
+                  >
+                    {message.text}
+                  </div>
+                );
+              }
+              const isStreaming = streamingId === message.id;
+              return (
+                <div
+                  key={message.id}
+                  className="flex max-w-[94%] gap-3 rounded-2xl rounded-bl-md border border-white/10 bg-white/10 px-4 py-3 text-sm leading-relaxed text-slate-100 shadow-sm sm:max-w-[88%]"
+                >
+                  <div
+                    className="mt-0.5 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-2xl bg-cyan-400/15 ring-1 ring-cyan-200/20"
+                    aria-hidden="true"
+                  >
+                    <Sparkles className="h-4 w-4 text-cyan-200" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-white">Scrolitha</p>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-100/90">
+                        Enterprise AI
+                      </span>
+                    </div>
+                    <p className="mt-1.5 min-h-[1.5rem] text-slate-200">
+                      {message.text}
+                      {isStreaming ? (
+                        <span className="ml-0.5 inline-block h-3.5 w-1.5 translate-y-0.5 animate-pulse rounded-sm bg-cyan-200/90 motion-reduce:animate-none" />
+                      ) : null}
+                    </p>
+                    {!isStreaming && message.text ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-200">
+                          Guest session memory
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-200">
+                          No protected data
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="mt-4">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+            Try a prompt
+          </p>
+          <div
+            className="guest-prompt-rail -mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
+            role="list"
+            aria-label="Suggested Scrolitha prompts"
+          >
+            {chips.map((prompt) => {
+              const selected = activeChip === prompt;
+              return (
+                <button
+                  key={prompt}
+                  type="button"
+                  role="listitem"
+                  disabled={isBusy}
+                  onClick={() => previewPrompt(prompt)}
+                  className={`guest-chip whitespace-nowrap rounded-full border px-3 py-2 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-50 ${
+                    selected
+                      ? "border-cyan-200/80 bg-cyan-300/20 text-white"
+                      : "border-white/12 bg-white/8 text-white hover:border-cyan-200/60 hover:bg-white/14"
+                  }`}
+                >
+                  {prompt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div
@@ -565,7 +853,7 @@ export const GuestScrolithaPanel: React.FC<GuestScrolithaPanelProps> = ({ conten
         <button
           type="button"
           onClick={() => launchScrolitha(primaryPrompt)}
-          className="inline-flex items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-50"
+          className="inline-flex min-h-[44px] items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 shadow-sm transition hover:bg-cyan-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         >
           {settings.primaryLabel || "Open Scrolitha"}
         </button>
@@ -573,13 +861,25 @@ export const GuestScrolithaPanel: React.FC<GuestScrolithaPanelProps> = ({ conten
           <button
             type="button"
             onClick={handleSecondary}
-            className="inline-flex items-center justify-center rounded-full border border-white/15 bg-white/8 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/35 hover:bg-white/12"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-white/15 bg-white/8 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/35 hover:bg-white/12 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200"
           >
             {settings.secondaryLabel}
           </button>
-        ) : null}
+        ) : (
+          <button
+            type="button"
+            onClick={() => (onRequestAuth ? onRequestAuth("signup") : navigate("/auth/signup"))}
+            className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-white/15 bg-white/8 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white/35 hover:bg-white/12 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-200"
+          >
+            Create free account
+          </button>
+        )}
       </div>
-    </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+        Guest preview keeps short session memory in this browser tab only. Sign in to unlock personalization,
+        history, and protected actions.
+      </p>
+    </section>
   );
 };
 
