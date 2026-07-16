@@ -9,6 +9,8 @@ import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { useSocket } from '../context/SocketContext';
 import { buildScrolithaPath, clearScrolithaLaunchParams, readScrolithaLaunchParams } from '../utils/scrolithaLaunch';
+import { clearSupportDraft, readSupportDraft, writeSupportDraft } from '../utils/scrolithaDrafts';
+import { classifyScrolithaClientError } from '../utils/scrolithaErrors';
 import { plainTextToHtml } from '../utils/staticPageContent';
 import { normalizeScrolithaResponseText } from './scrolitha/scrolithaResponseFormat';
 import type { ScrolithaChatContext } from '../services/scrolitha';
@@ -147,7 +149,11 @@ const SupportWidget: React.FC = () => {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const lastLaunchSearchRef = useRef<string>('');
+  const inFlightSendRef = useRef(false);
+  const lastFailedMessageRef = useRef<string>('');
+  const draftsHydratedRef = useRef(false);
 
   const loadWidgetConfig = useCallback(async () => {
     try {
@@ -181,14 +187,16 @@ const SupportWidget: React.FC = () => {
       ? normalizedStarterPrompts
       : normalizedGuestPrompts;
 
-  // Load Configuration on Mount
+  // Load Configuration on Mount (single config fetch; drafts restored from session)
   useEffect(() => {
+    let cancelled = false;
     const initChat = async () => {
       try {
         const [flow, config] = await Promise.all([
           loadChatFlow(),
           ScrolithaService.getWidgetConfig().catch(() => defaultWidgetConfig)
         ]);
+        if (cancelled) return;
         const normalizedConfig = { ...defaultWidgetConfig, ...(config || {}) };
         setWidgetConfig(normalizedConfig);
         const mergedFlow: ChatFlow = {
@@ -211,21 +219,49 @@ const SupportWidget: React.FC = () => {
         setCurrentOptions(isAuthenticated ? [] : mergedFlow.initial_prompt.options);
         setSuggestedActions([]);
         setFollowUpPrompts([]);
-        
-        // Set initial greeting
+
         setChatHistory([
-          { 
-            sender: 'agent', 
+          {
+            sender: 'agent',
             text: personalizedWelcome,
-            timestamp: new Date() 
+            timestamp: new Date()
           }
         ]);
+
+        if (!draftsHydratedRef.current) {
+          draftsHydratedRef.current = true;
+          const draft = readSupportDraft();
+          if (draft?.message) setMessage(String(draft.message));
+          if (draft?.conversationId) setConversationId(String(draft.conversationId));
+        }
       } catch (error) {
-        console.error("Failed to initialize chat flow", error);
+        console.error('Failed to initialize chat flow', error);
       }
     };
-    initChat();
+    void initChat();
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthenticated, user?.name]);
+
+  // Persist compose draft + conversation id across refresh / route changes
+  useEffect(() => {
+    if (!isFlowLoaded) return;
+    writeSupportDraft({ message, conversationId });
+  }, [message, conversationId, isFlowLoaded]);
+
+  // Escape closes the open panel without affecting the rest of Member Home
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen]);
 
   // Initialize Speech Recognition
   useEffect(() => {
@@ -682,6 +718,15 @@ const SupportWidget: React.FC = () => {
   const handleOptionClick = (option: ChatOption) => {
     if (!chatFlow) return;
 
+    // Retry last failed Scrolitha message without re-pushing a synthetic option line first
+    if (option.path === 'retry_last') {
+      const retryText = String(lastFailedMessageRef.current || message || '').trim();
+      if (!retryText || inFlightSendRef.current || isTyping) return;
+      setCurrentOptions([]);
+      void handleSendText(retryText);
+      return;
+    }
+
     // 1. User Message
     pushMessages({ sender: 'user', text: option.label, timestamp: new Date() });
     setSuggestedActions([]);
@@ -694,6 +739,8 @@ const SupportWidget: React.FC = () => {
     // 3. Reset Flow
     if (option.path === 'reset') {
         handleReset();
+        clearSupportDraft();
+        lastFailedMessageRef.current = '';
         return;
     }
 
@@ -777,9 +824,12 @@ const SupportWidget: React.FC = () => {
   const handleSendText = async (rawMessage: string, currentFile?: File | null) => {
     const userMsg = String(rawMessage || '').trim();
     if (!userMsg && !currentFile) return;
+    if (inFlightSendRef.current || isTyping) return;
 
     if (userMsg.toLowerCase() === 'reset' || userMsg.toLowerCase() === 'start over') {
       handleReset();
+      clearSupportDraft();
+      lastFailedMessageRef.current = '';
       return;
     }
 
@@ -801,6 +851,7 @@ const SupportWidget: React.FC = () => {
       attachments: attachment ? [attachment] : undefined
     });
 
+    inFlightSendRef.current = true;
     setIsTyping(true);
     setCurrentOptions([]);
     setSuggestedActions([]);
@@ -828,24 +879,42 @@ const SupportWidget: React.FC = () => {
         setFollowUpPrompts(normalizedGuestPrompts.slice(0, 4));
       }
 
+      lastFailedMessageRef.current = '';
       setCurrentOptions([{ label: 'Back to Menu', path: 'reset' }]);
     } catch (error: any) {
+      const classified = classifyScrolithaClientError(
+        error,
+        widgetConfig.offlineMessage ||
+          defaultWidgetConfig.offlineMessage ||
+          "I'm having trouble connecting right now."
+      );
+      lastFailedMessageRef.current = userMsg;
       pushMessages({
         sender: 'agent',
-        text: widgetConfig.offlineMessage || defaultWidgetConfig.offlineMessage || "I'm having trouble connecting right now.",
+        text: classified.message,
         timestamp: new Date()
       });
+      if (classified.retryable) {
+        setCurrentOptions([
+          { label: 'Retry last message', path: 'retry_last' },
+          { label: 'Back to Menu', path: 'reset' }
+        ]);
+      } else {
+        setCurrentOptions([{ label: 'Back to Menu', path: 'reset' }]);
+      }
       if (isAuthenticated) {
-        showNotification('warning', 'Scrolitha', error?.message || 'The assistant is temporarily unavailable.');
+        showNotification('warning', 'Scrolitha', classified.message);
       }
     } finally {
+      inFlightSendRef.current = false;
       setIsTyping(false);
     }
   };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!message.trim() && !selectedFile)) return;
+    if (inFlightSendRef.current || isTyping) return;
+    if (!message.trim() && !selectedFile) return;
 
     const currentMessage = message;
     const currentFile = selectedFile;
@@ -879,45 +948,71 @@ const SupportWidget: React.FC = () => {
     <div
       className="fixed right-3 z-[100] flex flex-col items-end font-sans sm:right-6"
       style={{ bottom: 'calc(1.5rem + var(--support-widget-offset, 0px))' }}
+      data-testid="scrolitha-support-widget"
     >
       
       {/* Chat Window */}
       {isOpen && (
-        <div className="mb-4 flex h-[min(600px,calc(100dvh-7rem))] w-[min(calc(100vw-1rem),20rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-fade-in-up sm:h-[600px] sm:w-96">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${assistantName} chat`}
+          className="mb-4 flex h-[min(600px,calc(100dvh-7rem))] w-[min(calc(100vw-1rem),20rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-fade-in-up sm:h-[600px] sm:w-96 motion-reduce:animate-none"
+        >
           
           {/* Header */}
           <div className="p-4 flex justify-between items-center text-white shadow-md" style={{ backgroundColor: headerColor }}>
-            <div className="flex items-center">
-              <div className="bg-white/20 p-2 rounded-full mr-3 relative h-10 w-10 flex items-center justify-center overflow-hidden">
+            <div className="flex items-center min-w-0">
+              <div className="bg-white/20 p-2 rounded-full mr-3 relative h-10 w-10 flex items-center justify-center overflow-hidden shrink-0">
                 {logoUrl ? (
-                  <img src={logoUrl} alt={assistantName} className="h-full w-full object-cover" />
+                  <img src={logoUrl} alt="" className="h-full w-full object-cover" />
                 ) : (
-                  <Sparkles className="h-5 w-5 text-yellow-300" />
+                  <Sparkles className="h-5 w-5 text-yellow-300" aria-hidden="true" />
                 )}
-                <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-indigo-600" />
+                <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-indigo-600" aria-hidden="true" />
               </div>
-              <div>
-                <h3 className="font-bold text-sm">{assistantName} ({assistantRoleLabel})</h3>
-                <p className="text-[10px] text-indigo-100">{role ? `${role} Mode` : statusLabel}</p>
+              <div className="min-w-0">
+                <h3 className="font-bold text-sm truncate">{assistantName} ({assistantRoleLabel})</h3>
+                <p className="text-[10px] text-indigo-100 truncate">{role ? `${role} Mode` : statusLabel}</p>
               </div>
             </div>
             {showStatusBadge ? (
-              <div className="hidden rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-medium text-white/90 sm:block">
+              <div className="hidden rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-medium text-white/90 sm:block shrink-0">
                 {statusLabel}
               </div>
             ) : null}
-            <div className="flex items-center space-x-2">
-              <button onClick={handleReset} className="text-indigo-200 hover:text-white p-1" title="Reset Chat">
-                <RefreshCw className="h-4 w-4" />
+            <div className="flex items-center space-x-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  handleReset();
+                  clearSupportDraft();
+                  lastFailedMessageRef.current = '';
+                }}
+                className="text-indigo-200 hover:text-white p-1"
+                title="Reset Chat"
+                aria-label="Reset chat"
+              >
+                <RefreshCw className="h-4 w-4" aria-hidden="true" />
               </button>
-              <button onClick={() => setIsOpen(false)} className="hover:bg-indigo-700 p-1 rounded transition-colors">
-                <X className="h-5 w-5" />
+              <button
+                type="button"
+                onClick={() => setIsOpen(false)}
+                className="hover:bg-indigo-700 p-1 rounded transition-colors"
+                aria-label="Close chat"
+              >
+                <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
           </div>
 
           {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+          <div
+            className="flex-1 overflow-y-auto p-4 space-y-4 bg-white scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent"
+            aria-live="polite"
+            aria-relevant="additions"
+          >
             {chatHistory.map((msg, idx) => (
               <div key={idx} className={`flex ${msg.sender === 'user' ? 'justify-end' : (msg.sender === 'system' ? 'justify-center' : 'justify-start')}`}>
                 
@@ -1158,43 +1253,51 @@ const SupportWidget: React.FC = () => {
                 ref={fileInputRef}
                 className="hidden"
                 onChange={handleFileSelect}
+                aria-hidden="true"
               />
               {allowFileUpload ? (
                 <button 
                   type="button" 
                   onClick={() => fileInputRef.current?.click()}
                   className="text-gray-400 hover:text-indigo-600"
+                  aria-label="Attach file"
+                  disabled={isTyping}
                 >
-                  <Paperclip className="h-5 w-5" />
+                  <Paperclip className="h-5 w-5" aria-hidden="true" />
                 </button>
               ) : null}
               
-              <div className="flex-1 relative">
+              <div className="flex-1 relative min-w-0">
                   <input 
                     type="text" 
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     placeholder={isListening ? "Listening..." : placeholderText}
-                    className={`w-full text-sm border rounded-full px-4 py-3 focus:outline-none transition-colors ${isListening ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'}`}
+                    aria-label={placeholderText}
+                    disabled={isTyping}
+                    className={`w-full text-sm border rounded-full px-4 py-3 focus:outline-none transition-colors ${isListening ? 'border-red-400 bg-red-50 focus:border-red-500 focus:ring-1 focus:ring-red-500' : 'border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500'} disabled:opacity-60`}
                   />
                   {allowVoiceInput ? (
                     <button 
                       type="button" 
                       onClick={toggleListening}
-                      className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'text-red-600 bg-red-100 animate-pulse' : 'text-gray-400 hover:text-indigo-600'}`}
+                      className={`absolute right-2 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full transition-colors ${isListening ? 'text-red-600 bg-red-100 animate-pulse motion-reduce:animate-none' : 'text-gray-400 hover:text-indigo-600'}`}
+                      aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+                      disabled={isTyping}
                     >
-                      {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                      {isListening ? <MicOff className="h-4 w-4" aria-hidden="true" /> : <Mic className="h-4 w-4" aria-hidden="true" />}
                     </button>
                   ) : null}
               </div>
 
               <button 
                 type="submit" 
-                disabled={!message.trim() && !selectedFile}
+                disabled={isTyping || (!message.trim() && !selectedFile)}
                 className="text-white p-3 rounded-full transition-colors flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
                 style={{ backgroundColor: headerColor }}
+                aria-label="Send message"
               >
-                <Send className="h-4 w-4" />
+                {isTyping ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Send className="h-4 w-4" aria-hidden="true" />}
               </button>
             </form>
             {disclaimerText ? <p className="mt-2 text-[11px] text-slate-500">{disclaimerText}</p> : null}
@@ -1204,15 +1307,19 @@ const SupportWidget: React.FC = () => {
 
       {/* Toggle Button */}
       <button 
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`${isOpen ? 'bg-gray-700' : ''} text-white p-4 rounded-full shadow-lg hover:opacity-90 transition-all transform hover:scale-105 flex items-center justify-center group`}
+        className={`${isOpen ? 'bg-gray-700' : ''} text-white p-4 rounded-full shadow-lg hover:opacity-90 transition-all transform hover:scale-105 flex items-center justify-center group motion-reduce:transform-none`}
         style={!isOpen ? { backgroundColor: headerColor } : undefined}
+        aria-expanded={isOpen}
+        aria-controls={undefined}
+        aria-label={isOpen ? `Close ${assistantName}` : `Open ${assistantName}`}
       >
-        {isOpen ? <X className="h-6 w-6" /> : (
+        {isOpen ? <X className="h-6 w-6" aria-hidden="true" /> : (
           <div className="relative">
-             <Headphones className="h-6 w-6" />
-             <span className="absolute -top-1 -right-1 flex h-3 w-3">
-               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span>
+             <Headphones className="h-6 w-6" aria-hidden="true" />
+             <span className="absolute -top-1 -right-1 flex h-3 w-3" aria-hidden="true">
+               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75 motion-reduce:animate-none"></span>
                <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>
              </span>
           </div>
@@ -1226,6 +1333,9 @@ const SupportWidget: React.FC = () => {
         }
         .animate-fade-in-up {
           animation: fade-in-up 0.3s ease-out forwards;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-fade-in-up { animation: none; }
         }
       `}</style>
     </div>
