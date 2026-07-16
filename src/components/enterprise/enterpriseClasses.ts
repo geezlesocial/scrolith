@@ -2,10 +2,10 @@
  * Phase 4 — shared enterprise member-home / feed visual primitives.
  * Pure class strings so MemberHomeSection and CommunityHome stay behavior-identical.
  *
- * Hotfix (layout collapse): structural `scrolith-mh-*` classes pair with
- * index.css rules so desktop columns cannot shrink to a single ~300px track
- * when Tailwind arbitrary grid utilities fail to apply or nested <main> quirks
- * break auto-placement. Keep Tailwind utilities as progressive enhancement.
+ * Composition contract: structural `scrolith-mh-*` classes pair with index.css
+ * named grid areas (`left` | `center` | `right`) so the right rail cannot fall
+ * out of the primary desktop row into a full-width stacked board.
+ * Tailwind utilities are progressive enhancement only — geometry is CSS-owned.
  */
 
 /** Outer page shell: centered, ~1440–1560px. Always fill available width. */
@@ -13,26 +13,27 @@ export const enterprisePageShell =
   'scrolith-mh-shell relative mx-auto box-border w-full min-w-0 max-w-[1560px] px-4 sm:px-6 lg:px-8 xl:px-10';
 
 /**
- * Desktop multi-column grid.
- * - default / <lg: single column stack (mobile)
- * - lg+: left rail + main feed (right stacks or sits in third track via CSS)
- * - xl+: left + main + right
+ * Desktop multi-column dashboard grid.
+ * - <lg: stacked areas center → left → right
+ * - lg+: named areas "left center right" (three direct tracks)
  *
- * `scrolith-mh-grid` carries the authoritative grid-template-columns in CSS.
+ * Do not reintroduce grid-cols that fight index.css named areas.
+ * Do not let the right rail span full row width on desktop.
  */
 export const enterpriseMemberHomeGrid =
-  'scrolith-mh-grid relative z-0 grid w-full min-w-0 items-start gap-5 ' +
-  'lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] lg:gap-6 ' +
-  'xl:grid-cols-[minmax(280px,300px)_minmax(0,1fr)_minmax(300px,340px)] xl:gap-6 ' +
-  '2xl:grid-cols-[minmax(300px,320px)_minmax(0,1fr)_minmax(320px,340px)] 2xl:gap-7';
+  'scrolith-mh-grid relative z-0 w-full min-w-0 items-start gap-5';
 
-/** Sticky rail that respects desktop header (~6rem) without nested scroll traps on mobile. */
+/**
+ * Sticky rails — desktop stickiness is enforced in index.css for both rails
+ * from lg so the right column stays beside the feed while scrolling.
+ * Keep these utilities as progressive enhancement / mobile-safe no-ops.
+ */
 export const enterpriseStickyRail =
   'lg:sticky lg:top-24 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto lg:overscroll-contain lg:pr-0.5 ' +
   '[scrollbar-gutter:stable]';
 
 export const enterpriseStickyRailRight =
-  'xl:sticky xl:top-24 xl:max-h-[calc(100vh-6.5rem)] xl:overflow-y-auto xl:overscroll-contain ' +
+  'lg:sticky lg:top-24 lg:max-h-[calc(100vh-6.5rem)] lg:overflow-y-auto lg:overscroll-contain ' +
   '[scrollbar-gutter:stable]';
 
 /** Side widgets / panels */
@@ -92,21 +93,20 @@ export const enterpriseSponsoredLabel =
   'uppercase tracking-wide text-amber-800';
 
 /**
- * Main feed column — grows with the center track (minmax(0,1fr)).
- * Soft max-width keeps readability without collapsing the page shell.
+ * Main feed column — occupies the named `center` area and fills minmax(0,1fr).
  * Do NOT use nested <main> for this column (invalid HTML; can break grid placement).
+ * Do NOT hard-cap width so the center track is abandoned as empty horizontal space.
  */
 export const enterpriseFeedColumn =
-  'scrolith-mh-feed order-1 min-w-0 w-full max-w-full space-y-4 lg:order-2 ' +
-  'xl:max-w-[760px] xl:justify-self-stretch 2xl:max-w-[760px]';
+  'scrolith-mh-feed min-w-0 w-full max-w-none space-y-4';
 
+/** Left rail — named area `left`; sticky geometry owned by index.css from lg. */
 export const enterpriseLeftColumn =
-  `scrolith-mh-left order-2 min-w-0 w-full space-y-4 lg:order-1 ${enterpriseStickyRail}`;
+  `scrolith-mh-left min-w-0 w-full space-y-4 ${enterpriseStickyRail}`;
 
 /**
- * Right rail — stays a single grid cell (never lg:col-span-2).
- * Spanning 2 cols at lg forced a full-width second row and made the page look
- * like a narrow left stack with empty right space on scaled desktops.
+ * Right rail — named area `right`; must remain a single grid cell.
+ * Never col-span / full-row span (that stacked Insights under the feed).
  */
 export const enterpriseRightColumn =
-  `scrolith-mh-right order-3 min-w-0 w-full space-y-4 ${enterpriseStickyRailRight}`;
+  `scrolith-mh-right min-w-0 w-full space-y-4 ${enterpriseStickyRailRight}`;

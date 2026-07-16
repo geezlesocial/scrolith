@@ -39,10 +39,15 @@ html {
 }
 
 /*
- * Member Home desktop layout contract (hotfix).
- * Authoritative geometry so the page cannot collapse into a single ~300px
- * left track when Tailwind arbitrary utilities miss or nested landmarks glitch.
- * Mobile: single column. lg+: left + feed. xl+: left + feed + right.
+ * Member Home desktop dashboard composition contract.
+ *
+ * Named areas lock left / center / right as one coordinated row so:
+ * - the right rail cannot fall to a full-width row under the feed
+ * - Insights and recommendation widgets stay in the right track
+ * - the page cannot explode into a long sequence of independent boards
+ *
+ * Mobile (<lg): stacked center → left → right.
+ * Desktop (lg+): three-column "left center right" dashboard.
  */
 .scrolith-mh-shell {
   width: 100%;
@@ -58,8 +63,16 @@ html {
   width: 100%;
   min-width: 0;
   align-items: start;
+  justify-items: stretch;
   gap: 1.25rem;
+  grid-auto-flow: row;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'center'
+    'left'
+    'right';
+  grid-template-rows: auto;
+  grid-auto-rows: auto;
 }
 
 .scrolith-mh-left,
@@ -70,56 +83,70 @@ html {
   box-sizing: border-box;
 }
 
+.scrolith-mh-left {
+  grid-area: left;
+}
+
 .scrolith-mh-feed {
+  grid-area: center;
   width: 100%;
+  max-width: none;
+  justify-self: stretch;
+}
+
+.scrolith-mh-right {
+  grid-area: right;
+  /* Never allow full-row span — that recreated the stacked mega-dashboard failure */
+  grid-column: auto;
+  grid-row: auto;
 }
 
 @media (min-width: 1024px) {
   .scrolith-mh-grid {
-    grid-template-columns: minmax(260px, var(--enterprise-left-w, 300px)) minmax(0, 1fr);
-    gap: var(--enterprise-gap, 1.5rem);
+    grid-template-areas: 'left center right';
+    grid-template-columns:
+      minmax(240px, 280px)
+      minmax(0, 1fr)
+      minmax(260px, 300px);
+    column-gap: 1.25rem;
+    row-gap: 0;
+    gap: 1.25rem;
   }
 
-  .scrolith-mh-left {
-    order: 1;
+  .scrolith-mh-left,
+  .scrolith-mh-right {
+    position: sticky;
+    top: var(--enterprise-sticky-top, 6rem);
+    max-height: calc(100vh - 6.5rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 
   .scrolith-mh-feed {
-    order: 2;
-  }
-
-  .scrolith-mh-right {
-    order: 3;
-    /* Below xl, right rail stacks under the two-column row as its own full-width row */
-    grid-column: 1 / -1;
+    /* Center track is the primary scrolling column; fill the middle fr track */
+    max-width: none;
   }
 }
 
 @media (min-width: 1280px) {
   .scrolith-mh-grid {
+    grid-template-areas: 'left center right';
     grid-template-columns:
-      minmax(280px, var(--enterprise-left-w, 300px))
+      minmax(280px, 320px)
       minmax(0, 1fr)
-      minmax(300px, var(--enterprise-right-w, 340px));
-  }
-
-  .scrolith-mh-right {
-    grid-column: auto;
-  }
-
-  .scrolith-mh-feed {
-    /* Readable feed width without abandoning the center track */
-    max-width: var(--enterprise-feed-max, 760px);
-    justify-self: stretch;
+      minmax(300px, 340px);
+    gap: var(--enterprise-gap, 1.5rem);
   }
 }
 
 @media (min-width: 1536px) {
   .scrolith-mh-grid {
+    grid-template-areas: 'left center right';
     grid-template-columns:
       minmax(300px, 320px)
       minmax(0, 1fr)
-      minmax(320px, var(--enterprise-right-w, 340px));
+      minmax(320px, 340px);
     gap: 1.75rem;
   }
 }
