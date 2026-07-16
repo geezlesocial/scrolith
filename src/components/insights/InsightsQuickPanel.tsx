@@ -30,6 +30,8 @@ import {
   type UserQuest
 } from '../../services/insights';
 import { ScrolithaService, type ScrolithaRewriteMode } from '../../services/scrolitha';
+import { readCoachDraft, writeCoachDraft, type CoachDraftSnapshot } from '../../utils/scrolithaDrafts';
+import { classifyScrolithaClientError } from '../../utils/scrolithaErrors';
 import { ScrollService, type ScrollSeriesDiscovery } from '../../services/scroll';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 
@@ -220,6 +222,11 @@ export default function InsightsQuickPanel({
   const [coachOutput, setCoachOutput] = useState('');
   const [coachBusyAction, setCoachBusyAction] = useState<CoachActionKey | null>(null);
   const [coachStatus, setCoachStatus] = useState<string | null>(null);
+  const [coachRetryable, setCoachRetryable] = useState(false);
+  const [lastCoachAction, setLastCoachAction] = useState<CoachActionKey | null>(null);
+  const coachInFlightRef = useRef(false);
+  const coachDraftHydratedRef = useRef(false);
+  const coachDraftBySurfaceRef = useRef<NonNullable<CoachDraftSnapshot['bySurface']>>({});
   const [referralSquadActionBusy, setReferralSquadActionBusy] = useState<string | null>(null);
   const [referralSquadStatus, setReferralSquadStatus] = useState<string | null>(null);
   const [selectedReferralCandidateId, setSelectedReferralCandidateId] = useState('');
@@ -640,10 +647,55 @@ export default function InsightsQuickPanel({
     }, group ? 120 : 0);
   }, []);
 
+  // Hydrate Scrolitha coach drafts once per session (survives refresh / route return)
   useEffect(() => {
+    if (coachDraftHydratedRef.current) return;
+    coachDraftHydratedRef.current = true;
+    const draft = readCoachDraft();
+    if (!draft) return;
+    if (draft.bySurface) coachDraftBySurfaceRef.current = { ...draft.bySurface };
+    const surface = (draft.surface || 'post') as CoachSurface;
+    const surfaceDraft = draft.bySurface?.[surface];
+    setCoachSurface(surface);
+    setCoachInput(String(surfaceDraft?.input || ''));
+    setCoachOutput(String(surfaceDraft?.output || ''));
+  }, []);
+
+  // Persist active surface drafts without touching Member Home layout
+  useEffect(() => {
+    if (!coachDraftHydratedRef.current) return;
+    coachDraftBySurfaceRef.current = {
+      ...coachDraftBySurfaceRef.current,
+      [coachSurface]: {
+        input: coachInput,
+        output: coachOutput,
+        updatedAt: Date.now()
+      }
+    };
+    writeCoachDraft({
+      surface: coachSurface,
+      bySurface: coachDraftBySurfaceRef.current
+    });
+  }, [coachSurface, coachInput, coachOutput]);
+
+  const switchCoachSurface = useCallback((next: CoachSurface) => {
+    if (next === coachSurface) return;
+    // Save current before switch
+    coachDraftBySurfaceRef.current = {
+      ...coachDraftBySurfaceRef.current,
+      [coachSurface]: {
+        input: coachInput,
+        output: coachOutput,
+        updatedAt: Date.now()
+      }
+    };
+    const restored = coachDraftBySurfaceRef.current[next];
+    setCoachSurface(next);
+    setCoachInput(String(restored?.input || ''));
+    setCoachOutput(String(restored?.output || ''));
     setCoachStatus(null);
-    setCoachOutput('');
-  }, [coachSurface]);
+    setCoachRetryable(false);
+  }, [coachInput, coachOutput, coachSurface]);
 
   useEffect(() => {
     if (!miniGames.length) return;
@@ -670,10 +722,16 @@ export default function InsightsQuickPanel({
       const text = String(coachInput || '').trim();
       if (text.length < 12) {
         setCoachStatus('Add a little more detail so Scrolitha has enough context to improve the draft.');
+        setCoachRetryable(false);
         return;
       }
+      if (coachInFlightRef.current || coachBusyAction !== null) return;
+
+      coachInFlightRef.current = true;
       setCoachBusyAction(actionKey);
+      setLastCoachAction(actionKey);
       setCoachStatus(null);
+      setCoachRetryable(false);
       try {
         let nextOutput = '';
         let nextWarning = '';
@@ -712,13 +770,20 @@ export default function InsightsQuickPanel({
 
         setCoachOutput(nextOutput);
         setCoachStatus(nextWarning || 'Scrolitha coach updated your draft.');
+        setCoachRetryable(false);
       } catch (e: any) {
-        setCoachStatus(e?.response?.data?.message || e?.message || 'Scrolitha coach could not improve this draft right now.');
+        const classified = classifyScrolithaClientError(
+          e,
+          'Scrolitha coach could not improve this draft right now.'
+        );
+        setCoachStatus(classified.message);
+        setCoachRetryable(classified.retryable);
       } finally {
+        coachInFlightRef.current = false;
         setCoachBusyAction(null);
       }
     },
-    [coachInput, coachSurface]
+    [coachBusyAction, coachInput, coachSurface]
   );
 
   const copyCoachOutput = useCallback(async () => {
@@ -2100,24 +2165,31 @@ export default function InsightsQuickPanel({
 
           <div
             data-insights-section="scrolitha-coach"
+            data-testid="scrolitha-coach-panel"
             className={`mt-3 rounded-xl border border-slate-200 ${isDesktopRail ? 'p-4' : 'p-3'}`}
+            role="region"
+            aria-label="Scrolitha coach"
           >
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Scrolitha coach</p>
                 <p className="mt-1 text-xs text-slate-500">
                   Improve posts, gigs, and briefs inside member_home without switching to a separate editor or assistant flow.
                 </p>
               </div>
-              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">Live coach</span>
+              <span className="shrink-0 rounded-full bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-700">
+                {coachBusyAction ? 'Working' : 'Live coach'}
+              </span>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Coach surface">
               {COACH_SURFACE_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   type="button"
-                  onClick={() => setCoachSurface(option.value)}
+                  role="tab"
+                  aria-selected={coachSurface === option.value}
+                  onClick={() => switchCoachSurface(option.value)}
                   className={`rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
                     coachSurface === option.value
                       ? 'border border-indigo-200 bg-indigo-50 text-indigo-700'
@@ -2137,10 +2209,21 @@ export default function InsightsQuickPanel({
               value={coachInput}
               onChange={(event) => setCoachInput(event.target.value)}
               placeholder={COACH_PLACEHOLDERS[coachSurface]}
-              className="mt-3 min-h-[110px] w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              aria-label={`Scrolitha coach ${coachSurface} draft`}
+              disabled={coachBusyAction !== null}
+              className="mt-3 min-h-[110px] w-full max-w-full rounded-2xl border border-slate-200 px-3 py-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:opacity-60"
             />
 
-            {coachStatus ? <p className="mt-2 text-xs text-slate-500">{coachStatus}</p> : null}
+            {coachStatus ? (
+              <p
+                className="mt-2 text-xs text-slate-500"
+                role="status"
+                aria-live="polite"
+                data-testid="scrolitha-coach-status"
+              >
+                {coachStatus}
+              </p>
+            ) : null}
 
             <div className="mt-3 flex flex-wrap gap-2">
               {COACH_ACTIONS[coachSurface].map((action) => (
@@ -2149,6 +2232,7 @@ export default function InsightsQuickPanel({
                   type="button"
                   onClick={() => void runCoachAction(action.key)}
                   disabled={coachBusyAction !== null}
+                  aria-busy={coachBusyAction === action.key}
                   className={`rounded-xl px-3 py-2 text-xs font-semibold ${
                     coachBusyAction === action.key
                       ? 'bg-slate-900 text-white'
@@ -2158,6 +2242,17 @@ export default function InsightsQuickPanel({
                   {coachBusyAction === action.key ? 'Working...' : action.label}
                 </button>
               ))}
+              {coachRetryable && lastCoachAction ? (
+                <button
+                  type="button"
+                  onClick={() => void runCoachAction(lastCoachAction)}
+                  disabled={coachBusyAction !== null}
+                  className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 disabled:opacity-50"
+                  data-testid="scrolitha-coach-retry"
+                >
+                  Retry
+                </button>
+              ) : null}
               {coachOutput ? (
                 <button
                   type="button"
@@ -2180,12 +2275,12 @@ export default function InsightsQuickPanel({
             </div>
 
             {coachOutput ? (
-              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3" aria-live="polite">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Updated draft</p>
                   <span className="text-[11px] text-slate-400">{coachSurface}</span>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{coachOutput}</p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{coachOutput}</p>
               </div>
             ) : (
               <p className="mt-3 text-xs text-slate-500">
