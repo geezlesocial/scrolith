@@ -11,6 +11,10 @@ import {
   scrolithaHistory
 } from '../services/scrolitha/scrolitha.orchestrator';
 import { buildScrolithaWorkOsPlan } from '../services/phase2.service';
+import {
+  assertScrolithaAccess,
+  isScrolithaUserFacingAccessAllowed
+} from '../services/scrolitha/scrolitha.rollout';
 
 const unauthorized = (res: Response) =>
   res.status(401).json({
@@ -139,10 +143,20 @@ export const scrolithaFeedbackController = async (req: Request, res: Response) =
   }
 };
 
-export const scrolithaWidgetConfigController = async (_req: Request, res: Response) => {
+export const scrolithaWidgetConfigController = async (req: Request, res: Response) => {
   try {
+    const actor = req.user?.id ? resolveActorFromRequest(req) : null;
     const data = await getScrolithaWidgetConfigPublic();
-    return res.json({ success: true, data, message: 'Scrolitha widget config loaded' });
+    const allowed = await isScrolithaUserFacingAccessAllowed(actor);
+    const payload = {
+      ...data,
+      enabled: allowed ? data.enabled !== false : false,
+      access: {
+        allowed,
+        mode: allowed ? 'internal_or_public' : 'denied'
+      }
+    };
+    return res.json({ success: true, data: payload, message: 'Scrolitha widget config loaded' });
   } catch (error: any) {
     return sendScrolithaPublicError(res, 'Failed to load Scrolitha widget config', error, {
       logLabel: 'widget config error',
@@ -154,6 +168,8 @@ export const scrolithaWidgetConfigController = async (_req: Request, res: Respon
 export const scrolithaWorkOsPlanController = async (req: Request, res: Response) => {
   try {
     if (!req.user?.id) return unauthorized(res);
+    const actor = resolveActorFromRequest(req);
+    await assertScrolithaAccess(actor, 'Scrolitha Work OS');
     const data = await buildScrolithaWorkOsPlan(
       { id: req.user.id, role: req.user.role },
       {
@@ -171,12 +187,13 @@ export const scrolithaWorkOsPlanController = async (req: Request, res: Response)
   }
 };
 
-export const scrolithaPlatformIdentityController = async (_req: Request, res: Response) => {
+export const scrolithaPlatformIdentityController = async (req: Request, res: Response) => {
   try {
     const { ensureScrolithaPlatformUser } = await import('../services/scrolitha/scrolitha.platformIdentity');
     const { resolveContextualFeatureFlags } = await import('../services/scrolitha/scrolitha.contextualPost');
     const identity = await ensureScrolithaPlatformUser();
-    const flags = await resolveContextualFeatureFlags();
+    const actor = req.user?.id ? resolveActorFromRequest(req) : null;
+    const flags = await resolveContextualFeatureFlags(actor);
     return res.json({
       success: true,
       data: {
@@ -257,7 +274,8 @@ export const scrolithaContextualAskController = async (req: Request, res: Respon
       sanitizeContextualQuestion
     } = await import('../services/scrolitha/scrolitha.contextualPost');
     const { canUserViewPostForNotification } = await import('../services/engagementNotifications.service');
-    const flags = await resolveContextualFeatureFlags();
+    const actor = resolveActorFromRequest(req);
+    const flags = await resolveContextualFeatureFlags(actor);
     if (!flags.enabled) {
       return res.status(403).json({ success: false, message: 'Scrolitha contextual post intelligence is disabled' });
     }
@@ -548,7 +566,7 @@ export const scrolithaDiagnosticsController = async (req: Request, res: Response
       return res.status(403).json({ success: false, message: 'Admin or moderator role required' });
     }
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('diagnostics', 'Diagnostics');
+    await assertCapabilityEnabled('diagnostics', 'Diagnostics', resolveActorFromRequest(req));
     const { getEnterpriseDiagnostics } = await import('../services/scrolitha/scrolitha.diagnostics');
     const data = await getEnterpriseDiagnostics(
       role.includes('admin') ? 'admin' : 'user'
@@ -636,7 +654,7 @@ export const scrolithaOsBootstrapController = async (req: Request, res: Response
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('osSurface', 'Scrolitha OS surface');
+    await assertCapabilityEnabled('osSurface', 'Scrolitha OS surface', resolveActorFromRequest(req));
     const { bootstrapIntelligenceOs } = await import('../services/scrolitha/scrolitha.os');
     const { recordOsBootstrap, recordProactiveShown, recordRecommendationServed } = await import(
       '../services/scrolitha/scrolitha.opsMetrics'
@@ -662,15 +680,15 @@ export const scrolithaOsBootstrapController = async (req: Request, res: Response
     });
     // Rollout: strip proactive/cards/recs if independently disabled
     const { isCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    if (!(await isCapabilityEnabled('proactiveSuggestions'))) {
+    if (!(await isCapabilityEnabled('proactiveSuggestions', resolveActorFromRequest(req)))) {
       data.proactiveSuggestions = [];
     } else {
       recordProactiveShown(data.proactiveSuggestions?.length || 0);
     }
-    if (!(await isCapabilityEnabled('actionCards'))) {
+    if (!(await isCapabilityEnabled('actionCards', resolveActorFromRequest(req)))) {
       data.actionCards = [];
     }
-    if (!(await isCapabilityEnabled('recommendationEngine'))) {
+    if (!(await isCapabilityEnabled('recommendationEngine', resolveActorFromRequest(req)))) {
       data.recommendations = [];
     } else {
       recordRecommendationServed(data.recommendations?.length || 0);
@@ -688,7 +706,7 @@ export const scrolithaOsAskController = async (req: Request, res: Response) => {
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled, isCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('osSurface', 'Scrolitha OS surface');
+    await assertCapabilityEnabled('osSurface', 'Scrolitha OS surface', resolveActorFromRequest(req));
     const { recordOsAsk, recordActionCardUse, recordRequestOutcome } = await import(
       '../services/scrolitha/scrolitha.opsMetrics'
     );
@@ -696,7 +714,7 @@ export const scrolithaOsAskController = async (req: Request, res: Response) => {
     const started = Date.now();
     const { runOsAsk } = await import('../services/scrolitha/scrolitha.os');
     let actionCardId = req.body?.actionCardId || req.body?.cardId;
-    if (actionCardId && !(await isCapabilityEnabled('actionCards'))) {
+    if (actionCardId && !(await isCapabilityEnabled('actionCards', resolveActorFromRequest(req)))) {
       actionCardId = undefined;
     } else if (actionCardId) {
       recordActionCardUse();
@@ -722,10 +740,10 @@ export const scrolithaOsAskController = async (req: Request, res: Response) => {
       includeModeration: Boolean(req.body?.includeModeration),
       requestId: req.body?.requestId
     });
-    if (!(await isCapabilityEnabled('recommendationEngine'))) {
+    if (!(await isCapabilityEnabled('recommendationEngine', resolveActorFromRequest(req)))) {
       data.recommendations = [];
     }
-    if (!(await isCapabilityEnabled('actionCards'))) {
+    if (!(await isCapabilityEnabled('actionCards', resolveActorFromRequest(req)))) {
       data.actionCards = [];
     }
     recordRequestOutcome({
@@ -775,7 +793,7 @@ export const scrolithaDeepSearchController = async (req: Request, res: Response)
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('deepSearch', 'Deep search');
+    await assertCapabilityEnabled('deepSearch', 'Deep search', resolveActorFromRequest(req));
     const query = String(req.body?.query || req.query?.q || '').trim();
     if (!query) {
       return res.status(400).json({ success: false, message: 'query is required' });
@@ -805,7 +823,7 @@ export const scrolithaIntelligenceAskController = async (req: Request, res: Resp
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('intelligenceAsk', 'Scrolitha intelligence');
+    await assertCapabilityEnabled('intelligenceAsk', 'Scrolitha intelligence', resolveActorFromRequest(req));
     const question = String(req.body?.question || req.body?.message || '').trim();
     if (!question) {
       return res.status(400).json({ success: false, message: 'question is required' });
@@ -889,7 +907,7 @@ export const scrolithaModerationAssistController = async (req: Request, res: Res
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('moderationAssist', 'Moderation assist');
+    await assertCapabilityEnabled('moderationAssist', 'Moderation assist', resolveActorFromRequest(req));
     // Soft permission: prefer moderators/admins but allow community owners via role string checks.
     const role = String(req.user.role || '').toLowerCase();
     const isStaff = role.includes('admin') || role.includes('moderator') || role.includes('staff');
@@ -995,7 +1013,8 @@ export const scrolithaContextualSuggestionsController = async (req: Request, res
       resolveContextualFeatureFlags
     } = await import('../services/scrolitha/scrolitha.contextualPost');
     const { canUserViewPostForNotification } = await import('../services/engagementNotifications.service');
-    const flags = await resolveContextualFeatureFlags();
+    const actor = resolveActorFromRequest(req);
+    const flags = await resolveContextualFeatureFlags(actor);
     if (!flags.enabled || !flags.proactiveSuggestions) {
       return res.json({ success: true, data: { suggestions: [] }, message: 'Suggestions disabled' });
     }
@@ -1068,7 +1087,7 @@ export const scrolithaMemorySummaryController = async (req: Request, res: Respon
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('persistentMemory', 'Persistent memory');
+    await assertCapabilityEnabled('persistentMemory', 'Persistent memory', resolveActorFromRequest(req));
     const sessionKey = String(req.query?.sessionKey || req.body?.sessionKey || '').trim() || null;
     const { getLayeredMemorySnapshot } = await import('../services/scrolitha/scrolitha.memoryLayers');
     const snap = await getLayeredMemorySnapshot({ userId: req.user.id, sessionKey });
@@ -1135,7 +1154,7 @@ export const scrolithaLearningSignalController = async (req: Request, res: Respo
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('learningLoop', 'Learning loop');
+    await assertCapabilityEnabled('learningLoop', 'Learning loop', resolveActorFromRequest(req));
     const type = String(req.body?.type || req.body?.signal || '').trim();
     if (!type) {
       return res.status(400).json({ success: false, message: 'type is required' });
@@ -1167,7 +1186,7 @@ export const scrolithaTrustAssessController = async (req: Request, res: Response
   try {
     if (!req.user?.id) return unauthorized(res);
     const { assertCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
-    await assertCapabilityEnabled('trustVerification', 'Trust verification');
+    await assertCapabilityEnabled('trustVerification', 'Trust verification', resolveActorFromRequest(req));
     const claim = String(req.body?.claim || req.body?.question || '').trim();
     const evidence = Array.isArray(req.body?.evidence) ? req.body.evidence : [];
     const { assessTrust, buildVerificationPackage } = await import('../services/scrolitha/scrolitha.trust');

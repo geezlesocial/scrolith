@@ -4,6 +4,7 @@ import { getScrolithaKnowledgeBundle } from '../services/scrolitha/scrolitha.kno
 import { resolveScrolithaLlmRuntime, sanitizeScrolithaUserMessage } from '../services/scrolitha/scrolitha.ollama';
 import { resolveActorFromRequest, writeScrolithaAuditLog } from '../services/scrolitha/scrolitha.audit';
 import { ensureScrolithaConfig, isScrolithaPromptPolicyError } from '../services/scrolitha/scrolitha.policy';
+import { assertScrolithaAccess } from '../services/scrolitha/scrolitha.rollout';
 import { ScrolithaService } from '../modules/scrolitha/inference/scrolitha.service';
 import {
   enhancePostDraftWithAi,
@@ -1138,6 +1139,15 @@ export const postEnhance = async (req: Request, res: Response) => {
   }
   if (!isValidPostEnhanceMode(modeRaw)) {
     return res.status(400).json({ success: false, error: 'mode must be one of: grammar, rephrase, professional, shorten, expand' });
+  }
+
+  try {
+    await assertScrolithaAccess(actor, 'Scrolitha post enhance');
+  } catch (accessErr: any) {
+    return res.status(Number(accessErr?.statusCode) || 403).json({
+      success: false,
+      error: String(accessErr?.message || 'Scrolitha is currently unavailable for this account')
+    });
   }
 
   const postAiSettings = await resolvePostAiSettings();

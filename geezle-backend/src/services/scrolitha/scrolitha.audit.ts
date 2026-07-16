@@ -4,12 +4,13 @@ import type { ScrolithaActor } from './scrolitha.types';
 
 export const resolveActorFromRequest = (req: Request): ScrolithaActor => {
   const role = String(req.user?.role || '').trim().toLowerCase();
-  const isAdmin = role.includes('admin');
+  const isAdmin = role.includes('admin') || role.includes('moderator');
   return {
     id: String(req.user?.id || ''),
     role: role || 'user',
     scope: isAdmin ? 'admin' : 'user',
     isAdmin,
+    email: req.user?.email ? String(req.user.email).trim().toLowerCase() : null,
     ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
     userAgent: req.headers['user-agent']?.toString() || null
   };
