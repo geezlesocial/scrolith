@@ -60,6 +60,7 @@ export const getScrolithaHealthModel = async (): Promise<ScrolithaHealthModel> =
 
   const primary = providers.find((p) => p.provider !== 'backup') || providers[0];
   const backup = providers.find((p) => p.provider === 'backup');
+  const connectivity = primary?.connectivity;
 
   const components: ComponentHealth[] = [
     {
@@ -84,7 +85,11 @@ export const getScrolithaHealthModel = async (): Promise<ScrolithaHealthModel> =
       details: {
         primary: primary?.provider,
         backup: backup?.status,
-        latencyMs: primary?.latencyMs ?? null
+        latencyMs: primary?.latencyMs ?? null,
+        liveProbe: connectivity?.liveProbe ?? null,
+        connectivityClass: connectivity?.class ?? null,
+        productionSafe: connectivity?.productionSafe ?? null,
+        availability: connectivity?.availability ?? null
       }
     },
     {

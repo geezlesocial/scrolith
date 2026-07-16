@@ -110,12 +110,18 @@ describe('scrolitha operations readiness', () => {
     expect(snap.rates.successRate).not.toBeNull();
   });
 
-  test('health model returns components and failure matrix', async () => {
-    const health = await getScrolithaHealthModel();
-    expect(health.components.length).toBeGreaterThanOrEqual(6);
-    expect(health.overall).toBeTruthy();
-    expect(FAILURE_MODE_MATRIX.some((f) => f.failure.includes('provider'))).toBe(true);
-  });
+  test(
+    'health model returns components and failure matrix',
+    async () => {
+      const health = await getScrolithaHealthModel();
+      expect(health.components.length).toBeGreaterThanOrEqual(6);
+      expect(health.overall).toBeTruthy();
+      expect(FAILURE_MODE_MATRIX.some((f) => f.failure.includes('provider'))).toBe(true);
+      const provider = health.components.find((c) => c.component === 'provider');
+      expect(provider?.details).toBeTruthy();
+    },
+    20_000
+  );
 
   test('failure mode helpers degrade safely', async () => {
     const failed = await safeAsync(async () => {

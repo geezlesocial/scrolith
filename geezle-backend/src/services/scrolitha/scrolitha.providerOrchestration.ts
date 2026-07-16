@@ -2,7 +2,11 @@
  * AI Provider orchestration — health, timeouts, retries, fallback, routing.
  * Does not hardcode a single vendor; discovers capabilities from runtime.
  */
-import { resolveScrolithaLlmRuntime, type ScrolithaLlmRuntime } from './scrolitha.ollama';
+import {
+  getScrolithaRuntimeHealth,
+  resolveScrolithaLlmRuntime,
+  type ScrolithaLlmRuntime
+} from './scrolitha.ollama';
 import { enterpriseCache } from './scrolitha.enterpriseCache';
 import type { ScrolithaScope } from './scrolitha.types';
 
@@ -19,6 +23,14 @@ export type ProviderHealth = {
     tools: boolean;
   };
   message?: string;
+  /** Additive connectivity detail for admin diagnostics (safe, no secrets). */
+  connectivity?: {
+    class?: string;
+    productionSafe?: boolean;
+    usable?: boolean;
+    availability?: string | null;
+    liveProbe?: boolean;
+  };
 };
 
 export type RoutingDecision = {
@@ -44,6 +56,23 @@ const HEALTH_TTL_MS = 20_000;
 const asProvider = (runtime: ScrolithaLlmRuntime): ProviderId => {
   if (!runtime.enabled || runtime.provider === 'disabled') return 'disabled';
   return runtime.provider === 'ollama' ? 'ollama' : 'core';
+};
+
+const mapLiveStatus = (
+  liveStatus: unknown,
+  runtime: ScrolithaLlmRuntime,
+  primary: ProviderId
+): ProviderHealth['status'] => {
+  if (!runtime.enabled || primary === 'disabled') return 'disabled';
+  const status = String(liveStatus || '').trim().toLowerCase();
+  if (status === 'operational' || status === 'accelerated') return 'operational';
+  if (status === 'disabled') return 'disabled';
+  if (status === 'degraded') return 'degraded';
+  if (status === 'unavailable') return 'unavailable';
+  // Fall back to resolved runtime config when probe shape is unexpected
+  if (runtime.status === 'degraded') return 'degraded';
+  if (runtime.runtimeConfigured) return 'operational';
+  return 'unavailable';
 };
 
 export const discoverProviderCapabilities = async (scope: ScrolithaScope = 'user') => {
@@ -77,35 +106,55 @@ export const discoverProviderCapabilities = async (scope: ScrolithaScope = 'user
   };
 };
 
+/**
+ * Provider health with live Scrolitha Core probe (cached).
+ * Prefer live availability over config-only "looks configured" signals.
+ */
 export const getProviderHealth = async (scope: ScrolithaScope = 'user'): Promise<ProviderHealth[]> => {
-  const cacheKey = `health:${scope}`;
+  const cacheKey = `health:live:${scope}`;
   const cached = enterpriseCache.get<ProviderHealth[]>('governance', cacheKey);
   if (cached) return cached;
 
   const started = Date.now();
   const runtime = await resolveScrolithaLlmRuntime(scope);
   const primary = asProvider(runtime);
+
+  let live: Awaited<ReturnType<typeof getScrolithaRuntimeHealth>> | null = null;
+  try {
+    // Shallow tags probe — frequent health paths must not run full READY chat.
+    live = await getScrolithaRuntimeHealth(scope, { runtime, deep: false });
+  } catch (error: any) {
+    console.warn('[scrolitha] live provider health probe failed', {
+      error: String(error?.message || error || '').slice(0, 180)
+    });
+  }
+
   const latencyMs = Date.now() - started;
+  const liveStatus = mapLiveStatus(live?.status, runtime, primary);
+  const connectivity = (live as any)?.connectivity || null;
+  const message =
+    String((live as any)?.warning || (live as any)?.error || connectivity?.message || '').trim() ||
+    (runtime.runtimeConfigured ? undefined : 'Runtime endpoint not fully configured');
 
   const health: ProviderHealth[] = [
     {
       provider: primary,
-      status:
-        !runtime.enabled || primary === 'disabled'
-          ? 'disabled'
-          : runtime.status === 'degraded'
-            ? 'degraded'
-            : runtime.runtimeConfigured
-              ? 'operational'
-              : 'unavailable',
+      status: liveStatus,
       latencyMs,
       checkedAt: new Date().toISOString(),
       capabilities: {
-        completion: runtime.enabled && primary !== 'disabled',
-        streaming: Boolean(runtime.enableStreaming),
+        completion: runtime.enabled && primary !== 'disabled' && liveStatus === 'operational',
+        streaming: Boolean(runtime.enableStreaming) && liveStatus === 'operational',
         tools: true
       },
-      message: runtime.runtimeConfigured ? undefined : 'Runtime endpoint not fully configured'
+      message: message || undefined,
+      connectivity: {
+        class: connectivity?.class,
+        productionSafe: connectivity?.productionSafe,
+        usable: connectivity?.usable,
+        availability: (live as any)?.availability ?? null,
+        liveProbe: Boolean(live)
+      }
     },
     {
       provider: 'backup',
@@ -146,6 +195,9 @@ export const routeProvider = async (input: {
   }
   if (input.preferLowLatency) {
     reason += '; latency-aware routing keeps local/core first';
+  }
+  if (!runtime.runtimeConfigured || runtime.status === 'degraded') {
+    reason += '; primary runtime degraded/misconfigured — fallbacks used when policy allows';
   }
 
   return {
