@@ -384,6 +384,6 @@ export const MOCK_KYC_DOCS: KYCDocument[] = [
         type: 'ID Card',
         status: 'Pending',
         dateSubmitted: '2023-11-01T10:00:00Z',
-        frontImage: 'https://via.placeholder.com/300x200?text=ID+Front'
+        frontImage: '/placeholders/kyc-id-front.svg'
     }
 ];

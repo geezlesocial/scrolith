@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CommunityService } from '../../services/community';
-import { setFollowStatus, useFollowStatus } from '../followState';
+import { applyFollowUpdatePayload, setFollowStatus, useFollowStatus } from '../followState';
 
 type FollowButtonProps = {
   targetUserId?: string | null;
@@ -10,6 +10,7 @@ type FollowButtonProps = {
   onRequireLogin?: () => void;
   onSuccess?: (isFollowing: boolean) => void;
   onError?: (message: string) => void;
+  tone?: 'default' | 'overlay';
   className?: string;
 };
 
@@ -33,6 +34,7 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   onRequireLogin,
   onSuccess,
   onError,
+  tone = 'default',
   className = ''
 }) => {
   const [busy, setBusy] = useState(false);
@@ -65,6 +67,16 @@ const FollowButton: React.FC<FollowButtonProps> = ({
       active = false;
     };
   }, [id, selfId, followStatus]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onFollowUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail;
+      applyFollowUpdatePayload(detail, selfId);
+    };
+    window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
+    return () => window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
+  }, [selfId]);
 
   const label = useMemo(() => {
     if (busy) return '...';
@@ -104,6 +116,20 @@ const FollowButton: React.FC<FollowButtonProps> = ({
       } else {
         await CommunityService.unfollowUser(id);
       }
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: selfId,
+              targetUserId: id,
+              targetType: 'user',
+              targetId: id,
+              isFollowing: next,
+              action: next ? 'follow' : 'unfollow'
+            }
+          })
+        );
+      } catch {}
       if (onSuccess) onSuccess(next);
     } catch (error: any) {
       setFollowStatus(id, previous);
@@ -118,16 +144,23 @@ const FollowButton: React.FC<FollowButtonProps> = ({
     }
   };
 
-  const stateClass = isFollowing
-    ? 'border-slate-300 text-slate-700 hover:bg-slate-50'
-    : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700';
+  const stateClass =
+    tone === 'overlay'
+      ? isFollowing
+        ? 'border-emerald-300/45 bg-emerald-500/20 text-white hover:bg-emerald-500/30'
+        : 'border-white/15 bg-white/10 text-white hover:bg-white/20'
+      : isFollowing
+        ? 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200'
+        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50';
 
   return (
     <button
       type="button"
       onClick={handleClick}
       disabled={isDisabled}
-      className={`inline-flex h-8 items-center rounded-full border px-3 text-xs font-semibold transition ${stateClass} disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+      aria-label={label}
+      title={label}
+      className={`inline-flex h-8 min-w-[6.25rem] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3 text-xs font-semibold leading-none transition ${className} ${stateClass} disabled:cursor-not-allowed disabled:opacity-60`}
     >
       {label}
     </button>

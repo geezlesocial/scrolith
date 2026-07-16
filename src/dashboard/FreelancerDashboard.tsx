@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { RealtimeProvider } from './shared/RealtimeProvider';
 import { 
-    LayoutDashboard, Briefcase, FileText, DollarSign, MessageSquare, 
+    LayoutDashboard, Briefcase, FileText, DollarSign, MessageSquare, ShoppingBag,
     Settings, LogOut, User, Folder, Award, TrendingUp, Clock, ArrowRight,
     Star, CheckCircle, Lock, BookOpen, Heart, Coins, LifeBuoy, Shield
 } from 'lucide-react';
@@ -26,6 +26,7 @@ import GcoinPanel from './shared/GcoinPanel';
 import SupportCenter from './shared/SupportCenter';
 import MessagesPanel from './shared/MessagesPanel';
 import KYCVerification from './shared/KYCVerification';
+import MarketplacePage from '../pages/marketplace/MarketplacePage';
 import { useT } from '../i18n/useT';
 
 const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
@@ -45,7 +46,7 @@ const SidebarItem = ({ id, label, icon: Icon, active, onClick }: any) => (
 const FreelancerDashboard = () => {
     const t = useT();
     const { user, switchRole, logout } = useUser();
-    const [activeTab, setActiveTab] = useState<'overview' | 'growth' | 'contracts' | 'gigs' | 'orders' | 'proposals' | 'wallet' | 'gcoin' | 'messages' | 'support' | 'kyc' | 'reviews' | 'likes' | 'profile' | 'settings' | 'uploaded-files'>('overview');
+    const [activeTab, setActiveTab] = useState<'overview' | 'marketplace' | 'growth' | 'contracts' | 'gigs' | 'orders' | 'proposals' | 'wallet' | 'gcoin' | 'messages' | 'support' | 'kyc' | 'reviews' | 'likes' | 'profile' | 'settings' | 'uploaded-files'>('overview');
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
     const params = useParams();
@@ -53,7 +54,7 @@ const FreelancerDashboard = () => {
     useEffect(() => {
         const tabQuery = searchParams.get('tab');
         const tabParam = params.tab;
-        const allowed = ['overview', 'growth', 'contracts', 'gigs', 'orders', 'proposals', 'wallet', 'gcoin', 'messages', 'support', 'kyc', 'reviews', 'likes', 'profile', 'settings', 'uploaded-files'];
+        const allowed = ['overview', 'marketplace', 'growth', 'contracts', 'gigs', 'orders', 'proposals', 'wallet', 'gcoin', 'messages', 'support', 'kyc', 'reviews', 'likes', 'profile', 'settings', 'uploaded-files'];
         const tab = tabParam || tabQuery;
         if (tab && allowed.includes(tab)) setActiveTab(tab as unknown as typeof activeTab);
     }, [searchParams, params.tab]);
@@ -72,6 +73,7 @@ const FreelancerDashboard = () => {
     const freelancerNav = [
         { id: 'profile', label: t('dashboard.freelancer.nav.profile', 'My Profile'), icon: User },
         { id: 'overview', label: t('dashboard.freelancer.nav.dashboard', 'Dashboard'), icon: LayoutDashboard },
+        { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
         { id: 'post-brief', label: t('dashboard.freelancer.nav.post_brief', 'Post a project brief'), icon: FileText },
         { id: 'your-briefs', label: t('dashboard.freelancer.nav.your_briefs', 'Your briefs'), icon: Folder },
         { id: 'refer', label: t('dashboard.freelancer.nav.refer', 'Refer a friend'), icon: ArrowRight },
@@ -83,6 +85,7 @@ const FreelancerDashboard = () => {
     const employerNav = [
         { id: 'profile', label: t('dashboard.freelancer.employer_view.profile', 'Profile'), icon: User },
         { id: 'overview', label: t('dashboard.freelancer.employer_view.dashboard', 'Dashboard'), icon: LayoutDashboard },
+        { id: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
         { id: 'refer', label: t('dashboard.freelancer.employer_view.refer', 'Refer a friend'), icon: ArrowRight },
         { id: 'account-settings', label: t('dashboard.freelancer.employer_view.account_settings', 'Account settings'), icon: Lock },
         { id: 'billing', label: t('dashboard.freelancer.employer_view.billing', 'Billing and payments'), icon: DollarSign },
@@ -141,6 +144,12 @@ const FreelancerDashboard = () => {
                                     return;
                                 }
 
+                                if (id === 'marketplace') {
+                                    setActiveTab('marketplace');
+                                    navigate(isEmployerView ? '/freelancer/dashboard?tab=marketplace&as=employer' : '/freelancer/dashboard?tab=marketplace');
+                                    return;
+                                }
+
                                 if (id === 'post-brief') {
                                     navigate('/create-job');
                                     return;
@@ -194,6 +203,7 @@ const FreelancerDashboard = () => {
             <main className="flex-1 ml-64 p-8">
                 <div className="max-w-7xl mx-auto animate-fade-in">
                     {activeTab === 'overview' && <FreelancerOverview />}
+                    {activeTab === 'marketplace' && <MarketplacePage variant="dashboard" />}
                     {activeTab === 'growth' && <GrowthInsights user={user} />}
                     {activeTab === 'contracts' && (
                         <div className="space-y-6">

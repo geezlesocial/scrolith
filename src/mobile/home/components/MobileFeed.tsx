@@ -1,30 +1,56 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2Icon as Loader2,
   MoreVerticalIcon as MoreVertical,
   ShieldCheckIcon as ShieldCheck
 } from '../../../components/icons/ShellIcons';
 import { Link, useNavigate } from 'react-router-dom';
+import { Briefcase, CalendarDays, Megaphone, MessageCircle, Newspaper, Sparkles, Users as UsersIcon, Video } from 'lucide-react';
 
 import { useSocket } from '../../../context/SocketContext';
+import { useNetworkStatus } from '../../../context/NetworkStatusContext';
 import { useUser } from '../../../context/UserContext';
-import { CommunityService } from '../../../services/community';
+import { CommunityService, type BroadcastChannelSummary } from '../../../services/community';
+import { fetchPublicCommunityPostsBaseline } from '../../../services/communityFeedFallback';
 import { ReactionsService } from '../../../services/reactions';
 import { jobsApi, Job } from '../../../services/jobs';
 import { gigsApi, Gig } from '../../../services/gigs';
 import { RecoService } from '../../../services/reco';
 import { MessagingService } from '../../../services/messaging';
+import { ScrollService, type ScrollSeriesDiscovery } from '../../../services/scroll';
 import MentionText from '../../../community/components/MentionText';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
-import FollowButton from '../../../community/components/FollowButton';
 import PostOptionsButton from '../../../community/components/post-options/PostOptionsButton';
+import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
+import OptimizedImage from '../../../components/media/OptimizedImage';
+import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
+import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
+import TranslatablePostText from '../../../components/translation/TranslatablePostText';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
+import { resolveAssetUrl } from '../../../utils/assetUrl';
+import { normalizeContentOfferTags } from '../../../utils/contentOffers';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
+import {
+  buildPostVideoScrollViewerPath,
+  stashPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollViewerSource
+} from '../../../utils/postVideoScrollBridge';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
+import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
+import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
+import { pickInterestSurveyCandidateIds } from '../../../components/recommendation/ContentInterestSurvey';
+import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
+
+const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
+const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
+const MemberHomeHighlightsBoard = React.lazy(() => import('../../../components/member-home/MemberHomeHighlightsBoard'));
 
 type MobileHomeLayoutSettings = {
   feed?: {
@@ -79,8 +105,55 @@ const relativeTime = (iso?: string | null) => {
   return `${days}d`;
 };
 
-const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
+const isVideo = (value?: any) => {
+  const mimeOrKind = String(
+    typeof value === 'string'
+      ? value
+      : value?.mimeType ||
+          value?.mime_type ||
+          value?.mediaType ||
+          value?.media_type ||
+          value?.contentType ||
+          value?.content_type ||
+          value?.type ||
+          value?.kind ||
+          ''
+  ).trim().toLowerCase();
+  if (mimeOrKind === 'video' || mimeOrKind.startsWith('video/')) return true;
+  const url = String(
+    typeof value === 'string'
+      ? value
+      : value?.url || value?.path || value?.downloadUrl || value?.download_url || value?.videoUrl || value?.video_url || ''
+  ).trim().toLowerCase();
+  return /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(\?|$)/.test(url) || url.includes('/video/');
+};
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
+const BRAND_LOGO_URL = '/logo.png';
+const buildPostScrolithaPrompt = (title: string, content: string) => {
+  const safeTitle = String(title || '').trim();
+  const safeContent = String(content || '').replace(/\s+/g, ' ').trim();
+  const excerpt = safeContent.slice(0, 280);
+  if (safeTitle && excerpt) {
+    return `Improve this Scrolith post for clarity, engagement, and relevance.\nTitle: ${safeTitle}\nBody: ${excerpt}`;
+  }
+  if (safeTitle) return `Improve this Scrolith post title and suggest stronger supporting copy:\n${safeTitle}`;
+  if (excerpt) return `Improve this Scrolith post and suggest better engagement hooks:\n${excerpt}`;
+  return 'Help me draft a high-performing Scrolith post for mobile audience.';
+};
+
+const toPreviewMedia = (media: any): PreviewMedia | null => {
+  const url = String(media?.url || '').trim();
+  if (!url) return null;
+  return {
+    id: media?.id,
+    url,
+    name: media?.name,
+    mimeType: media?.mimeType || media?.mime_type,
+    type: media?.type,
+    thumbnailUrl: media?.thumbnailUrl || media?.thumbnail_url || null,
+    duration: media?.duration
+  };
+};
 type NavigatorConnection = {
   effectiveType?: string;
   saveData?: boolean;
@@ -150,8 +223,7 @@ const pickSlotIndexes = (count: number, slots: number, seed: string) => {
     .sort((a, b) => a - b);
 };
 
-const FEED_CACHE_VERSION = 'v1';
-const FEED_CACHE_TTL_MS = 4 * 60 * 1000;
+const FEED_CACHE_VERSION = 'v3';
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
   try {
@@ -167,15 +239,222 @@ const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallback
 };
 
 const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.data?.jobs)) return payload.data.jobs as Job[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Job[];
+  if (Array.isArray(payload?.items)) return payload.items as Job[];
   if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload?.data)) return payload.data as Job[];
   if (Array.isArray(payload)) return payload as Job[];
   return [];
 };
 
 const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.data?.gigs)) return payload.data.gigs as Gig[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Gig[];
+  if (Array.isArray(payload?.items)) return payload.items as Gig[];
   if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload?.data)) return payload.data as Gig[];
   if (Array.isArray(payload)) return payload as Gig[];
   return [];
+};
+
+const extractFeedItemsFromPayload = (payload: any): any[] => {
+  if (Array.isArray(payload?.data?.data?.items)) return payload.data.data.items;
+  if (Array.isArray(payload?.data?.data?.posts)) return payload.data.data.posts;
+  if (Array.isArray(payload?.items)) return payload.items;
+  if (Array.isArray(payload?.posts)) return payload.posts;
+  if (Array.isArray(payload?.data?.items)) return payload.data.items;
+  if (Array.isArray(payload?.data?.posts)) return payload.data.posts;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.result?.items)) return payload.result.items;
+  if (Array.isArray(payload?.result?.posts)) return payload.result.posts;
+  if (Array.isArray(payload)) return payload;
+  return [];
+};
+
+const formatHighlightMoney = (value: any) => {
+  const amount =
+    typeof value === 'number'
+      ? value
+      : typeof value?.amount === 'number'
+        ? value.amount
+        : typeof value?.minAmount === 'number'
+          ? value.minAmount
+          : typeof value?.maxAmount === 'number'
+            ? value.maxAmount
+            : null;
+  if (amount === null) return null;
+  try {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount);
+  } catch {
+    return String(amount);
+  }
+};
+
+const pickFirstMediaEntry = (values: unknown) => {
+  if (!Array.isArray(values)) return null;
+  for (const value of values) {
+    if (!value) continue;
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'object') return value;
+  }
+  return null;
+};
+
+const isRawApiUploadUrl = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return (
+    normalized.startsWith('https://api.scrolith.com/uploads/') ||
+    normalized.startsWith('http://api.scrolith.com/uploads/') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/')
+  );
+};
+
+const listingHasUsableImageFileId = (row: any) => {
+  const directCandidates = [
+    row?.imageFileId,
+    row?.image_file_id,
+    row?.thumbnailFileId,
+    row?.thumbnail_file_id,
+    row?.mediaId,
+    row?.media_id,
+    row?.attachmentId,
+    row?.attachment_id,
+    row?.creativeFileId,
+    row?.creative_file_id,
+    row?.fileId,
+    row?.file_id
+  ];
+  if (directCandidates.some((value) => String(value || '').trim())) return true;
+
+  const mediaEntries = [pickFirstMediaEntry(row?.images), pickFirstMediaEntry(row?.media)];
+  return mediaEntries.some((entry: any) => {
+    if (!entry || typeof entry !== 'object') return false;
+    return [
+      entry?.fileId,
+      entry?.file_id,
+      entry?.thumbnailFileId,
+      entry?.thumbnail_file_id,
+      entry?.mediaId,
+      entry?.media_id,
+      entry?.attachmentId,
+      entry?.attachment_id,
+      entry?.asset?.id,
+      entry?.file?.id,
+      entry?.id
+    ].some((value) => String(value || '').trim());
+  });
+};
+
+const resolveHighlightListingImage = (row: any) => {
+  const mediaCandidate =
+    pickFirstMediaEntry(row?.images) ||
+    pickFirstMediaEntry(row?.media) ||
+    row?.image ||
+    row?.coverImage ||
+    row?.cover ||
+    row?.thumbnailUrl ||
+    row?.thumbnail_url ||
+    row?.previewImage ||
+    row?.preview_image ||
+    row?.clientAvatar ||
+    row?.freelancerAvatar ||
+    null;
+  if (isRawApiUploadUrl(mediaCandidate) && !listingHasUsableImageFileId(row)) return '';
+  return mediaCandidate ? resolvePostAttachmentMediaUrl(mediaCandidate) : '';
+};
+
+const resolveHighlightAvatar = (value: unknown) => {
+  const normalized = resolvePostAttachmentMediaUrl(value);
+  return String(normalized || '').trim();
+};
+
+const resolveHighlightPostMedia = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+    if (isVideo(attachment)) {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
+    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
+    const type = String(attachment?.type || '').trim().toLowerCase();
+    if (isImage(mime) || type === 'image') {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
+  }
+  return '';
+};
+
+const resolveHighlightPostVideo = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    if (!isVideo(attachment)) continue;
+    const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+    if (mediaUrl) return mediaUrl;
+  }
+  return '';
+};
+
+const resolveHighlightPostPoster = (post: any) => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+  }
+  return '';
+};
+
+const resolveHighlightPostFallback = (post: any) => {
+  const authorAvatar = resolveHighlightAvatar(post?.author?.avatarUrl || post?.authorAvatar || null);
+  return authorAvatar || BRAND_LOGO_URL;
+};
+
+const resolveSyntheticVideoAttachment = (post: any) => {
+  const videoUrl = String(
+    post?.videoUrl ||
+      post?.video_url ||
+      post?.mediaUrl ||
+      post?.media_url ||
+      post?.sourceVideoUrl ||
+      post?.source_video_url ||
+      ''
+  ).trim();
+  if (!videoUrl) return null;
+  return {
+    id: String(post?.videoAttachmentId || post?.video_attachment_id || videoUrl).trim() || videoUrl,
+    url: videoUrl,
+    name: String(post?.title || post?.videoTitle || post?.video_title || 'Video post').trim() || 'Video post',
+    type: 'video',
+    kind: 'video',
+    mimeType: 'video/mp4',
+    thumbnailUrl:
+      String(
+        post?.thumbnailUrl ||
+          post?.thumbnail_url ||
+          post?.posterUrl ||
+          post?.poster_url ||
+          post?.previewUrl ||
+          post?.preview_url ||
+          ''
+      ).trim() || null
+  };
+};
+
+const isIgnoredSurfaceTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  return Boolean(
+    element.closest(
+      'a, button, input, textarea, select, label, video, audio, [data-inline-video-control="true"], [data-post-media-root="true"]'
+    )
+  );
 };
 
 const resolveProfileUrl = (
@@ -197,10 +476,19 @@ const resolveProfileUrl = (
   return '/profile/edit';
 };
 
-export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSettings | null }) {
+export default function MobileFeed({
+  settings,
+  onOpenPostVideoScroll,
+  onOpenScrollSeries
+}: {
+  settings?: MobileHomeLayoutSettings | null;
+  onOpenPostVideoScroll?: (source: PendingPostVideoScrollViewerSource) => void;
+  onOpenScrollSeries?: (seriesId: string, scrollId?: string | null) => void;
+}) {
   const navigate = useNavigate();
   const { user } = useUser();
   const { isConnected } = useSocket();
+  const { isOnline, recoveryTick, shouldAttemptLiveConnections } = useNetworkStatus();
   const { profile } = usePerformanceProfile();
   const currentUserId = String(user?.id || 'guest').trim() || 'guest';
   const feedCacheKey = useMemo(() => `mobile_feed_cache:${FEED_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
@@ -214,6 +502,18 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
   const [isConstrainedConnection, setIsConstrainedConnection] = useState<boolean>(() => isConstrainedNetwork());
   const constrainedForFeed = isConstrainedConnection || profile.lowBandwidth || profile.dataSaver;
+  const initialRenderCount = constrainedForFeed ? 4 : 6;
+  const renderStep = constrainedForFeed ? 3 : 5;
+  const feedItemPerformanceStyle = useMemo(
+    () =>
+      ({
+        contentVisibility: 'auto',
+        containIntrinsicSize: constrainedForFeed ? '680px' : '760px',
+        transform: 'translateZ(0)'
+      }) as React.CSSProperties,
+    [constrainedForFeed]
+  );
+  const priorityMediaPostLimit = constrainedForFeed ? 1 : 2;
   const listingCardEveryPosts = clamp(Number((feedSettings as any).listingCardEveryPosts ?? 2) || 2, 1, 6);
   const maxListingCardsPerFeed = clamp(Number((feedSettings as any).maxListingCardsPerFeed ?? 8) || 8, 1, 16);
   const listingPoolLimit = Math.max(
@@ -224,13 +524,16 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const promotedFrequency = clamp(Number(feedSettings.promotedFrequency ?? 6) || 6, 2, 20);
 
   const [posts, setPosts] = useState<any[]>([]);
+  const [renderedPostCount, setRenderedPostCount] = useState(initialRenderCount);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
   const [revealedGraphic, setRevealedGraphic] = useState<Record<string, boolean>>({});
+  const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
+  const [expandedPost, setExpandedPost] = useState<any | null>(null);
 
   const [ads, setAds] = useState<any[]>([]);
   const [trendingTags, setTrendingTags] = useState<Array<{ slug: string; label: string; count?: number }>>([]);
@@ -238,22 +541,49 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const [suggestedPages, setSuggestedPages] = useState<any[]>([]);
   const [recommendedJobs, setRecommendedJobs] = useState<Job[]>([]);
   const [recommendedGigs, setRecommendedGigs] = useState<Gig[]>([]);
+  const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
+  const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
+  const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
+  const [secondaryFeedReady, setSecondaryFeedReady] = useState(false);
+  const promotedAdsTimerRef = useRef<number | null>(null);
+  const promotedAdsRequestIdRef = useRef(0);
+  const deferredPosts = useDeferredValue(posts);
+  const visiblePosts = useMemo(
+    () => deferredPosts.slice(0, Math.min(renderedPostCount, deferredPosts.length)),
+    [deferredPosts, renderedPostCount]
+  );
+  const interestSurveyPostIds = useMemo(
+    () =>
+      new Set(
+        pickInterestSurveyCandidateIds(
+          visiblePosts.map((post: any) => ({
+            id: post?.id,
+            authorId: post?.authorUserId || post?.authorId,
+            initialSignal: post?.userState?.interestSignal
+          })),
+          user?.id,
+          'post',
+          5
+        )
+      ),
+    [visiblePosts, user?.id]
+  );
   const listingSlots = useMemo(() => {
-    if (!showRecommendedGigsJobs || !user?.id || !posts.length) return 0;
+    if (!showRecommendedGigsJobs || !posts.length) return 0;
     const baseSlots = Math.floor(posts.length / listingCardEveryPosts);
     const sparseSlots = posts.length > 0 ? 1 : 0;
     return Math.min(maxListingCardsPerFeed, Math.max(baseSlots, sparseSlots));
-  }, [showRecommendedGigsJobs, user?.id, posts.length, listingCardEveryPosts, maxListingCardsPerFeed]);
+  }, [showRecommendedGigsJobs, posts.length, listingCardEveryPosts, maxListingCardsPerFeed]);
 
   const listingCardEntries = useMemo(() => {
-    if (!showRecommendedGigsJobs || !user?.id || !posts.length || listingSlots <= 0) {
+    if (!showRecommendedGigsJobs || !posts.length || listingSlots <= 0) {
       return [] as Array<{ kind: 'job' | 'gig'; item: any }>;
     }
 
     const jobPool = shuffle(dedupeById((recommendedJobs || []) as Array<Job & { id: string }>)).slice(0, listingSlots * 3);
     const gigPool = shuffle(dedupeById((recommendedGigs || []) as Array<Gig & { id: string }>)).slice(0, listingSlots * 3);
     const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
-    let preferJob = ((String(user.id || '').length + posts.length) % 2) === 0;
+    let preferJob = ((String(user?.id || 'guest').length + posts.length) % 2) === 0;
 
     while (entries.length < listingSlots && (jobPool.length || gigPool.length)) {
       if (preferJob && jobPool.length) {
@@ -320,6 +650,433 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     return map;
   }, [adSlotIndexes, ads]);
 
+  const scrollToFeedSection = useCallback((sectionId: string) => {
+    if (typeof document === 'undefined') return;
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const openInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
+    if (typeof window !== 'undefined' && group) {
+      window.dispatchEvent(
+        new CustomEvent('insights:open_section', {
+          detail: { group, section: sectionId }
+        })
+      );
+    }
+  }, []);
+
+  const buildSeriesUrl = useCallback((seriesId?: string | null) => {
+    const id = String(seriesId || '').trim();
+    if (!id) return '/scroll';
+    return `/scroll?series=${encodeURIComponent(id)}`;
+  }, []);
+
+  const resolveBroadcastHref = useCallback((channel?: BroadcastChannelSummary | null) => {
+    return String(channel?.source?.href || '').trim() || '/community';
+  }, []);
+
+  const handleHighlightedAdOpen = useCallback((ad: any) => {
+    const destination = String(ad?.destinationUrl || ad?.destination_url || '').trim();
+    if (!destination) return;
+    void CommunityService.recordAdClick(String(ad?.id || '')).catch(() => {});
+    window.open(destination, '_blank', 'noopener,noreferrer');
+  }, []);
+
+  const normalizePost = useCallback((post: any) => {
+    const interactions = { ...(post?.interactions || {}) };
+    if (interactions.likes === undefined) interactions.likes = post?.likesCount ?? post?.likes_count ?? 0;
+    if (interactions.comments === undefined) interactions.comments = post?.commentsCount ?? post?.comments_count ?? 0;
+    if (interactions.reposts === undefined) interactions.reposts = post?.repostsCount ?? post?.reposts_count ?? 0;
+    if (interactions.shares === undefined) interactions.shares = post?.sharesCount ?? post?.shares_count ?? 0;
+    if (interactions.views === undefined) interactions.views = post?.viewsCount ?? post?.views_count ?? 0;
+    if (interactions.reactions === undefined) interactions.reactions = post?.reactions || {};
+    if (interactions.dashGcoinTotal === undefined) {
+      interactions.dashGcoinTotal = post?.dashGcoinTotal ?? post?.dash_gcoin_total ?? 0;
+    }
+
+    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    const authorId =
+      post?.authorId ||
+      post?.userId ||
+      post?.user_id ||
+      post?.author?.id ||
+      post?.author?.userId ||
+      post?.author?.user_id ||
+      null;
+    const authorName =
+      post?.authorName ||
+      post?.userName ||
+      post?.user_name ||
+      post?.author?.displayName ||
+      post?.author?.name ||
+      'Community member';
+    const authorUsername =
+      post?.authorUsername ||
+      post?.userUsername ||
+      post?.user_username ||
+      post?.author?.username ||
+      post?.author?.userName ||
+      post?.author?.user_name ||
+      null;
+    const authorAvatar =
+      post?.authorAvatar ||
+      post?.userAvatar ||
+      post?.user_avatar ||
+      post?.author?.avatarUrl ||
+      post?.author?.avatar ||
+      '';
+    const authorType = post?.author?.type || (post?.businessPage ? 'business' : 'user');
+    const authorUserId =
+      post?.authorUserId ||
+      post?.author_user_id ||
+      post?.author?.userId ||
+      post?.author?.user_id ||
+      (authorType === 'user' ? authorId : null);
+
+    return {
+      ...post,
+      id: post?.id || `${authorId || 'post'}-${post?.createdAt || post?.created_at || Date.now()}`,
+      title: post?.title || '',
+      content: post?.content || '',
+      attachments: attachments.map((item: any) => ({
+        ...item,
+        id: item?.id || item?.fileId || item?.file_id || resolvePostAttachmentMediaUrl(item),
+        fileId: item?.fileId || item?.file_id || item?.file?.id || item?.asset?.id || item?.id || null,
+        url: resolvePostAttachmentMediaUrl(item),
+        name: item?.name || item?.originalName || item?.filename || '',
+        mimeType: item?.mimeType || item?.mime_type || '',
+      type: item?.type || (isVideo(item) ? 'video' : isImage(item?.mimeType || item?.mime_type) ? 'image' : 'document'),
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item),
+        duration: item?.duration,
+        width: item?.width,
+        height: item?.height
+      })),
+      author: {
+        ...(post?.author || {}),
+        id: post?.author?.id || (authorType === 'business' ? post?.businessPage?.id : authorId),
+        username: post?.author?.username ?? authorUsername,
+        displayName: post?.author?.displayName || authorName,
+        avatarUrl: post?.author?.avatarUrl || authorAvatar,
+        type: authorType,
+        businessSlug: post?.author?.businessSlug || post?.businessPage?.slug || null,
+        isVerified: Boolean(post?.author?.isVerified ?? post?.authorIsVerified ?? post?.author_verified),
+        isPro: Boolean(post?.author?.isPro ?? post?.authorIsPro ?? post?.author_pro)
+      },
+      viewer: {
+        ...(post?.viewer || {}),
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean'
+            ? post.viewer.isFollowingAuthor
+            : typeof post?.viewer?.is_following_author === 'boolean'
+              ? post.viewer.is_following_author
+              : undefined
+      },
+      authorId,
+      authorUserId,
+      authorName,
+      authorUsername,
+      authorAvatar,
+      createdAt: post?.createdAt || post?.created_at || null,
+      updatedAt: post?.updatedAt || post?.updated_at || null,
+      tags: Array.isArray(post?.tags) ? post.tags : [],
+      mentions: Array.isArray(post?.mentions) ? post.mentions : [],
+      topic: post?.topic || null,
+      location: post?.location || null,
+      visibility: post?.visibility || 'public',
+      commentPolicy: post?.commentPolicy || post?.comment_policy || 'everyone',
+      repostsEnabled: post?.repostsEnabled ?? post?.reposts_enabled ?? true,
+      isPinned: post?.isPinned ?? post?.is_pinned ?? false,
+      isHighlighted: post?.isHighlighted ?? post?.is_highlighted ?? false,
+      graphicWarning: Boolean(post?.graphicWarning ?? post?.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false),
+      offerTags: normalizeContentOfferTags(post?.offerTags ?? post?.offer_tags),
+      originalPost:
+        post?.originalPost && typeof post.originalPost === 'object'
+          ? {
+              ...post.originalPost,
+              id: post.originalPost.id,
+              authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+              authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+              title: post.originalPost.title ?? null,
+              content: post.originalPost.content ?? null
+            }
+          : null,
+      dashGcoinTotal: Number(post?.dashGcoinTotal ?? post?.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
+      aiInsightEnabled: Boolean(post?.aiInsightEnabled ?? post?.ai_insight_enabled ?? false),
+      aiInsightGenerated: Boolean(
+        post?.aiInsightGenerated ??
+          post?.ai_insight_generated ??
+          (String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim() ? true : false)
+      ),
+      aiInsightText: String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim() || null,
+      aiScore:
+        post?.aiScore !== undefined && post?.aiScore !== null
+          ? Number(post.aiScore)
+          : post?.ai_score !== undefined && post?.ai_score !== null
+            ? Number(post.ai_score)
+            : null,
+      likesCount: post?.likesCount ?? post?.likes_count ?? interactions.likes,
+      sharesCount: post?.sharesCount ?? post?.shares_count ?? interactions.shares,
+      repostsCount: post?.repostsCount ?? post?.reposts_count ?? interactions.reposts,
+      sourceLanguage: post?.sourceLanguage ?? post?.source_language ?? null,
+      translationVersion: post?.translationVersion ?? post?.translation_version ?? null,
+      interactions,
+      userState: post?.userState || post?.user_state || {}
+    };
+  }, []);
+
+  const sortPosts = useCallback((items: any[]) => {
+    return [...items].sort((a, b) => {
+      if (Boolean(a?.isPinned) !== Boolean(b?.isPinned)) {
+        return a?.isPinned ? -1 : 1;
+      }
+      const timeA = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, []);
+
+  const highlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
+    const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(posts.length) }];
+    if (recommendedJobs.length) pills.push({ label: 'Jobs', value: String(recommendedJobs.length) });
+    if (recommendedGigs.length) pills.push({ label: 'Gigs', value: String(recommendedGigs.length) });
+    if (officeHours.length) pills.push({ label: 'Live', value: String(officeHours.length) });
+    if (featuredSeries.length) pills.push({ label: 'Series', value: String(featuredSeries.length) });
+    if (broadcastChannels.length) pills.push({ label: 'Channels', value: String(broadcastChannels.length) });
+    if (suggestedPeople.length || suggestedPages.length) {
+      pills.push({ label: 'Network', value: String(suggestedPeople.length + suggestedPages.length) });
+    }
+    if (ads.length) pills.push({ label: 'Sponsored', value: String(ads.length) });
+    return pills;
+  }, [
+    ads.length,
+    broadcastChannels.length,
+    featuredSeries.length,
+    officeHours.length,
+    posts.length,
+    recommendedGigs.length,
+    recommendedJobs.length,
+    suggestedPages.length,
+    suggestedPeople.length
+  ]);
+
+  const highlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
+    const items: MemberHomeHighlightItem[] = [];
+    const topJob = recommendedJobs[0];
+    const topGig = recommendedGigs[0];
+    const topOfficeHour = officeHours[0];
+    const topSeries = featuredSeries[0];
+    const topBroadcastChannel = broadcastChannels[0];
+    const topPerson = suggestedPeople[0];
+    const topPage = suggestedPages[0];
+    const topAd = ads[0];
+    const topPost = posts[0];
+    const resolveHighlightAdMedia = (ad: any) => {
+      const primary = Array.isArray(ad?.media) ? ad.media[0] : null;
+      const fileId = String(primary?.id || '').trim();
+      if (fileId) {
+        return resolveAssetUrl(`/api/files/content/${encodeURIComponent(fileId)}`);
+      }
+      return resolveAssetUrl(String(primary?.url || '').trim());
+    };
+
+    items.push({
+      id: 'mobile-scrolitha-coach',
+      eyebrow: 'Scrolitha coach',
+      title: 'Improve posts, gigs, and briefs faster',
+      description: 'Open Scrolitha coach inside member_home to tighten your next post, listing, or brief.',
+      meta: 'Posts · Gigs · Briefs',
+      badge: 'AI',
+      ctaLabel: 'Open coach',
+      onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
+      mediaUrl: '/logo.png',
+      icon: <Sparkles className="h-4 w-4" />,
+      tone: 'violet'
+    });
+
+    if (topJob) {
+      const budgetLabel = formatHighlightMoney((topJob as any)?.budget);
+      items.push({
+        id: `mobile-job:${topJob.id}`,
+        eyebrow: 'Featured jobs',
+        title: topJob.title || 'Recommended job',
+        description: [topJob.clientName || 'Employer', topJob.category || topJob.subcategory || 'Professional opportunity']
+          .filter(Boolean)
+          .join(' · '),
+        meta: budgetLabel ? `Budget $${budgetLabel}` : 'Flexible budget',
+        badge: 'Live',
+        ctaLabel: 'Browse jobs',
+        href: '/browse-jobs',
+        mediaUrl: resolveHighlightListingImage(topJob as any),
+        icon: <Briefcase className="h-4 w-4" />,
+        tone: 'blue'
+      });
+    }
+
+    if (topGig) {
+      const priceLabel = formatHighlightMoney((topGig as any)?.price);
+      items.push({
+        id: `mobile-gig:${topGig.id}`,
+        eyebrow: 'Featured gigs',
+        title: topGig.title || 'Recommended gig',
+        description: [topGig.freelancerName || 'Freelancer', topGig.category || topGig.subcategory || 'Service listing']
+          .filter(Boolean)
+          .join(' · '),
+        meta: priceLabel ? `From $${priceLabel}` : 'Pricing available',
+        badge: 'Recommended',
+        ctaLabel: 'Browse gigs',
+        href: '/browse',
+        mediaUrl: resolveHighlightListingImage(topGig as any),
+        icon: <Sparkles className="h-4 w-4" />,
+        tone: 'violet'
+      });
+    }
+
+    if (topOfficeHour) {
+      items.push({
+        id: `mobile-office-hours:${topOfficeHour.id}`,
+        eyebrow: 'Live AMAs / office hours',
+        title: topOfficeHour.title || 'Upcoming office hours',
+        description: topOfficeHour.description,
+        meta: topOfficeHour.metaLabel,
+        badge: topOfficeHour.badge,
+        ctaLabel: topOfficeHour.isRegistered ? 'View session' : 'Open office hours',
+        onClick: () => openInsightsSection('live-office-hours', 'opportunity'),
+        mediaUrl: topOfficeHour.image || '',
+        fallbackMediaUrl: '/logo.png',
+        icon: <CalendarDays className="h-4 w-4" />,
+        tone: 'amber'
+      });
+    }
+
+    if (topSeries) {
+      const featuredScroll = topSeries.featuredScroll || topSeries.previewItems?.[0] || topSeries.items?.[0]?.scroll || null;
+      items.push({
+        id: `mobile-series:${topSeries.id}`,
+        eyebrow: 'Series / playlists',
+        title: topSeries.title || 'Bingeable Scroll series',
+        description:
+          topSeries.description ||
+          featuredScroll?.description ||
+          featuredScroll?.title ||
+          'Creator-curated Scroll playlists keep the strongest work in sequence.',
+        meta: `${topSeries.creator.name} · ${topSeries.itemCount} items`,
+        badge: 'Series',
+        ctaLabel: 'Open series',
+        ...(onOpenScrollSeries
+          ? {
+              onClick: () => onOpenScrollSeries(topSeries.id, featuredScroll?.id || null)
+            }
+          : {
+              href: buildSeriesUrl(topSeries.id)
+            }),
+        mediaUrl: featuredScroll?.media?.thumbnailUrl || featuredScroll?.media?.url || '',
+        icon: <Video className="h-4 w-4" />,
+        tone: 'rose'
+      });
+    }
+
+    if (topBroadcastChannel) {
+      items.push({
+        id: `mobile-broadcast:${topBroadcastChannel.id}`,
+        eyebrow: 'Broadcast updates',
+        title: topBroadcastChannel.name || topBroadcastChannel.source?.name || 'Creator updates',
+        description:
+          topBroadcastChannel.latestUpdate?.content ||
+          topBroadcastChannel.description ||
+          'Follow creator and company updates without digging through the full community feed.',
+        meta: `${topBroadcastChannel.memberCount} followers · ${topBroadcastChannel.updateCount} updates`,
+        badge: topBroadcastChannel.isFollowing ? 'Following' : 'Live',
+        ctaLabel: 'Open source',
+        href: resolveBroadcastHref(topBroadcastChannel),
+        mediaUrl: topBroadcastChannel.source?.avatar || '',
+        icon: <MessageCircle className="h-4 w-4" />,
+        tone: 'emerald'
+      });
+    }
+
+    if (topPerson || topPage) {
+      const networkLead = topPerson?.name || topPage?.name || 'Suggested connections';
+      const followPool = [topPerson?.name, topPage?.name].filter(Boolean).join(' · ');
+      items.push({
+        id: 'mobile-network-highlights',
+        eyebrow: 'Follow recommendations',
+        title: networkLead,
+        description:
+          followPool || 'Suggested people and pages are already integrated into your home feed for faster growth.',
+        meta: `${suggestedPeople.length} people · ${suggestedPages.length} pages`,
+        badge: 'Grow',
+        ctaLabel: 'Open recommendations',
+        onClick: () =>
+          scrollToFeedSection(
+            suggestedPeople.length
+              ? 'mobile-member-home-people-suggestions'
+              : suggestedPages.length
+                ? 'mobile-member-home-page-suggestions'
+                : 'mobile-member-home-feed-stream'
+          ),
+        mediaUrl: resolveHighlightAvatar(topPerson?.avatarUrl || topPage?.avatarUrl || null),
+        icon: <UsersIcon className="h-4 w-4" />,
+        tone: 'emerald'
+      });
+    }
+
+    if (topAd) {
+      items.push({
+        id: `mobile-ad:${topAd.id}`,
+        eyebrow: 'Sponsored',
+        title: topAd.title || 'Featured promotion',
+        description: String(topAd.body || 'Approved campaigns appear directly in the member home experience.').trim(),
+        meta: 'Live campaign',
+        badge: 'Sponsored',
+        ctaLabel: topAd.ctaText || 'Open campaign',
+        onClick: () => handleHighlightedAdOpen(topAd),
+        mediaUrl: resolveHighlightAdMedia(topAd),
+        icon: <Megaphone className="h-4 w-4" />,
+        tone: 'amber'
+      });
+    } else if (topPost) {
+      items.push({
+        id: `mobile-post:${topPost.id}`,
+        eyebrow: 'Feed pulse',
+        title: topPost.title || topPost.author?.displayName || topPost.authorName || 'Fresh from your network',
+        description: String(
+          topPost.content || 'Stay on top of the newest posts, updates, and conversations in your home feed.'
+        ).trim(),
+        meta: `${posts.length} live posts`,
+        badge: 'Fresh',
+        ctaLabel: 'Open post',
+        onClick: () => openPostCard(topPost),
+        mediaUrl: resolveHighlightPostMedia(topPost),
+        videoUrl: resolveHighlightPostVideo(topPost),
+        posterUrl: resolveHighlightPostPoster(topPost),
+        fallbackMediaUrl: resolveHighlightPostFallback(topPost),
+        icon: <Newspaper className="h-4 w-4" />,
+        tone: 'slate'
+      });
+    }
+
+    return items.slice(0, 6);
+  }, [
+    ads,
+    broadcastChannels,
+    buildSeriesUrl,
+    featuredSeries,
+    handleHighlightedAdOpen,
+    officeHours,
+    openInsightsSection,
+    onOpenScrollSeries,
+    posts,
+    recommendedGigs,
+    recommendedJobs,
+    resolveBroadcastHref,
+    scrollToFeedSection,
+    suggestedPages,
+    suggestedPeople
+  ]);
+
+  const showHighlightsBoard = highlightItems.length > 0;
+
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreArmedRef = useRef(false);
   const cursorRef = useRef<string | null>(null);
@@ -330,6 +1087,23 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
+  const commitVisiblePosts = useCallback((items: any[], nextCursorValue: string | null, mode: 'initial' | 'more') => {
+    const normalizedItems = sortPosts(
+      dedupeById(
+        (Array.isArray(items) ? items : [])
+          .map((item) => normalizePost(item))
+          .filter((item) => Boolean(item?.id))
+      )
+    );
+    postsRef.current = normalizedItems;
+    setCursor(nextCursorValue);
+    startTransition(() => {
+      setPosts(normalizedItems);
+    });
+    if (mode === 'initial') {
+      setRenderedPostCount(Math.min(initialRenderCount, normalizedItems.length || initialRenderCount));
+    }
+  }, [initialRenderCount, normalizePost, sortPosts]);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -341,21 +1115,27 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       const raw = localStorage.getItem(feedCacheKey);
       if (!raw) return;
       const parsed = JSON.parse(raw) as { ts?: number; items?: any[]; cursor?: string | null };
-      const ts = Number(parsed?.ts || 0);
-      const age = Date.now() - ts;
       const cachedPosts = Array.isArray(parsed?.items) ? parsed.items : [];
-      if (!cachedPosts.length || age > FEED_CACHE_TTL_MS) return;
-      setPosts(cachedPosts);
-      postsRef.current = cachedPosts;
+      if (!cachedPosts.length) return;
       const cachedCursor = parsed?.cursor ? String(parsed.cursor) : null;
       cursorRef.current = cachedCursor;
-      setCursor(cachedCursor);
+      commitVisiblePosts(cachedPosts, cachedCursor, 'initial');
       setLoading(false);
       setError(null);
     } catch {
       // Ignore cache parse errors and continue network-first.
     }
-  }, [feedCacheKey]);
+  }, [commitVisiblePosts, feedCacheKey]);
+
+  useEffect(() => {
+    setRenderedPostCount((prev) => {
+      if (!posts.length) return initialRenderCount;
+      const minimum = Math.min(initialRenderCount, posts.length);
+      if (prev < minimum) return minimum;
+      if (prev > posts.length) return posts.length;
+      return prev;
+    });
+  }, [initialRenderCount, posts.length]);
 
   useEffect(() => {
     const connection = getNavigatorConnection();
@@ -367,6 +1147,38 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       connection.removeEventListener?.('change', syncState);
     };
   }, []);
+
+  useEffect(() => {
+    setSecondaryFeedReady(false);
+    setFeaturedSeries([]);
+    setBroadcastChannels([]);
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    let timeoutId: number | null = null;
+    let idleHandle: number | null = null;
+    const readyDelay = posts.length > 0 ? (constrainedForFeed ? 2600 : 1200) : 600;
+    const markReady = () => {
+      if (cancelled) return;
+      setSecondaryFeedReady(true);
+    };
+
+    if (!constrainedForFeed && typeof (window as any).requestIdleCallback === 'function') {
+      idleHandle = (window as any).requestIdleCallback(markReady, { timeout: readyDelay });
+    } else {
+      timeoutId = window.setTimeout(markReady, readyDelay);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleHandle !== null && typeof (window as any).cancelIdleCallback === 'function') {
+        (window as any).cancelIdleCallback(idleHandle);
+      }
+    };
+  }, [constrainedForFeed, loading, posts.length]);
 
   const handleListingContact = useCallback(
     async (payload: { kind: 'jobs' | 'gigs'; item: any }) => {
@@ -381,7 +1193,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         payload.kind === 'jobs'
           ? String(item?.clientName || 'Employer').trim() || 'Employer'
           : String(item?.freelancerName || 'Freelancer').trim() || 'Freelancer';
-      const targetAvatar = payload.kind === 'jobs' ? item?.clientAvatar : item?.freelancerAvatar;
+      const targetAvatarRaw = payload.kind === 'jobs' ? item?.clientAvatar : item?.freelancerAvatar;
+      const targetAvatar = resolvePostAttachmentMediaUrl(targetAvatarRaw);
 
       try {
         const conversationId = await MessagingService.createConversation([
@@ -407,22 +1220,92 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     );
   }, []);
 
-  const openPostDetail = useCallback(
-    (postId: string) => {
-      const id = String(postId || '').trim();
-      if (!id) return;
-      navigate(`/post/${encodeURIComponent(id)}`);
+  const findPrimaryVideoAttachment = useCallback((post: any) => {
+    const baseAttachments = Array.isArray(post?.attachments) ? post.attachments : Array.isArray(post?.media) ? post.media : [];
+    const syntheticVideoAttachment = resolveSyntheticVideoAttachment(post);
+    const attachments =
+      syntheticVideoAttachment && !baseAttachments.some((entry: any) => isVideo(entry))
+        ? [syntheticVideoAttachment, ...baseAttachments]
+        : baseAttachments;
+    return (
+      attachments.find(
+        (entry: any) =>
+          Boolean(entry) &&
+          isVideo(entry)
+      ) || null
+    );
+  }, []);
+
+  const openVideoPostInScroll = useCallback(
+    (post: any, media: any) => {
+      const postId = String(post?.id || '').trim();
+      const mediaUrl = String(media?.url || resolvePostAttachmentMediaUrl(media) || '').trim();
+      if (!postId || !mediaUrl) return;
+      const sourcePayload: PendingPostVideoScrollViewerSource = {
+        sourcePostId: postId,
+        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        mediaUrl,
+        thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
+        title: String(post?.title || '').trim() || null,
+        description: String(post?.content || '').trim() || null,
+        location: String(post?.location || '').trim() || null,
+        authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
+        authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
+        authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
+        createdAt: String(post?.createdAt || '').trim() || null
+      };
+      if (onOpenPostVideoScroll) {
+        onOpenPostVideoScroll(sourcePayload);
+        return;
+      }
+      stashPendingPostVideoScrollViewerSource(sourcePayload);
+      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
+        state: {
+          pendingViewerSource: sourcePayload
+        }
+      });
     },
-    [navigate]
+    [navigate, onOpenPostVideoScroll]
+  );
+
+  const openPostCard = useCallback(
+    (post: any) => {
+      if (!post?.id) return;
+      const primaryVideo = findPrimaryVideoAttachment(post);
+      if (primaryVideo) {
+        openVideoPostInScroll(post, primaryVideo);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [findPrimaryVideoAttachment, openVideoPostInScroll]
   );
 
   const openPostFromText = useCallback(
-    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+    (event: React.MouseEvent<HTMLElement>, post: any) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
-      openPostDetail(postId);
+      openPostCard(post);
     },
-    [openPostDetail]
+    [openPostCard]
+  );
+
+  const openScrolithaFromMobile = useCallback(
+    (prompt: string) => {
+      let base = '/m/home';
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        ['post', 'postId', 'story', 'storyId', 'scroll', 'edit', 'modal', 'focus'].forEach((key) => {
+          params.delete(key);
+        });
+        const query = params.toString();
+        base = `${window.location.pathname}${query ? `?${query}` : ''}`;
+      }
+      navigate(buildScrolithaPath(base, prompt));
+    },
+    [navigate]
   );
 
   const triggerPostDoubleTapLike = useCallback(
@@ -430,7 +1313,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       const postId = String(post?.id || '').trim();
       if (!postId) return;
       if (!user?.id) {
-        if (confirm('Log in to like posts?')) window.location.href = '/auth/login';
+        if (confirm('Log in to like posts?')) navigate('/auth/login');
         return;
       }
       try {
@@ -452,17 +1335,39 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     [user?.id]
   );
 
+  const handlePostMediaPrimaryAction = useCallback(
+    (post: any, media: any) => {
+      if (isVideo(media)) {
+        openVideoPostInScroll(post, media);
+        return;
+      }
+      const preview = toPreviewMedia({
+        ...media,
+        url: media?.url || resolvePostAttachmentMediaUrl(media),
+        thumbnailUrl: media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media)
+      });
+      if (preview) {
+        setPreviewMedia(preview);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [openVideoPostInScroll]
+  );
+
   const queueOpenPostFromMediaTap = useCallback(
-    (postId: string, mediaKey: string) => {
+    (post: any, media: any, mediaKey: string) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
       const timerKey = `${postId}:${mediaKey}`;
       const existing = postMediaTapTimersRef.current[timerKey];
       if (existing) window.clearTimeout(existing);
       postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
         delete postMediaTapTimersRef.current[timerKey];
-        openPostDetail(postId);
+        handlePostMediaPrimaryAction(post, media);
       }, 220);
     },
-    [openPostDetail]
+    [handlePostMediaPrimaryAction]
   );
 
   const onPostMediaDoubleClick = useCallback(
@@ -514,47 +1419,191 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     }
     if (loadInFlightRef.current) return;
     loadInFlightRef.current = true;
+    const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
 
     try {
       if (mode === 'initial') {
         setLoading(postsRef.current.length === 0);
         setError(null);
+        setStatusMessage(null);
       } else {
         setLoadingMore(true);
       }
 
-      const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
-      const resp = await withFastFail(
-        CommunityService.getFeed({
-          cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
-          limit: feedLimit,
-          scope: 'discover'
-        }),
-        constrainedForFeed ? 7000 : 9000,
-        'Feed request timed out. Please retry.'
-      );
-      const nextPosts = Array.isArray(resp?.items) ? resp.items : [];
-      const nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+      let nextPosts: any[] = [];
+      let nextCursor: string | null = null;
+      let usedPostsFallback = false;
+      if (mode === 'initial') {
+        const feedRequest = withFastFail(
+          CommunityService.getFeed({
+            limit: feedLimit,
+            scope: 'discover'
+          }),
+          constrainedForFeed ? 15000 : 18000,
+          'Feed request timed out. Please retry.'
+        );
+        const serviceBaselineRequest = withFastFail(
+          CommunityService.getPosts({ limit: feedLimit }),
+          constrainedForFeed ? 10000 : 12000,
+          [] as any[]
+        );
+        const publicBaselineRequest = withFastFail(
+          fetchPublicCommunityPostsBaseline(feedLimit),
+          constrainedForFeed ? 7000 : 9000,
+          [] as any[]
+        );
+        void publicBaselineRequest
+          .then((value) => {
+            const fallbackItems = extractFeedItemsFromPayload(value);
+            if (fallbackItems.length > 0 && postsRef.current.length === 0) {
+              commitVisiblePosts(fallbackItems, cursorRef.current, 'initial');
+            }
+          })
+          .catch(() => {
+            // Ignore seeding failures and continue with the merged load below.
+          });
+        const [feedResult, serviceBaselineResult, publicBaselineResult] = await Promise.allSettled([
+          feedRequest,
+          serviceBaselineRequest,
+          publicBaselineRequest
+        ]);
+        const feedResponse = feedResult.status === 'fulfilled' ? feedResult.value : null;
+        const discoveredPosts = extractFeedItemsFromPayload(feedResponse);
+        const serviceBaselinePosts =
+          serviceBaselineResult.status === 'fulfilled'
+            ? extractFeedItemsFromPayload(serviceBaselineResult.value)
+            : [];
+        const publicBaselinePosts =
+          publicBaselineResult.status === 'fulfilled'
+            ? extractFeedItemsFromPayload(publicBaselineResult.value)
+            : [];
+        const fallbackPosts = dedupeById([
+          ...(publicBaselinePosts as Array<any & { id?: string | null }>),
+          ...(serviceBaselinePosts as Array<any & { id?: string | null }>)
+        ]);
+        nextPosts = fallbackPosts.length > 0
+          ? dedupeById([...(fallbackPosts as Array<any & { id?: string | null }>), ...(discoveredPosts as Array<any & { id?: string | null }>)])
+          : discoveredPosts;
+        nextCursor = discoveredPosts.length > 0 && feedResponse?.nextCursor ? String(feedResponse.nextCursor) : null;
+        usedPostsFallback = fallbackPosts.length > 0 && discoveredPosts.length === 0;
+        if (nextPosts.length === 0) {
+          try {
+            const emergencyBaseline = extractFeedItemsFromPayload(
+              await withFastFail(
+                fetchPublicCommunityPostsBaseline(feedLimit),
+                constrainedForFeed ? 7000 : 9000,
+                [] as any[]
+              )
+            );
+            if (emergencyBaseline.length > 0) {
+              nextPosts = emergencyBaseline;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and try the authenticated posts endpoint next.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const emergencyPosts = extractFeedItemsFromPayload(
+              await withFastFail(
+                CommunityService.getPosts({ limit: feedLimit }),
+                constrainedForFeed ? 10000 : 12000,
+                [] as any[]
+              )
+            );
+            if (emergencyPosts.length > 0) {
+              nextPosts = emergencyPosts;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and allow the preserved-feed path below to win.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const authoritativePosts = extractFeedItemsFromPayload(
+              await CommunityService.getPosts({ limit: feedLimit })
+            );
+            if (authoritativePosts.length > 0) {
+              nextPosts = authoritativePosts;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and continue to the remaining authoritative fallbacks.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const authoritativePublicBaseline = extractFeedItemsFromPayload(
+              await fetchPublicCommunityPostsBaseline(feedLimit)
+            );
+            if (authoritativePublicBaseline.length > 0) {
+              nextPosts = authoritativePublicBaseline;
+              usedPostsFallback = true;
+            }
+          } catch {
+            // Ignore and continue to the direct feed fallback.
+          }
+        }
+        if (nextPosts.length === 0) {
+          try {
+            const authoritativeFeed = extractFeedItemsFromPayload(
+              await CommunityService.getFeed({
+                limit: feedLimit,
+                scope: 'discover'
+              })
+            );
+            if (authoritativeFeed.length > 0) {
+              nextPosts = authoritativeFeed;
+            }
+          } catch {
+            // Ignore and allow the preserved-feed path below to win.
+          }
+        }
+      } else {
+        const resp = await withFastFail(
+          CommunityService.getFeed({
+            cursor: cursorRef.current || undefined,
+            limit: feedLimit,
+            scope: 'discover'
+          }),
+          constrainedForFeed ? 15000 : 18000,
+          'Feed request timed out. Please retry.'
+        );
+        nextPosts = extractFeedItemsFromPayload(resp);
+        nextCursor = resp?.nextCursor ? String(resp.nextCursor) : null;
+      }
+      const shouldPreserveExistingFeed = mode === 'initial' && nextPosts.length === 0 && postsRef.current.length > 0;
 
       rateLimitUntilRef.current = 0;
       setRateLimitUntil(null);
+      setError(null);
+      setStatusMessage(usedPostsFallback ? 'Showing community posts while your home feed reconnects.' : null);
       cursorRef.current = nextCursor;
-      setCursor(nextCursor);
-      const mergedPosts = mode === 'more' ? [...postsRef.current, ...nextPosts] : nextPosts;
-      postsRef.current = mergedPosts;
-      setPosts(mergedPosts);
-      try {
-        localStorage.setItem(
-          feedCacheKey,
-          JSON.stringify({
-            ts: Date.now(),
-            cursor: nextCursor,
-            items: mergedPosts.slice(0, 80)
-          })
-        );
-      } catch {
-        // Ignore cache write errors.
+      const mergedPosts = shouldPreserveExistingFeed
+        ? postsRef.current
+        : mode === 'more'
+          ? [...postsRef.current, ...nextPosts]
+          : nextPosts;
+      commitVisiblePosts(mergedPosts, nextCursor, mode);
+      if (shouldPreserveExistingFeed) {
+        setStatusMessage('Showing your saved feed while we reconnect.');
       }
+        if (mergedPosts.length > 0) {
+          try {
+            localStorage.setItem(
+              feedCacheKey,
+              JSON.stringify({
+                ts: Date.now(),
+                cursor: nextCursor,
+                items: postsRef.current.slice(0, 80)
+              })
+            );
+          } catch {
+            // Ignore cache write errors.
+          }
+        }
     } catch (e: any) {
       const status = Number(e?.response?.status || 0);
       const backendError = e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.';
@@ -580,68 +1629,121 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
         waitMs = clamp(waitMs, 10_000, 10 * 60 * 1000);
         rateLimitUntilRef.current = Date.now() + waitMs;
         setRateLimitUntil(rateLimitUntilRef.current);
-
-        setError(String(backendError || 'Too many requests. Please try again later.'));
+        if (postsRef.current.length > 0) {
+          setError(null);
+          setStatusMessage('Feed is busy right now. Showing your saved posts while we reconnect.');
+        } else {
+          setStatusMessage(null);
+          setError(String(backendError || 'Too many requests. Please try again later.'));
+        }
       } else {
-        setError(String(backendError));
+        if (postsRef.current.length > 0) {
+          setError(null);
+          setStatusMessage('Showing your saved feed while we reconnect.');
+        } else {
+          setStatusMessage(null);
+          setError(String(backendError));
+        }
       }
     } finally {
       setLoading(false);
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [constrainedForFeed, profile.feedPageSize, feedCacheKey]);
+  }, [commitVisiblePosts, constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount]);
 
   useEffect(() => {
     void load('initial');
   }, [load]);
 
-  useEffect(() => {
+  const loadPromotedAds = useCallback(() => {
+    if (promotedAdsTimerRef.current !== null) {
+      window.clearTimeout(promotedAdsTimerRef.current);
+      promotedAdsTimerRef.current = null;
+    }
     if (feedSettings.showPromoted === false) return;
-    if (loading || error) return;
-    let cancelled = false;
+    if (!secondaryFeedReady) return;
+    const requestId = promotedAdsRequestIdRef.current + 1;
+    promotedAdsRequestIdRef.current = requestId;
     const delayMs = constrainedForFeed ? 1800 : 900;
-    const timer = window.setTimeout(() => {
-      CommunityService.getPublicAds({ placement: 'feed', limit: constrainedForFeed ? 4 : 8 })
-        .then((items) => {
-          if (cancelled) return;
-          setAds(shuffle(Array.isArray(items) ? items : []));
+    promotedAdsTimerRef.current = window.setTimeout(() => {
+      Promise.allSettled([
+        CommunityService.getPublicAds({ placement: 'homepage_feed', limit: constrainedForFeed ? 4 : 8 }),
+        CommunityService.getPublicAds({ placement: 'community_feed', limit: constrainedForFeed ? 4 : 8 }),
+        CommunityService.getPublicAds({ placement: 'scroll_feed', limit: constrainedForFeed ? 4 : 8 }),
+        CommunityService.getPublicAds({ placement: 'scroll_preroll', limit: constrainedForFeed ? 2 : 4 })
+      ])
+        .then((results) => {
+          if (promotedAdsRequestIdRef.current !== requestId) return;
+          const merged = results.flatMap((result) =>
+            result.status === 'fulfilled' && Array.isArray(result.value) ? result.value : []
+          );
+          const byId = new Map<string, any>();
+          merged.forEach((item) => {
+            const id = String(item?.id || '').trim();
+            if (id && !byId.has(id)) byId.set(id, item);
+          });
+          setAds(shuffle(Array.from(byId.values())));
         })
         .catch(() => {
-          if (cancelled) return;
+          if (promotedAdsRequestIdRef.current !== requestId) return;
           setAds([]);
         });
     }, delayMs);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-    };
-  }, [feedSettings.showPromoted, loading, error, constrainedForFeed]);
+  }, [constrainedForFeed, feedSettings.showPromoted, secondaryFeedReady]);
 
   useEffect(() => {
-    if (!showRecommendedGigsJobs || !user?.id) {
+    loadPromotedAds();
+    return () => {
+      promotedAdsRequestIdRef.current += 1;
+      if (promotedAdsTimerRef.current !== null) {
+        window.clearTimeout(promotedAdsTimerRef.current);
+        promotedAdsTimerRef.current = null;
+      }
+    };
+  }, [loadPromotedAds]);
+
+  useEffect(() => {
+    if (feedSettings.showPromoted === false) return;
+    const onAdEvent = () => loadPromotedAds();
+    const events = ['community:ad_created', 'community:ad_status_updated', 'community:ads_config_updated'];
+    events.forEach((eventName) => window.addEventListener(eventName, onAdEvent as EventListener));
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, onAdEvent as EventListener));
+    };
+  }, [feedSettings.showPromoted, loadPromotedAds]);
+
+  useEffect(() => {
+    if (!showRecommendedGigsJobs) {
       setRecommendedJobs([]);
       setRecommendedGigs([]);
       return;
     }
-    if (loading || error) return;
+    if (!secondaryFeedReady) return;
+    if (loading) return;
     let cancelled = false;
-    const requestLimit = Math.max(4, Math.min(24, listingPoolLimit));
+    const requestLimit = constrainedForFeed ? Math.max(3, Math.min(8, listingPoolLimit)) : Math.max(4, Math.min(14, listingPoolLimit));
     const timer = window.setTimeout(() => {
-      const jobRequests: Array<Promise<any>> = [
-        jobsApi.getJobs({ status: 'active', limit: requestLimit, featuredOnly: true }),
-        jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
-        jobsApi.getJobs({ status: 'active', limit: requestLimit })
-      ];
-      const gigRequests: Array<Promise<any>> = [
-        gigsApi.getGigs({ status: 'active', limit: requestLimit, featuredOnly: true }),
-        gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
-        gigsApi.getGigs({ status: 'active', limit: requestLimit })
-      ];
-      if (!constrainedForFeed) {
-        jobRequests.push(jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true }));
-        gigRequests.push(gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true }));
-      }
+      const jobRequests: Array<Promise<any>> = constrainedForFeed
+        ? [
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true })
+          ]
+        : [
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, featuredOnly: true }),
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, recommended: true }),
+            jobsApi.getJobs({ status: 'active', limit: requestLimit, random: true })
+          ];
+      const gigRequests: Array<Promise<any>> = constrainedForFeed
+        ? [
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true })
+          ]
+        : [
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, featuredOnly: true }),
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, recommended: true }),
+            gigsApi.getGigs({ status: 'active', limit: requestLimit, random: true })
+          ];
 
       Promise.all([
         Promise.allSettled(jobRequests),
@@ -649,14 +1751,14 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       ])
         .then(([jobsResults, gigsResults]) => {
           if (cancelled) return;
-          const jobsList = dedupeById(
+          let jobsList = dedupeById(
             shuffle(
               jobsResults.flatMap((result) =>
                 result.status === 'fulfilled' ? extractJobsFromPayload(result.value) : []
               )
             ) as Array<Job & { id: string }>
           ).slice(0, requestLimit);
-          const gigsList = dedupeById(
+          let gigsList = dedupeById(
             shuffle(
               gigsResults.flatMap((result) =>
                 result.status === 'fulfilled' ? extractGigsFromPayload(result.value) : []
@@ -664,13 +1766,31 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
             ) as Array<Gig & { id: string }>
           ).slice(0, requestLimit);
 
-          setRecommendedJobs(jobsList);
-          setRecommendedGigs(gigsList);
+          if (jobsList.length === 0 || gigsList.length === 0) {
+            Promise.allSettled([
+              jobsList.length === 0 ? jobsApi.getJobs({ status: 'active', limit: requestLimit }) : Promise.resolve(null),
+              gigsList.length === 0 ? gigsApi.getGigs({ status: 'active', limit: requestLimit }) : Promise.resolve(null)
+            ]).then(([jobsFallback, gigsFallback]) => {
+              if (cancelled) return;
+              if (jobsList.length === 0 && jobsFallback.status === 'fulfilled' && jobsFallback.value) {
+                jobsList = dedupeById(extractJobsFromPayload(jobsFallback.value) as Array<Job & { id: string }>).slice(0, requestLimit);
+              }
+              if (gigsList.length === 0 && gigsFallback.status === 'fulfilled' && gigsFallback.value) {
+                gigsList = dedupeById(extractGigsFromPayload(gigsFallback.value) as Array<Gig & { id: string }>).slice(0, requestLimit);
+              }
+              setRecommendedJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList));
+              setRecommendedGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList));
+            });
+            return;
+          }
+
+          setRecommendedJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList));
+          setRecommendedGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList));
         })
         .catch(() => {
           if (cancelled) return;
-          setRecommendedJobs([]);
-          setRecommendedGigs([]);
+          setRecommendedJobs((prev) => prev);
+          setRecommendedGigs((prev) => prev);
         });
     }, 1100);
 
@@ -678,10 +1798,11 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [showRecommendedGigsJobs, user?.id, loading, error, listingPoolLimit, constrainedForFeed]);
+  }, [showRecommendedGigsJobs, secondaryFeedReady, loading, listingPoolLimit, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showTrendingTags === false) return;
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
     const delayMs = constrainedForFeed ? 2200 : 1400;
@@ -705,21 +1826,19 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showTrendingTags, loading, error, constrainedForFeed]);
+  }, [feedSettings.showTrendingTags, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPeople === false) return;
     if (!user?.id) return;
-    if (constrainedForFeed) {
-      setSuggestedPeople([]);
-      return;
-    }
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
+    const requestLimit = constrainedForFeed ? 2 : 4;
     const timer = window.setTimeout(() => {
       Promise.allSettled([
-        RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
-        RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
+        RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: requestLimit }),
+        RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: requestLimit })
       ])
         .then((results) => {
           if (cancelled) return;
@@ -733,35 +1852,33 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
               const id = String(account?.id || p?.entityId || p?.id || p?.userId || '').trim();
               const name = String(account?.name || p?.name || 'Community member').trim();
               const username = String(account?.username || p?.username || '').trim();
-              const avatarUrl = account?.avatar || p?.avatar || null;
+              const avatarUrl = resolvePostAttachmentMediaUrl(account?.avatar || p?.avatar || null);
               if (!id || !name) return null;
               return { id, name, username, avatarUrl, targetType: 'user' as const };
             })
             .filter(Boolean);
-          setSuggestedPeople(mapped.slice(0, 4));
+          setSuggestedPeople(mapped.slice(0, requestLimit * 2));
         })
         .catch(() => {
           if (cancelled) return;
           setSuggestedPeople([]);
         });
-    }, 1600);
+    }, constrainedForFeed ? 2200 : 1600);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPeople, user?.id, loading, error, constrainedForFeed]);
+  }, [feedSettings.showSuggestedPeople, user?.id, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (feedSettings.showSuggestedPages === false) return;
     if (!user?.id) return;
-    if (constrainedForFeed) {
-      setSuggestedPages([]);
-      return;
-    }
+    if (!secondaryFeedReady) return;
     if (loading || error) return;
     let cancelled = false;
+    const requestLimit = constrainedForFeed ? 2 : 4;
     const timer = window.setTimeout(() => {
-      RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: 4 })
+      RecoService.getAccounts({ surface: 'member_home', type: 'page', limit: requestLimit })
         .then((items) => {
           if (cancelled) return;
           const mapped = (Array.isArray(items) ? items : [])
@@ -770,47 +1887,99 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
               const id = String(account?.id || p?.entityId || p?.id || p?.pageId || '').trim();
               const name = String(account?.name || p?.name || 'Business page').trim();
               const username = String(account?.slug || account?.handle || account?.username || p?.slug || '').trim();
-              const avatarUrl = account?.avatar || p?.avatar || null;
+              const avatarUrl = resolvePostAttachmentMediaUrl(account?.avatar || p?.avatar || null);
               if (!id || !name) return null;
               return { id, name, username, avatarUrl, targetType: 'page' as const };
             })
             .filter(Boolean);
-          setSuggestedPages(mapped.slice(0, 4));
+          setSuggestedPages(mapped.slice(0, requestLimit));
         })
         .catch(() => {
           if (cancelled) return;
           setSuggestedPages([]);
         });
-    }, 1800);
+    }, constrainedForFeed ? 2400 : 1800);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [feedSettings.showSuggestedPages, user?.id, loading, error, constrainedForFeed]);
+  }, [feedSettings.showSuggestedPages, user?.id, secondaryFeedReady, loading, error, constrainedForFeed]);
 
   useEffect(() => {
-    if (isConnected) return;
+    if (!secondaryFeedReady || loading || error || !user?.id) return;
+    let cancelled = false;
+    (async () => {
+      const limit = constrainedForFeed ? 2 : 3;
+      const [seriesResult, broadcastResult, eventsResult] = await Promise.allSettled([
+        withFastFail(ScrollService.getDiscoverableSeries(limit), 15000, 'Series request timed out.'),
+        withFastFail(CommunityService.getBroadcastChannels(limit), 15000, 'Broadcast request timed out.'),
+        withFastFail(CommunityService.getEvents(), 15000, 'Office hours request timed out.')
+      ]);
+      if (cancelled) return;
+      if (seriesResult.status === 'fulfilled') {
+        setFeaturedSeries(Array.isArray(seriesResult.value) ? seriesResult.value.slice(0, limit) : []);
+      }
+      if (broadcastResult.status === 'fulfilled') {
+        setBroadcastChannels(Array.isArray(broadcastResult.value) ? broadcastResult.value.slice(0, limit) : []);
+      }
+      if (eventsResult.status === 'fulfilled') {
+        setOfficeHours(getHighlightedCommunityEvents(Array.isArray(eventsResult.value) ? eventsResult.value : [], limit));
+      } else {
+        setOfficeHours([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [constrainedForFeed, error, loading, secondaryFeedReady, user?.id]);
+
+  useEffect(() => {
+    if (isConnected || !shouldAttemptLiveConnections) return;
     const id = window.setInterval(() => {
       void load('initial');
     }, 60000);
     return () => window.clearInterval(id);
-  }, [isConnected, load]);
+  }, [isConnected, load, shouldAttemptLiveConnections]);
+
+  useEffect(() => {
+    if (!isOnline || recoveryTick <= 0) return;
+    void load('initial');
+  }, [isOnline, recoveryTick, load]);
 
   useEffect(() => {
     const onCreated = (event: Event) => {
       const payload = (event as CustomEvent).detail;
       const post = payload?.post;
       if (!post?.id) return;
+      const normalized = normalizePost(post);
       setPosts((prev) => {
-        if (prev.some((p) => String(p?.id) === String(post.id))) return prev;
-        return [post, ...prev];
+        if (prev.some((p) => String(p?.id) === String(normalized.id))) return prev;
+        return sortPosts([normalized, ...prev]);
       });
     };
     const onUpdated = (event: Event) => {
       const payload = (event as CustomEvent).detail;
       const post = payload?.post;
       if (!post?.id) return;
-      setPosts((prev) => prev.map((p) => (String(p?.id) === String(post.id) ? { ...p, ...post } : p)));
+      const normalized = normalizePost(post);
+      setPosts((prev) =>
+        sortPosts(
+          prev.map((p) =>
+            String(p?.id) === String(normalized.id)
+              ? {
+                  ...p,
+                  ...normalized,
+                  interactions: normalized.interactions
+                    ? { ...(p?.interactions || {}), ...normalized.interactions }
+                    : p?.interactions,
+                  userState: normalized.userState
+                    ? { ...(p?.userState || {}), ...normalized.userState }
+                    : p?.userState
+                }
+              : p
+          )
+        )
+      );
     };
     const onDeleted = (event: Event) => {
       const payload = (event as CustomEvent).detail;
@@ -900,22 +2069,22 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
       window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
-  }, []);
+  }, [normalizePost, sortPosts]);
 
   useEffect(() => {
     viewTrackedRef.current.clear();
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !posts.length) return;
+    if (!user?.id || !visiblePosts.length) return;
     if (constrainedForFeed) return;
     if (loading || error) return;
 
-    const pending = posts
+    const pending = visiblePosts
       .map((p) => String(p?.id || '').trim())
       .filter(Boolean)
       .filter((id) => !viewTrackedRef.current.has(id))
-      .slice(0, 4);
+      .slice(0, constrainedForFeed ? 2 : 4);
 
     if (!pending.length) return;
 
@@ -936,7 +2105,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       cancelled = true;
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [posts, user?.id, loading, error, constrainedForFeed]);
+  }, [visiblePosts, user?.id, loading, error, constrainedForFeed]);
 
   useEffect(() => {
     if (!sentinelRef.current) return;
@@ -945,6 +2114,10 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting) return;
+        if (renderedPostCount < posts.length) {
+          setRenderedPostCount((prev) => Math.min(posts.length, prev + renderStep));
+          return;
+        }
         if (!cursor) return;
         if (loadingMore || loading) return;
         if (loadMoreArmedRef.current) return;
@@ -957,7 +2130,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [cursor, loading, loadingMore, load]);
+  }, [cursor, loading, loadingMore, load, posts.length, renderStep, renderedPostCount]);
 
   const showTagsCard = feedSettings.showTrendingTags !== false && trendingTags.length > 0;
   const showPeopleCard = feedSettings.showSuggestedPeople !== false && suggestedPeople.length > 0;
@@ -965,7 +2138,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   if (loading && posts.length === 0) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-6">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm text-slate-600">Loading feed...</span>
@@ -976,7 +2149,7 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
   if (error && posts.length === 0) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-red-200 bg-white p-4">
           <div className="text-sm font-semibold text-red-700">Feed error</div>
           <div className="mt-1 text-sm text-slate-700">{error}</div>
@@ -997,9 +2170,9 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
     );
   }
 
-  if (!posts.length) {
+  if (!posts.length && !showHighlightsBoard && !recommendedJobs.length && !recommendedGigs.length) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">
           No posts yet. Be the first to share an update.
         </div>
@@ -1008,10 +2181,15 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
   }
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
-      {error ? (
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
+      {statusMessage ? (
         <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-          <div className="text-xs font-semibold text-amber-800">{error}</div>
+          <div className="text-xs font-semibold text-amber-800">{statusMessage}</div>
+          {rateLimitUntil && Date.now() < rateLimitUntil ? (
+            <div className="mt-1 text-[11px] font-medium text-amber-900/80">
+              Rate limit protection is active. Try again in a moment.
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={() => void load('initial')}
@@ -1027,12 +2205,60 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           Updating feed...
         </div>
       ) : null}
-      <div className="space-y-3">
-        {posts.map((post, idx) => {
+      <div id="mobile-member-home-feed-stream" className="space-y-3">
+        {showHighlightsBoard ? (
+          <Suspense
+            fallback={
+              <div className="rounded-[30px] border border-slate-200 bg-white px-4 py-5 text-sm text-slate-500 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]">
+                Loading highlights...
+              </div>
+            }
+          >
+            <MemberHomeHighlightsBoard
+              title="Member Home Highlights"
+              subtitle="Scrolitha coach, live office hours, recommended opportunities, follow suggestions, and live post momentum in one place."
+              pills={highlightPills}
+              items={highlightItems}
+              compact
+            />
+          </Suspense>
+        ) : null}
+        {showRecommendedGigsJobs && (recommendedJobs.length || recommendedGigs.length) ? (
+          <section className="space-y-3 rounded-[30px] border border-slate-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]" aria-label="Recommended jobs and gigs">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-500">Opportunities</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-950">Featured jobs and gigs</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  Recommended listings stay visible on member_home while the feed updates.
+                </p>
+              </div>
+            </div>
+            {recommendedJobs.length ? (
+              <RecommendedListingCard
+                kind="jobs"
+                title="Featured jobs"
+                items={recommendedJobs.slice(0, 2) as any}
+                seeAllHref="/browse-jobs"
+                onContact={({ kind, item }) => void handleListingContact({ kind, item })}
+              />
+            ) : null}
+            {recommendedGigs.length ? (
+              <RecommendedListingCard
+                kind="gigs"
+                title="Featured gigs"
+                items={recommendedGigs.slice(0, 2) as any}
+                seeAllHref="/browse"
+                onContact={({ kind, item }) => void handleListingContact({ kind, item })}
+              />
+            ) : null}
+          </section>
+        ) : null}
+        {visiblePosts.map((post, idx) => {
           const postId = String(post?.id || '');
           const author = post?.author || {};
           const authorName = author.displayName || post?.authorName || post?.authorUsername || 'Member';
-          const authorAvatar = author.avatarUrl || post?.authorAvatar || null;
+          const authorAvatar = resolvePostAttachmentMediaUrl(author.avatarUrl || post?.authorAvatar || null);
           const authorId = post?.authorUserId || post?.authorId;
           const createdAt = post?.createdAt;
           const isVerified = Boolean((author as any)?.isVerified || (post as any)?.authorIsVerified || (post as any)?.authorVerified);
@@ -1062,21 +2288,19 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
           );
 
           const content = String(post?.content || '');
-          const isLong = content.length > 240;
-          const isExpanded = Boolean(expanded[postId]);
-          const visibleText = isLong && !isExpanded ? `${content.slice(0, 240).trim()}...` : content;
 
           const commentCount = post?.interactions?.comments ?? 0;
           const reactionCounts = post?.interactions?.reactions ?? {};
 
           const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
-          const showMedia = postCardSettings.mediaPreviewEnabled !== false;
+          const showMedia = postCardSettings.mediaPreviewEnabled !== false || attachments.some((attachment: any) => isVideo(attachment));
 
           const hasGraphicWarning = Boolean(post?.graphicWarning) && graphicWarningEnabled;
           const shouldBlurMedia = hasGraphicWarning && graphicWarningBlurMedia && !revealedGraphic[postId];
 
           const showHashtags = postCardSettings.hashtagsEnabled !== false;
           const tags = Array.isArray(post?.tags) ? post.tags : [];
+          const isAIEnhanced = Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false);
           const aiInsightText = String(post?.aiInsightText ?? post?.ai_insight_text ?? '').trim();
           const hasAiInsight = Boolean(
             (post?.aiInsightGenerated ?? post?.ai_insight_generated ?? false) && aiInsightText
@@ -1084,21 +2308,36 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
           return (
             <React.Fragment key={postId || `post_${idx}`}>
-              <article className="rounded-[30px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]">
+              <article
+                className="cursor-pointer rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_20px_48px_-30px_rgba(15,23,42,0.48)] ring-1 ring-slate-100/70"
+                data-feed-post-id={postId || undefined}
+                style={feedItemPerformanceStyle}
+                onClick={(event) => {
+                  if (isIgnoredSurfaceTarget(event.target)) return;
+                  openPostCard(post);
+                }}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-3">
                     <Link
                       to={profileUrl}
-                      className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm"
+                      className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm ring-1 ring-white"
                       aria-label={`View ${authorName} profile`}
                     >
                       {authorAvatar ? (
-                        <img
+                        <OptimizedImage
                           src={authorAvatar}
                           alt={authorName}
+                          width={96}
+                          height={96}
+                          sizes="48px"
                           className="h-full w-full object-cover"
-                          loading="lazy"
+                          loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
                           decoding="async"
+                          fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
+                          onError={(event) => {
+                            (event.currentTarget as HTMLImageElement).style.display = 'none';
+                          }}
                         />
                       ) : null}
                     </Link>
@@ -1106,11 +2345,19 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <Link
                           to={profileUrl}
-                          className="min-w-0 text-[15px] font-semibold text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
+                          className="min-w-0 text-[15px] font-semibold leading-5 text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
                         >
                           {authorName}
                         </Link>
-                        {verificationLevel ? <VerifiedBadge size={16} level={verificationLevel} className="ml-1" /> : null}
+                        {verificationLevel ? (
+                          <VerifiedBadge
+                            size={16}
+                            level={verificationLevel}
+                            className="ml-1"
+                            subjectRole={author.type === 'business' || post?.businessPage ? 'business' : 'user'}
+                            subjectType={author.type || post?.authorType || (post?.businessPage ? 'business' : 'user')}
+                          />
+                        ) : null}
                         {isPro ? (
                           <span
                             className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
@@ -1133,25 +2380,17 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                             {graphicWarningLabel}
                           </span>
                         ) : null}
+                        {isAIEnhanced ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-800">
+                            <Sparkles className="h-3 w-3" />
+                            AI-enhanced
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    {authorId && String(authorId) !== String(user?.id || '') ? (
-                      <FollowButton
-                        targetUserId={String(authorId)}
-                        currentUserId={user?.id}
-                        initialIsFollowing={
-                          typeof post?.viewer?.isFollowingAuthor === 'boolean'
-                            ? Boolean(post.viewer.isFollowingAuthor)
-                            : undefined
-                        }
-                        onRequireLogin={() => navigate('/auth/login')}
-                        className="h-9 border-slate-200 bg-white px-3.5 text-[11px] uppercase tracking-[0.16em] text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
-                      />
-                    ) : null}
-
+                  <div className="flex min-w-fit items-center gap-2 whitespace-nowrap self-start">
                     <PostOptionsButton
                       post={post}
                       icon={<MoreVertical className="h-4 w-4" />}
@@ -1177,52 +2416,64 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                 </div>
 
                 <div className="mt-4 space-y-4">
-                  {post?.title ? (
-                    <button
-                      type="button"
-                      onClick={() => openPostDetail(postId)}
-                      className="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
-                    >
-                      {post.title}
-                    </button>
-                  ) : null}
-                  <div
-                    className="cursor-pointer text-[15px] leading-7 text-slate-700 break-words [overflow-wrap:anywhere]"
-                    role="button"
-                    tabIndex={0}
-                    onClick={(event) => openPostFromText(event, postId)}
-                    onKeyDown={(event) => {
+                  <TranslatablePostText
+                    post={post}
+                    viewerId={user?.id}
+                    viewerUsername={user?.username}
+                    expandable
+                    titleClassName="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
+                    contentWrapperClassName="cursor-pointer text-base leading-8 text-slate-700 break-words [overflow-wrap:anywhere]"
+                    buttonClassName="text-slate-900"
+                    translationRowClassName="text-slate-500"
+                    onTitleClick={post?.title ? () => openPostCard(post) : undefined}
+                    onContentClick={(event) => openPostFromText(event, post)}
+                    onContentKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        openPostDetail(postId);
+                        openPostCard(post);
                       }
                     }}
-                  >
-                    <MentionText text={visibleText} viewerId={user?.id} viewerUsername={user?.username} />
-                    {isLong ? (
-                      <button
-                        type="button"
-                        onClick={() => setExpanded((prev) => ({ ...prev, [postId]: !prev[postId] }))}
-                        className="ml-2 text-sm font-semibold text-slate-900 hover:underline"
-                      >
-                        {isExpanded ? 'less' : 'more'}
-                      </button>
-                    ) : null}
-                  </div>
+                  />
 
                   {showHashtags && tags.length ? (
                     <div className="flex flex-wrap gap-2">
                       {tags.slice(0, 8).map((tag: string) => (
-                        <a
+                        <Link
                           key={`${postId}_tag_${tag}`}
-                          href={`/community/tags/${encodeURIComponent(tag)}`}
+                          to={`/community/tags/${encodeURIComponent(tag)}`}
                           className="max-w-full break-all rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm"
                         >
                           #{tag}
-                        </a>
+                        </Link>
                       ))}
                     </div>
                   ) : null}
+
+                  <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-indigo-50 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                        <Sparkles className="h-3 w-3" />
+                        Scrolitha coach
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          openScrolithaFromMobile(
+                            buildPostScrolithaPrompt(
+                              String(post?.title || ''),
+                              String(post?.content || post?.body || '')
+                            )
+                          );
+                        }}
+                        className="inline-flex items-center rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 transition hover:bg-violet-100"
+                      >
+                        Enhance post
+                      </button>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">Use AI suggestions to improve clarity and engagement before publishing.</p>
+                  </div>
 
                   {hasAiInsight ? (
                     <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
@@ -1274,13 +2525,14 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                               key={`${postId}_att_${file.id || file.url}`}
                               className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
                             >
-                              {isVideo(file.mimeType) ? (
+                              {isVideo(file) ? (
                                 <div
                                   role="button"
                                   tabIndex={0}
+                                  data-post-media-root="true"
                                   onClick={(event) => {
                                     if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                                    queueOpenPostFromMediaTap(postId, mediaKey);
+                                    queueOpenPostFromMediaTap(post, file, mediaKey);
                                   }}
                                   onDoubleClick={(event) => {
                                     if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
@@ -1290,39 +2542,63 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                                   onKeyDown={(event) => {
                                     if (event.key === 'Enter' || event.key === ' ') {
                                       event.preventDefault();
-                                      openPostDetail(postId);
+                                      handlePostMediaPrimaryAction(post, file);
                                     }
                                   }}
                                 >
                                   <InlineAutoplayVideo
-                                    src={file.url}
-                                    poster={file.thumbnailUrl || undefined}
-                                    className="h-56 w-full object-cover"
+                                    src={resolvePostAttachmentMediaUrl(file)}
+                                    poster={resolvePostAttachmentPosterUrl(file)}
+                                    className="h-[22rem] w-full object-cover sm:h-[26rem] md:h-[30rem]"
                                     controls={false}
-                                    autoplayEnabled={profile.autoplayEnabled}
+                                    autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                                     preload="metadata"
+                                    preloadRootMargin={constrainedForFeed ? '80px 0px 80px 0px' : '260px 0px 260px 0px'}
+                                    loadingLabel="Video loading"
+                                    overlay={(videoElement) => (
+                                      <PostVideoActionBar
+                                        postId={postId}
+                                        postTitle={post?.title}
+                                        postContent={post?.content}
+                                        postLocation={post?.location}
+                                        media={{
+                                          id: file?.id,
+                                          fileId: file?.fileId || file?.file_id || file?.file?.id || file?.asset?.id || file?.id || null,
+                                          url: resolvePostAttachmentMediaUrl(file),
+                                          thumbnailUrl: resolvePostAttachmentPosterUrl(file),
+                                          name: file?.name || file?.originalName || file?.filename,
+                                          mimeType: file?.mimeType || file?.mime_type
+                                        }}
+                                        videoElement={videoElement}
+                                      />
+                                    )}
                                   />
                                 </div>
                               ) : isImage(file.mimeType) ? (
                                 <button
                                   type="button"
-                                  onClick={() => queueOpenPostFromMediaTap(postId, mediaKey)}
+                                  onClick={() => handlePostMediaPrimaryAction(post, file)}
                                   onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                  className="block h-56 w-full text-left"
+                                  className="block h-[22rem] w-full text-left sm:h-[26rem] md:h-[30rem]"
                                 >
-                                  <img
-                                    src={file.url}
+                                  <OptimizedImage
+                                    src={resolvePostAttachmentMediaUrl(file)}
+                                    fallbackSrc={resolvePostAttachmentPosterUrl(file)}
                                     alt={file.name || 'Attachment'}
-                                    className="h-56 w-full object-cover"
-                                    loading="lazy"
+                                    width={640}
+                                    height={400}
+                                    sizes="(max-width: 768px) 100vw, 640px"
+                                    className="h-[22rem] w-full object-cover sm:h-[26rem] md:h-[30rem]"
+                                    loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
                                     decoding="async"
+                                    fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
                                   />
                                 </button>
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => openPostDetail(postId)}
+                                  onClick={() => handlePostMediaPrimaryAction(post, file)}
                                   className="block p-4 text-left text-sm font-semibold text-slate-700 hover:underline"
                                 >
                                   {file.name || file.url}
@@ -1351,7 +2627,10 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
                 <PostEngagementBar
                   postId={postId}
+                  postTitle={post?.title}
+                  postContent={post?.content}
                   authorId={authorId}
+                  dashGcoinTotal={Number(post?.dashGcoinTotal ?? post?.interactions?.dashGcoinTotal ?? 0)}
                   commentPolicy={post?.commentPolicy}
                   postRepostsEnabled={post?.repostsEnabled}
                   commentCount={commentCount}
@@ -1360,6 +2639,8 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
                   viewCount={post?.interactions?.views ?? post?.viewsCount ?? 0}
                   initialReactionCounts={reactionCounts}
                   initialUserReaction={post?.userState?.reaction}
+                  interestSurveyEnabled={interestSurveyPostIds.has(postId)}
+                  initialInterestSignal={post?.userState?.interestSignal}
                   onCommentCountChange={syncCommentCount}
                   features={{
                     reactions: postCardSettings.reactionsEnabled !== false,
@@ -1400,11 +2681,15 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
               ) : null}
 
               {idx === 3 && showPeopleCard ? (
-                <SuggestedCard data={{ kind: 'people', title: 'Suggested people', items: suggestedPeople.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'user' })) }} />
+                <div id="mobile-member-home-people-suggestions">
+                  <SuggestedCard data={{ kind: 'people', title: 'Suggested people', items: suggestedPeople.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'user' })) }} />
+                </div>
               ) : null}
 
               {idx === 5 && showPagesCard ? (
-                <SuggestedCard data={{ kind: 'pages', title: 'Suggested pages', items: suggestedPages.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'page' })) }} />
+                <div id="mobile-member-home-page-suggestions">
+                  <SuggestedCard data={{ kind: 'pages', title: 'Suggested pages', items: suggestedPages.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'page' })) }} />
+                </div>
               ) : null}
             </React.Fragment>
           );
@@ -1419,8 +2704,32 @@ export default function MobileFeed({ settings }: { settings?: MobileHomeLayoutSe
 
         <div ref={sentinelRef} className="h-6" />
 
-        {!cursor ? <div className="py-6 text-center text-xs text-slate-500">You're all caught up.</div> : null}
+        {renderedPostCount < posts.length ? (
+          <div className="py-3 text-center text-xs font-medium text-slate-500">
+            Scroll to reveal more posts.
+          </div>
+        ) : !cursor ? (
+          <div className="py-6 text-center text-xs text-slate-500">You're all caught up.</div>
+        ) : null}
       </div>
+
+      {(expandedPost || previewMedia) ? (
+        <Suspense fallback={null}>
+          <PostExpandModal
+            open={Boolean(expandedPost)}
+            post={expandedPost}
+            viewerId={user?.id}
+            viewerUsername={user?.username}
+            onClose={() => setExpandedPost(null)}
+          />
+
+          <MediaPreviewModal
+            open={Boolean(previewMedia)}
+            media={previewMedia}
+            onClose={() => setPreviewMedia(null)}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

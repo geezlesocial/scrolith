@@ -9,6 +9,7 @@ import { Job } from '../types';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
+import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 
 const BrowseJobs = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -54,7 +55,11 @@ const BrowseJobs = () => {
         liked ? 'Job removed from your favorites.' : 'Job added to your favorites.'
       );
     } catch (err: any) {
-      showNotification('error', 'Favorites', err?.message || 'Unable to update favorite.');
+      showNotification(
+        'error',
+        'Favorites',
+        isFavoritesRateLimitedError(err) ? FAVORITES_RATE_LIMIT_MESSAGE : err?.message || 'Unable to update favorite.'
+      );
     } finally {
       setBusyKey(null);
     }
@@ -124,7 +129,15 @@ const BrowseJobs = () => {
                      <span>-</span>
                      <span className="inline-flex items-center gap-2">
                        <span>{job.clientName}</span>
-                       {clientVerificationLevel ? <VerifiedBadge size={16} level={clientVerificationLevel} className="ml-1" /> : null}
+                       {clientVerificationLevel ? (
+                         <VerifiedBadge
+                           size={16}
+                           level={clientVerificationLevel}
+                           className="ml-1"
+                           subjectRole={(job as any)?.clientType === 'business' ? 'business' : 'employer'}
+                           subjectType={(job as any)?.clientType || 'business'}
+                         />
+                       ) : null}
                        <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                      </span>
                   </div>

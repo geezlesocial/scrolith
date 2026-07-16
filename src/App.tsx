@@ -1,4 +1,4 @@
-import React, { useEffect, Suspense, useRef, useState, useCallback } from 'react';
+import React, { useEffect, Suspense, useRef, useState, useCallback, lazy } from 'react';
 import { 
   BrowserRouter, 
   Routes, 
@@ -8,37 +8,340 @@ import {
   useNavigate
 } from 'react-router-dom';
 import Navbar from './components/Navbar';
-import DynamicFooter from './components/DynamicFooter';
 import ToastContainer from './components/ToastContainer';
 import OfflineBanner from './components/OfflineBanner';
-import AppDistributionPrompt from './components/AppDistributionPrompt';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
+import { LiveFeatureProvider, useLiveFeature } from './context/LiveFeatureContext';
 import { NotificationProvider, useNotification } from './context/NotificationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { CartProvider } from './context/CartContext';
-import { MessageProvider } from './context/MessageContext';
+import { NetworkStatusProvider } from './context/NetworkStatusContext';
 import { UserProvider, useUser } from './context/UserContext';
 import { SocketProvider } from './context/SocketContext';
 import { PreloaderProvider } from './context/PreloaderContext';
 import { I18nProvider } from './i18n/I18nProvider';
 import GlobalPreloader from './components/GlobalPreloader';
 import { AlertTriangleIcon } from './components/icons/ShellIcons';
-import IntegrationsManager from './components/IntegrationsManager';
-import { registerDeepLinks } from './mobile/deeplinks';
-import { initPushNotifications, syncStoredPushToken } from './mobile/push';
-import { App as CapacitorApp } from '@capacitor/app';
-import {
-  authenticateBiometrics,
-  checkBiometrics,
-  getBiometricPreference,
-  getBiometryLabel,
-  isNativePlatform,
-  setBiometricPreference
-} from './mobile/biometrics';
 import { MarketingService } from './services/marketing';
 import { resolveResponsiveAssetUrl } from './utils/assetUrl';
+import { getCanonicalAppOrigin, getCanonicalRedirectUrl } from './utils/siteUrl';
+import { isLikelyChunkLoadError, normalizeRouteHref } from './mobile/runtime/routeRecovery';
+import { shouldUseMobileShellViewport } from './mobile/home/mobileShellLayout';
+import {
+  FOLLOW_ONBOARDING_PATH,
+  hasPendingFollowOnboarding,
+  resolveAuthenticatedEntryPath,
+  resolveDashboardPath,
+  resolveSignedInHomepagePath
+} from './utils/authRedirect';
+
+const HISTORY_SYNC_EVENT = 'scrolith:history-sync';
+const CHUNK_RELOAD_GUARD_KEY = 'scrolith:chunk-reload-target';
+const ROUTE_SYNC_RELOAD_GUARD_KEY = 'scrolith:route-sync-reload-target';
+const BIOMETRIC_PREF_KEY = 'Scrolith.pref.biometric.enabled';
+const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
+const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
+const AuthenticatedRuntimeProviders = lazy(() => import('./context/AuthenticatedRuntimeProviders'));
+const DesktopMessagingDock = lazy(() => import('./components/messaging/DesktopMessagingDock'));
+
+const getCapacitorRuntime = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    return (window as any)?.Capacitor || null;
+  } catch {
+    return null;
+  }
+};
+
+const hasNativeRuntime = () => {
+  if (IS_MOBILE_APP_BUILD) return true;
+  const runtime = getCapacitorRuntime();
+  if (!runtime || typeof runtime.isNativePlatform !== 'function') return false;
+  try {
+    return Boolean(runtime.isNativePlatform());
+  } catch {
+    return false;
+  }
+};
+
+const isCompactTouchRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  if ((window as any)?.scrolithDesktop?.shell === 'desktop') return false;
+  try {
+    const coarsePointer = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+    const maxTouchPoints = Number(window.navigator?.maxTouchPoints || 0);
+    const touchDevice = coarsePointer || maxTouchPoints > 0;
+    if (!touchDevice) return false;
+    const widths = [
+      window.innerWidth,
+      document.documentElement?.clientWidth,
+      window.visualViewport?.width,
+      window.screen?.width,
+      window.screen?.availWidth
+    ].filter((value): value is number => Number.isFinite(value) && value > 0);
+    if (!widths.length) return false;
+    return Math.min(...widths) <= 900;
+  } catch {
+    return false;
+  }
+};
+
+const readBiometricPreference = () =>
+  typeof localStorage !== 'undefined' && localStorage.getItem(BIOMETRIC_PREF_KEY) === 'true';
+
+const writeBiometricPreference = (enabled: boolean) => {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(BIOMETRIC_PREF_KEY, enabled ? 'true' : 'false');
+};
+
+const trackRuntimeEvent = (eventName: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => {
+  void import('./mobile/mobileTelemetry')
+    .then(({ trackMobileRuntimeEvent }) => trackMobileRuntimeEvent(eventName, payload, options))
+    .catch(() => {});
+};
+
+const getBiometryLabel = (value: unknown) => {
+  const normalized =
+    typeof value === 'string'
+      ? value.toLowerCase()
+      : value === undefined || value === null
+        ? ''
+        : String(value).toLowerCase();
+  if (normalized.includes('face')) return 'Face ID';
+  if (normalized.includes('touch')) return 'Touch ID';
+  if (normalized.includes('finger')) return 'Fingerprint';
+  if (normalized.includes('iris')) return 'Iris';
+  return 'Biometric';
+};
+
+const getCurrentBrowserRoute = () =>
+  typeof window === 'undefined'
+    ? ''
+    : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+const scheduleChunkRecoveryReload = (targetHref?: string) => {
+  if (typeof window === 'undefined') return;
+  const nextRoute = normalizeRouteHref(targetHref || getCurrentBrowserRoute());
+  if (!nextRoute) return;
+
+  try {
+    const guardedTarget = sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY);
+    if (guardedTarget === nextRoute) return;
+    sessionStorage.setItem(CHUNK_RELOAD_GUARD_KEY, nextRoute);
+  } catch {
+    // Ignore session storage failures and still attempt reload.
+  }
+
+  trackRuntimeEvent(
+    'chunk_load_recovery',
+    {
+      targetRoute: nextRoute
+    },
+    { dedupeMs: 10_000, sourcePath: nextRoute }
+  );
+
+  window.setTimeout(() => {
+    if (window.location.href === window.location.origin) {
+      window.location.assign(nextRoute || '/');
+      return;
+    }
+    window.location.reload();
+  }, 40);
+};
+
+const scheduleRouteSyncReload = (targetHref?: string) => {
+  if (typeof window === 'undefined') return;
+  const nextRoute = normalizeRouteHref(targetHref || getCurrentBrowserRoute());
+  if (!nextRoute) return;
+
+  try {
+    const guardedTarget = sessionStorage.getItem(ROUTE_SYNC_RELOAD_GUARD_KEY);
+    if (guardedTarget === nextRoute) return;
+    sessionStorage.setItem(ROUTE_SYNC_RELOAD_GUARD_KEY, nextRoute);
+  } catch {
+    // Ignore session storage failures and still attempt reload.
+  }
+
+  trackRuntimeEvent(
+    'route_sync_recovery',
+    {
+      targetRoute: nextRoute
+    },
+    { dedupeMs: 10_000, sourcePath: nextRoute }
+  );
+
+  window.setTimeout(() => {
+    const currentBrowserRoute = getCurrentBrowserRoute();
+    if (currentBrowserRoute !== nextRoute) return;
+    window.location.replace(nextRoute);
+  }, 40);
+};
+
+const patchBrowserHistoryEvents = () => {
+  if (typeof window === 'undefined') return;
+  const historyRef = window.history as History & { __scrolithHistoryPatched?: boolean };
+  if (historyRef.__scrolithHistoryPatched) return;
+
+  (['pushState', 'replaceState'] as const).forEach((method) => {
+    const original = historyRef[method];
+    if (typeof original !== 'function') return;
+    historyRef[method] = function patchedHistoryState(...args: Parameters<History[typeof method]>) {
+      const result = original.apply(this, args);
+      try {
+        window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+      } catch {
+        // Ignore popstate synthesis failures.
+      }
+      try {
+        window.dispatchEvent(
+          new CustomEvent(HISTORY_SYNC_EVENT, {
+            detail: {
+              method,
+              href: `${window.location.pathname}${window.location.search}${window.location.hash}`
+            }
+          })
+        );
+      } catch {
+        // Ignore history sync event failures.
+      }
+      return result;
+    } as History[typeof method];
+  });
+
+  historyRef.__scrolithHistoryPatched = true;
+};
+
+const RouterHistorySync: React.FC = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentRouteRef = useRef('');
+  const pendingRouteRef = useRef<string | null>(null);
+  const desyncFallbackTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    patchBrowserHistoryEvents();
+  }, []);
+
+  useEffect(() => {
+    const currentRoute = `${location.pathname}${location.search}${location.hash}`;
+    currentRouteRef.current = currentRoute;
+    if (pendingRouteRef.current === currentRoute) {
+      pendingRouteRef.current = null;
+    }
+    if (desyncFallbackTimerRef.current !== null) {
+      window.clearTimeout(desyncFallbackTimerRef.current);
+      desyncFallbackTimerRef.current = null;
+    }
+    try {
+      if (sessionStorage.getItem(ROUTE_SYNC_RELOAD_GUARD_KEY) === currentRoute) {
+        sessionStorage.removeItem(ROUTE_SYNC_RELOAD_GUARD_KEY);
+      }
+    } catch {
+      // Ignore session storage failures.
+    }
+  }, [location.pathname, location.search, location.hash]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let frame: number | null = null;
+
+    const syncRouterLocation = () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      frame = window.requestAnimationFrame(() => {
+        const browserRoute = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+        const currentRoute = currentRouteRef.current;
+        if (!browserRoute || browserRoute === currentRoute || pendingRouteRef.current === browserRoute) {
+          return;
+        }
+        pendingRouteRef.current = browserRoute;
+        navigate(browserRoute, { replace: true, state: window.history.state as Record<string, unknown> | null });
+        if (desyncFallbackTimerRef.current !== null) {
+          window.clearTimeout(desyncFallbackTimerRef.current);
+        }
+        desyncFallbackTimerRef.current = window.setTimeout(() => {
+          desyncFallbackTimerRef.current = null;
+          if (currentRouteRef.current === browserRoute) return;
+          if (getCurrentBrowserRoute() !== browserRoute) return;
+          scheduleRouteSyncReload(browserRoute);
+        }, 220);
+      });
+    };
+
+    window.addEventListener('popstate', syncRouterLocation);
+    window.addEventListener(HISTORY_SYNC_EVENT, syncRouterLocation as EventListener);
+
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      if (desyncFallbackTimerRef.current !== null) {
+        window.clearTimeout(desyncFallbackTimerRef.current);
+      }
+      window.removeEventListener('popstate', syncRouterLocation);
+      window.removeEventListener(HISTORY_SYNC_EVENT, syncRouterLocation as EventListener);
+    };
+  }, [navigate]);
+
+  return null;
+};
+
+const ChunkLoadRecovery: React.FC = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    const currentRoute = `${location.pathname}${location.search}${location.hash}`;
+    try {
+      if (sessionStorage.getItem(CHUNK_RELOAD_GUARD_KEY) === currentRoute) {
+        sessionStorage.removeItem(CHUNK_RELOAD_GUARD_KEY);
+      }
+    } catch {
+      // Ignore session storage failures.
+    }
+  }, [location.pathname, location.search, location.hash]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleChunkFailure = (error: unknown, href?: string) => {
+      if (!isLikelyChunkLoadError(error)) return;
+      scheduleChunkRecoveryReload(href);
+    };
+
+    const handlePreloadError = (event: Event) => {
+      const preloadEvent = event as Event & {
+        payload?: unknown;
+        detail?: { href?: string; url?: string };
+        preventDefault?: () => void;
+      };
+      preloadEvent.preventDefault?.();
+      handleChunkFailure(preloadEvent.payload || preloadEvent, preloadEvent.detail?.href || preloadEvent.detail?.url);
+    };
+
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      handleChunkFailure(event.reason);
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      handleChunkFailure(event.error || event.message || event, event.filename);
+    };
+
+    window.addEventListener('vite:preloadError', handlePreloadError as EventListener);
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('error', handleWindowError);
+
+    return () => {
+      window.removeEventListener('vite:preloadError', handlePreloadError as EventListener);
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('error', handleWindowError);
+    };
+  }, []);
+
+  return null;
+};
 
 // Lazy Loaded Components
 const Landing = React.lazy(() => import('./main/Landing'));
@@ -47,9 +350,10 @@ const Signup = React.lazy(() => import('./auth/Signup'));
 const ForgotPassword = React.lazy(() => import('./auth/ForgotPassword'));
 const ResetPassword = React.lazy(() => import('./auth/ResetPassword'));
 const OAuthCallback = React.lazy(() => import('./auth/OAuthCallback'));
-const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
-const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
-const SearchResults = React.lazy(() => import('./pages/SearchResults'));
+const FollowOnboarding = React.lazy(() => import('./auth/FollowOnboarding'));
+const DynamicFooter = React.lazy(() => import('./components/DynamicFooter'));
+const IntegrationsManager = React.lazy(() => import('./components/IntegrationsManager'));
+const AppDistributionPrompt = React.lazy(() => import('./components/AppDistributionPrompt'));
 const SupportWidget = React.lazy(() => import('./components/SupportWidget'));
 const MarketingPopups = React.lazy(() => import('./components/MarketingPopups'));
 const AdminDashboard = React.lazy(() => import('./dashboard/AdminDashboard'));
@@ -57,9 +361,6 @@ const CreateJob = React.lazy(() => import('./create-job-post/CreateJob'));
 const EditJob = React.lazy(() => import('./dashboard/employer/EditJob'));
 const CreateGig = React.lazy(() => import('./create-gig/CreateGig'));
 const KYCVerification = React.lazy(() => import('./kyc/KYCVerification'));
-const Messages = React.lazy(() => import('./messages/Messages'));
-const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
-const CompanyPage = React.lazy(() => import('./pages/CompanyPage'));
 const EditProfile = React.lazy(() => import('./profile/EditProfile'));
 const DeveloperDocs = React.lazy(() => import('./dashboard/DeveloperDocs'));
 const LanguagesAdmin = React.lazy(() => import('./dashboard/admin/Languages'));
@@ -68,16 +369,26 @@ const JobDetail = React.lazy(() => import('./main/JobDetail'));
 const Blog = React.lazy(() => import('./pages/Blog'));
 const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
+const MarketplacePage = React.lazy(() => import('./pages/marketplace/MarketplacePage'));
 const AnswersPage = React.lazy(() => import('./pages/AnswersPage'));
 const GuidesPage = React.lazy(() => import('./pages/GuidesPage'));
 const HirePage = React.lazy(() => import('./pages/HirePage'));
 const FreelancerPage = React.lazy(() => import('./pages/FreelancerPage'));
 const Support = React.lazy(() => import('./pages/Support'));
+const PostDetailView = React.lazy(() => import('./pages/PostDetailView'));
+const BrowseTalent = React.lazy(() => import('./main/BrowseTalent'));
+const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
+const SearchResults = React.lazy(() => import('./pages/SearchResults'));
+const Messages = React.lazy(() => import('./messages/Messages'));
+const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
+const CompanyPage = React.lazy(() => import('./pages/CompanyPage'));
+const ContactPage = React.lazy(() => import('./pages/ContactPage'));
 const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
 const Favorites = React.lazy(() => import('./pages/Favorites'));
 const Cart = React.lazy(() => import('./pages/Cart'));
 const SettingsModule = React.lazy(() => import('./dashboard/shared/SettingsModule'));
-const PostDetailView = React.lazy(() => import('./pages/PostDetailView'));
+const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
+const CommunityHome = React.lazy(() => import('./community/CommunityHome'));
 const DashboardRouter = React.lazy(() =>
   import('./dashboard/DashboardRouter').then((module) => ({ default: module.DashboardRouter }))
 );
@@ -90,10 +401,9 @@ const MobilePostScreen = React.lazy(() => import('./mobile/home/screens/MobilePo
 const MobileNotificationsScreen = React.lazy(() => import('./mobile/home/screens/MobileNotificationsScreen'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
+const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
 
 // Community Components
-const CommunityLayout = React.lazy(() => import('./community/CommunityLayout'));
-const CommunityHome = React.lazy(() => import('./community/CommunityHome'));
 const Forum = React.lazy(() => import('./community/Forum'));
 const ThreadDetail = React.lazy(() => import('./community/ThreadDetail'));
 const Clubs = React.lazy(() => import('./community/Clubs'));
@@ -113,6 +423,43 @@ const LiveStudio = React.lazy(() => import('./features/live/LiveStudio'));
 const LiveViewer = React.lazy(() => import('./features/live/LiveViewer'));
 const MemberHomeSection = React.lazy(() => import('./components/sections/MemberHomeSection'));
 
+const preloadAuthenticatedRouteModules = ({ mobileShell }: { mobileShell: boolean }) => {
+  const commonModules = [
+    import('./pages/PostDetailView'),
+    import('./features/scroll/ScrollFeed'),
+    import('./create-gig/CreateGig'),
+    import('./create-job-post/CreateJob'),
+    import('./pages/Support'),
+    import('./profile/EditProfile'),
+    import('./pages/marketplace/MarketplacePage')
+  ];
+
+  const mobileModules = mobileShell
+    ? [
+        import('./mobile/home/MobileHome'),
+        import('./mobile/home/screens/MobileFeedScreen'),
+        import('./mobile/home/screens/MobileNetworkScreen'),
+        import('./mobile/home/screens/MobilePostScreen'),
+        import('./mobile/home/components/MobileAppRouteFrame'),
+        import('./mobile/home/screens/MobileNotificationsScreen'),
+        import('./mobile/home/screens/MobileJobsScreen'),
+        import('./mobile/home/screens/MobileBriefsScreen')
+      ]
+    : [];
+
+  return Promise.allSettled([...commonModules, ...mobileModules]);
+};
+
+const shouldAvoidAggressiveRouteWarmup = () => {
+  if (typeof window === 'undefined') return false;
+  const connection = (navigator as Navigator & {
+    connection?: { saveData?: boolean; effectiveType?: string };
+  }).connection;
+  if (!connection) return false;
+  if (connection.saveData) return true;
+  return ['slow-2g', '2g'].includes(String(connection.effectiveType || '').toLowerCase());
+};
+
 // Error Boundary Component
 type ErrorBoundaryState = { hasError: boolean };
 class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
@@ -129,6 +476,19 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
   }
 
   componentDidCatch(error: unknown, info: unknown) {
+    trackRuntimeEvent(
+      'mobile_runtime_error',
+      {
+        message:
+          (error as { message?: string } | null)?.message ||
+          'react_error_boundary',
+        componentStack:
+          (info as { componentStack?: string } | null)?.componentStack || ''
+      },
+      {
+        dedupeMs: 15_000
+      }
+    );
     console.error(error, info);
   }
 
@@ -140,19 +500,101 @@ class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBo
   }
 }
 
+class SignedInHomepageBoundary extends React.Component<React.PropsWithChildren<{}>, ErrorBoundaryState> {
+  public props: React.PropsWithChildren<{}>;
+  public state: ErrorBoundaryState;
+
+  constructor(props: React.PropsWithChildren<{}>) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown, info: unknown) {
+    trackRuntimeEvent(
+      'mobile_runtime_error',
+      {
+        message:
+          (error as { message?: string } | null)?.message ||
+          'signed_in_home_error_boundary',
+        componentStack:
+          (info as { componentStack?: string } | null)?.componentStack || ''
+      },
+      {
+        dedupeMs: 15_000
+      }
+    );
+    console.error(error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+          <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
+              <img
+                src="/logo.png"
+                alt="Scrolith logo"
+                width={44}
+                height={44}
+                decoding="async"
+                className="h-11 w-11 object-contain"
+                onError={(event) => {
+                  (event.currentTarget as HTMLImageElement).style.display = 'none';
+                }}
+              />
+            </div>
+            <h2 className="mt-4 text-xl font-semibold text-slate-900">Home is reloading</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-500">
+              The signed-in homepage hit a render issue. Reload to try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-5 inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children as React.ReactElement;
+  }
+}
+
 const RouteLoadingFallback = () => (
   <div className="flex min-h-[48vh] items-center justify-center px-4">
     <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
-        <div className="text-sm font-medium text-slate-700">Loading Scrolith...</div>
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex h-20 w-20 items-center justify-center rounded-[1.75rem] border border-slate-200 bg-slate-50 shadow-sm">
+          <img
+            src="/logo.png"
+            alt="Scrolith logo"
+            width={56}
+            height={56}
+            decoding="async"
+            className="h-14 w-14 object-contain"
+            onError={(event) => {
+              (event.currentTarget as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-200 border-t-blue-600" />
+          <div className="text-sm font-medium text-slate-700">Loading Scrolith...</div>
+        </div>
       </div>
     </div>
   </div>
 );
 
 const normalizeRouteRule = (value: string) => {
-  let normalized = String(value || '').trim();
+  let normalized = String(value || '').trim().split('#')[0].split('?')[0].trim();
   if (!normalized) return '';
 
   if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
@@ -217,14 +659,67 @@ const matchesRouteRule = (pathname: string, ruleValue: string) => {
 const matchesAnyRouteRule = (pathname: string, rules: string[]) =>
   rules.some((rule) => matchesRouteRule(pathname, rule));
 
+const DEFAULT_FOOTER_HIDDEN_ROUTES = [
+  '/',
+  '/messages',
+  '/client/dashboard/*',
+  '/freelancer/dashboard',
+  '/dashboard',
+  '/auth/signup',
+  '/auth/login',
+  '/community',
+  '/create-gig'
+];
+
+const DEFAULT_SUPPORT_WIDGET_HIDDEN_ROUTES = [
+  '/',
+  '/messages',
+  '/client/dashboard/*',
+  '/freelancer/dashboard',
+  '/dashboard',
+  '/developer',
+  '/community',
+  '/create-gig'
+];
+
+const MOBILE_STANDALONE_ROUTE_RULES = [
+  '/dashboard*',
+  '/freelancer/dashboard*',
+  '/client/dashboard*',
+  '/admin/dashboard*',
+  '/marketplace*',
+  '/browse',
+  '/browse-jobs',
+  '/search',
+  '/gigs/*',
+  '/jobs/*',
+  '/post/*',
+  '/community*',
+  '/scroll*',
+  '/profile/*',
+  '/u/*',
+  '/company/*',
+  '/settings',
+  '/kyc',
+  '/create-gig',
+  '/create-job',
+  '/favorites',
+  '/cart',
+  '/support',
+  '/contact',
+  '/affiliate-program'
+];
+
 // Inner App component to use hooks
 const AppContent = () => {
-  const { user, isAuthenticated, logout } = useUser();
+  const { user, isAuthenticated, isLoading, logout } = useUser();
   const { settings, loading: settingsLoading } = useContent();
   const { showNotification } = useNotification();
   const location = useLocation();
   const navigate = useNavigate();
+  const canonicalRedirectUrl = getCanonicalRedirectUrl();
   const isHomeRoute = location.pathname === '/';
+  const isGuestLandingRoute = isHomeRoute && !isAuthenticated;
   const themeKey = 'Scrolith.pref.theme';
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [biometricVerified, setBiometricVerified] = useState(false);
@@ -241,7 +736,47 @@ const AppContent = () => {
   const appWasBackgroundedRef = useRef(false);
   const lastBiometricSuccessAtRef = useRef(0);
   const lastBiometricPromptAtRef = useRef(0);
-  const isNative = isNativePlatform();
+  const [isNative, setIsNative] = useState(() => hasNativeRuntime());
+
+  useEffect(() => {
+    if (!IS_MOBILE_APP_BUILD && !getCapacitorRuntime()) {
+      setIsNative(false);
+      return;
+    }
+
+    let cancelled = false;
+    void import('@capacitor/core')
+      .then(({ Capacitor }) => {
+        if (!cancelled) setIsNative(Boolean(Capacitor.isNativePlatform()));
+      })
+      .catch(() => {
+        if (!cancelled) setIsNative(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canonicalRedirectUrl || typeof window === 'undefined') return;
+    if (window.location.href === canonicalRedirectUrl) return;
+    window.location.replace(canonicalRedirectUrl);
+  }, [canonicalRedirectUrl]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const canonicalUrl = `${getCanonicalAppOrigin()}${location.pathname || '/'}`;
+    let link = document.querySelector("link[rel='canonical']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'canonical';
+      document.head.appendChild(link);
+    }
+    if (link.href !== canonicalUrl) {
+      link.href = canonicalUrl;
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!isHomeRoute) {
@@ -253,41 +788,70 @@ const AppContent = () => {
 
     let disposed = false;
     let timeoutId: number | null = null;
-    let idleId: number | null = null;
     const complete = () => {
       if (disposed) return;
       disposed = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
       setNonCriticalUiReady(true);
       window.removeEventListener('pointerdown', complete);
       window.removeEventListener('keydown', complete);
       window.removeEventListener('touchstart', complete);
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-      if (idleId !== null && 'cancelIdleCallback' in window) {
-        (window as any).cancelIdleCallback(idleId);
-      }
+      window.removeEventListener('scroll', complete);
     };
 
     window.addEventListener('pointerdown', complete, { once: true, passive: true });
     window.addEventListener('keydown', complete, { once: true });
     window.addEventListener('touchstart', complete, { once: true, passive: true });
-
-    if ('requestIdleCallback' in window) {
-      idleId = (window as any).requestIdleCallback(complete, { timeout: 1800 });
-    } else {
-      timeoutId = window.setTimeout(complete, 1800);
-    }
+    window.addEventListener('scroll', complete, { once: true, passive: true });
+    timeoutId = window.setTimeout(complete, 1800);
 
     return () => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
       window.removeEventListener('pointerdown', complete);
       window.removeEventListener('keydown', complete);
       window.removeEventListener('touchstart', complete);
-      if (timeoutId !== null) window.clearTimeout(timeoutId);
-      if (idleId !== null && 'cancelIdleCallback' in window) {
-        (window as any).cancelIdleCallback(idleId);
-      }
+      window.removeEventListener('scroll', complete);
       disposed = true;
     };
   }, [isHomeRoute]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user) return;
+    if (shouldAvoidAggressiveRouteWarmup()) return;
+
+    let cancelled = false;
+    let idleId: number | null = null;
+    let timeoutId: number | null = null;
+
+    const warmRoutes = () => {
+      if (cancelled) return;
+      void preloadAuthenticatedRouteModules({
+        mobileShell: hasNativeRuntime() || isCompactTouchRuntime()
+      });
+    };
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      idleId = (window as any).requestIdleCallback(warmRoutes, { timeout: 2400 });
+    } else {
+      timeoutId = window.setTimeout(warmRoutes, 1200);
+    }
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+      if (idleId !== null && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+        (window as any).cancelIdleCallback(idleId);
+      }
+    };
+  }, [isAuthenticated, user?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const frame = window.requestAnimationFrame(() => {
+      window.dispatchEvent(new Event('scrolith:app-ready'));
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const referralCode = new URLSearchParams(location.search).get('ref');
@@ -429,7 +993,7 @@ const AppContent = () => {
   }, []);
 
   useEffect(() => {
-    setBiometricEnabled(Boolean(isNative && getBiometricPreference()));
+    setBiometricEnabled(Boolean(isNative && readBiometricPreference()));
     if (!isNative) {
       updateBiometricVerified(true);
     }
@@ -447,10 +1011,11 @@ const AppContent = () => {
       updateBiometricChecking(true);
       setBiometricError(null);
 
+      const { authenticateBiometrics, checkBiometrics } = await import('./mobile/biometrics');
       const info = await checkBiometrics();
       if (!info.available) {
         setBiometricEnabled(false);
-        setBiometricPreference(false);
+        writeBiometricPreference(false);
         updateBiometricVerified(true);
         updateBiometricChecking(false);
         showNotification('alert', 'Biometrics Unavailable', 'No biometric hardware detected on this device.');
@@ -481,12 +1046,28 @@ const AppContent = () => {
   );
 
   useEffect(() => {
-    registerDeepLinks((path) => navigate(path, { replace: true }));
-  }, [navigate]);
+    if (!isNative) return;
+    let disposed = false;
+    let cleanup: void | (() => void | Promise<void>);
+
+    void import('./mobile/deeplinks')
+      .then(({ registerDeepLinks }) => {
+        if (disposed) return;
+        cleanup = registerDeepLinks((path) => navigate(path, { replace: true }));
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      void cleanup?.();
+    };
+  }, [navigate, isNative]);
 
   useEffect(() => {
+    if (!isNative) return;
     let isCancelled = false;
     const bootstrapNativePush = async () => {
+      const { initPushNotifications, syncStoredPushToken } = await import('./mobile/push');
       await initPushNotifications((path) => navigate(path, { replace: true }));
       if (!isCancelled) {
         await syncStoredPushToken();
@@ -496,19 +1077,21 @@ const AppContent = () => {
     return () => {
       isCancelled = true;
     };
-  }, [navigate]);
+  }, [navigate, isNative]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !isNative) return;
     let isCancelled = false;
     const bootstrapPush = async () => {
-      if (!isCancelled) await syncStoredPushToken();
+      const { forcePushRegistrationAfterAuth } = await import('./mobile/push');
+      if (isCancelled) return;
+      await forcePushRegistrationAfterAuth((path) => navigate(path, { replace: true }));
     };
     void bootstrapPush();
     return () => {
       isCancelled = true;
     };
-  }, [isAuthenticated, navigate, user?.id]);
+  }, [isAuthenticated, isNative, navigate, user?.id]);
 
   useEffect(() => {
     if (!biometricEnabled || !isAuthenticated || !user) {
@@ -524,33 +1107,38 @@ const AppContent = () => {
     if (!isNative || !biometricEnabled) return;
     let isMounted = true;
     let listenerHandle: { remove: () => Promise<void> } | null = null;
-    void CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) {
-        appBackgroundAtRef.current = Date.now();
-        appWasBackgroundedRef.current = true;
+
+    void import('@capacitor/app').then(({ App: CapacitorApp }) => {
+      return CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+        if (!isActive) {
+          appBackgroundAtRef.current = Date.now();
+          appWasBackgroundedRef.current = true;
+          updateBiometricVerified(false);
+          return;
+        }
+
+        const backgroundAt = appBackgroundAtRef.current;
+        const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
+        const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1000;
+        appWasBackgroundedRef.current = false;
+        appBackgroundAtRef.current = null;
+
+        if (!resumedFromBackground) return;
+
+        // Avoid immediate re-prompts caused by OEM app-state callbacks around biometric dialogs.
+        if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) return;
         updateBiometricVerified(false);
-        return;
-      }
-
-      const backgroundAt = appBackgroundAtRef.current;
-      const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
-      const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1000;
-      appWasBackgroundedRef.current = false;
-      appBackgroundAtRef.current = null;
-
-      if (!resumedFromBackground) return;
-
-      // Avoid immediate re-prompts caused by OEM app-state callbacks around biometric dialogs.
-      if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) return;
-      updateBiometricVerified(false);
-      void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
+        void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
+      });
     }).then((handle) => {
+      if (!handle) return;
       if (!isMounted) {
         void handle.remove();
         return;
       }
       listenerHandle = handle;
-    });
+    }).catch(() => {});
+
     return () => {
       isMounted = false;
       if (listenerHandle) {
@@ -573,7 +1161,7 @@ const AppContent = () => {
       uiVisibility.footer_hidden_routes ??
       (settings as any)?.footerHiddenRoutes ??
       (settings as any)?.footer_hidden_routes ??
-      []
+      DEFAULT_FOOTER_HIDDEN_ROUTES
   );
   const supportWidgetHiddenRoutes = parseRouteRules(
     uiVisibility.supportWidgetHiddenRoutes ??
@@ -582,48 +1170,207 @@ const AppContent = () => {
       uiVisibility.chat_widget_hidden_routes ??
       (settings as any)?.supportWidgetHiddenRoutes ??
       (settings as any)?.support_widget_hidden_routes ??
-      []
+      DEFAULT_SUPPORT_WIDGET_HIDDEN_ROUTES
   );
 
   const isFooterSuppressedByRule = matchesAnyRouteRule(location.pathname, footerHiddenRoutes);
   const isSupportWidgetSuppressedByRule = matchesAnyRouteRule(location.pathname, supportWidgetHiddenRoutes);
+  const memberHomeDesktopOverride =
+    new URLSearchParams(location.search).get('desktop') === '1' ||
+    new URLSearchParams(location.search).get('view') === 'desktop';
+  const isMobileUserAgent =
+    typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod|Mobile/i.test(String(navigator.userAgent || ''));
+  const isMobileViewport =
+    isNative || isMobileUserAgent || shouldUseMobileShellViewport() || isCompactTouchRuntime();
+  const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isMobileShellRoute) {
+      try {
+        window.sessionStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+        window.localStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+      } catch {
+        // Ignore cleanup failures.
+      }
+      return;
+    }
+    if (!isAuthenticated || !user) return;
+    if (String(user.role || '').toLowerCase().includes('admin')) return;
+
+    let target = '';
+    try {
+      target =
+        window.sessionStorage.getItem(MOBILE_POST_AUTH_TARGET_KEY) ||
+        window.localStorage.getItem(MOBILE_POST_AUTH_TARGET_KEY) ||
+        '';
+    } catch {
+      target = '';
+    }
+
+    if (!target) return;
+    const safeTarget = target.startsWith('/') ? target : '/member-home';
+    const absoluteTarget = new URL(safeTarget, window.location.origin).href;
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/';
+    const targetPath = new URL(safeTarget, window.location.origin).pathname.replace(/\/+$/, '') || '/';
+    if (currentPath === targetPath) {
+      try {
+        window.sessionStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+        window.localStorage.removeItem(MOBILE_POST_AUTH_TARGET_KEY);
+      } catch {
+        // Ignore cleanup failures.
+      }
+      return;
+    }
+    const redirect = () => {
+      if ((window.location.pathname.replace(/\/+$/, '') || '/') === targetPath) return;
+      window.location.replace(absoluteTarget);
+    };
+    redirect();
+    const retryTimers = [750, 2_500, 6_000, 12_000, 18_000].map((delay) =>
+      window.setTimeout(redirect, delay)
+    );
+    return () => {
+      retryTimers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [isAuthenticated, isMobileShellRoute, user]);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !user || !shouldUseMobileMemberHome) return;
+    if (String(user.role || '').toLowerCase().includes('admin')) return;
+    if (isMobileShellRoute) return;
+
+    const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+    const shouldNormalizeToMobileHome =
+      normalizedPath === '/' ||
+      normalizedPath === '/home' ||
+      normalizedPath === '/auth/login' ||
+      normalizedPath === '/auth/signup' ||
+      normalizedPath === '/auth/follow-onboarding';
+
+    if (shouldNormalizeToMobileHome) {
+      navigate(resolveAuthenticatedEntryPath(user), { replace: true });
+    }
+  }, [
+    isAuthenticated,
+    isLoading,
+    isMobileShellRoute,
+    location.pathname,
+    navigate,
+    shouldUseMobileMemberHome,
+    user
+  ]);
+  const isMobileStandaloneRoute =
+    shouldUseMobileMemberHome &&
+    !isMobileShellRoute &&
+    !isAdminRoute &&
+    !isMessagesRoute &&
+    matchesAnyRouteRule(location.pathname, MOBILE_STANDALONE_ROUTE_RULES);
+  const normalizedAppPath = location.pathname.replace(/\/+$/, '') || '/';
+  const shouldRenderForcedMobileHome = false;
   const shouldHideAppDistributionPrompt =
+    shouldRenderForcedMobileHome ||
     isMobileShellRoute ||
     isMessagesRoute ||
     isMessagesTabRoute ||
     isGigDetailRoute ||
     isScrollRoute;
   const shouldHideSupportWidget =
+    shouldRenderForcedMobileHome ||
+    isAdminRoute ||
     isMobileShellRoute ||
+    isMobileStandaloneRoute ||
+    (isMobileViewport && isGuestLandingRoute) ||
     isMessagesRoute ||
     isMessagesTabRoute ||
     isGigDetailRoute ||
     isScrollRoute ||
     isSupportWidgetSuppressedByRule;
   const shouldHideFooter =
-    isMobileShellRoute || isAdminRoute || isMessagesRoute || isScrollRoute || isFooterSuppressedByRule;
-  const memberHomeDesktopOverride =
-    new URLSearchParams(location.search).get('desktop') === '1' ||
-    new URLSearchParams(location.search).get('view') === 'desktop';
-  const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
-  const shouldUseMobileMemberHome = isMobileViewport && !memberHomeDesktopOverride;
+    shouldRenderForcedMobileHome ||
+    isMobileShellRoute ||
+    isMobileStandaloneRoute ||
+    isAdminRoute ||
+    isMessagesRoute ||
+    isScrollRoute ||
+    isFooterSuppressedByRule;
+  const routeRenderKey = `${location.pathname}${location.search}${location.hash}`;
+  const renderResponsiveMobilePage = (title: string, node: React.ReactNode, fullBleed = true) =>
+    isMobileStandaloneRoute ? (
+      <MobileAppRouteFrame title={title} fullBleed={fullBleed}>
+        {node}
+      </MobileAppRouteFrame>
+    ) : (
+      <>{node}</>
+    );
+  const signedInHomepageElement = isLoading ? (
+    <RouteLoadingFallback />
+  ) : !isAuthenticated || !user ? (
+    <Landing />
+  ) : hasPendingFollowOnboarding(user) ? (
+    <Navigate to={FOLLOW_ONBOARDING_PATH} replace />
+  ) : (
+    <SignedInHomepageBoundary>
+      {shouldUseMobileMemberHome ? <MobileHome /> : <MemberHomeSection />}
+    </SignedInHomepageBoundary>
+  );
+  const unmatchedRouteElement =
+    isAuthenticated && user ? (
+      <Navigate to={resolveAuthenticatedEntryPath(user)} replace />
+    ) : (
+      <Navigate to="/" replace />
+    );
   
   return (
     <div className="flex flex-col min-h-screen relative">
-      <IntegrationsManager />
+      {nonCriticalUiReady && (
+        <Suspense fallback={null}>
+          <IntegrationsManager />
+        </Suspense>
+      )}
       <OfflineBanner />
-      {!shouldHideAppDistributionPrompt && nonCriticalUiReady && <AppDistributionPrompt />}
-      {!isAdminRoute && !isMobileShellRoute && !isScrollRoute && <Navbar />}
-      <main className="flex-grow">
-        <ErrorBoundary>
-          <Suspense fallback={<RouteLoadingFallback />}>
-            <Routes>
-              <Route path="/" element={<Landing />} />
+      {!shouldHideAppDistributionPrompt && !isMobileStandaloneRoute && nonCriticalUiReady && (
+        <Suspense fallback={null}>
+          <AppDistributionPrompt />
+        </Suspense>
+      )}
+      {!shouldRenderForcedMobileHome &&
+        !isAdminRoute &&
+        !isMobileShellRoute &&
+        !isScrollRoute &&
+        !isMobileStandaloneRoute && <Navbar />}
+      {isAuthenticated &&
+        user &&
+        !isAdminRoute &&
+        !isMobileShellRoute &&
+        !isMobileStandaloneRoute &&
+        !shouldRenderForcedMobileHome &&
+        nonCriticalUiReady && (
+          <Suspense fallback={null}>
+            <DesktopMessagingDock />
+          </Suspense>
+        )}
+      <main className="w-full min-w-0 flex-grow">
+        {shouldRenderForcedMobileHome ? (
+          <ErrorBoundary key="forced-mobile-home">
+            <Suspense fallback={<RouteLoadingFallback />}>
+              <SignedInHomepageBoundary>
+                <MobileHome />
+              </SignedInHomepageBoundary>
+            </Suspense>
+          </ErrorBoundary>
+        ) : (
+          <ErrorBoundary key={routeRenderKey}>
+            <Suspense key={routeRenderKey} fallback={<RouteLoadingFallback />}>
+              <Routes location={location} key={routeRenderKey}>
+              <Route path="/" element={signedInHomepageElement} />
+              <Route path="/home" element={signedInHomepageElement} />
+              <Route path="/member-home" element={signedInHomepageElement} />
               <Route
                 path="/member_home"
                 element={
                   <ProtectedRoute>
-                    {shouldUseMobileMemberHome ? <Navigate to="/m/home" replace /> : <MemberHomeSection />}
+                    <LegacyMemberHomeRedirect />
                   </ProtectedRoute>
                 }
               />
@@ -633,7 +1380,9 @@ const AppContent = () => {
                 path="/m"
                 element={
                   <ProtectedRoute>
-                    <MobileHome />
+                    <SignedInHomepageBoundary>
+                      <MobileHome />
+                    </SignedInHomepageBoundary>
                   </ProtectedRoute>
                 }
               >
@@ -644,6 +1393,14 @@ const AppContent = () => {
                 <Route path="notifications" element={<MobileNotificationsScreen />} />
                 <Route path="jobs" element={<MobileJobsScreen />} />
                 <Route path="briefs" element={<MobileBriefsScreen />} />
+                <Route path="marketplace" element={<MarketplacePage />} />
+                <Route path="marketplace/create" element={<MarketplacePage />} />
+                <Route path="marketplace/sell" element={<MarketplacePage />} />
+                <Route path="marketplace/edit/:id" element={<MarketplacePage />} />
+                <Route path="marketplace/my-listings" element={<MarketplacePage />} />
+                <Route path="marketplace/saved" element={<MarketplacePage />} />
+                <Route path="marketplace/category/:slug" element={<MarketplacePage />} />
+                <Route path="marketplace/listing/:slug" element={<MarketplacePage />} />
               </Route>
               <Route
                 path="/auth/login"
@@ -653,6 +1410,8 @@ const AppContent = () => {
                   </PublicOnlyRoute>
                 }
               />
+              <Route path="/login" element={<Navigate to="/auth/login" replace />} />
+              <Route path="/signin" element={<Navigate to="/auth/login" replace />} />
               <Route
                 path="/auth/forgot-password"
                 element={
@@ -677,16 +1436,34 @@ const AppContent = () => {
                   </PublicOnlyRoute>
                 }
               />
+              <Route path="/signup" element={<Navigate to="/auth/signup" replace />} />
+              <Route path="/join" element={<Navigate to="/auth/signup" replace />} />
+              <Route
+                path="/auth/follow-onboarding"
+                element={
+                  <ProtectedRoute>
+                    <FollowOnboarding />
+                  </ProtectedRoute>
+                }
+              />
               <Route path="/auth/oauth/callback" element={<OAuthCallback />} />
               
-              {/* Browse & Search Pages */}
-              <Route path="/browse" element={<BrowseTalent />} />
-              <Route path="/browse-jobs" element={<BrowseJobs />} />
-              <Route path="/search" element={<SearchResults />} />
-              
-              {/* Detail Pages */}
-              <Route path="/gigs/:id" element={<GigDetail />} />
-              <Route path="/jobs/:id" element={<JobDetail />} />
+               {/* Browse & Search Pages */}
+               <Route path="/browse" element={renderResponsiveMobilePage('Browse gigs', <BrowseTalent />)} />
+               <Route path="/browse-jobs" element={renderResponsiveMobilePage('Browse jobs', <BrowseJobs />)} />
+               <Route path="/search" element={renderResponsiveMobilePage('Search', <SearchResults />)} />
+               <Route path="/marketplace" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/create" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/sell" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/edit/:id" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/my-listings" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/saved" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/category/:slug" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               <Route path="/marketplace/listing/:slug" element={renderResponsiveMobilePage('Marketplace', <MarketplacePage />)} />
+               
+               {/* Detail Pages */}
+               <Route path="/gigs/:id" element={renderResponsiveMobilePage('Gig details', <GigDetail />)} />
+               <Route path="/jobs/:id" element={renderResponsiveMobilePage('Job details', <JobDetail />)} />
               
               {/* CMS Pages */}
               <Route path="/blog" element={<Blog />} />
@@ -695,31 +1472,40 @@ const AppContent = () => {
               <Route path="/guides" element={<GuidesPage />} />
               <Route path="/hire" element={<HirePage />} />
               <Route path="/freelancer" element={<FreelancerPage />} />
+              <Route path="/careers" element={<StaticPage slugOverride="careers" canonicalPathOverride="/careers" />} />
               <Route path="/p/:slug" element={<StaticPage />} />
               
-              {/* Support Page */}
-              <Route path="/support" element={<Support />} />
-              
-              {/* Affiliate Program */}
-              <Route path="/affiliate-program" element={<AffiliateProgram />} />
+               {/* Support Page */}
+               <Route path="/support" element={renderResponsiveMobilePage('Support', <Support />)} />
+               <Route
+                 path="/contact"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Contact', <ContactPage />)}
+                   </ProtectedRoute>
+                 }
+               />
+               
+               {/* Affiliate Program */}
+               <Route path="/affiliate-program" element={renderResponsiveMobilePage('Referral', <AffiliateProgram />)} />
               
               {/* Community Platform Routes (auth required) */}
-              <Route
-                path="/post/:postId"
-                element={
-                  <ProtectedRoute>
-                    <PostDetailView />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
-                path="/community"
-                element={
-                  <ProtectedRoute>
-                    <CommunityLayout />
-                  </ProtectedRoute>
-                }
-              >
+               <Route
+                 path="/post/:postId"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Post', <PostDetailView />)}
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/community"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Community', <CommunityLayout />)}
+                   </ProtectedRoute>
+                 }
+               >
                 <Route index element={<CommunityHome />} />
                 <Route path="posts/:id" element={<CommunityHome />} />
                 <Route path="forum" element={<Forum />} />
@@ -758,19 +1544,21 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
-              <Route
-                path="/scroll"
-                element={
-                  <ProtectedRoute>
-                    <ScrollFeed />
-                  </ProtectedRoute>
-                }
-              />
+               <Route
+                 path="/scroll"
+                 element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Scroll', <ScrollFeed />, false)}
+                   </ProtectedRoute>
+                 }
+               />
               <Route
                 path="/live"
                 element={
                   <ProtectedRoute>
-                    <Navigate to="/live/studio" replace />
+                    <LiveFeatureRoute>
+                      <Navigate to="/live/studio" replace />
+                    </LiveFeatureRoute>
                   </ProtectedRoute>
                 }
               />
@@ -778,7 +1566,9 @@ const AppContent = () => {
                 path="/live/studio"
                 element={
                   <ProtectedRoute>
-                    <LiveStudio />
+                    <LiveFeatureRoute>
+                      <LiveStudio />
+                    </LiveFeatureRoute>
                   </ProtectedRoute>
                 }
               />
@@ -786,7 +1576,9 @@ const AppContent = () => {
                 path="/live/:id"
                 element={
                   <ProtectedRoute>
-                    <LiveViewer />
+                    <LiveFeatureRoute>
+                      <LiveViewer />
+                    </LiveFeatureRoute>
                   </ProtectedRoute>
                 }
               />
@@ -798,28 +1590,28 @@ const AppContent = () => {
                 </ProtectedRoute>
               } />
               
-              {/* Profiles */}
-              <Route path="/profile/:id" element={<FreelancerProfile />} />
-              <Route path="/u/:username" element={<FreelancerProfile />} />
-              <Route path="/community/u/:username" element={<FreelancerProfile />} />
-              <Route path="/company/:slug" element={<CompanyPage />} />
+               {/* Profiles */}
+               <Route path="/profile/:id" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
+               <Route path="/u/:username" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
+               <Route path="/community/u/:username" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
+               <Route path="/company/:slug" element={renderResponsiveMobilePage('Page', <CompanyPage />)} />
               <Route path="/profile/edit" element={
                 <ProtectedRoute>
                   <EditProfile />
                 </ProtectedRoute>
               } />
 
-              {/* Protected Common Routes */}
-              <Route path="/settings" element={
-                  <ProtectedRoute>
-                    <SettingsModule />
-                  </ProtectedRoute>
-              } />
-              <Route path="/kyc" element={
-                  <ProtectedRoute>
-                    <KYCVerification />
-                  </ProtectedRoute>
-              } />
+               {/* Protected Common Routes */}
+               <Route path="/settings" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Settings', <SettingsModule />)}
+                   </ProtectedRoute>
+               } />
+               <Route path="/kyc" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Verification', <KYCVerification />)}
+                   </ProtectedRoute>
+               } />
 
               <Route path="/messages" element={
                   <ProtectedRoute>
@@ -834,23 +1626,39 @@ const AppContent = () => {
                   </ProtectedRoute>
               } />
 
-              <Route path="/favorites" element={
-                  <ProtectedRoute>
-                    <Favorites />
-                  </ProtectedRoute>
-              } />
-              <Route path="/cart" element={
-                  <ProtectedRoute>
-                    <Cart />
-                  </ProtectedRoute>
-              } />
+               <Route path="/favorites" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Favorites', <Favorites />)}
+                   </ProtectedRoute>
+               } />
+               <Route path="/cart" element={
+                   <ProtectedRoute>
+                     {renderResponsiveMobilePage('Cart', <Cart />)}
+                   </ProtectedRoute>
+               } />
 
               {/* Admin Routes */}
+              <Route
+                path="/admin/marketplace"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <Navigate to="/admin/dashboard?tab=marketplace" replace />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard/admin/marketplace"
+                element={
+                  <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
+                    <Navigate to="/admin/dashboard?tab=marketplace" replace />
+                  </ProtectedRoute>
+                }
+              />
               <Route 
                 path="/admin/dashboard" 
                 element={
                   <ProtectedRoute allowedRoles={[UserRole.ADMIN]}>
-                    <AdminDashboard />
+                    {renderResponsiveMobilePage('Dashboard', <AdminDashboard />)}
                   </ProtectedRoute>
                 } 
               />
@@ -903,36 +1711,36 @@ const AppContent = () => {
                 path="/freelancer/dashboard/*"
                 element={
                     <ProtectedRoute>
-                      <DashboardRouter />
+                      {renderResponsiveMobilePage('Dashboard', <DashboardRouter />)}
                     </ProtectedRoute>
                 }
               />
-                <Route 
-                path="/create-gig" 
-                element={
-                    <ProtectedRoute allowedRoles={[UserRole.FREELANCER]}>
-                      <CreateGig />
-                    </ProtectedRoute>
-                } 
-              />
+               <Route 
+                 path="/create-gig" 
+                 element={
+                     <ProtectedRoute allowedRoles={[UserRole.FREELANCER]}>
+                       {renderResponsiveMobilePage('Create gig', <CreateGig />)}
+                     </ProtectedRoute>
+                 } 
+               />
 
               {/* Client Routes */}
                 <Route
                   path="/client/dashboard/*"
                   element={
                       <ProtectedRoute>
-                        <DashboardRouter />
+                        {renderResponsiveMobilePage('Dashboard', <DashboardRouter />)}
                       </ProtectedRoute>
                   }
                 />
-              <Route 
-                path="/create-job" 
-                element={
-                    <ProtectedRoute allowedRoles={[UserRole.EMPLOYER]}>
-                      <CreateJob />
-                    </ProtectedRoute>
-                } 
-              />
+               <Route 
+                 path="/create-job" 
+                 element={
+                     <ProtectedRoute allowedRoles={[UserRole.EMPLOYER]}>
+                       {renderResponsiveMobilePage('Create job', <CreateJob />)}
+                     </ProtectedRoute>
+                 } 
+               />
               <Route
                 path="/client/dashboard/jobs/edit/:id"
                 element={
@@ -993,18 +1801,24 @@ const AppContent = () => {
                   </ProtectedRoute>
                 }
               />
+              <Route path="*" element={unmatchedRouteElement} />
               
-            </Routes>
-          </Suspense>
-        </ErrorBoundary>
+              </Routes>
+            </Suspense>
+          </ErrorBoundary>
+        )}
       </main>
-      {!shouldHideFooter && <DynamicFooter />}
+      {!shouldHideFooter && nonCriticalUiReady && (
+        <Suspense fallback={null}>
+          <DynamicFooter />
+        </Suspense>
+      )}
       {!shouldHideSupportWidget && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <SupportWidget />
         </Suspense>
       )}
-      {!isAdminRoute && !isMobileShellRoute && nonCriticalUiReady && (
+      {!isAdminRoute && !isMobileShellRoute && !isMobileStandaloneRoute && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <MarketingPopups />
         </Suspense>
@@ -1054,20 +1868,6 @@ interface ProtectedRouteProps {
   allowedRoles?: UserRole[];
 }
 
-const resolveDashboardPath = (role?: UserRole | string) => {
-  const normalizedRole = (role || '').toString().toLowerCase() as UserRole;
-  switch (normalizedRole) {
-    case UserRole.ADMIN:
-      return '/admin/dashboard';
-    case UserRole.FREELANCER:
-      return '/freelancer/dashboard';
-    case UserRole.EMPLOYER:
-      return '/client/dashboard';
-    default:
-      return '/';
-  }
-};
-
 const DashboardAliasRedirect: React.FC = () => {
   const { user } = useUser();
   const location = useLocation();
@@ -1087,6 +1887,10 @@ const DashboardAliasRedirect: React.FC = () => {
   if (overrideRaw.startsWith('e') || overrideRaw.startsWith('c')) overrideRole = UserRole.EMPLOYER;
   if (overrideRaw.startsWith('a')) overrideRole = UserRole.ADMIN;
 
+  if (hasPendingFollowOnboarding(user)) {
+    return <Navigate to={FOLLOW_ONBOARDING_PATH} replace />;
+  }
+
   const effectiveRole = user.role === UserRole.ADMIN ? overrideRole || user.role : user.role;
   const targetPath = resolveDashboardPath(effectiveRole);
   const targetUrl = `${targetPath}${location.search || ''}`;
@@ -1094,18 +1898,58 @@ const DashboardAliasRedirect: React.FC = () => {
   return <Navigate to={targetUrl} replace />;
 };
 
+const LegacyMemberHomeRedirect: React.FC = () => {
+  const { user } = useUser();
+  const location = useLocation();
+  const target = resolveSignedInHomepagePath();
+  return <Navigate to={{ pathname: target, search: location.search, hash: location.hash }} replace />;
+};
+
 const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated, isLoading } = useUser();
 
-  if (isLoading) {
-    return null;
+  if (isAuthenticated && user) {
+    const target = hasPendingFollowOnboarding(user) ? FOLLOW_ONBOARDING_PATH : resolveAuthenticatedEntryPath(user);
+    return <Navigate to={target} replace />;
   }
 
-  if (isAuthenticated && user) {
-    return <Navigate to={resolveDashboardPath(user.role)} replace />;
+  // Public auth pages should remain usable while session bootstrap is checking
+  // native storage. Returning null here caused Android WebView to show only the
+  // global header/search shell on /auth/login and /auth/signup.
+  if (isLoading) {
+    return <>{children}</>;
   }
 
   return <>{children}</>;
+};
+
+const LiveFeatureRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user } = useUser();
+  const { loading, status } = useLiveFeature();
+
+  if (loading) {
+    return null;
+  }
+
+  if (!status.enabled) {
+    return <Navigate to={resolveDashboardPath(user?.role)} replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const AuthenticatedRuntimeBoundary: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isAuthenticated, isLoading } = useUser();
+
+  if (isLoading || !isAuthenticated || !user) {
+    return <>{children}</>;
+  }
+
+  return (
+    <Suspense fallback={<GlobalPreloader />}>
+      <AuthenticatedRuntimeProviders>{children}</AuthenticatedRuntimeProviders>
+    </Suspense>
+  );
 };
 
 // Update the ProtectedRoute component to NOT redirect for homepage
@@ -1114,11 +1958,15 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
     const location = useLocation();
 
   if (isLoading) {
-    return null;
+    return <RouteLoadingFallback />;
   }
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/auth/login" state={{ from: location }} replace />;
+  }
+
+  if (hasPendingFollowOnboarding(user) && location.pathname !== FOLLOW_ONBOARDING_PATH) {
+    return <Navigate to={FOLLOW_ONBOARDING_PATH} replace />;
   }
 
   // If allowedRoles is provided, check if user has the required role
@@ -1137,9 +1985,6 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
       }
   }
 
-  // TODO: Re-add RealtimeProvider after fixing socket initialization issues
-  // RealtimeProvider removed temporarily to fix lazy loading errors
-
   return <>{children}</>;
 };
 // ============ END ProtectedRoute ============
@@ -1147,29 +1992,40 @@ const PublicOnlyRoute: React.FC<{ children: React.ReactNode }> = ({ children }) 
 function App() {
   return (
     <BrowserRouter>
-      <UserProvider>
-        <SocketProvider>
-          <PreloaderProvider>
-            <ContentProvider>
-              <I18nProvider>
-                <NotificationProvider>
-                  <ToastContainer />
-                  <CurrencyProvider>
-                    <FavoritesProvider>
-                      <CartProvider>
-                        <MessageProvider>
-                          <GlobalPreloader />
-                          <AppContent />
-                        </MessageProvider>
-                      </CartProvider>
-                    </FavoritesProvider>
-                  </CurrencyProvider>
-                </NotificationProvider>
-              </I18nProvider>
-            </ContentProvider>
-          </PreloaderProvider>
-        </SocketProvider>
-      </UserProvider>
+      <NetworkStatusProvider>
+        <RouterHistorySync />
+        <ChunkLoadRecovery />
+        <UserProvider>
+          {/*
+            SocketProvider must wrap every useSocket() consumer (notifications,
+            currency, favorites, cart, preloader, realtime, messages). Exactly
+            one physical socket lives in socketService; this only provides context.
+          */}
+          <SocketProvider>
+            <PreloaderProvider>
+              <ContentProvider>
+                <I18nProvider>
+                  <NotificationProvider>
+                    <ToastContainer />
+                    <CurrencyProvider>
+                      <FavoritesProvider>
+                        <CartProvider>
+                          <LiveFeatureProvider>
+                            <AuthenticatedRuntimeBoundary>
+                              <GlobalPreloader />
+                              <AppContent />
+                            </AuthenticatedRuntimeBoundary>
+                          </LiveFeatureProvider>
+                        </CartProvider>
+                      </FavoritesProvider>
+                    </CurrencyProvider>
+                  </NotificationProvider>
+                </I18nProvider>
+              </ContentProvider>
+            </PreloaderProvider>
+          </SocketProvider>
+        </UserProvider>
+      </NetworkStatusProvider>
     </BrowserRouter>
   );
 }

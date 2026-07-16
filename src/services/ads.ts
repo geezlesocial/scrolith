@@ -1,5 +1,5 @@
 import api from './api';
-import { AdCampaign, UserRole } from '../types';
+import { AdCampaign, AdsRuntimeConfig, UserRole } from '../types';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -61,6 +61,54 @@ const normalizeTargeting = (value: any): Record<string, any> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return { ...value };
 };
+
+export interface ListingBoostPrefill {
+  sourceType: 'MARKETPLACE_LISTING';
+  listingId: string;
+  listingSlug: string;
+  listingUrl: string;
+  campaignName: string;
+  adTitle: string;
+  adCopy: string;
+  destinationType: 'url';
+  destinationUrl: string;
+  ctaText: string;
+  placements: string[];
+  objective: 'traffic';
+  targetAudience: 'users' | 'businesses' | 'all';
+  targetCountries: string[];
+  currency: string;
+  budget: number;
+  dailySpend: number | null;
+  durationDays: number;
+  mediaFileIds: string[];
+  media: Array<Record<string, any>>;
+  targeting: Record<string, any>;
+}
+
+export interface PromotionBoostPrefill {
+  sourceType: 'COMMUNITY_POST' | 'BUSINESS_PAGE' | 'COMMUNITY_GROUP' | 'MARKETPLACE_LISTING';
+  sourceId: string;
+  sourceSlug?: string;
+  sourceUrl: string;
+  campaignName: string;
+  adTitle: string;
+  adCopy: string;
+  destinationType: 'url';
+  destinationUrl: string;
+  ctaText: string;
+  placements: string[];
+  objective: 'traffic';
+  targetAudience: 'users' | 'businesses' | 'all';
+  targetCountries: string[];
+  currency: string;
+  budget: number;
+  dailySpend: number | null;
+  durationDays: number;
+  mediaFileIds: string[];
+  media: Array<Record<string, any>>;
+  targeting: Record<string, any>;
+}
 
 const toAdPayload = (payload: Partial<AdCampaign>) => {
   const incomingTargeting = normalizeTargeting((payload as any).targeting);
@@ -145,8 +193,20 @@ const toAdPayload = (payload: Partial<AdCampaign>) => {
 
 export const AdService = {
   // Public ads listing (frontend)
-  getAds: async (role?: UserRole): Promise<AdCampaign[]> => {
-    const response = await api.get('/community/ads', { params: role ? { role } : undefined });
+  getAds: async (
+    roleOrOptions?: UserRole | { role?: UserRole; placement?: string; limit?: number }
+  ): Promise<AdCampaign[]> => {
+    const params =
+      roleOrOptions && typeof roleOrOptions === 'object'
+        ? {
+            role: roleOrOptions.role,
+            placement: roleOrOptions.placement,
+            limit: roleOrOptions.limit
+          }
+        : roleOrOptions
+          ? { role: roleOrOptions }
+          : undefined;
+    const response = await api.get('/community/ads', { params });
     const data = extractData<AdCampaign[]>(response);
     return Array.isArray(data) ? data : [];
   },
@@ -158,6 +218,42 @@ export const AdService = {
       return data || null;
     } catch (error: any) {
       throw new Error(extractApiErrorMessage(error, 'Unable to create ad draft.'));
+    }
+  },
+
+  getListingBoostPrefill: async (listingId: string): Promise<ListingBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/listing/${encodeURIComponent(String(listingId || '').trim())}/prefill`);
+      return extractData<ListingBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare boost prefill.'));
+    }
+  },
+
+  getPostBoostPrefill: async (postId: string): Promise<PromotionBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/post/${encodeURIComponent(String(postId || '').trim())}/prefill`);
+      return extractData<PromotionBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare post boost prefill.'));
+    }
+  },
+
+  getPageBoostPrefill: async (pageId: string): Promise<PromotionBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/page/${encodeURIComponent(String(pageId || '').trim())}/prefill`);
+      return extractData<PromotionBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare page boost prefill.'));
+    }
+  },
+
+  getGroupBoostPrefill: async (clubId: string): Promise<PromotionBoostPrefill> => {
+    try {
+      const response = await api.get(`/community/ads/boost/group/${encodeURIComponent(String(clubId || '').trim())}/prefill`);
+      return extractData<PromotionBoostPrefill>(response);
+    } catch (error: any) {
+      throw new Error(extractApiErrorMessage(error, 'Unable to prepare group boost prefill.'));
     }
   },
 
@@ -193,6 +289,16 @@ export const AdService = {
   getAnalytics: async (): Promise<any> => {
     const response = await api.get('/community/admin/ads/analytics');
     return extractData<any>(response);
+  },
+
+  getRuntimeConfig: async (): Promise<AdsRuntimeConfig | null> => {
+    try {
+      const response = await api.get('/community/ads/runtime-config');
+      const data = extractData<AdsRuntimeConfig>(response);
+      return data || null;
+    } catch {
+      return null;
+    }
   },
 
   getAd: async (id: string): Promise<AdCampaign | null> => {
@@ -246,6 +352,14 @@ export const AdService = {
 
   resumeOwnAd: async (id: string): Promise<any> => {
     const response = await api.post(`/community/ads/${id}/resume`, {});
+    return extractData<any>(response);
+  },
+
+  restartOwnAd: async (
+    id: string,
+    payload?: { durationDays?: number; startAt?: string; endAt?: string }
+  ): Promise<any> => {
+    const response = await api.post(`/community/ads/${id}/restart`, payload || {});
     return extractData<any>(response);
   },
 

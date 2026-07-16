@@ -12,6 +12,8 @@ import {
   RefreshCw,
   Share2,
   ShieldCheck,
+  AlertTriangle,
+  Sparkles,
   UserCircle,
   Users
 } from 'lucide-react';
@@ -29,15 +31,25 @@ import { AdCampaign, PaymentGateway, UploadedFile } from '../../types';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
+import GroupsWorkspace from '../../community/components/GroupsWorkspace';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { getUserFacingPaymentMethodName } from '../../utils/paymentGatewayDisplay';
+import GraphicWarningGate from '../../components/media/GraphicWarningGate';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../../utils/postAiControls';
 import FilePickerModal from './FilePickerModal';
 import MonetizationPanel from './MonetizationPanel';
+import { DEFAULT_AD_TARGET_COUNTRIES } from '../../constants/defaultAudienceOptions';
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid },
   { id: 'posts', label: 'Posts', icon: Share2 },
   { id: 'followers', label: 'Followers', icon: Users },
+  { id: 'groups', label: 'Groups', icon: ShieldCheck },
   { id: 'gcoin', label: 'Gcoin', icon: CreditCard },
   { id: 'earnings', label: 'Earnings', icon: BarChart3 },
   { id: 'business', label: 'Business Pages', icon: Building2 },
@@ -46,32 +58,7 @@ const tabs = [
   { id: 'settings', label: 'Settings', icon: UserCircle }
 ] as const;
 
-const DEFAULT_TARGET_COUNTRIES = [
-  'United States',
-  'United Kingdom',
-  'Canada',
-  'Australia',
-  'New Zealand',
-  'Germany',
-  'France',
-  'Netherlands',
-  'Sweden',
-  'Norway',
-  'Denmark',
-  'Ireland',
-  'Spain',
-  'Italy',
-  'United Arab Emirates',
-  'Saudi Arabia',
-  'India',
-  'Nigeria',
-  'South Africa',
-  'Brazil',
-  'Mexico',
-  'Singapore',
-  'Malaysia',
-  'Philippines'
-];
+const visibleTabs = tabs.filter((tab) => tab.id !== 'business');
 
 const GuideTip: React.FC<{ text: string }> = ({ text }) => (
   <details className="group relative shrink-0">
@@ -168,6 +155,11 @@ type CommunityPost = {
   commentPolicy?: string | null;
   isPinned?: boolean;
   isHighlighted?: boolean;
+  graphicWarning?: boolean;
+  isAIEnhanced?: boolean;
+  aiInsightEnabled?: boolean;
+  aiInsightGenerated?: boolean;
+  aiInsightText?: string | null;
   originalPostId?: string | null;
   originalPost?: {
     id?: string;
@@ -198,7 +190,14 @@ type PostDraft = {
   location: string;
   media: PostMediaItem[];
   visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
+  graphicWarning: boolean;
+  isAIEnhanced: boolean;
+  aiInsightPreference: PostAiInsightPreference;
 };
+
+const GRAPHIC_WARNING_LABEL = 'Graphic warning';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -303,6 +302,7 @@ const CommunityDashboard: React.FC = () => {
   const [feedLoading, setFeedLoading] = useState(false);
   const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [editingPostDraft, setEditingPostDraft] = useState<{
     title: string;
     content: string;
@@ -311,6 +311,9 @@ const CommunityDashboard: React.FC = () => {
     topic: string;
     location: string;
     visibility: PostDraft['visibility'];
+    graphicWarning: boolean;
+    isAIEnhanced: boolean;
+    aiInsightPreference: Exclude<PostAiInsightPreference, 'auto'>;
   } | null>(null);
   const [ads, setAds] = useState<AdCampaign[]>([]);
   const [stories, setStories] = useState<any[]>([]);
@@ -364,7 +367,10 @@ const CommunityDashboard: React.FC = () => {
     topic: '',
     location: '',
     media: [],
-    visibility: 'public'
+    visibility: 'public',
+    graphicWarning: false,
+    isAIEnhanced: false,
+    aiInsightPreference: 'auto'
   });
   const [posting, setPosting] = useState(false);
   const [storyDraft, setStoryDraft] = useState<{
@@ -412,15 +418,25 @@ const CommunityDashboard: React.FC = () => {
   const [networkActionBusy, setNetworkActionBusy] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const section = new URLSearchParams(location.search).get('section');
+    const params = new URLSearchParams(location.search);
+    const section = params.get('section');
+    const shouldRouteToManagePages =
+      String(section || '').trim().toLowerCase() === 'business' || params.get('createPage') === '1';
+
+    if (shouldRouteToManagePages) {
+      params.set('tab', 'manage-pages');
+      params.delete('section');
+      navigate(`${location.pathname}?${params.toString()}`, { replace: true });
+      return;
+    }
+
     if (String(section || '').trim().toLowerCase() === 'ads') {
-      const params = new URLSearchParams(location.search);
       params.set('tab', 'my-ads');
       params.delete('section');
       navigate(`${location.pathname}?${params.toString()}`, { replace: true });
       return;
     }
-    if (section && isTabId(section)) {
+    if (section && isTabId(section) && section !== 'business') {
       setActiveTab(section);
     }
   }, [location.pathname, location.search, navigate]);
@@ -477,6 +493,11 @@ const CommunityDashboard: React.FC = () => {
       commentPolicy: post.commentPolicy || null,
       isPinned: Boolean(post.isPinned || post.is_pinned),
       isHighlighted: Boolean(post.isHighlighted || post.is_highlighted),
+      graphicWarning: Boolean(post.graphicWarning ?? post.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post.isAIEnhanced ?? post.is_ai_enhanced ?? false),
+      aiInsightEnabled: Boolean(post.aiInsightEnabled ?? post.ai_insight_enabled ?? false),
+      aiInsightGenerated: Boolean(post.aiInsightGenerated ?? post.ai_insight_generated ?? false),
+      aiInsightText: String(post.aiInsightText ?? post.ai_insight_text ?? '').trim() || null,
       originalPostId: post.originalPostId || post.original_post_id || null,
       originalPost: post.originalPost
         ? {
@@ -791,7 +812,7 @@ const CommunityDashboard: React.FC = () => {
       ? adsConfig.targetCountries
           .map((entry: any) => String(entry || '').trim())
           .filter(Boolean)
-      : DEFAULT_TARGET_COUNTRIES;
+      : DEFAULT_AD_TARGET_COUNTRIES;
     const selected = Array.isArray(adDraft.targetCountries)
       ? adDraft.targetCountries.map((entry) => String(entry || '').trim()).filter(Boolean)
       : [];
@@ -1118,10 +1139,25 @@ const CommunityDashboard: React.FC = () => {
         attachmentFileIds,
         topic: postDraft.topic || undefined,
         location: postDraft.location || undefined,
-        visibility: postDraft.visibility
+        visibility: postDraft.visibility,
+        graphicWarning: postDraft.graphicWarning,
+        isAIEnhanced: postDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(postDraft.aiInsightPreference)
       });
       showNotification('success', 'Community', 'Post shared with the community.');
-      setPostDraft({ title: '', content: '', tags: '', mentions: '', topic: '', location: '', media: [], visibility: 'public' });
+      setPostDraft({
+        title: '',
+        content: '',
+        tags: '',
+        mentions: '',
+        topic: '',
+        location: '',
+        media: [],
+        visibility: 'public',
+        graphicWarning: false,
+        isAIEnhanced: false,
+        aiInsightPreference: 'auto'
+      });
       await Promise.all([loadFeed(), loadMyPosts(), loadDashboard()]);
     } catch (error) {
       console.error(error);
@@ -1161,7 +1197,10 @@ const CommunityDashboard: React.FC = () => {
       mentions: (post.mentions || []).join(', '),
       topic: post.topic || '',
       location: post.location || '',
-      visibility: (post.visibility as PostDraft['visibility']) || 'public'
+      visibility: (post.visibility as PostDraft['visibility']) || 'public',
+      graphicWarning: Boolean(post.graphicWarning),
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      aiInsightPreference: resolveStoredPostAiInsightPreference(post.aiInsightEnabled)
     });
   };
 
@@ -1185,7 +1224,12 @@ const CommunityDashboard: React.FC = () => {
         mentions: editingPostDraft.mentions.split(',').map((entry) => entry.trim()).filter(Boolean),
         topic: editingPostDraft.topic || undefined,
         location: editingPostDraft.location || undefined,
-        visibility: editingPostDraft.visibility
+        visibility: editingPostDraft.visibility,
+        graphicWarning: editingPostDraft.graphicWarning,
+        isAIEnhanced: editingPostDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(
+          resolvePostAiInsightPreference(editingPostDraft.aiInsightPreference, 'off')
+        )
       });
       if (updated) {
         const normalized = normalizePost(updated);
@@ -1778,7 +1822,7 @@ const CommunityDashboard: React.FC = () => {
 
     const tabsMenu = (
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-3">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.id}
           onClick={() => setActiveTab(tab.id)}
@@ -1795,35 +1839,45 @@ const CommunityDashboard: React.FC = () => {
       </div>
     );
 
-    const renderAttachments = (attachments?: CommunityPost['attachments']) => {
+    const renderAttachments = (post: CommunityPost) => {
+      const attachments = post.attachments;
       if (!attachments?.length) return null;
+      const mediaHeightClass = attachments.length === 1 ? FEED_SINGLE_MEDIA_HEIGHT_CLASS : FEED_MULTI_MEDIA_HEIGHT_CLASS;
       return (
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {attachments.map((media) => {
-            const type = inferMediaType(media || {});
-            if (type === 'video') {
+        <GraphicWarningGate
+          active={Boolean(post.graphicWarning)}
+          revealed={Boolean(revealedGraphicPosts[post.id])}
+          onReveal={() => setRevealedGraphicPosts((prev) => ({ ...prev, [post.id]: true }))}
+          label={GRAPHIC_WARNING_LABEL}
+          className="mt-3"
+        >
+          <div className={`grid gap-3 ${attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
+            {attachments.map((media) => {
+              const type = inferMediaType(media || {});
+              if (type === 'video') {
+                return (
+                  <div key={media.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                    <video src={media.url} controls className={`${mediaHeightClass} w-full object-cover`} />
+                  </div>
+                );
+              }
+              if (type === 'image') {
+                return (
+                  <div key={media.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                    <img src={media.url} alt={media.name || 'Post media'} className={`${mediaHeightClass} w-full object-cover`} />
+                  </div>
+                );
+              }
               return (
-                <div key={media.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                  <video src={media.url} controls className="h-48 w-full object-cover" />
+                <div key={media.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                  <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
+                    {media.name || media.url?.split('/').pop() || 'View attachment'}
+                  </a>
                 </div>
               );
-            }
-            if (type === 'image') {
-              return (
-                <div key={media.id} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                  <img src={media.url} alt={media.name || 'Post media'} className="h-48 w-full object-cover" />
-                </div>
-              );
-            }
-            return (
-              <div key={media.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                <a href={media.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">
-                  {media.name || media.url?.split('/').pop() || 'View attachment'}
-                </a>
-              </div>
-            );
-          })}
-        </div>
+            })}
+          </div>
+        </GraphicWarningGate>
       );
     };
 
@@ -1978,6 +2032,49 @@ const CommunityDashboard: React.FC = () => {
               #tags and @mentions supported
             </div>
           </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={postDraft.graphicWarning}
+                onChange={(e) => setPostDraft((prev) => ({ ...prev, graphicWarning: e.target.checked }))}
+              />
+              <span className="inline-flex items-center gap-1">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                {GRAPHIC_WARNING_LABEL}
+              </span>
+            </label>
+            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                checked={postDraft.isAIEnhanced}
+                onChange={(e) => setPostDraft((prev) => ({ ...prev, isAIEnhanced: e.target.checked }))}
+              />
+              <span className="inline-flex items-center gap-1">
+                <Sparkles className="h-4 w-4 text-emerald-600" />
+                Mark as AI-enhanced
+              </span>
+            </label>
+            <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+              <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Scrolitha AI insight
+              </span>
+              <select
+                value={postDraft.aiInsightPreference}
+                onChange={(e) =>
+                  setPostDraft((prev) => ({
+                    ...prev,
+                    aiInsightPreference: resolvePostAiInsightPreference(e.target.value, 'auto')
+                  }))
+                }
+                className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+              >
+                <option value="auto">Automatic</option>
+                <option value="on">Generate for this post</option>
+                <option value="off">Do not generate</option>
+              </select>
+            </label>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <select
               value={postDraft.topic}
@@ -2072,6 +2169,60 @@ const CommunityDashboard: React.FC = () => {
                                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                               />
                             </div>
+                            <div className="grid gap-2 md:grid-cols-3">
+                              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={editingPostDraft.graphicWarning}
+                                  onChange={(e) =>
+                                    setEditingPostDraft((prev) =>
+                                      prev ? { ...prev, graphicWarning: e.target.checked } : prev
+                                    )
+                                  }
+                                />
+                                <span className="inline-flex items-center gap-1">
+                                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                  {GRAPHIC_WARNING_LABEL}
+                                </span>
+                              </label>
+                              <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={editingPostDraft.isAIEnhanced}
+                                  onChange={(e) =>
+                                    setEditingPostDraft((prev) =>
+                                      prev ? { ...prev, isAIEnhanced: e.target.checked } : prev
+                                    )
+                                  }
+                                />
+                                <span className="inline-flex items-center gap-1">
+                                  <Sparkles className="h-4 w-4 text-emerald-600" />
+                                  Mark as AI-enhanced
+                                </span>
+                              </label>
+                              <label className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                                <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                  Scrolitha AI insight
+                                </span>
+                                <select
+                                  value={editingPostDraft.aiInsightPreference}
+                                  onChange={(e) =>
+                                    setEditingPostDraft((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            aiInsightPreference: resolvePostAiInsightPreference(e.target.value, 'off')
+                                          }
+                                        : prev
+                                    )
+                                  }
+                                  className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                                >
+                                  <option value="on">Generate for this post</option>
+                                  <option value="off">Do not generate</option>
+                                </select>
+                              </label>
+                            </div>
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 type="button"
@@ -2099,11 +2250,19 @@ const CommunityDashboard: React.FC = () => {
                                   {post.createdAt ? new Date(post.createdAt).toLocaleString() : 'Just now'}
                                 </p>
                               </div>
-                              {post.isPinned ? (
-                                <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
-                                  Pinned
-                                </span>
-                              ) : null}
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                {post.isPinned ? (
+                                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                                    Pinned
+                                  </span>
+                                ) : null}
+                                {post.isAIEnhanced ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                    <Sparkles className="h-3 w-3" />
+                                    AI-enhanced
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                             <p className="mt-2 text-sm text-slate-700 line-clamp-3">
                               <MentionText text={post.content} viewerId={user?.id} viewerUsername={user?.username} />
@@ -2222,7 +2381,7 @@ const CommunityDashboard: React.FC = () => {
                           ))}
                         </div>
                       ) : null}
-                      {renderAttachments(post.attachments)}
+                      {renderAttachments(post)}
                       <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                         {post.topic ? (
                           <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Topic: {post.topic}</span>
@@ -2268,7 +2427,23 @@ const CommunityDashboard: React.FC = () => {
                         ))}
                       </div>
                     ) : null}
-                    {renderAttachments(post.attachments)}
+                    {(post.graphicWarning || post.isAIEnhanced) ? (
+                      <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                        {post.graphicWarning ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-amber-800">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            {GRAPHIC_WARNING_LABEL}
+                          </span>
+                        ) : null}
+                        {post.isAIEnhanced ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            AI-enhanced
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {renderAttachments(post)}
                     <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                       {post.topic ? (
                         <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Topic: {post.topic}</span>
@@ -2314,6 +2489,22 @@ const CommunityDashboard: React.FC = () => {
                     ))}
                   </div>
                 ) : null}
+                {(post.graphicWarning || post.isAIEnhanced) ? (
+                  <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                    {post.graphicWarning ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-3 py-1 text-amber-800">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        {GRAPHIC_WARNING_LABEL}
+                      </span>
+                    ) : null}
+                    {post.isAIEnhanced ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        AI-enhanced
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                   {post.topic ? (
                     <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Topic: {post.topic}</span>
@@ -2322,7 +2513,7 @@ const CommunityDashboard: React.FC = () => {
                     <span className="rounded-full bg-slate-50 px-3 py-1 font-semibold text-slate-600">Location: {post.location}</span>
                   ) : null}
                 </div>
-                {renderAttachments(post.attachments)}
+                {renderAttachments(post)}
               </div>
               <div className="mt-4 flex items-center gap-4 text-xs font-semibold text-slate-500">
                 <button
@@ -2467,7 +2658,7 @@ const CommunityDashboard: React.FC = () => {
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>Where should the ad appear?</span>
-            <span>Select up to {Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)))}</span>
+            <span>Select up to {Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? 8)))}</span>
           </div>
           <div className="grid gap-2 md:grid-cols-3">
             {[
@@ -2491,7 +2682,7 @@ const CommunityDashboard: React.FC = () => {
                     key={option.value}
                     type="button"
                     onClick={() => {
-                      const maxPlacements = Math.max(1, Math.min(3, Number(adsConfig?.maxPlacementsPerAd ?? 3)));
+                      const maxPlacements = Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? 8)));
                       if (selected) {
                         setAdDraft((prev) => ({
                           ...prev,
@@ -2701,13 +2892,6 @@ const CommunityDashboard: React.FC = () => {
             className="rounded-2xl border border-slate-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600"
           >
             Save draft
-          </button>
-          <button
-            onClick={() => handleAdSubmit('submit')}
-            disabled={adActionLoading}
-            className="rounded-2xl bg-gradient-to-r from-indigo-500 to-sky-600 px-5 py-2 text-xs font-semibold uppercase tracking-wide text-white"
-          >
-            Submit for review
           </button>
           <button
             onClick={() => handleAdSubmit('pay')}
@@ -3561,6 +3745,8 @@ const CommunityDashboard: React.FC = () => {
         return renderFeed();
       case 'followers':
         return renderNetwork();
+      case 'groups':
+        return <GroupsWorkspace embedded />;
       case 'gcoin':
         return renderGcoin();
       case 'earnings':

@@ -14,10 +14,6 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
     patterns: ['/node_modules/react-router/', '/node_modules/react-router-dom/']
   },
   {
-    name: 'capacitor',
-    patterns: ['/node_modules/@capacitor/', '/node_modules/@aparajita/capacitor-biometric-auth/']
-  },
-  {
     name: 'realtime',
     patterns: ['/node_modules/socket.io-client/', '/node_modules/engine.io-client/']
   },
@@ -32,6 +28,14 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
   {
     name: 'payments',
     patterns: ['/node_modules/stripe/']
+  },
+  {
+    name: 'maps',
+    patterns: ['/node_modules/maplibre-gl/']
+  },
+  {
+    name: 'capacitor',
+    patterns: ['/node_modules/@capacitor/']
   }
 ]
 
@@ -115,16 +119,6 @@ export default defineConfig({
             })
           }
         }
-        ,
-        // During local dev, forward requests for the root favicon to the backend
-        // so admin-uploaded favicons (served from the backend uploads folder)
-        // are available at /favicon.ico in the dev server.
-        '/favicon.ico': {
-          target: backendTarget,
-          changeOrigin: true,
-          secure: false,
-          rewrite: (path) => path,
-        }
       },
       hmr: {
         clientPort: 3000,
@@ -143,7 +137,11 @@ export default defineConfig({
     postcss: './postcss.config.cjs',
   },
   build: {
-    modulePreload: false,
+    modulePreload: {
+      polyfill: true,
+      resolveDependencies: (_filename, deps) =>
+        deps.filter((dep) => !/(^|\/)(maps|capacitor|realtime)-[^/]+\.js$/.test(dep))
+    },
     cssCodeSplit: true,
     reportCompressedSize: false,
     chunkSizeWarningLimit: 1200,

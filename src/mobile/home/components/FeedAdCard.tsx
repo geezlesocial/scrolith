@@ -4,7 +4,17 @@ import {
   MoreVerticalIcon as MoreVertical,
   XIcon as X
 } from '../../../components/icons/ShellIcons';
+import OptimizedImage from '../../../components/media/OptimizedImage';
+import AdVideoPlayer from '../../../components/ads/AdVideoPlayer';
+import AdDisclosureBadge from '../../../components/ads/AdDisclosureBadge';
 import { CommunityService } from '../../../services/community';
+import { resolveAssetUrl } from '../../../utils/assetUrl';
+
+const resolveFileContentUrl = (fileId?: string | null) => {
+  const normalized = String(fileId || '').trim();
+  if (!normalized) return '';
+  return resolveAssetUrl(`/api/files/content/${encodeURIComponent(normalized)}`);
+};
 
 type AdMedia = { id: string; url: string; mimeType: string | null; name: string | null };
 
@@ -18,7 +28,11 @@ type CommunityAd = {
   placement?: string | null;
 };
 
-const isVideo = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('video/');
+const isVideoMedia = (media?: AdMedia | null) => {
+  const mime = String(media?.mimeType || '').toLowerCase();
+  const url = String(media?.url || '').toLowerCase();
+  return mime.startsWith('video/') || /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(url);
+};
 const isImage = (mime?: string | null) => String(mime || '').toLowerCase().startsWith('image/');
 
 export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
@@ -28,7 +42,13 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
 
   const primaryMedia = useMemo(() => {
     const media = Array.isArray(ad?.media) ? ad.media : [];
-    return media[0] || null;
+    const candidate = media[0] || null;
+    const preferredUrl = resolveFileContentUrl(candidate?.id) || resolveAssetUrl(String(candidate?.url || '').trim());
+    if (!preferredUrl) return null;
+    return {
+      ...candidate,
+      url: preferredUrl
+    };
   }, [ad?.media]);
 
   useEffect(() => {
@@ -56,8 +76,10 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
     <div ref={ref} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Promoted</div>
-          <div className="mt-1 text-sm font-semibold text-slate-900 line-clamp-2">{ad.title || 'Sponsored'}</div>
+          {!primaryMedia ? <AdDisclosureBadge label="Sponsored" tone="dark" /> : null}
+          <div className={`${primaryMedia ? '' : 'mt-2'} text-sm font-semibold text-slate-900 line-clamp-2`}>
+            {ad.title || 'Sponsored'}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -84,11 +106,28 @@ export default function FeedAdCard({ ad }: { ad: CommunityAd }) {
       {ad.body ? <div className="text-sm text-slate-600 line-clamp-3">{ad.body}</div> : null}
 
       {primaryMedia ? (
-        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-          {isVideo(primaryMedia.mimeType) ? (
-            <video src={primaryMedia.url} className="h-48 w-full object-cover" controls preload="metadata" />
+        <div className="relative mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+          <div className="pointer-events-none absolute left-3 top-3 z-10">
+            <AdDisclosureBadge label="Sponsored" tone="light" />
+          </div>
+          {isVideoMedia(primaryMedia) ? (
+            <AdVideoPlayer
+              src={primaryMedia.url}
+              className="h-48 w-full"
+              videoClassName="h-full w-full object-cover"
+              loop
+              preload="auto"
+              soundButtonClassName="right-2 top-2 h-8 min-w-8 px-2"
+              showSoundLabel={false}
+            />
           ) : isImage(primaryMedia.mimeType) ? (
-            <img src={primaryMedia.url} alt={primaryMedia.name || ad.title || 'Ad media'} className="h-48 w-full object-cover" />
+            <OptimizedImage
+              src={primaryMedia.url}
+              alt={primaryMedia.name || ad.title || 'Ad media'}
+              width={640}
+              height={192}
+              className="h-48 w-full object-cover"
+            />
           ) : (
             <div className="flex h-48 w-full items-center justify-center p-4 text-xs text-slate-500">
               {primaryMedia.name || 'Attachment'}

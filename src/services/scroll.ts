@@ -1,10 +1,13 @@
 import api from './api';
+import { beginManagedIdempotentRequest, createActionFingerprint } from './idempotency';
+import type { ContentOfferTag } from '../types';
 
 export type ScrollVisibility = 'public' | 'network' | 'followers' | 'private';
 export type ScrollEngagementType =
   | 'like'
   | 'comment'
   | 'repost'
+  | 'share'
   | 'dash'
   | 'send'
   | 'impression'
@@ -17,18 +20,29 @@ export type ScrollEngagementType =
 export interface ScrollVideo {
   id: string;
   authorId: string;
+  bridgeSource?: {
+    type: 'post';
+    postId: string;
+    mediaFileId?: string | null;
+  } | null;
+  sourceScrollId?: string | null;
+  responseMode?: 'remix' | 'duet' | string | null;
   author: {
     id: string;
     name: string;
     avatar?: string | null;
     username?: string | null;
     isVerified?: boolean;
+    email?: string | null;
+    role?: string | null;
   };
   title?: string | null;
   description?: string | null;
   location?: string | null;
   visibility: ScrollVisibility | string;
+  graphicWarning?: boolean;
   isAIEnhanced: boolean;
+  dashGcoinTotal?: number;
   filterPreset?: string | null;
   filterStrength?: number | null;
   media: {
@@ -40,6 +54,25 @@ export interface ScrollVideo {
     height?: number | null;
     duration?: number | null;
   } | null;
+  sourceScroll?: {
+    id: string;
+    unavailable?: boolean;
+    authorId?: string;
+    author?: {
+      id: string;
+      name: string;
+      avatar?: string | null;
+      username?: string | null;
+      isVerified?: boolean;
+    };
+    title?: string | null;
+    description?: string | null;
+    media?: ScrollVideo['media'];
+    createdAt?: string;
+    responseMode?: 'remix' | 'duet' | string | null;
+  } | null;
+  series?: ScrollSeriesSummary[];
+  offerTags?: ContentOfferTag[];
   tags: Array<{ id: string; taggedUserId?: string | null; taggedPageId?: string | null }>;
   status: string;
   metrics: {
@@ -54,13 +87,132 @@ export interface ScrollVideo {
     reposts: number;
     shares: number;
     sends: number;
+    dashGcoinTotal?: number;
   };
   viewer?: {
     liked?: boolean;
     impressed?: boolean;
+    isFollowingAuthor?: boolean;
+    feedbackSignal?: 'INTERESTED' | 'NOT_INTERESTED' | string | null;
+    feedbackUpdatedAt?: string | null;
   };
+  topicSummary?: string[];
+  ranking?: {
+    mode?: string;
+    score?: number;
+    primaryReason?: string | null;
+    reasons?: string[];
+  };
+  canEdit?: boolean;
+  canDelete?: boolean;
+  reportCount?: number;
+  pendingReportCount?: number;
+  activePostingRestriction?: ScrollPostingRestriction | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ScrollSeriesSummary {
+  id: string;
+  creatorUserId: string;
+  title: string;
+  description?: string | null;
+  visibility: ScrollVisibility | string;
+  status: string;
+  position: number;
+  itemCount: number;
+  canEdit?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScrollSeriesDetail {
+  id: string;
+  creatorUserId: string;
+  title: string;
+  description?: string | null;
+  visibility: ScrollVisibility | string;
+  status: string;
+  itemCount: number;
+  canEdit?: boolean;
+  creator: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+    username?: string | null;
+    isVerified?: boolean;
+  };
+  items: Array<{
+    id: string;
+    position: number;
+    createdAt: string;
+    scroll: ScrollVideo;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScrollSeriesDiscovery extends ScrollSeriesDetail {
+  featuredScroll?: ScrollVideo | null;
+  previewItems?: ScrollVideo[];
+}
+
+export interface ScrollPostingRestriction {
+  id: string;
+  userId: string;
+  reason: string;
+  note?: string | null;
+  startsAt: string;
+  endsAt: string;
+  createdByAdminId?: string | null;
+  liftedAt?: string | null;
+  liftedByAdminId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScrollReport {
+  id: string;
+  scrollId: string;
+  reportedById: string;
+  reason: string;
+  status: string;
+  reviewNote?: string | null;
+  reviewedAt?: string | null;
+  reviewedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  scroll?: ScrollVideo | null;
+  reporter?: {
+    id: string;
+    name?: string | null;
+    email?: string | null;
+    username?: string | null;
+    avatar?: string | null;
+    role?: string | null;
+  } | null;
+}
+
+export interface ScrollComment {
+  id: string;
+  scrollId: string;
+  parentId: string | null;
+  userId?: string;
+  userName?: string;
+  userUsername?: string | null;
+  userAvatar?: string | null;
+  content?: string;
+  status?: 'active' | 'deleted' | string;
+  deletedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  canEdit?: boolean;
+  canDelete?: boolean;
+  reactionSummary?: {
+    counts: Record<string, number>;
+    userReaction: string | null;
+  };
+  replies?: ScrollComment[];
 }
 
 export interface ScrollConfig {
@@ -73,6 +225,8 @@ export interface ScrollConfig {
   defaultVisibility: ScrollVisibility | string;
   impressionThresholdSeconds: number;
   allowedFilterPresets: string[];
+  headlinePreviewCharacters: number;
+  descriptionPreviewCharacters: number;
   updatedById?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -96,14 +250,19 @@ class ScrollService {
 
   static async create(payload: {
     fileId: string;
+    sourceScrollId?: string;
+    responseMode?: 'remix' | 'duet' | string;
+    seriesIds?: string[];
     title?: string;
     description?: string;
     location?: string;
     visibility?: ScrollVisibility | string;
+    graphicWarning?: boolean;
     isAIEnhanced?: boolean;
     filterPreset?: string;
     filterStrength?: number;
     tags?: Array<{ taggedUserId?: string; taggedPageId?: string }>;
+    offerTags?: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
   }) {
     const response = await api.post('/scroll/create', payload);
     return extractData<ScrollVideo>(response);
@@ -113,14 +272,19 @@ class ScrollService {
     id: string,
     payload: Partial<{
       fileId: string;
+      sourceScrollId: string | null;
+      responseMode: 'remix' | 'duet' | string | null;
+      seriesIds: string[];
       title: string;
       description: string;
       location: string;
       visibility: ScrollVisibility | string;
+      graphicWarning: boolean;
       isAIEnhanced: boolean;
       filterPreset: string;
       filterStrength: number;
       tags: Array<{ taggedUserId?: string; taggedPageId?: string }>;
+      offerTags: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
     }>
   ) {
     const response = await api.put(`/scroll/${encodeURIComponent(id)}`, payload);
@@ -133,12 +297,60 @@ class ScrollService {
   }
 
   static async engage(id: string, payload: { type: ScrollEngagementType; watchedSeconds?: number }) {
-    const response = await api.post(`/scroll/${encodeURIComponent(id)}/engage`, payload);
-    return extractData<any>(response);
+    const request = beginManagedIdempotentRequest(
+      `scroll-engage:${id}:${payload.type}:${createActionFingerprint(payload.watchedSeconds)}`
+    );
+    try {
+      const response = await api.post(`/scroll/${encodeURIComponent(id)}/engage`, payload, { headers: request.headers });
+      request.complete();
+      return extractData<any>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   }
 
   static async report(id: string, payload: { reason: string }) {
     const response = await api.post(`/scroll/${encodeURIComponent(id)}/report`, payload);
+    return extractData<any>(response);
+  }
+
+  static async interested(id: string, payload?: { surface?: string }) {
+    const response = await api.post(`/scroll/${encodeURIComponent(id)}/interested`, payload || {});
+    return extractData<{ signal: string }>(response);
+  }
+
+  static async notInterested(id: string, payload?: { surface?: string }) {
+    const response = await api.post(`/scroll/${encodeURIComponent(id)}/not-interested`, payload || {});
+    return extractData<{ signal: string; hidden?: boolean }>(response);
+  }
+
+  static async getComments(id: string) {
+    const response = await api.get(`/scroll/${encodeURIComponent(id)}/comments`);
+    return extractData<{ items: ScrollComment[]; count: number }>(response);
+  }
+
+  static async createComment(id: string, payload: { content: string; parentId?: string | null }) {
+    const request = beginManagedIdempotentRequest(
+      `scroll-comment:${id}:${payload.parentId || 'root'}:${createActionFingerprint(payload.content)}`
+    );
+    try {
+      const response = await api.post(`/scroll/${encodeURIComponent(id)}/comments`, payload, { headers: request.headers });
+      request.complete();
+      return extractData<{ comment: ScrollComment; metrics?: Partial<ScrollVideo['metrics']> }>(response);
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
+  }
+
+  static async updateComment(id: string, payload: { content: string }) {
+    const response = await api.put(`/scroll/comments/${encodeURIComponent(id)}`, payload);
+    return extractData<ScrollComment>(response);
+  }
+
+  static async deleteComment(id: string) {
+    const response = await api.delete(`/scroll/comments/${encodeURIComponent(id)}`);
     return extractData<any>(response);
   }
 
@@ -170,7 +382,80 @@ class ScrollService {
     if (params?.status) query.set('status', String(params.status));
     if (typeof params?.limit !== 'undefined') query.set('limit', String(params.limit));
     const response = await api.get(`/admin/scroll/reports${query.toString() ? `?${query.toString()}` : ''}`);
-    return extractData<any[]>(response);
+    return extractData<ScrollReport[]>(response);
+  }
+
+  static async reviewAdminReport(id: string, payload: { action: 'resolve' | 'dismiss' | 'remove'; note?: string }) {
+    const response = await api.post(`/admin/scroll/reports/${encodeURIComponent(id)}/review`, payload);
+    return extractData<ScrollReport>(response);
+  }
+
+  static async sendAdminMessage(id: string, payload: { message: string }) {
+    const response = await api.post(`/admin/scroll/${encodeURIComponent(id)}/message`, payload);
+    return extractData<{ scrollId: string; conversationId: string; messageId: string }>(response);
+  }
+
+  static async sendAdminWarning(id: string, payload: { message: string }) {
+    const response = await api.post(`/admin/scroll/${encodeURIComponent(id)}/warning`, payload);
+    return extractData<{ scrollId: string; conversationId: string; messageId: string }>(response);
+  }
+
+  static async restrictOwnerPosting(
+    userId: string,
+    payload: { reason: string; note?: string | null; durationHours?: number; endsAt?: string }
+  ) {
+    const response = await api.post(`/admin/scroll/users/${encodeURIComponent(userId)}/restrictions`, payload);
+    return extractData<ScrollPostingRestriction>(response);
+  }
+
+  static async liftOwnerPostingRestriction(userId: string, restrictionId: string) {
+    const response = await api.post(
+      `/admin/scroll/users/${encodeURIComponent(userId)}/restrictions/${encodeURIComponent(restrictionId)}/lift`
+    );
+    return extractData<ScrollPostingRestriction>(response);
+  }
+
+  static async getMySeries() {
+    const response = await api.get('/scroll/series/mine');
+    return extractData<ScrollSeriesDetail[]>(response);
+  }
+
+  static async getSeries(id: string) {
+    const response = await api.get(`/scroll/series/${encodeURIComponent(id)}`);
+    return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async getDiscoverableSeries(limit: number = 4) {
+    const safeLimit = Math.max(1, Math.min(12, Number(limit || 4)));
+    const response = await api.get(`/scroll/series/discover?limit=${safeLimit}`);
+    return extractData<ScrollSeriesDiscovery[]>(response);
+  }
+
+  static async createSeries(payload: {
+    title: string;
+    description?: string;
+    visibility?: ScrollVisibility | string;
+  }) {
+    const response = await api.post('/scroll/series', payload);
+    return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async updateSeries(
+    id: string,
+    payload: Partial<{
+      title: string;
+      description: string | null;
+      visibility: ScrollVisibility | string;
+      status: 'active' | 'archived' | string;
+    }>
+  ) {
+    const response = await api.put(`/scroll/series/${encodeURIComponent(id)}`, payload);
+    return extractData<ScrollSeriesDetail>(response);
+  }
+
+  static async deleteSeries(id: string) {
+    const response = await api.delete(`/scroll/series/${encodeURIComponent(id)}`);
+    return extractData<any>(response);
   }
 }
 

@@ -10,6 +10,14 @@ import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service
 import { FileService } from '../../../services/files';
 import { Camera, Download, Loader2, Paperclip } from 'lucide-react';
 import { downloadToDevice } from '../../../utils/deviceDownload';
+import { getRecoverableActionMessage } from '../../../mobile/runtime/requestRecovery';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../../../utils/postAiControls';
+import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 const getMimeType = (file: any) =>
   String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
@@ -26,7 +34,13 @@ const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'expand', label: 'Expand' }
 ];
 
-export default function MobilePostScreen() {
+export default function MobilePostScreen({
+  mobileLayout,
+  onClose
+}: {
+  mobileLayout?: any;
+  onClose?: () => void;
+} = {}) {
   const ctx = useOutletContext<any>();
   const routerLocation = useLocation();
   const navigate = useNavigate();
@@ -44,10 +58,11 @@ export default function MobilePostScreen() {
   const [aiSuggestion, setAiSuggestion] = useState('');
   const [aiSuggestionMode, setAiSuggestionMode] = useState<PostEnhanceMode | null>(null);
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
+  const [aiSuggestionWarning, setAiSuggestionWarning] = useState<string | null>(null);
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
 
-  const layout = ctx?.mobileLayout ?? null;
+  const layout = mobileLayout ?? ctx?.mobileLayout ?? null;
   const composer = (layout?.postComposer || layout?.post_composer || {}) as Record<string, any>;
   const postCard = (layout?.postCard || layout?.post_card || {}) as Record<string, any>;
   const mentionsEnabled = postCard.mentionsEnabled !== false;
@@ -68,8 +83,18 @@ export default function MobilePostScreen() {
 
   const [visibility, setVisibility] = useState<string>(defaultVisibility);
   const [graphicWarning, setGraphicWarning] = useState(false);
+  const [isAIEnhanced, setIsAIEnhanced] = useState(false);
+  const [aiInsightPreference, setAiInsightPreference] = useState<PostAiInsightPreference>('auto');
   const [topic, setTopic] = useState('');
   const [place, setPlace] = useState('');
+
+  const closeComposer = useCallback(() => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    navigate('/m/home');
+  }, [navigate, onClose]);
 
   const suggestedTopics = useMemo(() => {
     const raw = composer.topics || composer.topicList || composer.topic_list;
@@ -154,7 +179,12 @@ export default function MobilePostScreen() {
           const uploaded = await FileService.uploadFile(file, 'community' as any, {
             role: user?.role,
             visibility: visibility === 'private' ? 'private' : 'public',
-            userId: user?.id
+            userId: user?.id,
+            onRetry: (attempt) => {
+              setUploadingAttachmentLabel(
+                `Retrying ${file.name} after a temporary network issue (${attempt}/${2})`
+              );
+            }
           });
           appendAttachment(uploaded);
         }
@@ -162,7 +192,7 @@ export default function MobilePostScreen() {
         showNotification(
           'error',
           'Attachments',
-          error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to upload attachment.'
+          getRecoverableActionMessage('Attachment upload', error)
         );
       } finally {
         setUploadingAttachmentCount(0);
@@ -185,6 +215,8 @@ export default function MobilePostScreen() {
     setContent(String(post?.content || '').trimStart());
     setVisibility(String(post?.visibility || defaultVisibility || 'public').toLowerCase());
     setGraphicWarning(Boolean(post?.graphicWarning ?? post?.graphic_warning ?? false));
+    setIsAIEnhanced(Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false));
+    setAiInsightPreference(resolveStoredPostAiInsightPreference(post?.aiInsightEnabled ?? post?.ai_insight_enabled));
     setTopic(String(post?.topic || '').trim());
     setPlace(String(post?.location || '').trim());
 
@@ -254,6 +286,7 @@ export default function MobilePostScreen() {
     setAiSuggestionOpen(false);
     setAiSuggestion('');
     setAiSuggestionMode(null);
+    setAiSuggestionWarning(null);
     setAiOriginalText('');
     setAiCompareView('compare');
   };
@@ -261,7 +294,7 @@ export default function MobilePostScreen() {
   const runPostAi = async (mode: PostEnhanceMode) => {
     const text = String(content || '').trim();
     if (!text) {
-      showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
+      showNotification('warning', 'Scrolitha', 'Write some text first, then run Scrolitha enhancement.');
       return;
     }
     if (aiLoading || busy) return;
@@ -272,18 +305,25 @@ export default function MobilePostScreen() {
       const result = await AIService.enhancePostDraft({ text, mode });
       const enhancedText = String(result?.enhancedText || '').trim();
       if (!enhancedText) {
-        showNotification('warning', 'AI Assistant', 'No suggestion was returned. Please try again.');
+        showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
         return;
       }
       setAiOriginalText(content);
       setAiSuggestion(enhancedText);
       setAiSuggestionMode(mode);
       setAiCompareView('compare');
+      if (result.fallbackUsed || result.usedFallback || result.warning) {
+        setAiSuggestionWarning(
+          result.warning || 'Scrolitha used backup processing for this suggestion. Please review before applying.'
+        );
+      } else {
+        setAiSuggestionWarning(null);
+      }
       setAiSuggestionOpen(true);
     } catch (error: any) {
       showNotification(
         'error',
-        'AI Assistant',
+        'Scrolitha',
         error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to enhance text right now.'
       );
     } finally {
@@ -320,6 +360,8 @@ export default function MobilePostScreen() {
           attachments: attachmentIds,
           visibility: visibilityEnabled ? visibility : defaultVisibility,
           graphicWarning: graphicWarningEnabled ? graphicWarning : false,
+          isAIEnhanced,
+          aiInsightEnabled: postAiInsightPreferenceToBoolean(resolvePostAiInsightPreference(aiInsightPreference, 'off')),
           topic: topic.trim() || undefined,
           location: place.trim() || undefined
         } as any);
@@ -328,7 +370,7 @@ export default function MobilePostScreen() {
         window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { post: updated } }));
 
         showNotification('success', 'Saved', 'Post updated.');
-        navigate('/m/home');
+        closeComposer();
         return;
       }
 
@@ -338,6 +380,8 @@ export default function MobilePostScreen() {
         attachments: attachmentIds,
         visibility: visibilityEnabled ? visibility : defaultVisibility,
         graphicWarning: graphicWarningEnabled ? graphicWarning : false,
+        isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(aiInsightPreference),
         topic: topic.trim() || undefined,
         location: place.trim() || undefined
       } as any);
@@ -347,25 +391,32 @@ export default function MobilePostScreen() {
       setContent('');
       setAttachments([]);
       setGraphicWarning(false);
+      setIsAIEnhanced(false);
+      setAiInsightPreference('auto');
       setTopic('');
       setPlace('');
       showNotification('success', 'Posted', 'Your update is live.');
+      if (onClose) closeComposer();
     } catch (e: any) {
-      showNotification('error', isEditing ? 'Save failed' : 'Post failed', e?.response?.data?.error || e?.message || 'Unable to post right now.');
+      showNotification(
+        'error',
+        isEditing ? 'Save failed' : 'Post failed',
+        getRecoverableActionMessage(isEditing ? 'Post update' : 'Post publish', e)
+      );
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div className="text-sm font-semibold text-slate-900">{isEditing ? 'Edit post' : 'Create post'}</div>
           {isEditing ? (
             <button
               type="button"
-              onClick={() => navigate('/m/home')}
+              onClick={closeComposer}
               className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
               disabled={busy || loadingPost}
             >
@@ -413,6 +464,38 @@ export default function MobilePostScreen() {
             ) : null}
           </div>
         ) : null}
+
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+            <input
+              type="checkbox"
+              checked={isAIEnhanced}
+              onChange={(e) => setIsAIEnhanced(e.target.checked)}
+              disabled={busy || loadingPost}
+            />
+            <span>Mark as AI-enhanced</span>
+          </label>
+          <label className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+            <span className="text-slate-500">Scrolitha AI insight</span>
+            <select
+              value={aiInsightPreference}
+              onChange={(e) =>
+                setAiInsightPreference(resolvePostAiInsightPreference(e.target.value, isEditing ? 'off' : 'auto'))
+              }
+              className="mt-1 w-full bg-transparent text-xs font-semibold text-slate-900 outline-none"
+              disabled={busy || loadingPost}
+            >
+              {isEditing ? null : <option value="auto">Automatic</option>}
+              <option value="on">Generate for this post</option>
+              <option value="off">Do not generate</option>
+            </select>
+          </label>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          {isEditing
+            ? 'This setting updates whether Scrolitha keeps AI insight on this post.'
+            : 'Automatic preserves your current Scrolitha insight settings for new posts.'}
+        </p>
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <div>
@@ -584,7 +667,7 @@ export default function MobilePostScreen() {
 
       {aiSuggestionOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
-          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
+          <div className={MOBILE_MODAL_CARD_CLASS}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">AI Draft Suggestion</h3>
@@ -623,6 +706,12 @@ export default function MobilePostScreen() {
                 AI only
               </button>
             </div>
+
+            {aiSuggestionWarning ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {aiSuggestionWarning}
+              </div>
+            ) : null}
 
             {aiCompareView === 'compare' ? (
               <div className="mt-3 grid gap-2">

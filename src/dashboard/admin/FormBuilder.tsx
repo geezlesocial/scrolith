@@ -78,7 +78,7 @@ const deepMergeReplaceArrays = (existing: any, incoming: any): any => {
 };
 
 const CONTROL_LABELS: Record<string, string> = {
-  showAI: 'AI Assistant',
+  showAI: 'Scrolitha',
   showPackages: 'Packages Table',
   showPackageFeatures: 'Package Features',
   showExtras: 'Gig Extras',

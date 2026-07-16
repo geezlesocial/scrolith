@@ -1,8 +1,40 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { Capacitor } from '@capacitor/core'
 import App from './App'
 import './index.css'
+
+const WEB_CACHE_RESET_RELOAD_KEY = 'scrolith:web-cache-reset-reloaded-v6'
+const FORCE_BROWSER_CACHE_RESET =
+  import.meta.env.VITE_FORCE_BROWSER_CACHE_RESET === 'true' ||
+  (typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).get('resetAppShell') === '1');
+
+const runWhenIdle = (callback: () => void, timeout = 1200) => {
+  const idleCallback = (window as any).requestIdleCallback;
+  if (typeof idleCallback === 'function') {
+    const id = idleCallback(callback, { timeout });
+    return () => {
+      const cancelIdleCallback = (window as any).cancelIdleCallback;
+      if (typeof cancelIdleCallback === 'function') cancelIdleCallback(id);
+    };
+  }
+
+  const id = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(id);
+};
+
+const runAfterLoadIdle = (callback: () => void, timeout = 1200) => {
+  const run = () => {
+    runWhenIdle(callback, timeout);
+  };
+
+  if (document.readyState === 'complete') {
+    run();
+    return;
+  }
+
+  window.addEventListener('load', run, { once: true });
+};
 
 const root = ReactDOM.createRoot(
   document.getElementById('root') as HTMLElement
@@ -13,6 +45,12 @@ root.render(
     <App />
   </React.StrictMode>
 )
+
+runWhenIdle(() => {
+  void import('./mobile/runtime/mobileObservability')
+    .then(({ installMobileObservability }) => installMobileObservability())
+    .catch(() => {});
+}, 900);
 
 const isNative = () => {
   try {
@@ -29,29 +67,24 @@ const isNative = () => {
   }
 
   try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    try {
-      const runtime = (window as any)?.Capacitor;
-      if (runtime && typeof runtime.isNativePlatform === 'function') {
-        return Boolean(runtime.isNativePlatform());
-      }
-    } catch {
-      // ignore runtime checks
+    const runtime = (window as any)?.Capacitor;
+    if (runtime && typeof runtime.isNativePlatform === 'function') {
+      return Boolean(runtime.isNativePlatform());
     }
-    return false;
+  } catch {
+    // ignore runtime checks
   }
+  return false;
 };
 
-const clearNativeWebCaches = async () => {
-  if (!isNative()) return;
+const clearBrowserCaches = async () => {
   try {
     if ('serviceWorker' in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map((registration) => registration.unregister()));
     }
   } catch (err) {
-    console.warn('Native cache cleanup (service worker) failed', err);
+    console.warn('Browser cache cleanup (service worker) failed', err);
   }
 
   try {
@@ -60,19 +93,39 @@ const clearNativeWebCaches = async () => {
       await Promise.all(cacheKeys.map((key) => caches.delete(key)));
     }
   } catch (err) {
-    console.warn('Native cache cleanup (CacheStorage) failed', err);
+    console.warn('Browser cache cleanup (CacheStorage) failed', err);
   }
 };
 
-if (!isNative() && 'serviceWorker' in navigator && import.meta.env.PROD) {
+const resetBrowserRuntimeOnce = async () => {
+  try {
+    if (window.sessionStorage.getItem(WEB_CACHE_RESET_RELOAD_KEY) === '1') return;
+  } catch {
+    // Ignore session storage failures and continue with cache cleanup.
+  }
+
+  await clearBrowserCaches();
+
+  try {
+    window.sessionStorage.setItem(WEB_CACHE_RESET_RELOAD_KEY, '1');
+  } catch {
+    // Ignore session storage failures.
+  }
+
+  window.location.reload();
+};
+
+if (import.meta.env.PROD && FORCE_BROWSER_CACHE_RESET && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/sw.js', { updateViaCache: 'none' })
-      .then((registration) => registration.update().catch(() => undefined))
-      .catch((err) => {
-        console.warn('Service worker registration failed', err);
-      });
+    if (isNative()) return;
+    runWhenIdle(() => {
+      void resetBrowserRuntimeOnce();
+    });
   });
-} else if (isNative()) {
-  void clearNativeWebCaches();
+}
+
+if (isNative()) {
+  runAfterLoadIdle(() => {
+    void clearBrowserCaches();
+  }, 1800);
 }

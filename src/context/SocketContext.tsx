@@ -1,30 +1,91 @@
 // C:\Projects\Scrolith\src\context\SocketContext.tsx
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
-import { Socket } from 'socket.io-client'
+import type { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
+import { useNetworkStatus } from './NetworkStatusContext'
 import { socketService } from '../utils/socket'
 import { tokenStore } from '../services/tokenStore'
 import { getBackendOrigin } from '../utils/apiBase'
-import { App } from '@capacitor/app'
-import { Capacitor } from '@capacitor/core'
-import type { PluginListenerHandle } from '@capacitor/core'
+
+const trackRuntimeEvent = (eventName: string, payload: Record<string, unknown>, options?: Record<string, unknown>) => {
+  void import('../mobile/mobileTelemetry')
+    .then(({ trackMobileRuntimeEvent }) => trackMobileRuntimeEvent(eventName, payload, options))
+    .catch(() => {})
+}
+
+export type SocketConnectionHealth =
+  | 'connecting'
+  | 'connected'
+  | 'degraded'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'offline'
 
 export interface SocketContextType {
   socket: Socket | null
   isConnected: boolean
+  /** Stable health signal for polling policy — do not use socket === null alone. */
+  connectionHealth: SocketConnectionHealth
 }
 
-export const SocketContext = createContext<SocketContextType | undefined>(undefined)
+const DEFAULT_SOCKET_CONTEXT: SocketContextType = {
+  socket: null,
+  isConnected: false,
+  connectionHealth: 'disconnected'
+}
+
+export const SocketContext = createContext<SocketContextType>(DEFAULT_SOCKET_CONTEXT)
 const isSocketTraceEnabled = () => {
   const raw = String(import.meta.env.VITE_SOCKET_TRACE || '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
 }
 
+const buildSocketSignature = (input: {
+  url: string
+  namespace: string
+  userId: string
+  role: string
+  token: string
+}) => JSON.stringify({
+  url: String(input.url || '').trim(),
+  namespace: String(input.namespace || '').trim(),
+  userId: String(input.userId || '').trim(),
+  role: String(input.role || '').trim(),
+  tokenPresent: Boolean(String(input.token || '').trim())
+})
+
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [socket, setSocket] = useState<Socket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const { user, isAuthenticated } = useUser()
+  const [connectionHealth, setConnectionHealth] = useState<SocketConnectionHealth>('disconnected')
+  const { user, isAuthenticated, isLoading } = useUser()
+  const { shouldAttemptLiveConnections, recoveryTick, isOnline } = useNetworkStatus()
   const lastOptionsRef = useRef<any>(null)
+  const hasEverConnectedRef = useRef(false)
+  const pendingReconnectTelemetryRef = useRef(false)
+  const mountedRef = useRef(true)
+  const socketRef = useRef<Socket | null>(null)
+
+  useEffect(() => {
+    if (!isOnline) {
+      setConnectionHealth('offline')
+      setIsConnected(false)
+      return
+    }
+    if (!isAuthenticated || !user?.id || !shouldAttemptLiveConnections) {
+      if (!socketRef.current) setConnectionHealth('disconnected')
+      return
+    }
+    if (isConnected) {
+      setConnectionHealth('connected')
+      return
+    }
+    if (socketRef.current) {
+      setConnectionHealth(hasEverConnectedRef.current ? 'reconnecting' : 'connecting')
+      return
+    }
+    setConnectionHealth('connecting')
+  }, [isOnline, isAuthenticated, user?.id, shouldAttemptLiveConnections, isConnected])
 
   useEffect(() => {
     // Attach community event listeners when socket is available
@@ -74,20 +135,34 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       { ev: 'community:event_deleted', fn: forward('community:event_deleted') },
       { ev: 'community:stats_updated', fn: forward('community:stats_updated') }
       ,{ ev: 'scroll:new', fn: forward('scroll:new') }
+      ,{ ev: 'scroll:updated', fn: forward('scroll:updated') }
       ,{ ev: 'scroll:engagement_update', fn: forward('scroll:engagement_update') }
       ,{ ev: 'scroll:impression_update', fn: forward('scroll:impression_update') }
+      ,{ ev: 'scroll:comment_created', fn: forward('scroll:comment_created') }
+      ,{ ev: 'scroll:comment_updated', fn: forward('scroll:comment_updated') }
+      ,{ ev: 'scroll:comment_deleted', fn: forward('scroll:comment_deleted') }
+      ,{ ev: 'scroll:comment_reaction_updated', fn: forward('scroll:comment_reaction_updated') }
       ,{ ev: 'scroll:removed', fn: forward('scroll:removed') }
+      ,{ ev: 'scroll:gcoin_donated', fn: forward('scroll:gcoin_donated') }
       ,{ ev: 'community:ad_created', fn: forward('community:ad_created') }
       ,{ ev: 'community:ad_status_updated', fn: forward('community:ad_status_updated') }
       ,{ ev: 'community:ad_payment_initiated', fn: forward('community:ad_payment_initiated') }
       ,{ ev: 'community:ad_metrics_updated', fn: forward('community:ad_metrics_updated') }
+      ,{ ev: 'community:ads_config_updated', fn: forward('community:ads_config_updated') }
       ,{ ev: 'community:gcoin_transaction_created', fn: forward('community:gcoin_transaction_created') }
       ,{ ev: 'community:gcoin_balance_updated', fn: forward('community:gcoin_balance_updated') }
+      ,{ ev: 'community:gcoin_donated', fn: forward('community:gcoin_donated') }
       ,{ ev: 'community:gcoin_settings_updated', fn: forward('community:gcoin_settings_updated') }
       ,{ ev: 'community:gcoin_conversion_requested', fn: forward('community:gcoin_conversion_requested') }
       ,{ ev: 'community:gcoin_conversion_processed', fn: forward('community:gcoin_conversion_processed') }
       ,{ ev: 'community:post_metrics_updated', fn: forward('community:post_metrics_updated') }
       ,{ ev: 'community:homepage_updated', fn: forward('community:homepage_updated') }
+      ,{ ev: 'community:group_created', fn: forward('community:group_created') }
+      ,{ ev: 'community:group_updated', fn: forward('community:group_updated') }
+      ,{ ev: 'community:group_deleted', fn: forward('community:group_deleted') }
+      ,{ ev: 'community:group_member_updated', fn: forward('community:group_member_updated') }
+      ,{ ev: 'community:group_request_updated', fn: forward('community:group_request_updated') }
+      ,{ ev: 'community:group_invite_updated', fn: forward('community:group_invite_updated') }
       ,{ ev: 'community:fiat_balance_updated', fn: forward('community:fiat_balance_updated') }
       ,{ ev: 'community:admin_config_updated', fn: forward('community:admin_config_updated') }
       ,{ ev: 'community:reactions_updated', fn: forward('community:reactions_updated') }
@@ -98,6 +173,24 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'apps:metrics_updated', fn: forward('apps:metrics_updated') }
       ,{ ev: 'apps:campaign_sent', fn: forward('apps:campaign_sent') }
       ,{ ev: 'apps:config_updated', fn: forward('apps:config_updated') }
+      ,{ ev: 'feature_flags:updated', fn: forward('feature_flags:updated') }
+      ,{ ev: 'feature_flags:kill_switch_toggled', fn: forward('feature_flags:kill_switch_toggled') }
+      ,{ ev: 'search:rules_updated', fn: forward('search:rules_updated') }
+      ,{ ev: 'feed:recipe_updated', fn: forward('feed:recipe_updated') }
+      ,{ ev: 'journeys:updated', fn: forward('journeys:updated') }
+      ,{ ev: 'notifications:preferences_updated', fn: forward('notifications:preferences_updated') }
+      ,{ ev: 'config:snapshot_created', fn: forward('config:snapshot_created') }
+      ,{ ev: 'config:rollback_completed', fn: forward('config:rollback_completed') }
+      ,{ ev: 'config:release_logged', fn: forward('config:release_logged') }
+      ,{ ev: 'realtime:session_changed', fn: forward('realtime:session_changed') }
+      ,{ ev: 'realtime:incident_opened', fn: forward('realtime:incident_opened') }
+      ,{ ev: 'realtime:incident_resolved', fn: forward('realtime:incident_resolved') }
+      ,{ ev: 'delivery:replayed', fn: forward('delivery:replayed') }
+      ,{ ev: 'presence:updated', fn: forward('presence:updated') }
+      ,{ ev: 'moderation:policy_updated', fn: forward('moderation:policy_updated') }
+      ,{ ev: 'moderation:appeal_updated', fn: forward('moderation:appeal_updated') }
+      ,{ ev: 'trust:profile_updated', fn: forward('trust:profile_updated') }
+      ,{ ev: 'trust:signal_updated', fn: forward('trust:signal_updated') }
       ,{ ev: 'i18n:updated', fn: forward('i18n:updated') }
       ,{ ev: 'i18n:override_updated', fn: forward('i18n:override_updated') }
       ,{ ev: 'reactions:updated', fn: forward('reactions:updated') }
@@ -113,6 +206,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'insights:pgs_updated', fn: forward('insights:pgs_updated') }
       ,{ ev: 'insights:achievement_unlocked', fn: forward('insights:achievement_unlocked') }
       ,{ ev: 'insights:streak_updated', fn: forward('insights:streak_updated') }
+      ,{ ev: 'insights:career_daily_updated', fn: forward('insights:career_daily_updated') }
+      ,{ ev: 'insights:friend_streak_updated', fn: forward('insights:friend_streak_updated') }
+      ,{ ev: 'insights:creator_challenge_updated', fn: forward('insights:creator_challenge_updated') }
       ,{ ev: 'insights:quests_assigned', fn: forward('insights:quests_assigned') }
       ,{ ev: 'insights:quests_progress', fn: forward('insights:quests_progress') }
       ,{ ev: 'insights:quests_completed', fn: forward('insights:quests_completed') }
@@ -138,6 +234,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'live:reaction', fn: forward('live:reaction') }
       ,{ ev: 'live:gift_sent', fn: forward('live:gift_sent') }
       ,{ ev: 'live:viewer_count_updated', fn: forward('live:viewer_count_updated') }
+      ,{ ev: 'live:config_updated', fn: forward('live:config_updated') }
       ,{ ev: 'live:signal', fn: forward('live:signal') }
       ,{ ev: 'live:filter_updated', fn: forward('live:filter_updated') }
     ];
@@ -149,24 +246,33 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     };
   }, [socket]);
   useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      socketService.disconnect()
+    }
+  }, [])
+
+  useEffect(() => {
     const cleanupSocket = () => {
       socketService.disconnect()
-      setSocket(null)
-      setIsConnected(false)
+      socketRef.current = null
+      if (mountedRef.current) {
+        setSocket(null)
+        setIsConnected(false)
+        setConnectionHealth(isOnline ? 'disconnected' : 'offline')
+      }
     }
 
-    // Allow socket connections for unauthenticated (guest) users so public pages
-    // can receive CMS realtime events (e.g. header updates). Pass token/userId
-    // only when available; avoid joining private rooms when not authenticated.
-    const existingSocket = socketService.getSocket()
-    if (existingSocket?.connected) {
-      setSocket(existingSocket)
-      setIsConnected(true)
+    if (!isAuthenticated || !user?.id || !shouldAttemptLiveConnections) {
+      if (socketService.getSocket()) {
+        cleanupSocket()
+      }
       return
     }
 
-    // If an existing socket isn't connected, start fresh
-    cleanupSocket()
+    if (isLoading) {
+      return
+    }
 
     const backendEnv =
       import.meta.env.VITE_BACKEND_URL ||
@@ -181,8 +287,47 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       // Keep socket origin aligned with the canonical API base resolver so
       // accidental placeholder domains (e.g. api.example.com) are ignored.
       const socketUrl = getBackendOrigin() || ''
-
       const token = (await tokenStore.get()) || ''
+      const nextSignature = buildSocketSignature({
+        url: socketUrl,
+        namespace: '/community',
+        userId: user?.id || 'guest',
+        role: user?.role || 'guest',
+        token
+      })
+      const existingSocket = socketService.getSocket()
+      const existingSignature = String(lastOptionsRef.current?.signature || '')
+
+      // Reuse the current socket only when its identity matches the current
+      // auth state. This prevents a guest socket from surviving after login.
+      if (existingSocket && existingSignature === nextSignature) {
+        socketRef.current = existingSocket
+        setSocket(existingSocket)
+        setIsConnected(Boolean(existingSocket.connected))
+        setConnectionHealth(
+          existingSocket.connected
+            ? 'connected'
+            : hasEverConnectedRef.current
+              ? 'reconnecting'
+              : 'connecting'
+        )
+        if (!existingSocket.connected) {
+          socketService.connect(lastOptionsRef.current || {
+            url: socketUrl,
+            namespace: '/community',
+            userId: user?.id || 'guest',
+            role: user?.role || 'guest',
+            token
+          })
+        }
+        return
+      }
+
+      if (existingSocket && existingSignature !== nextSignature) {
+        cleanupSocket()
+      }
+
+      setConnectionHealth(hasEverConnectedRef.current ? 'reconnecting' : 'connecting')
 
       const options = {
         url: socketUrl,
@@ -191,8 +336,23 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         role: user?.role || 'guest',
         token,
         onConnect: (connectedSocket) => {
+          socketRef.current = connectedSocket
           setIsConnected(true)
+          // Keep a stable React socket identity across brief reconnects when possible.
           setSocket(connectedSocket)
+          setConnectionHealth('connected')
+          if (hasEverConnectedRef.current || pendingReconnectTelemetryRef.current) {
+            trackRuntimeEvent(
+              'socket_reconnected',
+              {
+                namespace: '/community',
+                userId: user?.id || 'guest'
+              },
+              { dedupeMs: 5_000, sourcePath: '/socket/community' }
+            )
+          }
+          hasEverConnectedRef.current = true
+          pendingReconnectTelemetryRef.current = false
           // Join user-specific rooms only when authenticated
           try {
             if (token && user && user.id) {
@@ -210,14 +370,29 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         },
         onDisconnect: () => {
+          // Do NOT clear socket to null on brief disconnects — that forces consumers
+          // to tear down listeners and start polling storms. Keep the instance and
+          // mark health as reconnecting/disconnected instead.
           setIsConnected(false)
-          setSocket(null)
+          setConnectionHealth(hasEverConnectedRef.current ? 'reconnecting' : 'disconnected')
+          pendingReconnectTelemetryRef.current = true
         },
         onConnectError: (error) => {
           if (isSocketTraceEnabled()) {
             console.error('Socket connect error:', error.message)
           }
           setIsConnected(false)
+          setConnectionHealth(hasEverConnectedRef.current ? 'degraded' : 'disconnected')
+          pendingReconnectTelemetryRef.current = true
+          trackRuntimeEvent(
+            'socket_connect_error',
+            {
+              namespace: '/community',
+              userId: user?.id || 'guest',
+              message: error?.message || 'socket_connect_error'
+            },
+            { dedupeMs: 15_000, sourcePath: '/socket/community' }
+          )
         },
         onError: (error) => {
           if (isSocketTraceEnabled()) {
@@ -240,60 +415,24 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           }
         }
       }
-      lastOptionsRef.current = options
+      lastOptionsRef.current = {
+        ...options,
+        signature: nextSignature
+      }
       socketService.connect(options)
     }
 
     void connectSocket()
-
-    return () => {
-      cleanupSocket()
-    }
-  }, [user?.id, user?.role, isAuthenticated])
-
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    let listenerHandle: PluginListenerHandle | null = null;
-    let cancelled = false;
-    const handlePromise = App.addListener('appStateChange', (state) => {
-      if (state.isActive) {
-        const last = lastOptionsRef.current;
-        if (last) socketService.connect(last);
-      } else {
-        socketService.disconnect();
-      }
-    });
-
-    void handlePromise.then((handle) => {
-      if (cancelled) {
-        void handle.remove();
-        return;
-      }
-      listenerHandle = handle;
-    }).catch(() => {
-      listenerHandle = null;
-    });
-
-    return () => {
-      cancelled = true;
-      if (listenerHandle) {
-        void listenerHandle.remove();
-      }
-    };
-  }, []);
+  }, [user?.id, user?.role, isAuthenticated, isLoading, shouldAttemptLiveConnections, recoveryTick])
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, isConnected, connectionHealth }}>
       {children}
     </SocketContext.Provider>
   )
 }
 
 export const useSocket = (): SocketContextType => {
-  const context = useContext(SocketContext)
-  if (context === undefined) {
-    throw new Error('useSocket must be used within a SocketProvider')
-  }
-  return context
+  return useContext(SocketContext)
 }
 

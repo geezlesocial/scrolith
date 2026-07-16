@@ -1,0 +1,472 @@
+/**
+ * Scrolith enterprise desktop header design tokens.
+ * Distinct premium command-surface — not a clone of competitor headers.
+ * Phase 6.1: premium dynamic nav shell + collision-safe three-zone grid.
+ */
+
+:root {
+  --scrolith-header-height: 68px;
+  --scrolith-header-height-lg: 72px;
+  --scrolith-header-bg: #ffffff;
+  --scrolith-header-border: rgba(15, 23, 42, 0.08);
+  --scrolith-header-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+  --scrolith-header-shadow-scrolled: 0 8px 24px -16px rgba(15, 23, 42, 0.28);
+  --scrolith-header-item-h: 50px;
+  --scrolith-header-item-radius: 12px;
+  --scrolith-header-icon: 20px;
+  --scrolith-header-icon-shell: 2rem;
+  --scrolith-header-badge-h: 16px;
+  /* Fixed footprint for 1–99 and 99+ so count changes never resize the shell */
+  --scrolith-header-badge-w: 1.35rem;
+  --scrolith-header-gap: 0.2rem;
+  --scrolith-header-search-max: 260px;
+  --scrolith-header-search-max-lg: 300px;
+  --scrolith-header-search-max-xl: 340px;
+  --scrolith-header-z: 40;
+  --scrolith-header-popup-z: 70;
+  --scrolith-header-accent: #1d4ed8;
+  --scrolith-header-accent-soft: rgba(37, 99, 235, 0.1);
+  --scrolith-header-muted: #64748b;
+  --scrolith-header-text: #0f172a;
+  /* Fixed item width: long CMS/i18n labels truncate; neighbors never shift */
+  --scrolith-header-nav-item-w: 4.95rem;
+}
+
+.scrolith-enterprise-header {
+  z-index: var(--scrolith-header-z);
+  background: var(--scrolith-header-bg);
+  border-bottom: 1px solid var(--scrolith-header-border);
+  box-shadow: var(--scrolith-header-shadow);
+}
+
+.scrolith-enterprise-header.is-scrolled {
+  box-shadow: var(--scrolith-header-shadow-scrolled);
+}
+
+/*
+ * Three-zone grid:
+ * - Left absorbs compression (search shrinks).
+ * - Center is content-sized (CMS nav).
+ * - Right is max-content and never crushed (prevents Favorites painting over Notifications).
+ */
+.scrolith-enterprise-header__inner {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 0.65rem;
+  min-height: var(--scrolith-header-height);
+}
+
+@media (min-width: 1280px) {
+  .scrolith-enterprise-header__inner {
+    min-height: var(--scrolith-header-height-lg);
+    column-gap: 0.85rem;
+  }
+}
+
+.scrolith-header-zone {
+  display: flex;
+  align-items: center;
+}
+
+.scrolith-header-zone--left {
+  min-width: 0;
+  justify-content: flex-start;
+  gap: 0.65rem;
+  /* Search/brand yield space before right utilities are crushed */
+  overflow: hidden;
+}
+
+.scrolith-header-zone--center {
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.scrolith-header-zone--right {
+  justify-content: flex-end;
+  gap: 0.35rem;
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+  /* Critical: never allow this track to shrink under utilities */
+  min-width: max-content;
+  flex-shrink: 0;
+}
+
+.scrolith-header-nav-track {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: var(--scrolith-header-gap);
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* ── Dynamic CMS / activity navigation shell ─────────────────────────────── */
+
+.scrolith-header-nav-item {
+  position: relative;
+  display: flex;
+  box-sizing: border-box;
+  width: var(--scrolith-header-nav-item-w);
+  min-width: var(--scrolith-header-nav-item-w);
+  max-width: var(--scrolith-header-nav-item-w);
+  min-height: var(--scrolith-header-item-h);
+  flex: 0 0 var(--scrolith-header-nav-item-w);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  border-radius: var(--scrolith-header-item-radius);
+  border: 1px solid transparent;
+  padding: 0.35rem 0.4rem 0.4rem;
+  font-size: 0.75rem;
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--scrolith-header-muted);
+  background: transparent;
+  text-decoration: none;
+  cursor: pointer;
+  overflow: visible;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.scrolith-header-nav-item:hover {
+  color: var(--scrolith-header-text);
+  background: rgba(15, 23, 42, 0.035);
+  border-color: rgba(15, 23, 42, 0.06);
+}
+
+.scrolith-header-nav-item.is-active {
+  color: var(--scrolith-header-accent);
+  background: var(--scrolith-header-accent-soft);
+  border-color: rgba(37, 99, 235, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.04);
+}
+
+.scrolith-header-nav-item:focus {
+  outline: none;
+}
+
+.scrolith-header-nav-item:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 2px;
+}
+
+.scrolith-header-nav-item__icon {
+  position: relative;
+  display: flex;
+  height: var(--scrolith-header-icon-shell);
+  width: var(--scrolith-header-icon-shell);
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.55rem;
+  background: rgba(15, 23, 42, 0.04);
+  color: inherit;
+}
+
+.scrolith-header-nav-item.is-active .scrolith-header-nav-item__icon {
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--scrolith-header-accent);
+}
+
+.scrolith-header-nav-item:hover .scrolith-header-nav-item__icon {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+.scrolith-header-nav-item.is-active:hover .scrolith-header-nav-item__icon {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+.scrolith-header-nav-item__label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1.15;
+}
+
+.scrolith-header-nav-item__marker {
+  position: absolute;
+  inset-inline: 0.7rem;
+  bottom: 0.18rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--scrolith-header-accent);
+  pointer-events: none;
+}
+
+/* Stable badge: absolute + fixed width — count 0/1/9/10/99/99+ never resizes nav item */
+.scrolith-header-badge {
+  position: absolute;
+  top: -0.22rem;
+  right: -0.3rem;
+  z-index: 1;
+  display: inline-flex;
+  box-sizing: border-box;
+  height: var(--scrolith-header-badge-h);
+  width: var(--scrolith-header-badge-w);
+  min-width: var(--scrolith-header-badge-w);
+  max-width: var(--scrolith-header-badge-w);
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+  overflow: hidden;
+  white-space: nowrap;
+  letter-spacing: -0.02em;
+}
+
+.scrolith-header-badge.is-empty {
+  opacity: 0;
+}
+
+/* ── Fixed utilities (Favorites / Cart / Create) ─────────────────────────── */
+
+.scrolith-header-utility {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: #fff;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+  flex: 0 0 auto;
+  text-decoration: none;
+}
+
+.scrolith-header-utility:hover {
+  border-color: rgba(15, 23, 42, 0.16);
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.scrolith-header-utility:focus {
+  outline: none;
+}
+
+.scrolith-header-utility:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 2px;
+}
+
+.scrolith-header-utility.is-compact {
+  min-width: 2.5rem;
+  padding: 0.45rem;
+  border-radius: 999px;
+}
+
+.scrolith-header-utility-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(248, 250, 252, 0.9);
+  padding: 0.2rem;
+  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+}
+
+.scrolith-header-profile {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  padding: 0.2rem 0.45rem 0.2rem 0.2rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  transition: border-color 150ms ease, background-color 150ms ease;
+  flex: 0 0 auto;
+}
+
+.scrolith-header-profile:hover {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: #fff;
+}
+
+.scrolith-header-profile:focus {
+  outline: none;
+}
+
+.scrolith-header-profile:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 2px;
+}
+
+.scrolith-header-profile__avatar {
+  height: 2rem;
+  width: 2rem;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  box-shadow: 0 0 0 2px #fff;
+}
+
+@media (min-width: 1280px) {
+  .scrolith-header-profile__avatar {
+    height: 2.15rem;
+    width: 2.15rem;
+  }
+}
+
+.scrolith-header-search-shell {
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: min(var(--scrolith-header-search-max), 28vw);
+}
+
+@media (min-width: 1280px) {
+  .scrolith-header-search-shell {
+    max-width: min(var(--scrolith-header-search-max-lg), 30vw);
+  }
+}
+
+@media (min-width: 1440px) {
+  .scrolith-header-search-shell {
+    max-width: min(var(--scrolith-header-search-max-xl), 32vw);
+  }
+}
+
+/* Compact desktop: search compresses first; nav stays readable; no overlap */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  :root {
+    --scrolith-header-nav-item-w: 3.85rem;
+    --scrolith-header-item-h: 48px;
+    --scrolith-header-icon-shell: 1.85rem;
+    --scrolith-header-badge-w: 1.25rem;
+  }
+
+  .scrolith-enterprise-header__inner {
+    column-gap: 0.45rem;
+  }
+
+  .scrolith-header-zone--left {
+    gap: 0.45rem;
+  }
+
+  .scrolith-header-search-shell {
+    max-width: min(200px, 20vw);
+  }
+
+  .scrolith-header-nav-item {
+    padding-inline: 0.28rem;
+    font-size: 0.6875rem;
+  }
+
+  .scrolith-header-nav-track {
+    gap: 0.1rem;
+  }
+
+  .scrolith-header-utility-cluster {
+    gap: 0.25rem;
+  }
+}
+
+/* Mid desktop: slightly tighter nav before utility labels collapse (xl) */
+@media (min-width: 1280px) and (max-width: 1439px) {
+  :root {
+    --scrolith-header-nav-item-w: 4.45rem;
+  }
+
+  .scrolith-header-search-shell {
+    max-width: min(240px, 22vw);
+  }
+
+  .scrolith-header-nav-item {
+    font-size: 0.72rem;
+  }
+}
+
+/* Dark theme — true neutral surface, restrained elevation */
+[data-theme="dark"] {
+  --scrolith-header-bg: #131517;
+  --scrolith-header-border: rgba(255, 255, 255, 0.08);
+  --scrolith-header-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --scrolith-header-shadow-scrolled: 0 10px 28px -14px rgba(0, 0, 0, 0.55);
+  --scrolith-header-accent: #60a5fa;
+  --scrolith-header-accent-soft: rgba(96, 165, 250, 0.14);
+  --scrolith-header-muted: #94a3b8;
+  --scrolith-header-text: #f1f5f9;
+}
+
+[data-theme="dark"] .scrolith-header-nav-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .scrolith-header-nav-item__icon {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+[data-theme="dark"] .scrolith-header-nav-item.is-active .scrolith-header-nav-item__icon {
+  background: rgba(96, 165, 250, 0.18);
+}
+
+[data-theme="dark"] .scrolith-header-utility {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: #16191c;
+  color: #e2e8f0;
+  box-shadow: none;
+}
+
+[data-theme="dark"] .scrolith-header-utility:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: #1c2128;
+  color: #f8fafc;
+}
+
+[data-theme="dark"] .scrolith-header-utility-cluster {
+  background: rgba(22, 25, 28, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .scrolith-header-profile {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, #1a1d21 0%, #131517 100%);
+}
+
+[data-theme="dark"] .scrolith-header-profile:hover {
+  border-color: rgba(96, 165, 250, 0.35);
+  background: #1a1d21;
+}
+
+[data-theme="dark"] .scrolith-header-badge {
+  box-shadow: 0 0 0 2px #131517;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrolith-header-nav-item,
+  .scrolith-header-utility,
+  .scrolith-header-profile,
+  .scrolith-enterprise-header {
+    transition: none !important;
+  }
+}

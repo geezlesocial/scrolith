@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { BriefcaseIcon as Briefcase, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { jobsApi, Job } from '../../../services/jobs';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 const formatBudget = (budget: Job['budget']) => {
   if (!budget) return '';
@@ -42,7 +44,7 @@ export default function MobileJobsScreen() {
   const header = useMemo(() => (search.trim() ? `Jobs for “${search.trim()}”` : 'Jobs'), [search]);
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-900">
         <Briefcase className="h-4 w-4" />
         {header}
@@ -68,10 +70,10 @@ export default function MobileJobsScreen() {
       ) : jobs.length ? (
         <div className="space-y-3">
           {jobs.map((job) => (
-            <a
+            <Link
               key={job.id}
-              href={`/jobs/${encodeURIComponent(job.id)}`}
-              className="block rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:bg-slate-50"
+              to={`/jobs/${encodeURIComponent(job.id)}`}
+              className="block rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:bg-slate-50 touch-manipulation"
             >
               <div className="text-sm font-semibold text-slate-900 line-clamp-2">{job.title}</div>
               <div className="mt-1 text-sm text-slate-600 line-clamp-2">{job.description}</div>
@@ -86,7 +88,7 @@ export default function MobileJobsScreen() {
                   <span className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white">{formatBudget(job.budget)}</span>
                 ) : null}
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       ) : (

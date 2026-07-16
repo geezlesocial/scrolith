@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, Suspense, useMemo, useCallback, lazy } from 'react';
 import { LoaderIcon } from '../components/icons/ShellIcons';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
@@ -32,25 +32,13 @@ import {
   GuestTrendingPreviewContent,
   GuestWhatIsScrolithContent
 } from '../types';
-import Recommendations from '../components/Recommendations';
 import { upsertImagePreloadLink } from '../utils/resourceHints';
-import {
-  PopularServicesSection,
-  PromoBannersSection,
-  TrustValueSection,
-  VideoFeatureSection,
-  MarketplaceTilesSection,
-  GuidesGridSection,
-  MadeOnScrolithSection,
-  FooterCtaStripSection,
-  GuestHeroAuthSection,
-  GuestWhatIsScrolithSection,
-  GuestPathsSection,
-  GuestFeatureShowcaseSection,
-  GuestTrendingPreviewSection,
-  GuestCommunityPreviewSection,
-  GuestFinalCtaSection
-} from '../components/sections/GuestSections';
+import { resolveResponsiveAssetUrl } from '../utils/assetUrl';
+const lazyGuestSection = <T extends keyof typeof import('../components/sections/GuestSections')>(name: T) =>
+  lazy(async () => {
+    const module = await import('../components/sections/GuestSections');
+    return { default: module[name] as React.ComponentType<any> };
+  });
 
 // Modular Sections (Lazy Loaded)
 const HeroAISection = React.lazy(() => import('../components/sections/HeroAISection'));
@@ -63,6 +51,22 @@ const AIProjectBriefGenerator = React.lazy(() => import('../components/sections/
 const TopProServices = React.lazy(() => import('../components/sections/TopProServices'));
 const TrustSecurity = React.lazy(() => import('../components/sections/TrustSecurity'));
 const MemberHomeSection = React.lazy(() => import('../components/sections/MemberHomeSection'));
+const Recommendations = React.lazy(() => import('../components/Recommendations'));
+const PopularServicesSection = lazyGuestSection('PopularServicesSection');
+const PromoBannersSection = lazyGuestSection('PromoBannersSection');
+const TrustValueSection = lazyGuestSection('TrustValueSection');
+const VideoFeatureSection = lazyGuestSection('VideoFeatureSection');
+const MarketplaceTilesSection = lazyGuestSection('MarketplaceTilesSection');
+const GuidesGridSection = lazyGuestSection('GuidesGridSection');
+const MadeOnScrolithSection = lazyGuestSection('MadeOnScrolithSection');
+const FooterCtaStripSection = lazyGuestSection('FooterCtaStripSection');
+const GuestHeroAuthSection = lazyGuestSection('GuestHeroAuthSection');
+const GuestWhatIsScrolithSection = lazyGuestSection('GuestWhatIsScrolithSection');
+const GuestPathsSection = lazyGuestSection('GuestPathsSection');
+const GuestFeatureShowcaseSection = lazyGuestSection('GuestFeatureShowcaseSection');
+const GuestTrendingPreviewSection = lazyGuestSection('GuestTrendingPreviewSection');
+const GuestCommunityPreviewSection = lazyGuestSection('GuestCommunityPreviewSection');
+const GuestFinalCtaSection = lazyGuestSection('GuestFinalCtaSection');
 
 // Legacy Sections
 import { TrustSection, CategoriesSection, HowItWorksSection, FeaturedSection, CTASection } from '../components/sections/LegacySections';
@@ -253,27 +257,85 @@ const hasRenderableGuestContent = (section: any) => {
   return true;
 };
 
+const extractGuestHomepageSections = (payload: any): HomepageSection[] =>
+  (Array.isArray(payload?.sections) ? payload.sections : null) ||
+  (Array.isArray(payload?.data?.sections) ? payload.data.sections : null) ||
+  [];
+
+const extractGuestHomepageSeo = (payload: any): Record<string, any> | null =>
+  payload?.seo || payload?.data?.seo || null;
+
+const createInitialGuestHomepageState = () => {
+  try {
+    const payload = (CMSService as any).getGuestHomepageFallback?.();
+    return {
+      sections: extractGuestHomepageSections(payload),
+      seo: extractGuestHomepageSeo(payload)
+    };
+  } catch {
+    return { sections: [] as HomepageSection[], seo: null as Record<string, any> | null };
+  }
+};
+
+class MemberHomeShellBoundary extends React.Component<
+  React.PropsWithChildren<{}>,
+  { hasError: boolean }
+> {
+  public state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error('Signed-in homepage render failed:', error);
+  }
+
+  render() {
+    if (!this.state.hasError) {
+      return this.props.children;
+    }
+
+    return (
+      <div className="relative min-h-screen flex flex-col bg-[#f7f4ee] text-[#0b0b0a]">
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute -top-32 left-[-10%] h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle_at_center,#ffe9c7,transparent_65%)] opacity-70" />
+          <div className="absolute top-24 right-[-12%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle_at_center,#d8f1e5,transparent_65%)] opacity-80" />
+        </div>
+        <div className="mx-auto flex w-full max-w-2xl flex-1 items-center justify-center px-4 py-16">
+          <div className="w-full rounded-[32px] border border-white/80 bg-white/95 p-8 text-center shadow-[0_24px_48px_-36px_rgba(15,23,42,0.32)]">
+            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50">
+              <img src="/logo.png" alt="Scrolith" className="h-10 w-10 object-contain" />
+            </div>
+            <h1 className="text-2xl font-semibold text-slate-900">Home is reloading</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-500">
+              The signed-in homepage hit a render issue. Reload the page to try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-6 inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
 const Landing = () => {
   const t = useT();
-  const [sections, setSections] = useState<HomepageSection[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialGuestHomepage] = useState(createInitialGuestHomepageState);
+  const [sections, setSections] = useState<HomepageSection[]>(initialGuestHomepage.sections);
+  const [loading, setLoading] = useState(initialGuestHomepage.sections.length === 0);
   const { user } = useUser();
   const { settings } = useContent();
   const { socket } = useSocket();
-  const [guestSeo, setGuestSeo] = useState<Record<string, any> | null>(null);
+  const [guestSeo, setGuestSeo] = useState<Record<string, any> | null>(initialGuestHomepage.seo);
   const [loadError, setLoadError] = useState('');
   const location = useLocation();
-
-  if (user) {
-    const searchParams = new URLSearchParams(location.search);
-    const memberHomeDesktopOverride =
-      searchParams.get('desktop') === '1' || searchParams.get('view') === 'desktop';
-    const isMobileViewport = typeof window !== 'undefined' ? window.innerWidth < 900 : false;
-    if (isMobileViewport && !memberHomeDesktopOverride) {
-      return <Navigate to="/m/home" replace />;
-    }
-    return <MemberHomeSection />;
-  }
 
   const normalizeSections = useCallback((data: HomepageSection[]) => {
     return data
@@ -283,8 +345,11 @@ const Landing = () => {
           try {
             content = JSON.parse(content);
           } catch {
-            // Leave content as-is if not valid JSON.
+            content = {};
           }
+        }
+        if (!content || typeof content !== "object" || Array.isArray(content)) {
+          content = {};
         }
 
         let style = section.style;
@@ -292,16 +357,19 @@ const Landing = () => {
           try {
             style = JSON.parse(style);
           } catch {
-            // Leave style as-is if not valid JSON.
+            style = {};
           }
         }
+        if (!style || typeof style !== "object" || Array.isArray(style)) {
+          style = {};
+        }
 
-        const activeValue = section.isActive ?? section.is_active ?? section.enabled ?? section.is_enabled;
+        const activeValue = section.isActive ?? section.is_active;
         const normalizedActive =
           section.isActive === undefined && section.is_active === undefined
             ? true
             : (typeof activeValue === "string"
-                ? !["false", "0", "no", "off"].includes(activeValue.toLowerCase())
+                ? !["false", "0", "no", "off"].includes(activeValue.trim().toLowerCase())
                 : Boolean(activeValue));
 
         const rawType =
@@ -321,15 +389,34 @@ const Landing = () => {
           0;
         const parsedPosition = Number(positionValue);
         const position = Number.isFinite(parsedPosition) ? parsedPosition : 0;
+        const targetRolesSource =
+          section.targetRoles ??
+          section.target_roles ??
+          section.roles ??
+          section.targeting?.roles ??
+          [];
+        const targetRoles = Array.isArray(targetRolesSource) ? targetRolesSource : [];
 
         return {
           ...section,
           id: section.id ?? section._id ?? section.uuid ?? `section-${index}`,
           type: normalizedType,
+          sectionType: normalizedType,
+          section_type: normalizedType,
           content,
           style,
           isActive: normalizedActive,
+          is_active: normalizedActive,
           position,
+          sortOrder: position,
+          sort_order: position,
+          targetRoles,
+          target_roles: targetRoles,
+          roles: targetRoles,
+          targeting: {
+            ...(section.targeting && typeof section.targeting === 'object' ? section.targeting : {}),
+            roles: targetRoles
+          },
           name: section.name || section.title || normalizedType || 'Section'
         };
       })
@@ -339,18 +426,16 @@ const Landing = () => {
   const loadData = useCallback(async () => {
     try {
       const payload = await CMSService.getGuestHomepage();
-      const nextSections =
-        (Array.isArray(payload?.sections) ? payload.sections : null) ||
-        (Array.isArray(payload?.data?.sections) ? payload.data.sections : null) ||
-        [];
-      const nextSeo = payload?.seo || payload?.data?.seo || null;
+      const nextSections = extractGuestHomepageSections(payload);
+      const nextSeo = extractGuestHomepageSeo(payload);
       setSections(normalizeSections(nextSections));
       setGuestSeo(nextSeo);
       setLoadError('');
     } catch (error: any) {
       console.error('Failed to load guest homepage sections', error);
-      setSections([]);
-      setGuestSeo(null);
+      const fallback = createInitialGuestHomepageState();
+      setSections((prev) => (prev.length ? prev : fallback.sections));
+      setGuestSeo((prev) => prev || fallback.seo);
       setLoadError(error?.message || 'Unable to load guest homepage.');
     } finally {
       setLoading(false);
@@ -523,7 +608,10 @@ const Landing = () => {
     const heroSection = renderSections.find(
       (section) => section.type === 'guest_hero_auth' || section.type === 'hero'
     ) as HomepageSection | undefined;
-    return resolveLandingHeroImage(heroSection);
+    const rawHeroImage = resolveLandingHeroImage(heroSection);
+    return rawHeroImage
+      ? resolveResponsiveAssetUrl(rawHeroImage, { width: 960, height: 720, fit: 'cover', quality: 72 })
+      : '';
   }, [renderSections, user]);
 
   useEffect(() => {
@@ -532,6 +620,14 @@ const Landing = () => {
       upsertImagePreloadLink('landing-lcp-image', null);
     };
   }, [landingHeroImage]);
+
+  if (user) {
+    return (
+      <MemberHomeShellBoundary>
+        <MemberHomeSection />
+      </MemberHomeShellBoundary>
+    );
+  }
 
   if (loading) {
     return (

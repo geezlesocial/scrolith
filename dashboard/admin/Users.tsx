@@ -351,7 +351,7 @@ const UsersManagementTab = () => {
                             <div className="flex justify-center">
                                 <div className="relative group cursor-pointer" onClick={() => setIsFilePickerOpen(true)}>
                                     <div className="w-24 h-24 rounded-full bg-gray-200 border-4 border-white shadow-md overflow-hidden">
-                                        <img src={editingUser.avatar || "https://via.placeholder.com/150"} className="w-full h-full object-cover" alt="Avatar" />
+                                        <img src={editingUser.avatar || "/placeholders/avatar.svg"} className="w-full h-full object-cover" alt="Avatar" />
                                     </div>
                                     <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Camera className="w-8 h-8 text-white" />

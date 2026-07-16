@@ -6,17 +6,14 @@ const toIco = require('to-ico');
   try {
     const projectRoot = path.join(__dirname, '..');
     const outDir = path.join(projectRoot, 'public');
+    const sourcePng = path.join(outDir, 'favicon.png');
     const outIco = path.join(outDir, 'favicon.ico');
 
-    // Request PNG from the external avatar service (ensure we get a PNG)
-    const avatarUrl = 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true&format=png';
-    const res = await fetch(avatarUrl);
-    if (!res.ok) throw new Error(`Failed to fetch avatar: ${res.status}`);
-    const contentType = res.headers.get('content-type') || '';
-    if (!contentType.includes('png')) throw new Error(`Expected PNG from avatar service but got ${contentType}`);
-    const arrayBuffer = await res.arrayBuffer();
-    const pngBuffer = Buffer.from(arrayBuffer);
+    if (!fs.existsSync(sourcePng)) {
+      throw new Error('public/favicon.png not found. Generate the PNG favicon from public/logo.png first.');
+    }
 
+    const pngBuffer = fs.readFileSync(sourcePng);
     const icoBuffer = await toIco([pngBuffer]);
     fs.writeFileSync(outIco, icoBuffer);
     console.log('Generated', outIco);

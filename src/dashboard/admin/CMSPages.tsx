@@ -1,117 +1,49 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Edit2, Trash2, Save, ArrowLeft, Image as ImageIcon, Link as LinkIcon, Eye, Upload, X, Code, Bold, Italic, List, Video, Folder, Globe, Settings, Mail, Underline, ListOrdered, Quote, Heading1, Heading2, Pilcrow } from 'lucide-react';
+import {
+    Plus,
+    Edit2,
+    Trash2,
+    Save,
+    ArrowLeft,
+    Image as ImageIcon,
+    Link as LinkIcon,
+    Eye,
+    Upload,
+    X,
+    Code,
+    Bold,
+    Italic,
+    List,
+    Video,
+    Folder,
+    Globe,
+    Settings,
+    Mail,
+    Underline,
+    ListOrdered,
+    Quote,
+    Heading1,
+    Heading2,
+    Pilcrow,
+    BadgeInfo,
+    Megaphone,
+    Sparkles,
+    ChevronUp,
+    ChevronDown,
+    WandSparkles
+} from 'lucide-react';
 import { StaticPage, PageCategory, MediaItem, ContentBlock, BlogCategory, BlogSettings, AnswersPageConfig, GuidesPageConfig, HirePageConfig, FreelancerPageConfig } from '../../types';
 import { CMSService } from '../../services/cms';
+import { AIService } from '../../services/ai/ai.service';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
+import { htmlToPlainText, plainTextToHtml, prepareStaticPageContent, normalizeLegacyPageHtml } from '../../utils/staticPageContent';
 import FilePickerModal from '../shared/FilePickerModal';
 import AuthPagesManager from './AuthPagesManager';
 import SystemMessagesManager from './SystemMessagesManager';
 
 type ContentEditorMode = 'html' | 'plain';
-
-const escapeHtml = (value: string) =>
-    String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-
-const decodeEntities = (value: string) => {
-    if (typeof window === 'undefined') return value;
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = value;
-    return textarea.value;
-};
-
-const htmlToPlainText = (html: string) => {
-    const source = String(html || '').replace(/\r\n/g, '\n');
-    const withBreaks = source
-        .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-        .replace(/<\s*\/\s*(p|div|h1|h2|h3|h4|h5|h6|blockquote|pre)\s*>/gi, '\n')
-        .replace(/<\s*li[^>]*>/gi, '\n- ')
-        .replace(/<\s*\/\s*li\s*>/gi, '');
-    const withoutTags = withBreaks.replace(/<[^>]*>/g, '');
-    return decodeEntities(withoutTags)
-        .replace(/\n{3,}/g, '\n\n')
-        .trim();
-};
-
-const autoLinkText = (text: string) =>
-    text.replace(
-        /((https?:\/\/|www\.)[^\s<]+)/gi,
-        (match) => `<a href="${match.startsWith('http') ? match : `https://${match}`}" target="_blank" rel="noopener noreferrer">${match}</a>`
-    );
-
-const formatInlinePlainText = (line: string) => {
-    let output = escapeHtml(line);
-    output = output.replace(/`([^`]+)`/g, '<code>$1</code>');
-    output = output.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    output = output.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    output = output.replace(/__([^_]+)__/g, '<u>$1</u>');
-    output = autoLinkText(output);
-    return output;
-};
-
-const plainTextToHtml = (plainText: string) => {
-    const lines = String(plainText || '').replace(/\r\n/g, '\n').split('\n');
-    const html: string[] = [];
-    let ulItems: string[] = [];
-    let olItems: string[] = [];
-
-    const flushUl = () => {
-        if (!ulItems.length) return;
-        html.push(`<ul>\n${ulItems.map((item) => `  <li>${item}</li>`).join('\n')}\n</ul>`);
-        ulItems = [];
-    };
-    const flushOl = () => {
-        if (!olItems.length) return;
-        html.push(`<ol>\n${olItems.map((item) => `  <li>${item}</li>`).join('\n')}\n</ol>`);
-        olItems = [];
-    };
-    const flushLists = () => {
-        flushUl();
-        flushOl();
-    };
-
-    for (const rawLine of lines) {
-        const line = rawLine.trim();
-        if (!line) {
-            flushLists();
-            continue;
-        }
-
-        if (/^[-*]\s+/.test(line)) {
-            flushOl();
-            ulItems.push(formatInlinePlainText(line.replace(/^[-*]\s+/, '')));
-            continue;
-        }
-        if (/^\d+\.\s+/.test(line)) {
-            flushUl();
-            olItems.push(formatInlinePlainText(line.replace(/^\d+\.\s+/, '')));
-            continue;
-        }
-
-        flushLists();
-        if (/^###\s+/.test(line)) {
-            html.push(`<h3>${formatInlinePlainText(line.replace(/^###\s+/, ''))}</h3>`);
-        } else if (/^##\s+/.test(line)) {
-            html.push(`<h2>${formatInlinePlainText(line.replace(/^##\s+/, ''))}</h2>`);
-        } else if (/^#\s+/.test(line)) {
-            html.push(`<h1>${formatInlinePlainText(line.replace(/^#\s+/, ''))}</h1>`);
-        } else if (/^>\s+/.test(line)) {
-            html.push(`<blockquote>${formatInlinePlainText(line.replace(/^>\s+/, ''))}</blockquote>`);
-        } else {
-            html.push(`<p>${formatInlinePlainText(line)}</p>`);
-        }
-    }
-
-    flushLists();
-    if (!html.length) return '<p></p>';
-    return html.join('\n');
-};
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: any) => (
     <button 
@@ -121,6 +53,111 @@ const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab, setView }: 
         <Icon className="w-4 h-4 mr-2" /> {label}
     </button>
 );
+
+const createPageBlock = (type: 'callout' | 'cta' | 'ad'): ContentBlock => {
+    const id = `page-block-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+    if (type === 'ad') {
+        return {
+            id,
+            type,
+            content: 'Use this module for a promoted placement, announcement, or sponsored campaign.',
+            settings: {
+                title: 'Promoted placement',
+                sponsor: 'Sponsored',
+                ctaLabel: 'Learn more',
+                ctaUrl: '/support',
+                placement: 'sidebar',
+                image: '',
+                description: 'Highlight a promoted campaign, partner announcement, or internal growth message.'
+            }
+        };
+    }
+
+    if (type === 'cta') {
+        return {
+            id,
+            type,
+            content: 'Guide readers toward the next action you want them to take.',
+            settings: {
+                title: 'Continue with Scrolith',
+                ctaLabel: 'Visit support',
+                ctaUrl: '/support',
+                placement: 'after_content',
+                description: 'Send readers to support, onboarding, marketplace, or another important destination.'
+            }
+        };
+    }
+
+    return {
+        id,
+        type,
+        content: 'Use this callout for key notices, policy clarifications, or important summaries.',
+        settings: {
+            title: 'Important note',
+            placement: 'after_hero',
+            tone: 'info',
+            description: 'Use this callout for key notices, policy clarifications, or important summaries.'
+        }
+    };
+};
+
+const extractJsonObject = (value: string) => {
+    const text = String(value || '').trim();
+    if (!text) return null;
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+        return JSON.parse(match[0]);
+    } catch {
+        return null;
+    }
+};
+
+const normalizeStringArray = (value: any, limit = 6) => {
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .slice(0, limit);
+    }
+    if (typeof value === 'string') {
+        return value
+            .split(',')
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .slice(0, limit);
+    }
+    return [];
+};
+
+const normalizeFeaturedQuestions = (value: any) => {
+    if (!Array.isArray(value)) return [];
+    return value
+        .map((item, index) => ({
+            id: String(item?.id || `q-${Date.now()}-${index}`),
+            question: String(item?.question || item?.title || '').trim(),
+            tags: normalizeStringArray(item?.tags || item?.keywords || item?.topics || '', 6)
+        }))
+        .filter(Boolean)
+        .filter((item) => item.question || item.tags.length)
+        .slice(0, 6);
+};
+
+const normalizeFeaturedGuides = (value: any) => {
+    if (!Array.isArray(value)) return [];
+    return value
+        .map((item) => ({
+            id: String(item?.id || `guide-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+            title: String(item?.title || '').trim(),
+            excerpt: String(item?.excerpt || '').trim(),
+            category: String(item?.category || '').trim(),
+            readTime: String(item?.readTime || item?.read_time || '').trim(),
+            coverImage: String(item?.coverImage || item?.cover_image || '').trim()
+        }))
+        .filter((item) => item.title || item.excerpt || item.category || item.readTime || item.coverImage)
+        .slice(0, 6);
+};
 
 const CMSPages = () => {
     const [pages, setPages] = useState<StaticPage[]>([]);
@@ -262,6 +299,50 @@ const CMSPages = () => {
         }
     };
 
+    const updatePageBlock = (blockId: string, updater: (block: ContentBlock) => ContentBlock) => {
+        if (!editingPage) return;
+        setEditingPage({
+            ...editingPage,
+            blocks: (editingPage.blocks || []).map((block) => (block.id === blockId ? updater(block) : block))
+        });
+    };
+
+    const addPageBlock = (type: 'callout' | 'cta' | 'ad') => {
+        if (!editingPage) return;
+        setEditingPage({
+            ...editingPage,
+            blocks: [...(editingPage.blocks || []), createPageBlock(type)]
+        });
+    };
+
+    const removePageBlock = (blockId: string) => {
+        if (!editingPage) return;
+        setEditingPage({
+            ...editingPage,
+            blocks: (editingPage.blocks || []).filter((block) => block.id !== blockId)
+        });
+    };
+
+    const movePageBlock = (blockId: string, direction: -1 | 1) => {
+        if (!editingPage) return;
+        const blocks = [...(editingPage.blocks || [])];
+        const index = blocks.findIndex((block) => block.id === blockId);
+        if (index < 0) return;
+        const targetIndex = index + direction;
+        if (targetIndex < 0 || targetIndex >= blocks.length) return;
+        const [block] = blocks.splice(index, 1);
+        blocks.splice(targetIndex, 0, block);
+        setEditingPage({ ...editingPage, blocks });
+    };
+
+    const autoOrganizeContent = () => {
+        if (!editingPage) return;
+        const nextContent = normalizeLegacyPageHtml(editingPage.content || '');
+        setEditingPage({ ...editingPage, content: nextContent });
+        setPlainTextDraft(htmlToPlainText(nextContent));
+        showNotification('success', 'Content Organized', 'The page content was normalized into cleaner sections and paragraphs.');
+    };
+
     // --- Editor Helpers ---
 
     const updateContentFromPlainText = (value: string) => {
@@ -348,7 +429,8 @@ const CMSPages = () => {
 
     const handleFilePicked = (file: { url: string; name: string; type?: string }) => {
         if (!editingPage || !file?.url) return;
-        const imageSnippet = `<img src="${file.url}" alt="${escapeHtml(file.name || 'Image')}" class="w-full rounded-lg my-4" />`;
+        const safeAlt = String(file.name || 'Image').replace(/"/g, '&quot;');
+        const imageSnippet = `<img src="${file.url}" alt="${safeAlt}" class="w-full rounded-lg my-4" />`;
         const videoSnippet = `<video src="${file.url}" controls class="w-full rounded-lg my-4"></video>`;
         if (filePickerType === 'image') {
             const nextImages = [...(editingPage.images || []), file.url];
@@ -478,6 +560,14 @@ const CMSPages = () => {
                                             Plain Text
                                         </button>
                                     </div>
+                                    <button
+                                        type="button"
+                                        onClick={autoOrganizeContent}
+                                        className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                    >
+                                        <WandSparkles className="mr-2 h-3.5 w-3.5" />
+                                        Auto-organize
+                                    </button>
                                 </div>
                             </div>
                             <div className="mb-2 flex flex-wrap items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 p-2 overflow-x-auto">
@@ -526,9 +616,225 @@ const CMSPages = () => {
                                     Live Preview
                                 </div>
                                 <div
-                                    className="prose prose-sm max-w-none px-3 sm:px-4 py-3 sm:py-4 max-h-64 overflow-auto"
-                                    dangerouslySetInnerHTML={{ __html: editingPage.content || '<p class="text-gray-400">Nothing to preview yet.</p>' }}
+                                    className="static-page-content px-3 sm:px-4 py-3 sm:py-4 max-h-64 overflow-auto"
+                                    dangerouslySetInnerHTML={{ __html: prepareStaticPageContent(editingPage.content || '').html || '<p class="text-gray-400">Nothing to preview yet.</p>' }}
                                 />
+                            </div>
+                        </div>
+
+                        <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h3 className="font-bold text-gray-900">Page Modules</h3>
+                                    <p className="mt-1 text-sm text-gray-500">
+                                        Add WordPress-style page enhancements like callouts, CTAs, and ad modules without touching raw HTML.
+                                    </p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => addPageBlock('callout')}
+                                        className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                    >
+                                        <BadgeInfo className="mr-2 h-4 w-4" />
+                                        Add Callout
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => addPageBlock('cta')}
+                                        className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                    >
+                                        <Sparkles className="mr-2 h-4 w-4" />
+                                        Add CTA
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => addPageBlock('ad')}
+                                        className="inline-flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                    >
+                                        <Megaphone className="mr-2 h-4 w-4" />
+                                        Add Ad Module
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="mt-4 space-y-4">
+                                {(editingPage.blocks || []).length === 0 ? (
+                                    <div className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-5 text-sm text-gray-500">
+                                        No page modules added yet. Add a callout, CTA, or ad module to create a more structured page.
+                                    </div>
+                                ) : (
+                                    (editingPage.blocks || []).map((block, index) => (
+                                        <div key={block.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                                <div>
+                                                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+                                                        {(block.type || 'text').replace(/_/g, ' ')} module
+                                                    </div>
+                                                    <div className="mt-1 text-sm text-gray-500">
+                                                        Position {index + 1} in the page enhancement stack
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => movePageBlock(block.id, -1)}
+                                                        className="rounded-lg border border-gray-200 p-2 text-gray-600 hover:bg-gray-50"
+                                                        title="Move up"
+                                                    >
+                                                        <ChevronUp className="h-4 w-4" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => movePageBlock(block.id, 1)}
+                                                        className="rounded-lg border border-gray-200 p-2 text-gray-600 hover:bg-gray-50"
+                                                        title="Move down"
+                                                    >
+                                                        <ChevronDown className="h-4 w-4" />
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => removePageBlock(block.id)}
+                                                        className="rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50"
+                                                        title="Remove block"
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                                <div>
+                                                    <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Title</label>
+                                                    <input
+                                                        className="w-full rounded-lg border-gray-300"
+                                                        value={block.settings?.title || ''}
+                                                        onChange={e =>
+                                                            updatePageBlock(block.id, current => ({
+                                                                ...current,
+                                                                settings: { ...(current.settings || {}), title: e.target.value }
+                                                            }))
+                                                        }
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Placement</label>
+                                                    <select
+                                                        className="w-full rounded-lg border-gray-300"
+                                                        value={block.settings?.placement || (block.type === 'ad' ? 'sidebar' : block.type === 'cta' ? 'after_content' : 'after_hero')}
+                                                        onChange={e =>
+                                                            updatePageBlock(block.id, current => ({
+                                                                ...current,
+                                                                settings: { ...(current.settings || {}), placement: e.target.value }
+                                                            }))
+                                                        }
+                                                    >
+                                                        <option value="after_hero">After hero</option>
+                                                        <option value="sidebar">Sidebar</option>
+                                                        <option value="after_content">After content</option>
+                                                    </select>
+                                                </div>
+                                                {block.type === 'callout' ? (
+                                                    <div>
+                                                        <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Tone</label>
+                                                        <select
+                                                            className="w-full rounded-lg border-gray-300"
+                                                            value={block.settings?.tone || 'info'}
+                                                            onChange={e =>
+                                                                updatePageBlock(block.id, current => ({
+                                                                    ...current,
+                                                                    settings: { ...(current.settings || {}), tone: e.target.value }
+                                                                }))
+                                                            }
+                                                        >
+                                                            <option value="info">Info</option>
+                                                            <option value="success">Success</option>
+                                                            <option value="warning">Warning</option>
+                                                            <option value="danger">Danger</option>
+                                                        </select>
+                                                    </div>
+                                                ) : null}
+                                                {block.type === 'ad' ? (
+                                                    <div>
+                                                        <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Sponsor label</label>
+                                                        <input
+                                                            className="w-full rounded-lg border-gray-300"
+                                                            value={block.settings?.sponsor || ''}
+                                                            onChange={e =>
+                                                                updatePageBlock(block.id, current => ({
+                                                                    ...current,
+                                                                    settings: { ...(current.settings || {}), sponsor: e.target.value }
+                                                                }))
+                                                            }
+                                                        />
+                                                    </div>
+                                                ) : null}
+                                                {(block.type === 'cta' || block.type === 'ad') ? (
+                                                    <>
+                                                        <div>
+                                                            <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">CTA Label</label>
+                                                            <input
+                                                                className="w-full rounded-lg border-gray-300"
+                                                                value={block.settings?.ctaLabel || ''}
+                                                                onChange={e =>
+                                                                    updatePageBlock(block.id, current => ({
+                                                                        ...current,
+                                                                        settings: { ...(current.settings || {}), ctaLabel: e.target.value }
+                                                                    }))
+                                                                }
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">CTA URL</label>
+                                                            <input
+                                                                className="w-full rounded-lg border-gray-300"
+                                                                value={block.settings?.ctaUrl || ''}
+                                                                onChange={e =>
+                                                                    updatePageBlock(block.id, current => ({
+                                                                        ...current,
+                                                                        settings: { ...(current.settings || {}), ctaUrl: e.target.value }
+                                                                    }))
+                                                                }
+                                                            />
+                                                        </div>
+                                                    </>
+                                                ) : null}
+                                                {block.type === 'ad' ? (
+                                                    <div className="md:col-span-2">
+                                                        <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Image URL</label>
+                                                        <input
+                                                            className="w-full rounded-lg border-gray-300"
+                                                            value={block.settings?.image || ''}
+                                                            onChange={e =>
+                                                                updatePageBlock(block.id, current => ({
+                                                                    ...current,
+                                                                    settings: { ...(current.settings || {}), image: e.target.value }
+                                                                }))
+                                                            }
+                                                            placeholder="https://..."
+                                                        />
+                                                    </div>
+                                                ) : null}
+                                                <div className="md:col-span-2">
+                                                    <label className="block text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">
+                                                        Description / Body
+                                                    </label>
+                                                    <textarea
+                                                        className="h-24 w-full rounded-lg border-gray-300"
+                                                        value={block.settings?.description || block.content || ''}
+                                                        onChange={e =>
+                                                            updatePageBlock(block.id, current => ({
+                                                                ...current,
+                                                                content: e.target.value,
+                                                                settings: { ...(current.settings || {}), description: e.target.value }
+                                                            }))
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         </div>
 
@@ -551,6 +857,35 @@ const CMSPages = () => {
                                         value={editingPage.seo?.metaDescription || ''}
                                         onChange={e => setEditingPage({ ...editingPage, seo: { ...editingPage.seo, metaDescription: e.target.value } })}
                                     />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Meta Keywords</label>
+                                    <input
+                                        className="w-full border-gray-300 rounded-md"
+                                        value={
+                                            Array.isArray((editingPage.seo as any)?.metaKeywords)
+                                                ? (editingPage.seo as any).metaKeywords.join(', ')
+                                                : Array.isArray((editingPage.seo as any)?.meta_keywords)
+                                                    ? (editingPage.seo as any).meta_keywords.join(', ')
+                                                    : ''
+                                        }
+                                        onChange={e =>
+                                            setEditingPage({
+                                                ...editingPage,
+                                                seo: {
+                                                    ...editingPage.seo,
+                                                    metaKeywords: e.target.value
+                                                        .split(',')
+                                                        .map(value => value.trim())
+                                                        .filter(Boolean)
+                                                } as any
+                                            })
+                                        }
+                                        placeholder="terms of service, privacy policy, Scrolith"
+                                    />
+                                    <p className="mt-1 text-xs text-gray-500">
+                                        Separate keywords with commas. Use one focused topic cluster per page.
+                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -604,6 +939,9 @@ const CMSPages = () => {
                         {/* Media Gallery */}
                         <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
                             <h4 className="font-bold text-gray-900 mb-4 flex items-center"><ImageIcon className="w-4 h-4 mr-2" /> Media</h4>
+                            <p className="mb-3 text-xs text-gray-500">
+                                The first image in this gallery is used as the featured visual and social sharing image for the page.
+                            </p>
                             
                             <div className="grid grid-cols-3 gap-2 mb-4">
                                 {editingPage.images && editingPage.images.map((img, i) => (
@@ -857,6 +1195,7 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: AnswersPageConfig = {
         hero: {
@@ -923,6 +1262,80 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping admin draft the Scrolith Answers page.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "heroSubtitle": string,',
+                    '  "featuredQuestions": [{"question": string, "tags": [string]}],',
+                    '  "faq": [{"question": string, "answer": string}]',
+                    '}',
+                    'Keep everything concise, professional, and helpful for users.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    hero: config.hero,
+                    categories: config.categories,
+                    featuredQuestions: config.featuredQuestions,
+                    faq: config.faq
+                }),
+                audience: 'cms-admin',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextHeroSubtitle = String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim();
+                const nextQuestions = normalizeFeaturedQuestions(parsed.featuredQuestions || parsed.questions || parsed.items);
+                const nextFaq = Array.isArray(parsed.faq)
+                    ? parsed.faq
+                        .map((item, index) => ({
+                            id: String(item?.id || `faq-${Date.now()}-${index}`),
+                            question: String(item?.question || item?.title || '').trim(),
+                            answer: String(item?.answer || item?.body || item?.content || '').trim()
+                        }))
+                        .filter((item) => item.question || item.answer)
+                        .slice(0, 8)
+                    : [];
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: nextHeroSubtitle || config.hero.subtitle
+                    },
+                    featuredQuestions: nextQuestions.length ? nextQuestions : config.featuredQuestions,
+                    faq: nextFaq.length ? nextFaq : config.faq
+                });
+                showNotification('success', 'Scrolitha Draft', 'Answers page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Answers draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate an Answers page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -978,7 +1391,18 @@ const AnswersPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Answers
@@ -1086,6 +1510,7 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
     const [coverPickerOpen, setCoverPickerOpen] = useState(false);
     const [coverIndex, setCoverIndex] = useState<number | null>(null);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: GuidesPageConfig = {
         hero: {
@@ -1159,6 +1584,76 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ featuredGuides: next });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.generateGuideWithScrolitha({
+                topic: 'Draft a guides landing page for Scrolith with curated topics, featured guides, and a concise call to action.',
+                audience: 'cms-admin',
+                depth: 'detailed',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.guide || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextHeroSubtitle = String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim();
+                const nextTopics = Array.isArray(parsed.topics)
+                    ? parsed.topics
+                        .map((item, index) => ({
+                            id: String(item?.id || `topic-${Date.now()}-${index}`),
+                            label: String(item?.label || item?.title || '').trim(),
+                            description: String(item?.description || item?.body || item?.summary || '').trim()
+                        }))
+                        .filter((item) => item.label || item.description)
+                        .slice(0, 8)
+                    : [];
+                const nextGuides = normalizeFeaturedGuides(parsed.featuredGuides || parsed.guides || parsed.items);
+                const nextCta = parsed.callToAction
+                    ? {
+                          ...(config.callToAction || fallback.callToAction),
+                          title: String(parsed.callToAction.title || parsed.callToAction.heading || config.callToAction?.title || '').trim() || config.callToAction?.title || '',
+                          subtitle: String(parsed.callToAction.subtitle || parsed.callToAction.description || config.callToAction?.subtitle || '').trim() || config.callToAction?.subtitle || '',
+                          ctaLabel: String(parsed.callToAction.ctaLabel || parsed.callToAction.label || config.callToAction?.ctaLabel || '').trim() || config.callToAction?.ctaLabel || '',
+                          ctaUrl: String(parsed.callToAction.ctaUrl || parsed.callToAction.url || config.callToAction?.ctaUrl || '').trim() || config.callToAction?.ctaUrl || ''
+                      }
+                    : config.callToAction;
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: nextHeroSubtitle || config.hero.subtitle
+                    },
+                    topics: nextTopics.length ? nextTopics : config.topics,
+                    featuredGuides: nextGuides.length ? nextGuides : config.featuredGuides,
+                    callToAction: nextCta || config.callToAction
+                });
+                showNotification('success', 'Scrolitha Draft', 'Guides page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Guides draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a Guides page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1225,7 +1720,18 @@ const GuidesPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Guides
@@ -1336,6 +1842,7 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: HirePageConfig = {
         hero: {
@@ -1404,6 +1911,113 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping admin draft the Scrolith Hire page.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "heroSubtitle": string,',
+                    '  "highlights": [{"title": string, "description": string}],',
+                    '  "steps": [{"title": string, "description": string}],',
+                    '  "testimonials": [{"name": string, "role": string, "quote": string}],',
+                    '  "callToAction": {"title": string, "subtitle": string, "ctaLabel": string, "ctaUrl": string}',
+                    '}',
+                    'Keep the copy professional and enterprise ready.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    hero: config.hero,
+                    highlights: config.highlights,
+                    steps: config.steps,
+                    testimonials: config.testimonials,
+                    callToAction: config.callToAction
+                }),
+                audience: 'cms-admin',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextHighlights = Array.isArray(parsed.highlights)
+                    ? parsed.highlights
+                        .map((item, index) => ({
+                            id: String(item?.id || `h-${Date.now()}-${index}`),
+                            title: String(item?.title || '').trim(),
+                            description: String(item?.description || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.title || item.description)
+                        .slice(0, 6)
+                    : [];
+                const nextSteps = Array.isArray(parsed.steps)
+                    ? parsed.steps
+                        .map((item, index) => ({
+                            id: String(item?.id || `s-${Date.now()}-${index}`),
+                            title: String(item?.title || '').trim(),
+                            description: String(item?.description || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.title || item.description)
+                        .slice(0, 6)
+                    : [];
+                const nextTestimonials = Array.isArray(parsed.testimonials)
+                    ? parsed.testimonials
+                        .map((item, index) => ({
+                            id: String(item?.id || `t-${Date.now()}-${index}`),
+                            name: String(item?.name || '').trim(),
+                            role: String(item?.role || '').trim(),
+                            quote: String(item?.quote || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.name || item.role || item.quote)
+                        .slice(0, 6)
+                    : [];
+                const nextCta = parsed.callToAction
+                    ? {
+                          ...(config.callToAction || fallback.callToAction),
+                          title: String(parsed.callToAction.title || config.callToAction?.title || '').trim() || config.callToAction?.title || '',
+                          subtitle: String(parsed.callToAction.subtitle || config.callToAction?.subtitle || '').trim() || config.callToAction?.subtitle || '',
+                          ctaLabel: String(parsed.callToAction.ctaLabel || config.callToAction?.ctaLabel || '').trim() || config.callToAction?.ctaLabel || '',
+                          ctaUrl: String(parsed.callToAction.ctaUrl || config.callToAction?.ctaUrl || '').trim() || config.callToAction?.ctaUrl || ''
+                      }
+                    : config.callToAction;
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim() || config.hero.subtitle
+                    },
+                    highlights: nextHighlights.length ? nextHighlights : config.highlights,
+                    steps: nextSteps.length ? nextSteps : config.steps,
+                    testimonials: nextTestimonials.length ? nextTestimonials : config.testimonials,
+                    callToAction: nextCta || config.callToAction
+                });
+                showNotification('success', 'Scrolitha Draft', 'Hire page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Hire draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a Hire page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1460,7 +2074,18 @@ const HirePageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Matching
@@ -1564,6 +2189,7 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [heroPickerOpen, setHeroPickerOpen] = useState(false);
+    const [scrolithaDrafting, setScrolithaDrafting] = useState(false);
 
     const fallback: FreelancerPageConfig = {
         hero: {
@@ -1632,6 +2258,99 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
         updateConfig({ hero: { ...config.hero, backgroundImage: file.url } });
     };
 
+    const handleScrolithaDraft = async () => {
+        if (!config || scrolithaDrafting) return;
+        setScrolithaDrafting(true);
+        try {
+            const response = await AIService.answerQuestionWithScrolitha({
+                question: [
+                    'You are Scrolitha helping admin draft the Scrolith Freelancer page.',
+                    'Return valid JSON only with these keys:',
+                    '{',
+                    '  "heroSubtitle": string,',
+                    '  "services": [{"title": string, "description": string}],',
+                    '  "proof": [{"metric": string, "label": string}],',
+                    '  "callToAction": {"title": string, "subtitle": string, "ctaLabel": string, "ctaUrl": string}',
+                    '}',
+                    'Keep the copy professional and aligned with enterprise freelancers.'
+                ].join('\n'),
+                context: JSON.stringify({
+                    hero: config.hero,
+                    services: config.services,
+                    proof: config.proof,
+                    callToAction: config.callToAction
+                }),
+                audience: 'cms-admin',
+                format: 'json'
+            });
+
+            const rawText = String((response as any)?.answer || (response as any)?.response || (response as any)?.text || '').trim();
+            const parsed = extractJsonObject(rawText);
+
+            if (parsed) {
+                const nextServices = Array.isArray(parsed.services)
+                    ? parsed.services
+                        .map((item, index) => ({
+                            id: String(item?.id || `svc-${Date.now()}-${index}`),
+                            title: String(item?.title || '').trim(),
+                            description: String(item?.description || item?.body || '').trim()
+                        }))
+                        .filter((item) => item.title || item.description)
+                        .slice(0, 6)
+                    : [];
+                const nextProof = Array.isArray(parsed.proof)
+                    ? parsed.proof
+                        .map((item, index) => ({
+                            id: String(item?.id || `p-${Date.now()}-${index}`),
+                            metric: String(item?.metric || '').trim(),
+                            label: String(item?.label || item?.description || '').trim()
+                        }))
+                        .filter((item) => item.metric || item.label)
+                        .slice(0, 6)
+                    : [];
+                const nextCta = parsed.callToAction
+                    ? {
+                          ...(config.callToAction || fallback.callToAction),
+                          title: String(parsed.callToAction.title || config.callToAction?.title || '').trim() || config.callToAction?.title || '',
+                          subtitle: String(parsed.callToAction.subtitle || config.callToAction?.subtitle || '').trim() || config.callToAction?.subtitle || '',
+                          ctaLabel: String(parsed.callToAction.ctaLabel || config.callToAction?.ctaLabel || '').trim() || config.callToAction?.ctaLabel || '',
+                          ctaUrl: String(parsed.callToAction.ctaUrl || config.callToAction?.ctaUrl || '').trim() || config.callToAction?.ctaUrl || ''
+                      }
+                    : config.callToAction;
+
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: String(parsed.heroSubtitle || parsed.subtitle || config.hero.subtitle || '').trim() || config.hero.subtitle
+                    },
+                    services: nextServices.length ? nextServices : config.services,
+                    proof: nextProof.length ? nextProof : config.proof,
+                    callToAction: nextCta || config.callToAction
+                });
+                showNotification('success', 'Scrolitha Draft', 'Freelancer page content drafted from the current AI context.');
+                return;
+            }
+
+            if (rawText) {
+                updateConfig({
+                    hero: {
+                        ...config.hero,
+                        subtitle: rawText
+                    }
+                });
+                showNotification('info', 'Scrolitha Draft', 'Draft received. Review the generated summary and refine as needed.');
+                return;
+            }
+
+            showNotification('alert', 'Scrolitha Draft', 'Scrolitha returned no usable draft.');
+        } catch (error) {
+            console.error('Scrolitha Freelancer draft failed:', error);
+            showNotification('alert', 'Scrolitha Draft', 'Unable to generate a Freelancer page draft right now.');
+        } finally {
+            setScrolithaDrafting(false);
+        }
+    };
+
     if (loading || !config) {
         return (
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -1688,7 +2407,18 @@ const FreelancerPageManager = ({ setView }: { setView: (v: any) => void }) => {
                 </div>
 
                 <div className="space-y-4">
-                    <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                    <div className="flex items-center justify-between gap-3">
+                        <h3 className="font-semibold text-gray-900">AI Settings</h3>
+                        <button
+                            type="button"
+                            onClick={handleScrolithaDraft}
+                            disabled={scrolithaDrafting}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-60"
+                        >
+                            <WandSparkles className="w-4 h-4" />
+                            {scrolithaDrafting ? 'Drafting...' : 'Draft with Scrolitha'}
+                        </button>
+                    </div>
                     <label className="flex items-center gap-2 text-sm">
                         <input type="checkbox" checked={config.ai.enabled} onChange={e => updateConfig({ ai: { ...config.ai, enabled: e.target.checked } })} />
                         Enable AI Assistance

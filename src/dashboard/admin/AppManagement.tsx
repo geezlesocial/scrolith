@@ -45,7 +45,8 @@ const defaultConfig = {
     message: 'Install the desktop build with your latest logo/icon branding.',
     ctaLabel: 'Download Desktop App',
     secondaryCtaLabel: 'I Installed',
-    downloadUrl: '',
+    downloadUrl:
+      'https://storage.googleapis.com/downloads.scrolith.com/desktop/win/Scrolith-Desktop-Setup-latest-x64.exe',
     version: 'beta',
     iconUrl: 'https://scrolith.com/icon-192.png'
   }
@@ -157,6 +158,24 @@ const AppManagement: React.FC = () => {
       activePushUsers: 0,
       totalDeviceTokens: 0
     };
+  }, [analytics]);
+
+  const pushRuntime = useMemo(() => {
+    return (
+      analytics?.pushRuntime || {
+        enabled: false,
+        credentialSource: null,
+        projectId: '',
+        error: 'Push diagnostics unavailable'
+      }
+    );
+  }, [analytics]);
+
+  const recentPushRegistrationErrors = useMemo(() => {
+    const eventEntry = Array.isArray(analytics?.byEvent)
+      ? analytics.byEvent.find((item: any) => item?.event === 'push_registration_error')
+      : null;
+    return Number(eventEntry?.count || 0);
   }, [analytics]);
 
   const focusedCampaignId = useMemo(() => {
@@ -485,6 +504,12 @@ const AppManagement: React.FC = () => {
                 onChange={(e) => handleConfigChange('desktop.downloadUrl', e.target.value)}
                 className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
               />
+              <p className="mt-2 text-[11px] text-gray-500">
+                Current live origin:
+                <span className="ml-1 font-medium text-gray-700">
+                  storage.googleapis.com/downloads.scrolith.com/desktop/win
+                </span>
+              </p>
               <label className="mt-2 block text-xs text-gray-500">Icon URL</label>
               <input
                 type="text"
@@ -512,6 +537,50 @@ const AppManagement: React.FC = () => {
           </div>
 
           <div className="space-y-3">
+            <div
+              className={[
+                'rounded-lg border p-3',
+                pushRuntime?.enabled
+                  ? 'border-emerald-200 bg-emerald-50/60'
+                  : 'border-rose-200 bg-rose-50/60'
+              ].join(' ')}
+            >
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+                <Bell className="h-4 w-4" /> Push Delivery Health
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs text-gray-600">
+                <div>
+                  <span className="font-semibold text-gray-900">Backend:</span>{' '}
+                  {pushRuntime?.enabled ? 'Configured' : 'Unavailable'}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-900">Source:</span>{' '}
+                  {pushRuntime?.credentialSource || 'missing'}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-900">Project:</span>{' '}
+                  {pushRuntime?.projectId || 'unknown'}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-900">Active users:</span>{' '}
+                  {summary.activePushUsers || 0}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-900">Device tokens:</span>{' '}
+                  {summary.totalDeviceTokens || 0}
+                </div>
+                <div>
+                  <span className="font-semibold text-gray-900">Reg errors:</span>{' '}
+                  {recentPushRegistrationErrors}
+                </div>
+              </div>
+              {pushRuntime?.error ? (
+                <div className="mt-3 rounded-md bg-white/70 px-3 py-2 text-xs text-rose-700">
+                  {pushRuntime.error}
+                </div>
+              ) : null}
+            </div>
+
             <div className="rounded-lg border border-gray-200 p-3">
               <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
                 <BarChart3 className="h-4 w-4" /> Activity by Event
@@ -779,6 +848,11 @@ const AppManagement: React.FC = () => {
                   {campaign.lastPushSkippedUsers || 0}
                   {campaign.lastPushDisabled ? ' | Push disabled on backend' : ''}
                 </div>
+                {campaign.lastPushErrorSummary ? (
+                  <div className="mt-2 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Push errors: {campaign.lastPushErrorSummary}
+                  </div>
+                ) : null}
               </div>
             ))}
             {campaigns.length === 0 ? (

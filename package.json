@@ -1,12 +1,21 @@
 {
   "name": "atmyworks",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.1.14",
+  "description": "Scrolith desktop application",
+  "author": "Scrolith",
   "type": "module",
+  "main": "desktop/main.cjs",
   "scripts": {
     "dev": "vite --config ./vite.config.ts",
     "build": "vite build",
     "preview": "vite preview",
+    "desktop:dist": "npm run desktop:dist:nsis && npm run desktop:dist:portable",
+    "desktop:dist:nsis": "electron-builder --win nsis --x64 -c.win.artifactName=Scrolith-Desktop-Setup-${version}-${arch}.${ext}",
+    "desktop:dist:portable": "electron-builder --win portable --x64 -c.win.artifactName=Scrolith-Desktop-Portable-${version}-${arch}.${ext}",
+    "desktop:publish:gcs": "powershell -ExecutionPolicy Bypass -File scripts/publish-desktop-release.ps1",
+    "test:mobile:unit": "node --import tsx --test tests/unit/**/*.test.ts",
+    "test:mobile:release": "node scripts/mobile-release-gate.cjs",
     "server": "npx tsx server/src/server.ts",
     "generate-favicon": "node scripts/generate-favicon.cjs",
     "db:migrate": "npx prisma migrate dev",
@@ -19,10 +28,12 @@
   "dependencies": {
     "@aparajita/capacitor-biometric-auth": "^9.1.2",
     "@capacitor/app": "^8.0.0",
+    "@capacitor/browser": "^8.0.3",
     "@capacitor/camera": "^8.0.0",
-    "@capacitor/core": "^8.0.0",
+    "@capacitor/core": "^8.4.0",
     "@capacitor/filesystem": "^8.0.0",
-    "@capacitor/preferences": "^8.0.0",
+    "@capacitor/geolocation": "^8.1.0",
+    "@capacitor/preferences": "^8.0.1",
     "@capacitor/push-notifications": "^8.0.0",
     "@prisma/client": "^5.22.0",
     "axios": "^1.13.2",
@@ -30,9 +41,11 @@
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "electron-updater": "^6.6.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.562.0",
+    "maplibre-gl": "^5.20.1",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.24.0",
     "react": "^19.2.3",
@@ -52,6 +65,8 @@
     "@vitejs/plugin-react": "^5.0.0",
     "autoprefixer": "^10.4.0",
     "cypress": "^15.9.0",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12",
     "playwright": "^1.58.1",
     "postcss": "^8.4.0",
     "prisma": "^5.7.0",
@@ -60,5 +75,43 @@
     "tsx": "^4.7.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "build": {
+    "appId": "com.scrolith.desktop",
+    "productName": "Scrolith",
+    "copyright": "Copyright 2026 Scrolith",
+    "artifactName": "Scrolith-Desktop-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "desktop-dist"
+    },
+    "files": [
+      "desktop/**/*",
+      "public/favicon.ico",
+      "public/icon-192.png",
+      "public/icon-512.png",
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://storage.googleapis.com/downloads.scrolith.com/desktop/win",
+        "channel": "latest"
+      }
+    ],
+    "win": {
+      "icon": "public/favicon.ico",
+      "signtoolOptions": {
+        "publisherName": "Scrolith"
+      }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Scrolith"
+    }
   }
 }

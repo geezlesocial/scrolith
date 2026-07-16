@@ -1,10 +1,17 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../services/api';
-import { MessagingService } from '../services/messaging';
-import { Conversation, Message, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera } from 'lucide-react';
+import {
+  MessagingService,
+  MessageSearchResult,
+  getConversationMergeKey,
+  mergeDirectConversations,
+  messageMatchesConversation
+} from '../services/messaging';
+import { tokenStore } from '../services/tokenStore';
+import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -17,6 +24,21 @@ import { FileService } from '../services/files';
 import VoiceRecorder from './VoiceRecorder';
 import VoiceCallModal from './VoiceCallModal';
 import { VoiceCallProvider, useVoiceCall } from './VoiceCallProvider';
+import { BriefsService } from '../services/briefs';
+import { proposalsApi } from '../services/proposals';
+import { normalizeDealFlowSettings } from '../utils/dealFlow';
+import AcceptProposalContractModal from '../components/contracts/AcceptProposalContractModal';
+import { getRecoverableActionMessage } from '../mobile/runtime/requestRecovery';
+import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDialog';
+import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
+import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
+import {
+  markOutgoingState,
+  subscribeMessagingEvent,
+  trackOutgoingMessage
+} from '../services/messagingEngine';
+import { buildClientSendId } from '../services/messagingComposer';
+import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/messagingSurfaces';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -156,10 +178,15 @@ const VoiceCallControls: React.FC<{
 const Messages = () => {
   const { conversationId } = useParams<{ conversationId: string }>();
   const navigate = useNavigate();
-  const { user } = useUser();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user, isAuthenticated, isLoading: authLoading } = useUser();
   const { showNotification } = useNotification();
-  const { refreshMessages } = useMessages();
-  const { socket } = useSocket();
+  const {
+    refreshMessages,
+    registerVisibleConversation,
+    unregisterVisibleConversation
+  } = useMessages();
+  const { socket, isConnected, connectionHealth } = useSocket();
   const { settings } = useContent();
   
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
@@ -184,6 +211,20 @@ const Messages = () => {
       blockedForCurrentUser: false
   });
   const [voiceNoteBusy, setVoiceNoteBusy] = useState(false);
+  const [dealFlowConfig, setDealFlowConfig] = useState(() => normalizeDealFlowSettings(null));
+  const [showBriefComposer, setShowBriefComposer] = useState(false);
+  const [briefComposerBusy, setBriefComposerBusy] = useState(false);
+  const [briefDraft, setBriefDraft] = useState<Partial<ProjectBrief>>({});
+  const [showProposalComposer, setShowProposalComposer] = useState(false);
+  const [proposalComposerBusy, setProposalComposerBusy] = useState(false);
+  const [proposalBrief, setProposalBrief] = useState<ProjectBrief | null>(null);
+  const [proposalDraft, setProposalDraft] = useState({
+      coverLetter: '',
+      proposedAmount: '',
+      proposedTimeline: 14
+  });
+  const [timelineActionBusyId, setTimelineActionBusyId] = useState<string | null>(null);
+  const [acceptProposalEvent, setAcceptProposalEvent] = useState<any | null>(null);
   
   // Advanced Features State
   const [typingUser, setTypingUser] = useState<string | null>(null);
@@ -201,16 +242,26 @@ const Messages = () => {
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
   const [reactionPanelMessageId, setReactionPanelMessageId] = useState<string | null>(null);
   const [showStarredOnly, setShowStarredOnly] = useState(false);
+  const [messageSearchInput, setMessageSearchInput] = useState('');
+  const [debouncedMessageSearch, setDebouncedMessageSearch] = useState('');
+  const [messageSearchResults, setMessageSearchResults] = useState<MessageSearchResult[]>([]);
+  const [messageSearchLoading, setMessageSearchLoading] = useState(false);
+  const [messageSearchError, setMessageSearchError] = useState('');
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
       () => (typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   );
   const [mobileComposerHostHeight, setMobileComposerHostHeight] = useState<number | null>(null);
+  const [mobileViewportTop, setMobileViewportTop] = useState(0);
+  const [mobileViewportHeight, setMobileViewportHeight] = useState<number | null>(null);
+  const [mobileKeyboardInset, setMobileKeyboardInset] = useState(0);
   
   const layoutShellRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const conversationListRef = useRef<HTMLUListElement>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const composerDockRef = useRef<HTMLDivElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -221,6 +272,8 @@ const Messages = () => {
   const typingStopTimerRef = useRef<number | null>(null);
   const typingIndicatorTimerRef = useRef<number | null>(null);
   const typingActiveRef = useRef(false);
+  const messageSearchAbortRef = useRef<AbortController | null>(null);
+  const pendingSearchMessageFocusRef = useRef<string | null>(null);
   const messageMediaObjectUrlRef = useRef<Map<string, string>>(new Map());
   const pendingMediaFetchRef = useRef<Set<string>>(new Set());
   const [conversationScrollTop, setConversationScrollTop] = useState(0);
@@ -229,6 +282,37 @@ const Messages = () => {
   const messageMediaResourcesRef = useRef<Record<string, AttachmentPreviewResource>>({});
   const messagesTraceEnabled =
       ['1', 'true', 'yes', 'on'].includes(String((import.meta as any)?.env?.VITE_MESSAGES_TRACE_DEBUG || '').toLowerCase());
+
+  const searchResultByConversationId = useMemo(() => {
+      const map = new Map<string, MessageSearchResult>();
+      messageSearchResults.forEach((result) => {
+          if (result.conversationId) map.set(result.conversationId, result);
+      });
+      return map;
+  }, [messageSearchResults]);
+
+  const searchConversations = useMemo(
+      () =>
+          mergeDirectConversations(
+              messageSearchResults
+                  .map((result) => {
+                      const conversation = result.conversation;
+                      if (!conversation?.id) return null;
+                      return {
+                          ...conversation,
+                          participants: conversation.participants?.length ? conversation.participants : result.participants,
+                          lastMessage: result.lastMessage || conversation.lastMessage || conversation.last_message,
+                          last_message: result.lastMessage || conversation.last_message || conversation.lastMessage,
+                          unreadCount: result.unreadCount ?? conversation.unreadCount ?? conversation.unread_count,
+                          unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
+                      } as Conversation;
+                  })
+                  .filter(Boolean) as Conversation[]
+          ),
+      [messageSearchResults]
+  );
+
+  const dedupedConversations = useMemo(() => mergeDirectConversations(conversations), [conversations]);
 
   const traceClient = (event: string, details?: Record<string, any>) => {
       if (!messagesTraceEnabled) return;
@@ -294,13 +378,14 @@ const Messages = () => {
   const resizeComposerTextarea = useCallback(() => {
       const textarea = composerTextareaRef.current;
       if (!textarea) return;
-      const minHeight = isMobileViewport ? 68 : 108;
-      const maxHeight = isMobileViewport ? 136 : 220;
+      const keyboardOpen = isMobileViewport && mobileKeyboardInset > 96;
+      const minHeight = isMobileViewport ? (keyboardOpen ? 56 : 68) : 108;
+      const maxHeight = isMobileViewport ? (keyboardOpen ? 112 : 136) : 220;
       textarea.style.height = '0px';
       const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
       textarea.style.height = `${nextHeight}px`;
       textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
-  }, [isMobileViewport]);
+  }, [isMobileViewport, mobileKeyboardInset]);
 
   const syncMobileComposerHostHeight = useCallback(() => {
       if (typeof window === 'undefined') return;
@@ -308,14 +393,21 @@ const Messages = () => {
       setIsMobileViewport(mobile);
       if (!mobile) {
           setMobileComposerHostHeight(null);
+          setMobileViewportTop(0);
+          setMobileViewportHeight(null);
+          setMobileKeyboardInset(0);
           return;
       }
       const viewport = window.visualViewport;
       const visibleHeight = viewport?.height || window.innerHeight;
       const viewportTop = viewport?.offsetTop || 0;
+      const keyboardInset = Math.max(0, Math.round(window.innerHeight - visibleHeight - viewportTop));
       const shellTop = layoutShellRef.current?.getBoundingClientRect().top ?? 0;
       const availableHeight = Math.floor(visibleHeight - Math.max(shellTop - viewportTop, 0) - 8);
-      setMobileComposerHostHeight(Math.max(360, availableHeight));
+      setMobileViewportTop(Math.max(0, Math.round(viewportTop)));
+      setMobileViewportHeight(Math.max(0, Math.floor(visibleHeight)));
+      setMobileKeyboardInset(keyboardInset);
+      setMobileComposerHostHeight(Math.max(keyboardInset > 0 ? 0 : 360, availableHeight));
   }, []);
 
   const scrollComposerIntoView = useCallback((behavior: ScrollBehavior = 'smooth') => {
@@ -424,7 +516,7 @@ const Messages = () => {
       const observer = new ResizeObserver(syncMetrics);
       observer.observe(node);
       return () => observer.disconnect();
-  }, [conversations.length, showStarredOnly, isMobileViewport]);
+  }, [conversations.length, messageSearchResults.length, showStarredOnly, isMobileViewport, debouncedMessageSearch]);
 
   useEffect(() => {
       userIdRef.current = user?.id || null;
@@ -433,9 +525,77 @@ const Messages = () => {
   // Load Conversations
   useEffect(() => {
       if (user) {
-          MessagingService.getAllConversations(user.id, user.role).then(setConversations);
+          MessagingService.getAllConversations(user.id, user.role).then((list) => {
+              setConversations(mergeDirectConversations(list));
+          });
       }
   }, [user]);
+
+  useEffect(() => {
+      const timer = window.setTimeout(() => {
+          setDebouncedMessageSearch(messageSearchInput.replace(/\s+/g, ' ').trim());
+      }, 300);
+      return () => window.clearTimeout(timer);
+  }, [messageSearchInput]);
+
+  useEffect(() => {
+      const query = debouncedMessageSearch.trim();
+      messageSearchAbortRef.current?.abort();
+      messageSearchAbortRef.current = null;
+
+      if (authLoading || !isAuthenticated || !user?.id || query.length < 2) {
+          setMessageSearchResults([]);
+          setMessageSearchLoading(false);
+          setMessageSearchError('');
+          return;
+      }
+
+      const controller = new AbortController();
+      messageSearchAbortRef.current = controller;
+      setMessageSearchLoading(true);
+      setMessageSearchError('');
+
+      void (async () => {
+          const token = await tokenStore.get();
+          if (controller.signal.aborted) return;
+          if (!token) {
+              setMessageSearchResults([]);
+              setMessageSearchError('Please sign in to search messages.');
+              setMessageSearchLoading(false);
+              return;
+          }
+
+          return MessagingService.searchConversations(query, {
+              limit: 30,
+              signal: controller.signal,
+              adminScope: user.role === UserRole.ADMIN
+          });
+      })()
+          .then((payload) => {
+              if (controller.signal.aborted) return;
+              if (!payload) return;
+              const { results } = payload;
+              setMessageSearchResults(results);
+              setConversationScrollTop(0);
+              conversationListRef.current?.scrollTo({ top: 0 });
+          })
+          .catch((error: any) => {
+              if (controller.signal.aborted || error?.code === 'ERR_CANCELED') return;
+              setMessageSearchResults([]);
+              if (error?.response?.status === 401) {
+                  setMessageSearchError('Please sign in to search messages.');
+              } else {
+                  setMessageSearchError(error?.response?.data?.error || error?.message || 'Search is temporarily unavailable.');
+              }
+          })
+          .finally(() => {
+              if (!controller.signal.aborted) {
+                  setMessageSearchLoading(false);
+              }
+          });
+
+      return () => controller.abort();
+  }, [debouncedMessageSearch, authLoading, isAuthenticated, user?.id, user?.role]);
 
   useEffect(() => {
       if (!user) return;
@@ -457,8 +617,8 @@ const Messages = () => {
 
   // Handle URL param for deep linking
   useEffect(() => {
-      if (conversationId && conversations.length > 0) {
-          const exists = conversations.find(c => c.id === conversationId);
+      if (conversationId && dedupedConversations.length > 0) {
+          const exists = dedupedConversations.find(c => c.id === conversationId);
           if (exists) {
               setActiveConvoId(conversationId);
               // Mark as read when opening
@@ -473,7 +633,69 @@ const Messages = () => {
               }
           }
       }
-  }, [conversationId, conversations.length, user]);
+  }, [conversationId, dedupedConversations.length, user]);
+
+  // Keep shared messaging surfaces (header badge + dock) aligned with full-page visibility.
+  useEffect(() => {
+      if (!activeConvoId) return;
+      registerVisibleConversation(activeConvoId);
+      return () => unregisterVisibleConversation(activeConvoId);
+  }, [activeConvoId, registerVisibleConversation, unregisterVisibleConversation]);
+
+  // Enterprise engine bridge: dock / multi-tab / recovery updates without page refresh.
+  // Socket-origin events are ignored here because Messages.tsx already owns local thread
+  // socket handlers; shared badge ownership remains in MessageContext.
+  useEffect(() => {
+      const unsubCreated = subscribeMessagingEvent('MESSAGE_CREATED', (event) => {
+          if (event.source === 'socket') return;
+          const message = event.payload as Message | undefined;
+          const conversationId = String(
+              event.conversationId ||
+                  (message as any)?.conversationId ||
+                  (message as any)?.conversation_id ||
+                  ''
+          ).trim();
+          if (!conversationId || !message?.id) return;
+          setConversations((prev) => {
+              const has = prev.some((entry) => entry.id === conversationId);
+              if (!has) {
+                  void refreshMessages();
+                  return prev;
+              }
+              return prev.map((entry) => {
+                  if (entry.id !== conversationId) return entry;
+                  const existing = Array.isArray(entry.messages) ? entry.messages : [];
+                  if (existing.some((row) => row.id === message.id)) {
+                      return {
+                          ...entry,
+                          messages: existing.map((row) =>
+                              row.id === message.id ? { ...row, ...message } : row
+                          ),
+                          lastMessage: String(message.text || entry.lastMessage || ''),
+                          last_message: String(message.text || entry.last_message || ''),
+                          lastMessageAt: message.timestamp || entry.lastMessageAt,
+                          last_message_at: message.timestamp || entry.last_message_at
+                      };
+                  }
+                  return {
+                      ...entry,
+                      messages: [...existing, message],
+                      lastMessage: String(message.text || entry.lastMessage || ''),
+                      last_message: String(message.text || entry.last_message || ''),
+                      lastMessageAt: message.timestamp || entry.lastMessageAt,
+                      last_message_at: message.timestamp || entry.last_message_at
+                  };
+              });
+          });
+      });
+      const unsubRecovery = subscribeMessagingEvent('MISSED_EVENTS_RECOVERY', () => {
+          void refreshMessages();
+      });
+      return () => {
+          unsubCreated();
+          unsubRecovery();
+      };
+  }, [refreshMessages]);
 
   useEffect(() => {
       if (!conversationId && isMobileViewport) {
@@ -491,8 +713,8 @@ const Messages = () => {
   }, [
       activeConvoId,
       typingUser,
-      conversations.find((conversation) => conversation.id === activeConvoId)?.messages?.length
-  ]); 
+      dedupedConversations.find((conversation) => conversation.id === activeConvoId)?.messages?.length
+  ]);
 
   useEffect(() => {
       setPendingAttachments([]);
@@ -540,8 +762,44 @@ const Messages = () => {
       };
   }, []);
 
-  const activeConvo = conversations.find(c => c.id === activeConvoId);
-  const visibleConversations = [...conversations]
+  const activeConvo = useMemo(() => {
+      if (!activeConvoId) return undefined;
+      const exact = dedupedConversations.find((conversation) => conversation.id === activeConvoId);
+      if (exact) return exact;
+      const rawMatch = conversations.find((conversation) => conversation.id === activeConvoId);
+      const mergeKey = rawMatch ? getConversationMergeKey(rawMatch) : '';
+      if (!mergeKey) return undefined;
+      return dedupedConversations.find((conversation) => getConversationMergeKey(conversation) === mergeKey);
+  }, [activeConvoId, conversations, dedupedConversations]);
+  useEffect(() => {
+      const targetMessageId = searchParams.get('messageId') || pendingSearchMessageFocusRef.current;
+      if (!activeConvoId || !targetMessageId || !activeConvo?.messages?.some((msg) => msg.id === targetMessageId)) return;
+
+      const timer = window.setTimeout(() => {
+          const node = document.getElementById(`message-${targetMessageId}`);
+          if (!node) return;
+          node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightedMessageId(targetMessageId);
+          pendingSearchMessageFocusRef.current = null;
+          window.setTimeout(() => {
+              setHighlightedMessageId((current) => (current === targetMessageId ? null : current));
+          }, 2400);
+      }, 120);
+
+      return () => window.clearTimeout(timer);
+  }, [activeConvoId, activeConvo?.messages?.length, searchParams]);
+  const activeMessageSearchQuery = debouncedMessageSearch.trim();
+  const isMessageSearchActive = activeMessageSearchQuery.length >= 2;
+  const isMobileConversationMode = Boolean(isMobileViewport && activeConvo);
+  const isMobileKeyboardOpen = Boolean(isMobileViewport && mobileKeyboardInset > 96);
+  const mobileConversationViewportStyle: React.CSSProperties | undefined = isMobileConversationMode
+      ? {
+            top: `${mobileViewportTop}px`,
+            height: `${Math.max(mobileViewportHeight || 0, 280)}px`
+        }
+      : undefined;
+  const conversationListSource = isMessageSearchActive ? searchConversations : dedupedConversations;
+  const visibleConversations = [...conversationListSource]
       .sort((a, b) => {
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
           const bStar = Number(Boolean(b.isStarred ?? b.is_starred));
@@ -609,6 +867,18 @@ const Messages = () => {
       );
   const otherParticipantRole = resolveParticipantRole(otherParticipant);
   const otherParticipantIsPro = isParticipantPro(otherParticipant);
+  const normalizedUserRole = String(user?.role || '').toLowerCase();
+  const canCreateBriefFromConversation = Boolean(
+      activeConvoId &&
+      dealFlowConfig.enabled &&
+      dealFlowConfig.allowCreateBriefFromChat &&
+      (normalizedUserRole.includes('employer') || normalizedUserRole.includes('client') || normalizedUserRole.includes('admin'))
+  );
+  const canCreateProposalFromBrief = Boolean(
+      dealFlowConfig.enabled &&
+      dealFlowConfig.allowBriefToProposal &&
+      (normalizedUserRole.includes('freelancer') || normalizedUserRole.includes('seller') || normalizedUserRole.includes('admin'))
+  );
   const resolveParticipantProfileUrl = (participant: any) => {
       if (!participant) return '/profile/edit';
       const username = String(participant.username || '').trim();
@@ -665,6 +935,21 @@ const Messages = () => {
       });
       return ordered;
   })();
+
+  useEffect(() => {
+      if (typeof document === 'undefined' || !isMobileConversationMode) return;
+      const previousBodyOverflow = document.body.style.overflow;
+      const previousBodyOverscroll = document.body.style.overscrollBehavior;
+      const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+      document.body.style.overflow = 'hidden';
+      document.body.style.overscrollBehavior = 'none';
+      document.documentElement.style.overscrollBehavior = 'none';
+      return () => {
+          document.body.style.overflow = previousBodyOverflow;
+          document.body.style.overscrollBehavior = previousBodyOverscroll;
+          document.documentElement.style.overscrollBehavior = previousHtmlOverscroll;
+      };
+  }, [isMobileConversationMode]);
   const voiceCallsBlocked =
       Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
       !Boolean(voiceRuntimeConfig.enabledVoiceCalls);
@@ -689,6 +974,23 @@ const Messages = () => {
           mounted = false;
       };
   }, [showMessageSettings, user]);
+
+  useEffect(() => {
+      if (!user) return;
+      let mounted = true;
+      BriefsService.getConfig()
+          .then((config) => {
+              if (!mounted) return;
+              setDealFlowConfig(normalizeDealFlowSettings(config));
+          })
+          .catch(() => {
+              if (!mounted) return;
+              setDealFlowConfig(normalizeDealFlowSettings(null));
+          });
+      return () => {
+          mounted = false;
+      };
+  }, [user]);
 
   const toMediaType = (value: string) => {
       const normalized = (value || '').toLowerCase();
@@ -715,6 +1017,85 @@ const Messages = () => {
           endedBy: String(voiceCall.endedBy || '').trim(),
           rejectedById: String(voiceCall.rejectedById || '').trim()
       };
+  };
+
+  const extractDealFlowEvent = (message: Message) => {
+      const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+      const dealFlow = metadata?.dealFlow && typeof metadata.dealFlow === 'object' ? metadata.dealFlow : null;
+      if (!dealFlow) return null;
+      const eventType = String(dealFlow.eventType || dealFlow.type || '').trim().toLowerCase();
+      if (!eventType) return null;
+      return {
+          ...dealFlow,
+          eventType
+      };
+  };
+
+  const extractStoryReference = (message: Message) => {
+      const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
+      const storyReference = metadata?.storyReference && typeof metadata.storyReference === 'object'
+          ? metadata.storyReference
+          : null;
+      const storyId = String(storyReference?.storyId || metadata?.storyId || '').trim();
+      if (!storyId) return null;
+      return {
+          storyId,
+          mediaPreview: String(storyReference?.mediaPreview || '').trim(),
+          caption: String(storyReference?.caption || '').trim(),
+          reactionType: String(storyReference?.reactionType || metadata?.reactionType || '').trim(),
+          category: String(metadata?.category || '').trim(),
+          actionUrl: String(metadata?.actionUrl || metadata?.action_url || `/community?story=${encodeURIComponent(storyId)}`).trim()
+      };
+  };
+
+  const normalizeBriefFromEvent = (event: any): ProjectBrief | null => {
+      const brief = event?.brief && typeof event.brief === 'object' ? event.brief : event;
+      const id = String(brief?.id || brief?.briefId || event?.briefId || '').trim();
+      if (!id) return null;
+      const normalizedConversationId = String(
+          brief?.conversation_id ?? brief?.conversationId ?? activeConvoId ?? ''
+      );
+
+      return {
+          id,
+          user_id: String(brief?.user_id ?? brief?.userId ?? ''),
+          prompt: String(brief?.prompt ?? brief?.description ?? ''),
+          title: String(brief?.title || ''),
+          category: String(brief?.category || ''),
+          budget_range: String(brief?.budget_range ?? brief?.budgetRange ?? event?.budgetRange ?? 'TBD'),
+          timeline: String(brief?.timeline ?? event?.timeline ?? ''),
+          description: String(brief?.description ?? ''),
+          required_skills: Array.isArray(brief?.required_skills ?? brief?.requiredSkills)
+              ? (brief?.required_skills ?? brief?.requiredSkills)
+              : [],
+          screening_questions: Array.isArray(brief?.screening_questions ?? brief?.screeningQuestions)
+              ? (brief?.screening_questions ?? brief?.screeningQuestions)
+              : [],
+          created_at: String(brief?.created_at ?? brief?.createdAt ?? new Date().toISOString()),
+          updated_at: String(brief?.updated_at ?? brief?.updatedAt ?? new Date().toISOString()),
+          conversation_id: normalizedConversationId,
+          conversationId: normalizedConversationId,
+          linked_job_id: brief?.linked_job_id ?? brief?.linkedJobId ?? event?.linkedJobId ?? null,
+          linkedJobId: brief?.linkedJobId ?? brief?.linked_job_id ?? event?.linkedJobId ?? null,
+          linked_proposals: Array.isArray(brief?.linked_proposals ?? brief?.linkedProposals)
+              ? (brief?.linked_proposals ?? brief?.linkedProposals)
+              : [],
+          linkedProposals: Array.isArray(brief?.linkedProposals ?? brief?.linked_proposals)
+              ? (brief?.linkedProposals ?? brief?.linked_proposals)
+              : [],
+          linked_contract: brief?.linked_contract ?? brief?.linkedContract ?? null,
+          linkedContract: brief?.linkedContract ?? brief?.linked_contract ?? null
+      };
+  };
+
+  const resolveDealFlowPreviewText = (event: any) => {
+      if (!event) return '';
+      const title = String(event?.title || event?.brief?.title || event?.contract?.title || '').trim();
+      if (event.eventType === 'brief_created') return title ? `Brief created: ${title}` : 'Brief created';
+      if (event.eventType === 'brief_updated') return title ? `Brief updated: ${title}` : 'Brief updated';
+      if (event.eventType === 'proposal_created') return title ? `Proposal created for ${title}` : 'Proposal created';
+      if (event.eventType === 'contract_created') return title ? `Contract created: ${title}` : 'Contract created';
+      return title || 'Deal flow update';
   };
 
   const formatVoiceCallDuration = (durationMs: number) => {
@@ -786,6 +1167,8 @@ const Messages = () => {
   const resolveMessagePreviewText = (message: Partial<Message> | null | undefined) => {
       if (!message) return '';
       if (Boolean(message.isDeleted ?? message.is_deleted)) return '[Message deleted]';
+      const dealFlowEvent = extractDealFlowEvent(message as Message);
+      if (dealFlowEvent) return resolveDealFlowPreviewText(dealFlowEvent);
       const messageType = String(message.messageType || message.message_type || '').toLowerCase();
       if (messageType === 'voice_note' || message.voiceNote || message.voice_note) return 'Voice note';
       const text = String(message.text || '').trim();
@@ -799,9 +1182,14 @@ const Messages = () => {
       conversationId: string,
       updater: (messages: Message[]) => Message[]
   ) => {
-      setConversations((prev) =>
-          prev.map((conversation) => {
-              if (conversation.id !== conversationId) return conversation;
+      setConversations((prev) => {
+          const targetConversation = prev.find((conversation) => conversation.id === conversationId);
+          const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
+          return prev.map((conversation) => {
+              const matchesThread =
+                  conversation.id === conversationId ||
+                  Boolean(targetMergeKey && getConversationMergeKey(conversation) === targetMergeKey);
+              if (!matchesThread) return conversation;
               const nextMessages = updater(Array.isArray(conversation.messages) ? conversation.messages : []);
               const lastMessage = nextMessages[nextMessages.length - 1];
               const lastMessageText = resolveMessagePreviewText(lastMessage);
@@ -814,8 +1202,8 @@ const Messages = () => {
                   lastMessageAt: lastMessageAt || '',
                   last_message_at: lastMessageAt || ''
               };
-          })
-      );
+          });
+      });
   };
 
   const inferUploadCategory = (file: File): UploadedFile['category'] => {
@@ -842,6 +1230,14 @@ const Messages = () => {
                   role: user.role,
                   userId: user.id,
                   visibility: 'private',
+                  onRetry: (_attempt, _delayMs) => {
+                      setAttachmentUploadState({
+                          fileName: file.name || 'Attachment',
+                          progress: 0,
+                          uploadedCount: index,
+                          totalCount: queue.length
+                      });
+                  },
                   onProgress: (progress) => {
                       setAttachmentUploadState({
                           fileName: file.name || 'Attachment',
@@ -866,12 +1262,7 @@ const Messages = () => {
               uploaded.length === 1 ? 'Attachment ready to send.' : `${uploaded.length} attachments ready to send.`
           );
       } catch (error: any) {
-          const message =
-              error?.response?.data?.error ||
-              error?.response?.data?.message ||
-              error?.message ||
-              'Failed to upload attachment.';
-          showNotification('error', 'Attachments', String(message));
+          showNotification('error', 'Attachments', getRecoverableActionMessage('Attachment upload', error));
       } finally {
           window.setTimeout(() => setAttachmentUploadState(null), 600);
       }
@@ -995,6 +1386,9 @@ const Messages = () => {
       return Boolean(messageMediaResources[cacheKey]?.loading);
   };
 
+  // Composer pending previews only. Historical message media is loaded by
+  // MessageAttachmentRenderer (shared dock + /messages path) to avoid double-fetch
+  // and unbounded full-conversation blob preloads (especially video).
   const mediaPreviewCandidates = useMemo(() => {
       const candidates: AttachmentDisplay[] = [];
       const pushCandidate = (value: any) => {
@@ -1004,24 +1398,8 @@ const Messages = () => {
       };
 
       pendingAttachments.forEach(pushCandidate);
-      (activeConvo?.messages || []).forEach((message) => {
-          const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-          attachments.forEach(pushCandidate);
-          const voiceNote = (message as any)?.voiceNote || (message as any)?.voice_note;
-          if (voiceNote) {
-              pushCandidate({
-                  id: voiceNote.fileId || voiceNote.id || '',
-                  fileId: voiceNote.fileId || voiceNote.id || '',
-                  url: voiceNote.url || '',
-                  name: 'Voice note',
-                  type: 'audio',
-                  mimeType: 'audio/webm'
-              });
-          }
-      });
-
       return candidates;
-  }, [activeConvo?.messages, pendingAttachments]);
+  }, [pendingAttachments]);
 
   useEffect(() => {
       mediaPreviewCandidates.forEach((attachment) => {
@@ -1096,13 +1474,22 @@ const Messages = () => {
       }
   };
 
+  // Fallback poll only when socket is unhealthy (grace handled by health state).
+  // Healthy sockets rely on event-driven updates — no routine 30s polling.
   useEffect(() => {
       if (!user) return;
-      const interval = setInterval(() => {
-          refreshConversationData({ silent: true });
-      }, 30000);
-                            return () => clearInterval(interval);
-  }, [user, messageInput, editingMessageId, replyToMessage, pendingAttachments.length]);
+      if (isConnected || connectionHealth === 'connected') return;
+      if (connectionHealth === 'offline') return;
+      if (connectionHealth === 'connecting' || connectionHealth === 'reconnecting') {
+          // Brief reconnect window — no poll storm.
+          return;
+      }
+      const interval = window.setInterval(() => {
+          if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+          void refreshConversationData({ silent: true });
+      }, 30_000);
+      return () => window.clearInterval(interval);
+  }, [user, isConnected, connectionHealth]);
 
   const handleMessagesScroll = () => {
       const container = messagesContainerRef.current;
@@ -1173,14 +1560,22 @@ const Messages = () => {
           setConversations(prev => {
               let found = false;
               const updated = prev.map(c => {
-                  if (c.id !== convoId) return c;
+                  const matchesThread = messageMatchesConversation(message, c);
+                  if (!matchesThread) return c;
                   found = true;
-                  const exists = c.messages.some(m => m.id === message.id);
-                  const nextMessages = exists ? c.messages : [...c.messages, message];
+                  // Reconcile optimistic clientSendId rows the same way as dock.
+                  const nextMessages = reconcileOptimisticMessage(c.messages || [], message);
                   const isActive = activeConvoIdRef.current === convoId;
                   const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
-                  const unreadBase = c.unreadCount ?? c.unread_count ?? 0;
-                  const unreadCount = isActive || !isFromOther ? unreadBase : unreadBase + 1;
+                  const unreadBase = Number(c.unreadCount ?? c.unread_count ?? 0) || 0;
+                  // Full-page local thread state only. Shared badge unread is owned by MessageContext.
+                  // Do not re-increment when the same message id is re-delivered.
+                  const alreadyHad = (c.messages || []).some((m) => m.id === message.id);
+                  const unreadCount = isActive
+                      ? 0
+                      : !isFromOther || alreadyHad
+                        ? Math.max(0, unreadBase)
+                        : Math.max(0, unreadBase) + 1;
                   const lastMessageText = resolveMessagePreviewText(message);
                   return {
                       ...c,
@@ -1197,7 +1592,14 @@ const Messages = () => {
               if (!found) {
                   void MessagingService.getConversationById(convoId).then((full) => {
                       if (!full) return;
-                      setConversations(current => [full, ...current.filter(c => c.id !== convoId)]);
+                      const fullMergeKey = getConversationMergeKey(full);
+                      setConversations(current => [
+                          full,
+                          ...current.filter((conversation) => {
+                              if (conversation.id === convoId) return false;
+                              return Boolean(!(fullMergeKey && getConversationMergeKey(conversation) === fullMergeKey));
+                          })
+                      ]);
                   });
                   return prev;
               }
@@ -1218,7 +1620,8 @@ const Messages = () => {
                   };
               }));
           }
-          refreshMessages();
+          // Shared list/unread/badge reconciliation is owned by MessageContext socket handlers.
+          // Do not call refreshMessages() here — that double-owned badge updates and caused thrash.
       };
 
       const handleRead = (payload: any) => {
@@ -1279,14 +1682,21 @@ const Messages = () => {
           const messageId = payload?.messageId || payload?.id;
           if (!convoId || !messageId) return;
           const deletedForMe = Boolean(payload?.deletedForMe ?? payload?.deleted_for_me ?? false);
+          const isDeleted = Boolean(payload?.isDeleted ?? payload?.is_deleted);
           traceClient('socket.message_updated', {
               conversationId: convoId,
               messageId,
               deletedForMe,
-              isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted),
+              isDeleted,
               editedAt: payload?.editedAt ?? payload?.edited_at ?? null
           });
-          setConversations(prev => prev.map(c => {
+          setConversations(prev => {
+              if (deletedForMe || isDeleted) {
+                  const target = prev.find((entry) => entry.id === convoId);
+                  const existing = target?.messages?.find((entry) => entry.id === messageId);
+                  if (existing) revokeMessageAttachmentMediaUrls(existing);
+              }
+              return prev.map(c => {
               if (c.id !== convoId) return c;
               if (deletedForMe) {
                   const nextMessages = c.messages.filter(m => m.id !== messageId);
@@ -1339,44 +1749,59 @@ const Messages = () => {
                   lastMessageAt: nextLastAt,
                   last_message_at: nextLastAt
               };
-          }));
+              });
+          });
       };
 
       const handleConversationUpdated = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
           traceClient('socket.conversation_updated', { conversationId: convoId, payload });
-          setConversations(prev => prev.map(conversation => {
-              if (conversation.id !== convoId) return conversation;
-               const merged = {
-                   ...conversation,
-                   ...(payload?.label !== undefined ? { label: payload.label } : {}),
-                   ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
-                   ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
-                   ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
-                   ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {}),
-                   ...(payload?.lastMessage !== undefined || payload?.last_message !== undefined
-                       ? {
-                             lastMessage: payload?.lastMessage ?? payload?.last_message ?? conversation.lastMessage,
-                             last_message: payload?.last_message ?? payload?.lastMessage ?? conversation.last_message
-                         }
-                       : {}),
-                   ...(payload?.lastMessageAt !== undefined || payload?.last_message_at !== undefined
-                       ? {
-                             lastMessageAt: payload?.lastMessageAt ?? payload?.last_message_at ?? conversation.lastMessageAt,
-                             last_message_at: payload?.last_message_at ?? payload?.lastMessageAt ?? conversation.last_message_at
-                         }
-                       : {})
-               };
-              return merged;
-          }));
+          setConversations(prev => {
+              const targetConversation = prev.find((conversation) => conversation.id === convoId);
+              const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
+              return prev.map(conversation => {
+                  const matchesThread =
+                      conversation.id === convoId ||
+                      Boolean(targetMergeKey && getConversationMergeKey(conversation) === targetMergeKey);
+                  if (!matchesThread) return conversation;
+                  return {
+                      ...conversation,
+                      ...(payload?.label !== undefined ? { label: payload.label } : {}),
+                      ...(payload?.isStarred !== undefined ? { isStarred: Boolean(payload.isStarred), is_starred: Boolean(payload.isStarred) } : {}),
+                      ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
+                      ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
+                      ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {}),
+                      ...(payload?.lastMessage !== undefined || payload?.last_message !== undefined
+                          ? {
+                                lastMessage: payload?.lastMessage ?? payload?.last_message ?? conversation.lastMessage,
+                                last_message: payload?.last_message ?? payload?.lastMessage ?? conversation.last_message
+                            }
+                          : {}),
+                      ...(payload?.lastMessageAt !== undefined || payload?.last_message_at !== undefined
+                          ? {
+                                lastMessageAt: payload?.lastMessageAt ?? payload?.last_message_at ?? conversation.lastMessageAt,
+                                last_message_at: payload?.last_message_at ?? payload?.lastMessageAt ?? conversation.last_message_at
+                            }
+                          : {})
+                  };
+              });
+          });
       };
 
       const handleConversationDeleted = (payload: any) => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
           traceClient('socket.conversation_deleted', { conversationId: convoId });
-          setConversations(prev => prev.filter(conversation => conversation.id !== convoId));
+          setConversations(prev => {
+              const targetConversation = prev.find((conversation) => conversation.id === convoId);
+              const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
+              return prev.filter((conversation) => {
+                  if (conversation.id === convoId) return false;
+                  if (targetMergeKey && getConversationMergeKey(conversation) === targetMergeKey) return false;
+                  return true;
+              });
+          });
           if (activeConvoIdRef.current === convoId) {
               setActiveConvoId(null);
               navigate('/messages');
@@ -1439,9 +1864,162 @@ const Messages = () => {
           </button>
       );
   };
+
+  const renderDealFlowCard = (message: Message) => {
+      const event = extractDealFlowEvent(message);
+      if (!event) return null;
+
+      const brief = normalizeBriefFromEvent(event);
+      const proposal = event?.proposal && typeof event.proposal === 'object' ? event.proposal : null;
+      const contract = event?.contract && typeof event.contract === 'object' ? event.contract : null;
+      const isEmployerViewer = normalizedUserRole.includes('employer') || normalizedUserRole.includes('client') || normalizedUserRole.includes('admin');
+      const proposalStatus = String(proposal?.status || '').trim().toLowerCase();
+      const canAcceptProposalFromCard =
+          isEmployerViewer &&
+          event.eventType === 'proposal_created' &&
+          Boolean(event?.proposalId || proposal?.id) &&
+          proposalStatus !== 'accepted' &&
+          timelineActionBusyId !== message.id;
+
+      return (
+          <div className="mx-auto w-full max-w-2xl rounded-3xl border border-indigo-100 bg-white/95 p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-700">
+                      {event.eventType.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-[11px] text-gray-500">
+                      {new Date(message.timestamp).toLocaleString()}
+                  </span>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                  {(event.eventType === 'brief_created' || event.eventType === 'brief_updated') && brief ? (
+                      <>
+                          <div>
+                              <h4 className="text-base font-bold text-gray-900">{brief.title || 'Conversation brief'}</h4>
+                              <p className="mt-1 text-sm text-gray-600 whitespace-pre-line">{brief.description || brief.prompt}</p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                              {brief.category ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{brief.category}</span> : null}
+                              {brief.budget_range ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{brief.budget_range}</span> : null}
+                              {brief.timeline ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{brief.timeline}</span> : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                              {canCreateBriefFromConversation ? (
+                                  <button
+                                      type="button"
+                                      onClick={() => void openExistingBriefComposer(brief.id, brief)}
+                                      disabled={briefComposerBusy}
+                                      className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                                  >
+                                      {briefComposerBusy ? 'Loading...' : 'Edit Brief'}
+                                  </button>
+                              ) : null}
+                              {canCreateProposalFromBrief && (brief.linked_job_id ?? brief.linkedJobId) ? (
+                                  <button
+                                      type="button"
+                                      onClick={() => void openProposalComposerForBrief(brief.id, brief)}
+                                      disabled={proposalComposerBusy}
+                                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                  >
+                                      {proposalComposerBusy ? 'Loading...' : 'Create Proposal'}
+                                  </button>
+                              ) : null}
+                          </div>
+                      </>
+                  ) : null}
+
+                  {event.eventType === 'proposal_created' && proposal ? (
+                      <>
+                          <div>
+                              <h4 className="text-base font-bold text-gray-900">{event?.title || 'Proposal created'}</h4>
+                              <p className="mt-1 text-sm text-gray-600">
+                                  {proposal.freelancerName || 'Freelancer'} proposed {proposal.proposedAmount ? `$${Number(proposal.proposedAmount).toFixed(2)}` : 'a custom amount'}
+                                  {proposal.proposedTimeline ? ` for ${proposal.proposedTimeline} days` : ''}.
+                              </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                              {proposal.status ? <span className="rounded-full bg-gray-100 px-2.5 py-1 capitalize">{proposal.status}</span> : null}
+                              {proposal.proposedAmount ? <span className="rounded-full bg-gray-100 px-2.5 py-1">${Number(proposal.proposedAmount).toFixed(2)}</span> : null}
+                              {proposal.proposedTimeline ? <span className="rounded-full bg-gray-100 px-2.5 py-1">{proposal.proposedTimeline} days</span> : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                              {canAcceptProposalFromCard ? (
+                                  <button
+                                      type="button"
+                                      onClick={() => {
+                                          setAcceptProposalEvent({
+                                              messageId: message.id,
+                                              event
+                                          });
+                                      }}
+                                      disabled={timelineActionBusyId === message.id}
+                                      className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                                  >
+                                      {timelineActionBusyId === message.id ? 'Creating contract...' : 'Accept & Create Contract'}
+                                  </button>
+                              ) : null}
+                              <button
+                                  type="button"
+                                  onClick={() => navigate(isEmployerViewer ? '/client/dashboard?tab=proposals-offers' : '/freelancer/dashboard?tab=my-proposals')}
+                                  className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                  Open Proposal Pipeline
+                              </button>
+                          </div>
+                      </>
+                  ) : null}
+
+                  {event.eventType === 'contract_created' && contract ? (
+                      <>
+                          <div>
+                              <h4 className="text-base font-bold text-gray-900">{contract.title || event?.title || 'Contract created'}</h4>
+                              <p className="mt-1 text-sm text-gray-600">
+                                  The proposal has been converted into an active contract with the agreed delivery and payment structure.
+                              </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                              {contract.status ? <span className="rounded-full bg-gray-100 px-2.5 py-1 capitalize">{contract.status}</span> : null}
+                              {contract.paymentCycle ? <span className="rounded-full bg-gray-100 px-2.5 py-1 capitalize">{String(contract.paymentCycle).replace('_', ' ')}</span> : null}
+                              {contract.startDate ? <span className="rounded-full bg-gray-100 px-2.5 py-1">Starts {new Date(contract.startDate).toLocaleDateString()}</span> : null}
+                              {contract.contractValue ? <span className="rounded-full bg-gray-100 px-2.5 py-1">${Number(contract.contractValue).toFixed(2)} fixed</span> : null}
+                              {contract.hourlyRate ? <span className="rounded-full bg-gray-100 px-2.5 py-1">${Number(contract.hourlyRate).toFixed(2)}/hr</span> : null}
+                              {Array.isArray(contract.milestones) && contract.milestones.length ? (
+                                  <span className="rounded-full bg-gray-100 px-2.5 py-1">{contract.milestones.length} milestones</span>
+                              ) : null}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                              <button
+                                  type="button"
+                                  onClick={() => navigate(isEmployerViewer ? `/client/dashboard?tab=contracts&contract_id=${event.contractId || contract.id || ''}` : `/freelancer/dashboard?tab=contracts&contract_id=${event.contractId || contract.id || ''}`)}
+                                  className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                  Open Contract
+                              </button>
+                          </div>
+                      </>
+                  ) : null}
+              </div>
+          </div>
+      );
+  };
   // Typing indicator can be wired to real-time events later.
 
-  const handleConversationClick = (id: string) => {
+  const handleConversationClick = (id: string, matchedMessageId?: string | null) => {
+      const searchResult = searchResultByConversationId.get(id);
+      if (searchResult?.conversation) {
+          setConversations((prev) => {
+              if (prev.some((conversation) => conversation.id === id)) return prev;
+              return [searchResult.conversation, ...prev];
+          });
+      }
+      setActiveConvoId(id);
+      if (matchedMessageId) {
+          pendingSearchMessageFocusRef.current = matchedMessageId;
+          navigate(`/messages/${id}?messageId=${encodeURIComponent(matchedMessageId)}`);
+          return;
+      }
+      pendingSearchMessageFocusRef.current = null;
       navigate(`/messages/${id}`);
   };
 
@@ -1453,49 +2031,316 @@ const Messages = () => {
       navigate('/messages', { replace: true });
   };
 
+  const renderHighlightedText = (value: string, query: string) => {
+      const text = String(value || '');
+      const needle = String(query || '').trim();
+      if (!needle) return text;
+      const index = text.toLowerCase().indexOf(needle.toLowerCase());
+      if (index < 0) return text;
+      return (
+          <>
+              {text.slice(0, index)}
+              <mark className="rounded bg-yellow-100 px-0.5 font-semibold text-gray-900">
+                  {text.slice(index, index + needle.length)}
+              </mark>
+              {text.slice(index + needle.length)}
+          </>
+      );
+  };
+
+  const openConversationBriefComposer = useCallback(async () => {
+      if (!activeConvoId || !canCreateBriefFromConversation) return;
+      setBriefComposerBusy(true);
+      try {
+          const draft = await BriefsService.draftFromConversation({ conversationId: activeConvoId });
+          setBriefDraft({
+              ...draft,
+              conversation_id: activeConvoId,
+              conversationId: activeConvoId
+          });
+          setShowBriefComposer(true);
+      } catch (error: any) {
+          showNotification('error', 'Brief', error?.message || 'Unable to extract a brief from this conversation.');
+      } finally {
+          setBriefComposerBusy(false);
+      }
+  }, [activeConvoId, canCreateBriefFromConversation]);
+
+  useEffect(() => {
+      const shouldComposeBrief = ['1', 'true', 'yes', 'on'].includes(
+          String(searchParams.get('composeBrief') || '').trim().toLowerCase()
+      );
+      if (!shouldComposeBrief || !activeConvoId || showBriefComposer || briefComposerBusy || !canCreateBriefFromConversation) {
+          return;
+      }
+      void openConversationBriefComposer().finally(() => {
+          const next = new URLSearchParams(searchParams);
+          next.delete('composeBrief');
+          setSearchParams(next, { replace: true });
+      });
+  }, [
+      activeConvoId,
+      briefComposerBusy,
+      canCreateBriefFromConversation,
+      openConversationBriefComposer,
+      searchParams,
+      setSearchParams,
+      showBriefComposer
+  ]);
+
+  const openExistingBriefComposer = async (briefId: string, fallback?: ProjectBrief | null) => {
+      setBriefComposerBusy(true);
+      try {
+          const brief = briefId ? await BriefsService.getBrief(briefId) : fallback;
+          if (!brief) throw new Error('Brief not found');
+          setBriefDraft(brief);
+          setShowBriefComposer(true);
+      } catch (error: any) {
+          showNotification('error', 'Brief', error?.message || 'Unable to load brief.');
+      } finally {
+          setBriefComposerBusy(false);
+      }
+  };
+
+  const handleSaveBrief = async () => {
+      const title = String(briefDraft.title || '').trim();
+      const description = String(briefDraft.description || briefDraft.prompt || '').trim();
+      if (!title || !description) {
+          showNotification('error', 'Brief', 'Title and description are required.');
+          return;
+      }
+
+      setBriefComposerBusy(true);
+      try {
+          const saved = await BriefsService.saveBrief({
+              ...briefDraft,
+              title,
+              description,
+              prompt: String(briefDraft.prompt || description),
+              category: String(briefDraft.category || dealFlowConfig.defaultCategory || 'General'),
+              budget_range: String(briefDraft.budget_range || briefDraft.budgetRange || 'TBD'),
+              timeline: String(briefDraft.timeline || '2-4 weeks'),
+              required_skills: Array.isArray(briefDraft.required_skills ?? briefDraft.requiredSkills)
+                  ? (briefDraft.required_skills ?? briefDraft.requiredSkills)
+                  : [],
+              screening_questions: Array.isArray(briefDraft.screening_questions ?? briefDraft.screeningQuestions)
+                  ? (briefDraft.screening_questions ?? briefDraft.screeningQuestions)
+                  : []
+          } as Partial<ProjectBrief>);
+          setBriefDraft(saved);
+          setShowBriefComposer(false);
+          showNotification('success', 'Brief', 'Conversation brief saved.');
+          void refreshConversationData();
+      } catch (error: any) {
+          showNotification('error', 'Brief', error?.message || 'Failed to save brief.');
+      } finally {
+          setBriefComposerBusy(false);
+      }
+  };
+
+  const openProposalComposerForBrief = async (briefId: string, fallback?: ProjectBrief | null) => {
+      if (!canCreateProposalFromBrief) return;
+      setProposalComposerBusy(true);
+      try {
+          const brief = briefId ? await BriefsService.getBrief(briefId) : fallback;
+          if (!brief) throw new Error('Brief not found');
+          const linkedJobId = brief.linked_job_id ?? brief.linkedJobId;
+          if (!linkedJobId) throw new Error('This brief is not ready for proposal creation yet.');
+          setProposalBrief(brief);
+          setProposalDraft({
+              coverLetter: String(dealFlowConfig.proposalDefaults?.coverLetterIntro || ''),
+              proposedAmount: '',
+              proposedTimeline: Number(dealFlowConfig.proposalDefaults?.timelineDays ?? 14)
+          });
+          setShowProposalComposer(true);
+      } catch (error: any) {
+          showNotification('error', 'Proposal', error?.message || 'Unable to start a proposal from this brief.');
+      } finally {
+          setProposalComposerBusy(false);
+      }
+  };
+
+  const handleSubmitProposalFromBrief = async () => {
+      if (!proposalBrief) return;
+      const jobId = String(proposalBrief.linked_job_id ?? proposalBrief.linkedJobId ?? '').trim();
+      const coverLetter = String(proposalDraft.coverLetter || '').trim();
+      const proposedAmount = Number(proposalDraft.proposedAmount || 0);
+      const proposedTimeline = Number(proposalDraft.proposedTimeline || 0);
+      if (!jobId) {
+          showNotification('error', 'Proposal', 'This brief is not linked to a proposal-ready job yet.');
+          return;
+      }
+      if (coverLetter.length < 10 || !Number.isFinite(proposedAmount) || proposedAmount <= 0 || !Number.isFinite(proposedTimeline) || proposedTimeline <= 0) {
+          showNotification('error', 'Proposal', 'Add a cover letter, amount, and valid timeline before submitting.');
+          return;
+      }
+
+      setProposalComposerBusy(true);
+      try {
+          await proposalsApi.createProposal({
+              jobId,
+              coverLetter,
+              proposedAmount,
+              proposedTimeline,
+              briefId: proposalBrief.id,
+              conversationId: proposalBrief.conversation_id ?? proposalBrief.conversationId ?? activeConvoId ?? undefined
+          });
+          setShowProposalComposer(false);
+          setProposalBrief(null);
+          showNotification('success', 'Proposal', 'Proposal created from conversation brief.');
+          void refreshConversationData();
+      } catch (error: any) {
+          showNotification('error', 'Proposal', error?.message || 'Failed to create proposal.');
+      } finally {
+          setProposalComposerBusy(false);
+      }
+  };
+
+  const handleAcceptProposalFromTimeline = async (messageId: string, event: any, payload: any) => {
+      const proposalId = String(event?.proposalId || event?.proposal?.id || '').trim();
+      if (!proposalId || !activeConvoId) return;
+      setTimelineActionBusyId(messageId);
+      try {
+          await proposalsApi.acceptProposal(proposalId, {
+              ...(payload || {}),
+              conversationId: activeConvoId
+          });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              messages.map((message) => {
+                  if (message.id !== messageId) return message;
+                  const metadata = message.metadata && typeof message.metadata === 'object' ? message.metadata : {};
+                  return {
+                      ...message,
+                      metadata: {
+                          ...metadata,
+                          dealFlow: {
+                              ...(metadata as any).dealFlow,
+                              proposal: {
+                                  ...(((metadata as any).dealFlow || {}).proposal || {}),
+                                  status: 'accepted'
+                              }
+                          }
+                      }
+                  };
+              })
+          );
+          showNotification('success', 'Contract', 'Proposal accepted and contract created.');
+          void refreshConversationData();
+          setAcceptProposalEvent(null);
+      } catch (error: any) {
+          showNotification('error', 'Contract', error?.message || 'Failed to accept proposal.');
+      } finally {
+          setTimelineActionBusyId(null);
+      }
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
+      const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
+      const replyToMessageId = replyToMessage?.id || null;
+      const clientSendId = buildClientSendId(activeConvoId, Date.now());
       traceClient('ui.send_message.request', {
           conversationId: activeConvoId,
           textLength: trimmed.length,
-          attachmentsCount: pendingAttachments.length,
-          replyToMessageId: replyToMessage?.id || null
+          attachmentsCount: attachmentIds.length,
+          replyToMessageId,
+          clientSendId
       });
 
+      const optimistic: Message = {
+          id: clientSendId,
+          conversationId: activeConvoId,
+          conversation_id: activeConvoId,
+          senderId: user.id,
+          sender_id: user.id,
+          text: trimmed,
+          timestamp: new Date().toISOString(),
+          is_read: true,
+          isRead: true,
+          message_type: attachmentIds.length ? 'file' : 'text',
+          messageType: attachmentIds.length ? 'file' : 'text',
+          attachments: attachmentIds,
+          replyToMessageId,
+          reply_to_message_id: replyToMessageId,
+          metadata: { clientSendId }
+      } as Message;
+
+      trackOutgoingMessage({
+          clientSendId,
+          conversationId: activeConvoId,
+          text: trimmed,
+          attachmentIds,
+          replyToMessageId,
+          state: 'sending'
+      });
+      applyConversationMessageChanges(activeConvoId, (messages) =>
+          dedupeMessagesById([...messages.filter((row) => row.id !== clientSendId), optimistic])
+      );
+      setMessageInput('');
+      setPendingAttachments([]);
+      setReplyToMessage(null);
+      emitTypingState(false);
+      resetTypingTimers();
+
       try {
-          const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
           const newMessage = await MessagingService.sendMessage(
-              activeConvoId, 
-              user.id, 
-              trimmed, 
+              activeConvoId,
+              user.id,
+              trimmed,
               user.role,
               attachmentIds,
-              replyToMessage?.id || null
+              replyToMessageId
           );
-
-          emitTypingState(false);
-          applyConversationMessageChanges(activeConvoId, (messages) => [...messages, newMessage]);
-          setMessageInput('');
-          setPendingAttachments([]);
-          setReplyToMessage(null);
-          resetTypingTimers();
-          refreshMessages(); 
+          const reconciled = {
+              ...newMessage,
+              metadata: {
+                  ...((newMessage as any)?.metadata || {}),
+                  clientSendId
+              }
+          } as Message;
+          markOutgoingState(clientSendId, 'sent', { serverMessageId: String(newMessage?.id || '') });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              reconcileOptimisticMessage(messages, reconciled)
+          );
+          refreshMessages();
           traceClient('ui.send_message.success', {
               conversationId: activeConvoId,
-              messageId: newMessage?.id || null
+              messageId: newMessage?.id || null,
+              clientSendId
           });
       } catch (error) {
+          markOutgoingState(clientSendId, 'failed', {
+              error: getRecoverableActionMessage('Message send', error)
+          });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              messages.map((entry) =>
+                  entry.id === clientSendId
+                      ? ({
+                            ...entry,
+                            metadata: {
+                                ...(entry.metadata || {}),
+                                sendFailed: true,
+                                clientSendId,
+                                failedText: trimmed,
+                                failedAttachmentIds: attachmentIds,
+                                failedReplyToMessageId: replyToMessageId
+                            }
+                        } as Message)
+                      : entry
+              )
+          );
           console.error("Failed to send message", error);
           showNotification(
               'error',
               'Message',
-              (error as any)?.response?.data?.error || (error as any)?.message || 'Failed to send message'
+              getRecoverableActionMessage('Message send', error)
           );
           traceClient('ui.send_message.error', {
               conversationId: activeConvoId,
-              error: String((error as any)?.message || error)
+              error: String((error as any)?.message || error),
+              clientSendId
           });
       }
   };
@@ -1518,20 +2363,32 @@ const Messages = () => {
               visibility: 'private'
           });
 
+          const clientSendId = buildClientSendId(activeConvoId, Date.now());
+          trackOutgoingMessage({
+              clientSendId,
+              conversationId: activeConvoId,
+              text: 'Voice note',
+              attachmentIds: [String(uploaded.id || uploaded.fileId || '').trim()],
+              state: 'sending'
+          });
           const message = await MessagingService.sendVoiceNote(activeConvoId, {
               fileId: String(uploaded.id || uploaded.fileId || '').trim(),
               durationMs: Math.max(1, Math.trunc(durationMs))
           });
-
-          applyConversationMessageChanges(activeConvoId, (messages) => [...messages, message]);
+          const reconciled = {
+              ...message,
+              metadata: {
+                  ...((message as any)?.metadata || {}),
+                  clientSendId
+              }
+          } as Message;
+          markOutgoingState(clientSendId, 'sent', { serverMessageId: String(message?.id || '') });
+          applyConversationMessageChanges(activeConvoId, (messages) =>
+              reconcileOptimisticMessage(messages, reconciled)
+          );
           refreshMessages();
       } catch (error: any) {
-          const backendError =
-              error?.response?.data?.error ||
-              error?.response?.data?.message ||
-              error?.message ||
-              'Failed to send voice note.';
-          showNotification('error', 'Voice notes', String(backendError));
+          showNotification('error', 'Voice notes', getRecoverableActionMessage('Voice note send', error));
       } finally {
           setVoiceNoteBusy(false);
       }
@@ -1576,6 +2433,8 @@ const Messages = () => {
       try {
           const result = await MessagingService.deleteMessage(activeConvoId, messageId, scope);
           const deletedForMe = Boolean(result?.deletedForMe ?? result?.deleted_for_me ?? scope === 'me');
+          // Targeted media cache cleanup for unsend / delete-for-me.
+          revokeMessageAttachmentMediaUrls(message);
           if (deletedForMe) {
               applyConversationMessageChanges(activeConvoId, (messages) => messages.filter((m) => m.id !== messageId));
               if (replyToMessage?.id === messageId) setReplyToMessage(null);
@@ -1935,6 +2794,34 @@ const Messages = () => {
                         </div>
                         {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
                     </div>
+                    <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                            type="search"
+                            value={messageSearchInput}
+                            onChange={(event) => setMessageSearchInput(event.target.value)}
+                            placeholder="Search messages, people, or usernames..."
+                            className="h-10 w-full rounded-2xl border border-gray-200 bg-white pl-9 pr-10 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            aria-label="Search messages, people, or usernames"
+                        />
+                        {messageSearchInput ? (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setMessageSearchInput('');
+                                    setDebouncedMessageSearch('');
+                                    setMessageSearchResults([]);
+                                    setMessageSearchError('');
+                                    messageSearchAbortRef.current?.abort();
+                                    messageSearchAbortRef.current = null;
+                                }}
+                                className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                aria-label="Clear message search"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        ) : null}
+                    </div>
                     <div className="flex gap-2">
                         <button
                             type="button"
@@ -1962,8 +2849,17 @@ const Messages = () => {
                     className="flex-1 overflow-y-auto"
                     onScroll={(event) => setConversationScrollTop(event.currentTarget.scrollTop)}
                 >
-                    {visibleConversations.length === 0 ? (
-                        <li className="p-4 text-center text-gray-500 text-sm">No conversations yet.</li>
+                    {messageSearchLoading ? (
+                        <li className="flex items-center justify-center gap-2 p-4 text-center text-sm text-gray-500">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Searching...
+                        </li>
+                    ) : messageSearchError ? (
+                        <li className="p-4 text-center text-sm text-red-500">{messageSearchError}</li>
+                    ) : visibleConversations.length === 0 ? (
+                        <li className="p-4 text-center text-gray-500 text-sm">
+                            {isMessageSearchActive ? 'No conversations or messages found.' : 'No conversations yet.'}
+                        </li>
                     ) : (
                         <>
                         {conversationWindow.top > 0 ? (
@@ -1971,13 +2867,21 @@ const Messages = () => {
                         ) : null}
                         {virtualConversations.map((convo) => {
                             const participant = convo.participants.find(p => p.id !== user?.id) || convo.participants[0];
+                            const searchMeta = isMessageSearchActive ? searchResultByConversationId.get(convo.id) : null;
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
                             const convoStarred = Boolean(convo.isStarred ?? convo.is_starred);
+                            const previewText = String(
+                                searchMeta?.matchedMessageSnippet ||
+                                searchMeta?.lastMessage ||
+                                convo.lastMessage ||
+                                convo.last_message ||
+                                ''
+                            );
                             return (
                                 <li 
                                     key={convo.id} 
-                                    onClick={() => handleConversationClick(convo.id)}
+                                    onClick={() => handleConversationClick(convo.id, searchMeta?.matchedMessageId || null)}
                                     className={`mx-2 my-1.5 w-auto cursor-pointer overflow-hidden rounded-2xl border px-4 py-3 shadow-sm transition-all ${
                                         activeConvoId === convo.id
                                             ? 'border-blue-200 bg-gradient-to-r from-blue-50 via-white to-indigo-50 shadow-md ring-1 ring-blue-100'
@@ -2017,11 +2921,16 @@ const Messages = () => {
                                                         }}
                                                         className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
                                                     >
-                                                        {participant?.name}
+                                                        {renderHighlightedText(participant?.name || 'Conversation', activeMessageSearchQuery)}
                                                     </button>
                                                     {participantRole && (
                                                         <ProBadge role={participantRole} isPro={participantIsPro} />
                                                     )}
+                                                    {searchMeta?.matchType ? (
+                                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                                            {searchMeta.matchType === 'message' ? 'Message' : searchMeta.matchType === 'username' ? 'Username' : 'Person'}
+                                                        </span>
+                                                    ) : null}
                                                     {participant?.gender && (
                                                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                                                             {participant.gender}
@@ -2039,8 +2948,20 @@ const Messages = () => {
                                                     </span>
                                                 )}
                                             </div>
+                                            {isMessageSearchActive && participant?.username ? (
+                                                <p className="min-w-0 truncate text-[11px] text-gray-400">
+                                                    @{renderHighlightedText(participant.username, activeMessageSearchQuery)}
+                                                </p>
+                                            ) : null}
                                             <p className={`min-w-0 truncate text-xs ${convo.unreadCount > 0 ? 'font-bold text-gray-900' : 'text-gray-500'}`}>
-                                                {convo.lastMessage || <span className="italic text-gray-400">No messages</span>}
+                                                {previewText ? (
+                                                    <>
+                                                        {searchMeta?.matchType === 'message' ? <span className="font-semibold text-gray-600">... </span> : null}
+                                                        {renderHighlightedText(previewText, activeMessageSearchQuery)}
+                                                    </>
+                                                ) : (
+                                                    <span className="italic text-gray-400">No messages</span>
+                                                )}
                                             </p>
                                         </div>
                                         {convo.unreadCount > 0 && (
@@ -2075,11 +2996,26 @@ const Messages = () => {
             </div>
             
             {/* Chat Area */}
-            <div className={`flex-1 min-w-0 min-h-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${!activeConvo ? 'hidden md:flex' : 'flex'}`}>
+            <div
+                className={`flex-1 min-w-0 min-h-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${
+                    !activeConvo ? 'hidden md:flex' : 'flex'
+                } ${
+                    isMobileConversationMode
+                        ? 'fixed inset-x-0 z-[80] rounded-none border-0 shadow-none'
+                        : ''
+                }`}
+                style={mobileConversationViewportStyle}
+            >
                 {activeConvo ? (
                     <>
                         {/* Chat Header */}
-                        <div className="sticky top-0 z-10 border-b border-gray-200 bg-white/95 px-3 py-3 shadow-sm backdrop-blur md:px-4">
+                        <div
+                            className={`z-10 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur md:px-4 ${
+                                isMobileConversationMode
+                                    ? 'shrink-0 px-3 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]'
+                                    : 'sticky top-0 px-3 py-3'
+                            }`}
+                        >
                             <div className="flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center">
                                 <button onClick={handleBackToInbox} className="mr-2 inline-flex h-9 w-9 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 md:hidden">
@@ -2149,6 +3085,18 @@ const Messages = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1.5 sm:gap-2">
+                                {canCreateBriefFromConversation && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void openConversationBriefComposer()}
+                                        disabled={briefComposerBusy}
+                                        className="inline-flex h-10 items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100 disabled:opacity-60"
+                                        title="Create brief from chat"
+                                    >
+                                        {briefComposerBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                                        <span className="hidden sm:inline text-xs font-semibold">Create Brief</span>
+                                    </button>
+                                )}
                                 <VoiceCallControls
                                     disabled={!activeConvoId || voiceCallsBlocked}
                                     canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceCallCandidateUsers.length > 1}
@@ -2274,14 +3222,15 @@ const Messages = () => {
 
                         {/* Messages List */}
                         <div
-                            className="flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto p-3 pb-5 md:space-y-4 md:p-6"
+                            className={`flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3 pb-5 md:space-y-4 md:p-6 ${
+                                isMobileConversationMode ? 'bg-gradient-to-b from-gray-50 to-gray-100' : ''
+                            }`}
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
                         >
                             {activeConvo.messages.map(msg => {
-                                const attachmentList = (Array.isArray(msg.attachments) ? msg.attachments : [])
-                                    .map((attachment) => normalizeAttachmentForDisplay(attachment))
-                                    .filter(Boolean) as AttachmentDisplay[];
+                                const attachmentList = extractMessageAttachments(msg);
+                                const dealFlowEvent = extractDealFlowEvent(msg);
                                 const isOwner = msg.senderId === user?.id;
                                 const isAdmin = user?.role === UserRole.ADMIN;
                                 const canEditDelete = isOwner || isAdmin;
@@ -2290,6 +3239,7 @@ const Messages = () => {
                                 const showMessageControls = expandedMessageId === msg.id;
                                 const showReactionPanel = reactionPanelMessageId === msg.id && !isDeleted;
                                 const voiceCallRecord = extractVoiceCallRecord(msg);
+                                const storyReference = extractStoryReference(msg);
                                 const messageReactions = Array.isArray(msg.reactions) ? msg.reactions : [];
                                 const myReaction = messageReactions.find(
                                     (reaction) => String(reaction.userId || reaction.user_id) === String(user?.id || '')
@@ -2300,8 +3250,17 @@ const Messages = () => {
                                     acc[emojiKey] = (acc[emojiKey] || 0) + 1;
                                     return acc;
                                 }, {});
+                                if (dealFlowEvent) {
+                                    return (
+                                        <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 justify-center rounded-2xl transition ${highlightedMessageId === msg.id ? 'ring-4 ring-yellow-200 ring-offset-2' : ''}`}>
+                                            <div className="w-full max-w-3xl">
+                                                {renderDealFlowCard(msg)}
+                                            </div>
+                                        </div>
+                                    );
+                                }
                                 return (
-                                <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>
+                                <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 rounded-2xl transition ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'} ${highlightedMessageId === msg.id ? 'ring-4 ring-yellow-200 ring-offset-2' : ''}`}>
                                     <div className="min-w-0 max-w-[90%] md:max-w-[70%]">
                                     {/* Message Bubble */}
                                     <div className={`relative max-w-full min-w-0 rounded-2xl px-4 py-2.5 text-sm shadow-sm transition ${
@@ -2323,6 +3282,47 @@ const Messages = () => {
                                         setReactionPanelMessageId(msg.id);
                                     }}>
                                         {renderReplyPreview(msg)}
+                                        {storyReference ? (
+                                            <button
+                                                type="button"
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    event.stopPropagation();
+                                                    navigate(storyReference.actionUrl || `/community?story=${encodeURIComponent(storyReference.storyId)}`);
+                                                }}
+                                                className={`mb-2 flex w-full max-w-sm items-center gap-2 rounded-xl border p-2 text-left transition ${
+                                                    msg.senderId === user?.id
+                                                        ? 'border-white/25 bg-white/10 text-white hover:bg-white/15'
+                                                        : 'border-gray-200 bg-gray-50 text-gray-800 hover:bg-gray-100'
+                                                }`}
+                                                aria-label="Open referenced story"
+                                            >
+                                                {storyReference.mediaPreview ? (
+                                                    <img
+                                                        src={storyReference.mediaPreview}
+                                                        alt=""
+                                                        className="h-12 w-9 shrink-0 rounded-lg object-cover"
+                                                        loading="lazy"
+                                                    />
+                                                ) : (
+                                                    <span className={`flex h-12 w-9 shrink-0 items-center justify-center rounded-lg text-base ${
+                                                        msg.senderId === user?.id ? 'bg-white/15' : 'bg-gray-200'
+                                                    }`}>
+                                                        {storyReference.reactionType || 'S'}
+                                                    </span>
+                                                )}
+                                                <span className="min-w-0">
+                                                    <span className="block text-xs font-semibold">
+                                                        {storyReference.reactionType ? 'Story reaction' : 'Story message'}
+                                                    </span>
+                                                    <span className={`line-clamp-1 text-[11px] ${
+                                                        msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'
+                                                    }`}>
+                                                        {storyReference.caption || 'Tap to open story context'}
+                                                    </span>
+                                                </span>
+                                            </button>
+                                        ) : null}
                                         {isEditing ? (
                                             <div className="space-y-2">
                                                 <textarea
@@ -2387,100 +3387,12 @@ const Messages = () => {
                                                 {msg.text || ''}
                                             </p>
                                         )}
-                                        {(String(msg.messageType || msg.message_type || '').toLowerCase() === 'voice_note' ||
-                                            msg.voiceNote ||
-                                            msg.voice_note) && (
-                                            <div className={`mt-1 text-[11px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
-                                                Voice note
-                                                {Number(msg?.voiceNote?.durationMs || msg?.voice_note?.durationMs || 0) > 0
-                                                    ? ` · ${Math.round(Number(msg?.voiceNote?.durationMs || msg?.voice_note?.durationMs || 0) / 1000)}s`
-                                                    : ''}
-                                            </div>
-                                        )}
-                                        {attachmentList.length > 0 && (
-                                            <div className="mt-2 space-y-2">
-                                                {attachmentList.map((attachment) => {
-                                                    const resolvedAttachmentUrl = getResolvedAttachmentUrl(attachment);
-                                                    const previewLoading = isAttachmentPreviewLoading(attachment);
-                                                    return (
-                                                        <div key={attachment.id} className={`rounded-lg border p-2 text-xs ${
-                                                            msg.senderId === user?.id
-                                                                ? 'border-white/30 bg-white/15 text-white'
-                                                                : 'border-gray-200 bg-white/80 text-gray-700'
-                                                        }`}>
-                                                            <div className="mb-2 flex items-center justify-between gap-2">
-                                                                <div className="min-w-0">
-                                                                    <div className="truncate font-semibold">{attachment.name}</div>
-                                                                    {formatBytes(attachment.size) ? (
-                                                                        <div className={`text-[10px] ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-500'}`}>
-                                                                            {formatBytes(attachment.size)}
-                                                                        </div>
-                                                                    ) : null}
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={(event) => {
-                                                                        event.preventDefault();
-                                                                        event.stopPropagation();
-                                                                        void downloadAttachment(attachment as AttachmentDisplay);
-                                                                    }}
-                                                                    className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-medium ${
-                                                                        msg.senderId === user?.id
-                                                                            ? 'border-white/30 bg-white/10 text-white hover:bg-white/20'
-                                                                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                                                                    }`}
-                                                                >
-                                                                    <Download className="h-3.5 w-3.5" />
-                                                                    <span>Download</span>
-                                                                </button>
-                                                            </div>
-                                                            {attachment.type === 'image' ? (
-                                                                resolvedAttachmentUrl ? (
-                                                                    <a href={resolvedAttachmentUrl} target="_blank" rel="noreferrer" className="block">
-                                                                        <img src={resolvedAttachmentUrl} alt={attachment.name} className="w-full max-h-56 rounded-md object-cover" loading="lazy" />
-                                                                    </a>
-                                                                ) : (
-                                                                    <div className="flex h-40 items-center justify-center rounded-md bg-gray-100 text-gray-400">
-                                                                        {previewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Image preview unavailable'}
-                                                                    </div>
-                                                                )
-                                                            ) : attachment.type === 'video' ? (
-                                                                resolvedAttachmentUrl ? (
-                                                                    <video controls preload="auto" playsInline src={resolvedAttachmentUrl} className="w-full max-h-56 rounded-md" />
-                                                                ) : (
-                                                                    <div className="flex h-40 items-center justify-center rounded-md bg-gray-100 text-gray-400">
-                                                                        {previewLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : 'Video preview unavailable'}
-                                                                    </div>
-                                                                )
-                                                            ) : attachment.type === 'audio' ? (
-                                                                resolvedAttachmentUrl ? (
-                                                                    <audio controls preload="auto" src={resolvedAttachmentUrl} className="w-full" />
-                                                                ) : (
-                                                                    <div className="flex items-center gap-2 rounded-md bg-gray-100 px-3 py-2 text-gray-500">
-                                                                        {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
-                                                                        <span>Preparing audio...</span>
-                                                                    </div>
-                                                                )
-                                                            ) : (
-                                                                <a
-                                                                    href={attachment.url || '#'}
-                                                                    target="_blank"
-                                                                    rel="noreferrer"
-                                                                    className={`flex max-w-full min-w-0 items-center gap-2 overflow-hidden rounded-md border px-3 py-2 hover:underline ${
-                                                                        msg.senderId === user?.id
-                                                                            ? 'border-white/20 text-blue-100'
-                                                                            : 'border-gray-200 text-blue-600'
-                                                                    }`}
-                                                                >
-                                                                    <span className="font-semibold">Open</span>
-                                                                    <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
-                                                                </a>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
+                                        {attachmentList.length > 0 && !isDeleted ? (
+                                            <MessageAttachmentsList
+                                                attachments={attachmentList}
+                                                outgoing={msg.senderId === user?.id}
+                                            />
+                                        ) : null}
                                         <div className={`text-[10px] mt-1 text-right flex justify-end items-center gap-1 ${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>
                                             {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                             {!isDeleted && (msg.editedAt || msg.edited_at) && (
@@ -2614,8 +3526,19 @@ const Messages = () => {
 
                         {/* Input Area */}
                         <div
-                            className="sticky bottom-0 border-t border-gray-200 bg-white/95 p-2.5 backdrop-blur md:p-4"
-                            style={isMobileViewport ? { paddingBottom: 'max(0.625rem, env(safe-area-inset-bottom))' } : undefined}
+                            ref={composerDockRef}
+                            className={`border-t border-gray-200 bg-white/95 p-2.5 backdrop-blur md:p-4 ${
+                                isMobileConversationMode ? 'shrink-0' : 'sticky bottom-0'
+                            }`}
+                            style={
+                                isMobileViewport
+                                    ? {
+                                          paddingBottom: isMobileConversationMode
+                                              ? 'max(0.875rem, env(safe-area-inset-bottom))'
+                                              : 'max(0.625rem, env(safe-area-inset-bottom))'
+                                      }
+                                    : undefined
+                            }
                         >
                             {replyToMessage && (
                                 <div className="mb-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 text-xs text-slate-600 shadow-sm">
@@ -2690,12 +3613,16 @@ const Messages = () => {
 
                             <form
                                 onSubmit={handleSendMessage}
-                                className="rounded-[26px] border border-gray-200 bg-white/95 p-2.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)] md:rounded-[28px] md:p-3"
+                                className={`rounded-[26px] border border-gray-200 bg-white/95 p-2.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)] md:rounded-[28px] md:p-3 ${
+                                    isMobileKeyboardOpen ? 'space-y-2.5' : ''
+                                }`}
                             >
                                 <div className="rounded-[22px] border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1.5 transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/70 md:rounded-[24px]">
                                     <textarea
                                         ref={composerTextareaRef}
-                                        className="w-full resize-none border-0 bg-transparent px-2.5 py-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 md:py-3"
+                                        className={`w-full resize-none border-0 bg-transparent px-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 ${
+                                            isMobileKeyboardOpen ? 'py-2' : 'py-2.5 md:py-3'
+                                        }`}
                                         placeholder="Write a message. Press Enter to send, Shift+Enter for a new line."
                                         value={messageInput}
                                         onChange={(event) => handleMessageInputChange(event.target.value)}
@@ -2706,7 +3633,7 @@ const Messages = () => {
                                     />
                                 </div>
 
-                                <div className="mt-3 space-y-2.5">
+                                <div className={`mt-3 ${isMobileKeyboardOpen ? 'space-y-2' : 'space-y-2.5'}`}>
                                     <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         <input
                                             ref={uploadInputRef}
@@ -2779,11 +3706,17 @@ const Messages = () => {
                                             className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-purple-200 bg-purple-50/70 px-3 text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
                                         >
                                             {isGettingAiSuggestion ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                            <span className="text-xs font-medium">{isGettingAiSuggestion ? 'Thinking...' : (isMobileViewport ? 'AI Reply' : 'Suggest Reply')}</span>
+                                            <span className="text-xs font-medium">
+                                                {isGettingAiSuggestion
+                                                    ? 'Thinking...'
+                                                    : isMobileViewport
+                                                        ? (isMobileKeyboardOpen ? 'AI' : 'AI Reply')
+                                                        : 'Suggest Reply'}
+                                            </span>
                                         </button>
                                     </div>
 
-                                    <div className="flex items-end justify-between gap-3">
+                                    <div className={`flex gap-3 ${isMobileKeyboardOpen ? 'items-center' : 'items-end'} justify-between`}>
                                         <div className="min-w-0 flex-1 text-[11px] text-gray-500">
                                             {pendingAttachments.length > 0
                                                 ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
@@ -2814,15 +3747,13 @@ const Messages = () => {
         </div>
     </div>
     </div>
-    {showMessageSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-xl rounded-xl bg-white p-6 shadow-2xl">
-                <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-gray-900">Manage message settings</h3>
-                    <button type="button" onClick={() => setShowMessageSettings(false)} className="text-gray-500 hover:text-gray-700">
-                        <X className="h-4 w-4" />
-                    </button>
-                </div>
+    <MobileDialog
+        open={showMessageSettings}
+        onClose={() => setShowMessageSettings(false)}
+        size="md"
+        title="Manage message settings"
+        closeDisabled={settingsBusy}
+    >
                 <p className="mb-4 text-xs text-gray-500">
                     User section: <span className="font-semibold">Messages {'>'} Conversation menu {'>'} Manage settings</span>
                 </p>
@@ -2861,9 +3792,253 @@ const Messages = () => {
                         You cannot disable messages from your 1st-degree connections. Use block for specific users.
                     </div>
                 </div>
-            </div>
-        </div>
-    )}
+    </MobileDialog>
+    <MobileDialog
+        open={showBriefComposer}
+        onClose={() => setShowBriefComposer(false)}
+        size="lg"
+        title="Conversation Brief"
+        description="Edit the structured request before saving it back into the relationship timeline."
+        closeDisabled={briefComposerBusy}
+        bodyClassName="space-y-4"
+        footer={
+            <MobileDialogFooter>
+                <button
+                    type="button"
+                    onClick={() => setShowBriefComposer(false)}
+                    disabled={briefComposerBusy}
+                    className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 sm:w-auto"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    onClick={() => void handleSaveBrief()}
+                    disabled={briefComposerBusy}
+                    className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 sm:w-auto"
+                >
+                    {briefComposerBusy ? 'Saving...' : 'Save Brief'}
+                </button>
+            </MobileDialogFooter>
+        }
+    >
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Title</span>
+                            <input
+                                type="text"
+                                value={String(briefDraft.title || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, title: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Category</span>
+                            <input
+                                type="text"
+                                list="deal-flow-categories"
+                                value={String(briefDraft.category || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, category: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <datalist id="deal-flow-categories">
+                            {(dealFlowConfig.allowedCategories || []).map((category) => (
+                                <option key={category} value={category} />
+                            ))}
+                        </datalist>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Budget Range</span>
+                            <input
+                                type="text"
+                                value={String(briefDraft.budget_range || briefDraft.budgetRange || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, budget_range: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Timeline</span>
+                            <input
+                                type="text"
+                                value={String(briefDraft.timeline || '')}
+                                onChange={(e) => setBriefDraft((prev) => ({ ...prev, timeline: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                    </div>
+
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Description</span>
+                        <textarea
+                            value={String(briefDraft.description || '')}
+                            onChange={(e) => setBriefDraft((prev) => ({ ...prev, description: e.target.value }))}
+                            className="w-full rounded-2xl border-gray-300 p-3 text-sm"
+                            rows={6}
+                        />
+                    </label>
+
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Required Skills</span>
+                        <input
+                            type="text"
+                            value={Array.isArray(briefDraft.required_skills ?? briefDraft.requiredSkills) ? (briefDraft.required_skills ?? briefDraft.requiredSkills)?.join(', ') : ''}
+                            onChange={(e) =>
+                                setBriefDraft((prev) => ({
+                                    ...prev,
+                                    required_skills: e.target.value.split(',').map((entry) => entry.trim()).filter(Boolean)
+                                }))
+                            }
+                            className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            placeholder="design, webflow, analytics"
+                        />
+                    </label>
+
+                    {(briefDraft.source_messages || briefDraft.sourceMessages) && (
+                        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Conversation Context</div>
+                            <div className="max-h-36 space-y-2 overflow-y-auto pr-1">
+                                {((briefDraft.source_messages || briefDraft.sourceMessages) as any[]).slice(-6).map((entry) => (
+                                    <div key={String(entry.id || entry.timestamp)} className="rounded-xl bg-white px-3 py-2 text-xs text-gray-600 shadow-sm">
+                                        <div className="font-semibold text-gray-700">{entry.sender_name || 'Participant'}</div>
+                                        <div className="mt-1 whitespace-pre-wrap">{entry.snippet}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+    </MobileDialog>
+    <MobileDialog
+        open={Boolean(showProposalComposer && proposalBrief)}
+        onClose={() => setShowProposalComposer(false)}
+        size="lg"
+        title="Create Proposal From Brief"
+        description={proposalBrief?.title}
+        closeDisabled={proposalComposerBusy}
+        footer={
+            <MobileDialogFooter>
+                <button
+                    type="button"
+                    onClick={() => setShowProposalComposer(false)}
+                    disabled={proposalComposerBusy}
+                    className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-gray-200 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60 sm:w-auto"
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    onClick={() => void handleSubmitProposalFromBrief()}
+                    disabled={proposalComposerBusy}
+                    className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60 sm:w-auto"
+                >
+                    {proposalComposerBusy ? 'Submitting...' : 'Submit Proposal'}
+                </button>
+            </MobileDialogFooter>
+        }
+    >
+                {proposalBrief ? (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600">
+                        <div className="rounded-2xl bg-gray-50 px-3 py-2">
+                            <div className="font-semibold text-gray-700">Budget</div>
+                            <div className="mt-1">{proposalBrief.budget_range || proposalBrief.budgetRange || 'TBD'}</div>
+                        </div>
+                        <div className="rounded-2xl bg-gray-50 px-3 py-2">
+                            <div className="font-semibold text-gray-700">Timeline</div>
+                            <div className="mt-1">{proposalBrief.timeline || 'TBD'}</div>
+                        </div>
+                    </div>
+
+                    <label className="block">
+                        <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Cover Letter</span>
+                        <textarea
+                            value={proposalDraft.coverLetter}
+                            onChange={(e) => setProposalDraft((prev) => ({ ...prev, coverLetter: e.target.value }))}
+                            className="w-full rounded-2xl border-gray-300 p-3 text-sm"
+                            rows={6}
+                        />
+                    </label>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Proposed Amount</span>
+                            <input
+                                type="number"
+                                min={1}
+                                step={0.01}
+                                value={proposalDraft.proposedAmount}
+                                onChange={(e) => setProposalDraft((prev) => ({ ...prev, proposedAmount: e.target.value }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                        <label className="block">
+                            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Timeline (days)</span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={365}
+                                value={proposalDraft.proposedTimeline}
+                                onChange={(e) => setProposalDraft((prev) => ({ ...prev, proposedTimeline: Number.parseInt(e.target.value || '14', 10) }))}
+                                className="w-full rounded-xl border-gray-300 p-3 text-sm"
+                            />
+                        </label>
+                    </div>
+
+                </div>
+                ) : null}
+    </MobileDialog>
+    <AcceptProposalContractModal
+        open={Boolean(acceptProposalEvent)}
+        proposal={
+            acceptProposalEvent
+                ? {
+                      id: String(acceptProposalEvent.event?.proposalId || acceptProposalEvent.event?.proposal?.id || ''),
+                      jobId: '',
+                      jobTitle: String(
+                          acceptProposalEvent.event?.title ||
+                              acceptProposalEvent.event?.proposal?.jobTitle ||
+                              acceptProposalEvent.event?.proposal?.job_title ||
+                              'Proposal'
+                      ),
+                      jobType: String(
+                          acceptProposalEvent.event?.proposal?.jobType ||
+                              acceptProposalEvent.event?.proposal?.job_type ||
+                              ''
+                      ),
+                      jobBudget:
+                          acceptProposalEvent.event?.proposal?.jobBudget ||
+                          acceptProposalEvent.event?.proposal?.job_budget ||
+                          undefined,
+                      freelancerId: '',
+                      freelancerName: String(
+                          acceptProposalEvent.event?.proposal?.freelancerName ||
+                              acceptProposalEvent.event?.proposal?.freelancer_name ||
+                              'Freelancer'
+                      ),
+                      coverLetter: '',
+                      proposedAmount: Number(acceptProposalEvent.event?.proposal?.proposedAmount || 0),
+                      proposedTimeline: Number(acceptProposalEvent.event?.proposal?.proposedTimeline || 14),
+                      attachments: [],
+                      status: String(acceptProposalEvent.event?.proposal?.status || 'pending') as any,
+                      createdAt: new Date().toISOString(),
+                      updatedAt: new Date().toISOString()
+                  }
+                : null
+        }
+        dealFlowConfig={dealFlowConfig}
+        loading={Boolean(acceptProposalEvent && timelineActionBusyId === String(acceptProposalEvent.messageId || ''))}
+        onClose={() => {
+            if (timelineActionBusyId) return;
+            setAcceptProposalEvent(null);
+        }}
+        onSubmit={async (payload) => {
+            if (!acceptProposalEvent) return;
+            await handleAcceptProposalFromTimeline(
+                String(acceptProposalEvent.messageId || ''),
+                acceptProposalEvent.event,
+                payload
+            );
+        }}
+    />
     </VoiceCallProvider>
   );
 };

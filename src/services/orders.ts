@@ -21,6 +21,14 @@ const mapOrder = (order: any): Order => ({
   gigTitle: order.gig_title ?? order.gigTitle ?? order.gig?.title ?? '',
   buyerId: order.buyer_id ?? order.buyerId ?? order.client_id ?? order.clientId ?? '',
   buyerName: order.buyer_name ?? order.buyerName ?? order.client_name ?? order.clientName ?? order.buyer?.name ?? '',
+  sellerId: order.seller_id ?? order.sellerId ?? order.freelancer_id ?? order.freelancerId ?? '',
+  sellerName:
+    order.seller_name ??
+    order.sellerName ??
+    order.freelancer_name ??
+    order.freelancerName ??
+    order.freelancer?.name ??
+    '',
   status: order.status ?? '',
   amount: Number(order.amount ?? 0),
   requirements: order.requirements ?? undefined,
@@ -52,6 +60,8 @@ export interface Order {
   gigTitle: string;
   buyerId: string;
   buyerName: string;
+  sellerId: string;
+  sellerName: string;
   status: string;
   amount: number;
   requirements?: string;

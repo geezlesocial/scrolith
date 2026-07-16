@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   BriefcaseIcon as Briefcase,
@@ -6,7 +6,6 @@ import {
   CompassIcon as Compass,
   Edit3Icon as Edit3,
   FileTextIcon as FileText,
-  HeartIcon as Heart,
   ImageIcon,
   MapPinIcon as MapPin,
   MessageCircleIcon as MessageCircle,
@@ -21,13 +20,16 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
-import { ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon, ShoppingBag } from 'lucide-react';
+import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useSocket } from '../../context/SocketContext';
 import { useNotification } from '../../context/NotificationContext';
-import { CommunityService } from '../../services/community';
-import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../services/scroll';
+import { CommunityService, type BroadcastChannelSummary } from '../../services/community';
+import { fetchPublicCommunityPostsBaseline } from '../../services/communityFeedFallback';
+import { PipelineService } from '../../services/pipeline';
+import { ScrollService, type ScrollConfig, type ScrollSeriesDiscovery, type ScrollVideo } from '../../services/scroll';
 import { ReactionsService } from '../../services/reactions';
 import { FileService } from '../../services/files';
 import { UserService } from '../../services/user';
@@ -37,28 +39,145 @@ import { gigsApi, Gig } from '../../services/gigs';
 import { RecoService } from '../../services/reco';
 import { MessagingService } from '../../services/messaging';
 import { SearchService } from '../../services/search';
+import { listMarketplaceListings } from '../../services/marketplace';
+import type { MarketplaceListing } from '../../types/marketplace';
+import { CMSService } from '../../services/cms';
 import ProBadge from '../ProBadge';
+import ExpandablePreviewText from '../common/ExpandablePreviewText';
+import StaticPreviewText from '../common/StaticPreviewText';
+import OfferTagSelector from '../commerce/OfferTagSelector';
+import ContentOfferTags from '../commerce/ContentOfferTags';
 import VerifiedBadge from '../common/VerifiedBadge';
 import PostHeader from '../../community/components/PostHeader';
 import PostOptionsButton from '../../community/components/post-options/PostOptionsButton';
 import PostEngagementBar from '../../community/components/PostEngagementBar';
 import ReactionBar from '../../community/components/ReactionBar';
-import RepostModal from '../../community/components/RepostModal';
-import PostShareModal from '../../community/components/PostShareModal';
 import MentionText from '../../community/components/MentionText';
 import MentionHashtagTextarea from '../../community/components/MentionHashtagTextarea';
+import FollowButton from '../../community/components/FollowButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from '../../community/followState';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../community/storyStyles';
-import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
-import SendGcoinModal from '../SendGcoinModal';
 import { resolveAssetUrl } from '../../utils/assetUrl';
+import {
+  extractFeedItemList,
+  extractHasMore,
+  extractNextCursor,
+  mergeUniqueFeedItems,
+  shouldContinueOffsetFallback
+} from '../../utils/feedPagination';
+import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../../utils/continuousFeed';
+import {
+  getStableFeedReactKey,
+  isStaleFeedResponse,
+  logFeedLifecycle,
+  prependRealtimeItem,
+  resolveRenderedCountAfterCommit,
+  resolveTransportAfterFailure,
+  shouldAllowObserverLoadMore,
+  shouldShowInitialSkeleton,
+  shouldSkipDuplicateCursorRequest,
+  shouldStopUnchangedCursorLoop
+} from '../../utils/feedLifecycle';
+import { Phase2Service } from '../../services/phase2';
+import { MemberFeedService } from '../../services/memberFeed';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../../utils/postAiControls';
 import { resolveVerificationLevel } from '../../utils/verification';
-import MediaPreviewModal, { PreviewMedia } from '../media/MediaPreviewModal';
+import type { PreviewMedia } from '../media/MediaPreviewModal';
 import { downloadToDevice } from '../../utils/deviceDownload';
+import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
-import InsightsQuickPanel from '../insights/InsightsQuickPanel';
+import OptimizedImage from '../media/OptimizedImage';
+import AdVideoPlayer from '../ads/AdVideoPlayer';
+import OverlayActionRailButton from '../media/OverlayActionRailButton';
+import PostOriginPreview from '../post/PostOriginPreview';
+import TranslatablePostText from '../translation/TranslatablePostText';
+import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../member-home/MemberHomeHighlightsBoard';
+import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
+import StoryAuthorAvatar from '../stories/StoryAuthorAvatar';
 import { usePerformanceProfile } from '../../hooks/usePerformanceProfile';
 import { Capacitor } from '@capacitor/core';
+import {
+  buildPostVideoScrollViewerPath,
+  stashPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollViewerSource
+} from '../../utils/postVideoScrollBridge';
+import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
+import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
+import { buildPublicAppUrl } from '../../utils/siteUrl';
+import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
+import type { CommunityClub, StructuredLocationFields } from '../../types';
+import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
+import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
+import EnterpriseStoryViewer from '../../features/stories/components/StoryViewer';
+import {
+  enterpriseCta,
+  enterpriseCtaPrimary,
+  enterpriseFeedColumn,
+  enterpriseLeftColumn,
+  enterpriseMemberHomeGrid,
+  enterprisePageShell,
+  enterprisePanel,
+  enterprisePanelPadding,
+  enterprisePostCard,
+  enterprisePostCardCompact,
+  enterprisePostCardPadding,
+  enterpriseRightColumn,
+  enterpriseSponsoredLabel,
+  enterpriseWidgetHeading,
+  enterpriseWidgetTitle
+} from '../enterprise/enterpriseClasses';
+import {
+  composerAttachmentTile,
+  composerDraftBanner,
+  composerEditor,
+  composerEntryCard,
+  composerEntryShortcut,
+  composerEntryTrigger,
+  composerField,
+  composerPrimaryBtn,
+  composerSecondaryBtn,
+  composerToolbarBtn
+} from '../composer/composerClasses';
+import {
+  buildComposerDraftKey,
+  clearComposerDraft,
+  isComposerDraftMeaningful,
+  loadComposerDraft,
+  saveComposerDraft
+} from '../composer/composerDraftStore';
+import {
+  canPublishWithAttachments,
+  revokePreviewUrl,
+  validateComposerFile
+} from '../composer/composerAttachments';
+import { createPublishGuard } from '../composer/composerPublishGuard';
+import ComposerShell from '../composer/ComposerShell';
+
+const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
+const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
+const PostShareModal = React.lazy(() => import('../../community/components/PostShareModal'));
+const ScrollCreateModal = React.lazy(() => import('../../features/scroll/ScrollCreateModal'));
+const LiveFeaturedRail = React.lazy(() => import('../../features/live/components/LiveFeaturedRail'));
+const SendGcoinModal = React.lazy(() => import('../SendGcoinModal'));
+const MediaPreviewModal = React.lazy(() => import('../media/MediaPreviewModal'));
+const PostExpandModal = React.lazy(() => import('../post/PostExpandModal'));
+const InsightsQuickPanel = React.lazy(() => import('../insights/InsightsQuickPanel'));
+const MemberHomeHighlightsBoard = React.lazy(() => import('../member-home/MemberHomeHighlightsBoard'));
+const StoryReplySheet = React.lazy(() => import('../stories/StoryReplySheet'));
+
+const STORY_CONTROL_HIDE_DELAY_MS = 20000;
+const STORY_AUTO_ADVANCE_MS = 5500;
+const STORY_VIDEO_FALLBACK_ADVANCE_MS = 9000;
+const STORY_AUTO_ADVANCE_MAX_MS = 30000;
 
 type MemberHomeContent = {
   title?: string;
@@ -93,6 +212,7 @@ type MemberHomeContent = {
   topics?: string[];
   regions?: string[];
   storyTitle?: string;
+  reelsTitle?: string;
   composerTitle?: string;
   feedTitle?: string;
   profilesTitle?: string;
@@ -160,16 +280,37 @@ type FeedPost = {
   tags?: string[];
   mentions?: string[];
   topic?: string | null;
+  topicSummary?: string[];
   location?: string | null;
   visibility?: string;
   commentPolicy?: string | null;
   repostsEnabled?: boolean;
+  offerTags?: any[];
+  originalPost?: {
+    id?: string;
+    authorName?: string | null;
+    authorUsername?: string | null;
+    title?: string | null;
+    content?: string | null;
+  } | null;
   isPinned?: boolean;
   isHighlighted?: boolean;
+  graphicWarning?: boolean;
+  isAIEnhanced?: boolean;
+  dashGcoinTotal?: number;
   aiInsightEnabled?: boolean;
   aiInsightGenerated?: boolean;
   aiInsightText?: string | null;
   aiScore?: number | null;
+  ranking?: {
+    mode?: string;
+    score?: number;
+    primaryReason?: string;
+    reasons?: string[];
+  };
+  pipelineState?: {
+    saved?: boolean;
+  };
   interactions?: {
     likes?: number;
     comments?: number;
@@ -177,6 +318,7 @@ type FeedPost = {
     reposts?: number;
     views?: number;
     reactions?: Record<string, number> | number;
+    dashGcoinTotal?: number;
   };
   userState?: { liked?: boolean; reposted?: boolean };
 };
@@ -211,6 +353,7 @@ type SidebarAdCard = {
   ctaText?: string;
   destinationUrl?: string;
   mediaUrl?: string;
+  mediaType?: 'image' | 'video';
   placement?: string;
 };
 
@@ -234,10 +377,27 @@ type PostDraft = {
   tags: string;
   mentions: string;
   topic: string;
+  region: string;
   location: string;
   visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
   commentPolicy: 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
+  graphicWarning: boolean;
+  isAIEnhanced: boolean;
+  aiInsightPreference: PostAiInsightPreference;
+  offerTags: OfferTagSelection[];
   media: PostMediaItem[];
+};
+
+type DesktopComposerIntent = 'text' | 'photo' | 'video' | 'article';
+
+type PostAuthorOption = {
+  id: string;
+  type: 'user' | 'page';
+  label: string;
+  subtitle: string;
+  avatarUrl?: string | null;
+  pageId?: string | null;
+  slug?: string | null;
 };
 
 type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
@@ -250,6 +410,8 @@ type StoryDraft = {
   textFont: string;
   textAlign: 'center' | 'left' | 'right';
 };
+
+type StoryKind = 'text' | 'image' | 'video';
 
 type SearchResultItem = {
   id?: string;
@@ -267,25 +429,213 @@ type SearchResultItem = {
   meta?: Record<string, any>;
 };
 
-type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs';
+type SearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'marketplace' | 'posts';
 type SearchGroupMap = Record<SearchGroupKey, SearchResultItem[]>;
 
-const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs'];
+const SEARCH_GROUP_ORDER: SearchGroupKey[] = ['people', 'pages', 'jobs', 'gigs', 'marketplace', 'posts'];
 const SEARCH_GROUP_LABELS: Record<SearchGroupKey, string> = {
   people: 'Users',
   pages: 'Pages',
   jobs: 'Jobs',
-  gigs: 'Gigs'
+  gigs: 'Gigs',
+  marketplace: 'Marketplace',
+  posts: 'Posts'
+};
+
+const SEARCH_GROUP_BADGES: Record<SearchGroupKey, string> = {
+  people: 'User',
+  pages: 'Page',
+  jobs: 'Job',
+  gigs: 'Gig',
+  marketplace: 'Item',
+  posts: 'Post'
 };
 
 const emptySearchGroups = (): SearchGroupMap => ({
   people: [],
   pages: [],
   jobs: [],
-  gigs: []
+  gigs: [],
+  marketplace: [],
+  posts: []
 });
 
-type FeedTab = 'latest' | 'following' | 'trending';
+const MEMBER_HOME_SEARCH_PROMPTS = [
+  'interview tips',
+  'remote work',
+  'Scrolith',
+  'latest in ai',
+  'logo design',
+  'project manager'
+];
+
+const createEmptyPostDraft = (): PostDraft => ({
+  title: '',
+  content: '',
+  tags: '',
+  mentions: '',
+  topic: '',
+  region: '',
+  location: '',
+  visibility: 'public',
+  commentPolicy: 'everyone',
+  graphicWarning: false,
+  isAIEnhanced: false,
+  aiInsightPreference: 'auto',
+  offerTags: [],
+  media: []
+});
+
+const stripHtmlToText = (value: string): string =>
+  String(value || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeCompareText = (value: string): string =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const composePostLocationValue = (location: string, region: string): string => {
+  const nextLocation = String(location || '').trim();
+  const nextRegion = String(region || '').trim();
+  if (!nextLocation) return nextRegion;
+  if (!nextRegion) return nextLocation;
+  const normalizedLocation = normalizeCompareText(nextLocation);
+  const normalizedRegion = normalizeCompareText(nextRegion);
+  if (!normalizedLocation || !normalizedRegion) return nextLocation || nextRegion;
+  if (normalizedLocation.includes(normalizedRegion) || normalizedRegion.includes(normalizedLocation)) {
+    return nextLocation;
+  }
+  return `${nextLocation}, ${nextRegion}`;
+};
+
+const readRenderableText = (value: unknown, seen?: WeakSet<object>): string => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    if (!raw) return '';
+    if (
+      (raw.startsWith('{') && raw.endsWith('}')) ||
+      (raw.startsWith('[') && raw.endsWith(']'))
+    ) {
+      try {
+        const parsed = JSON.parse(raw);
+        const parsedText = readRenderableText(parsed, seen);
+        if (parsedText) return parsedText;
+      } catch {
+        // Fall through to the raw string.
+      }
+    }
+    const htmlText = stripHtmlToText(raw);
+    return htmlText || raw;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => readRenderableText(entry, seen))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+  }
+  if (value && typeof value === 'object') {
+    const nextSeen = seen || new WeakSet<object>();
+    if (nextSeen.has(value as object)) return '';
+    nextSeen.add(value as object);
+    const record = value as Record<string, unknown>;
+    const preferredKeys = [
+      'text',
+      'content',
+      'body',
+      'description',
+      'title',
+      'headline',
+      'subject',
+      'caption',
+      'summary',
+      'excerpt',
+      'message',
+      'plainText',
+      'plain_text',
+      'formattedText',
+      'formatted_text',
+      'html',
+      'htmlContent',
+      'html_content',
+      'label',
+      'value',
+      'insert'
+    ];
+    for (const key of preferredKeys) {
+      if (!(key in record)) continue;
+      const nestedText = readRenderableText(record[key], nextSeen);
+      if (nestedText) return nestedText;
+    }
+    const blockText = readRenderableText(record.blocks, nextSeen);
+    if (blockText) return blockText;
+    const deltaText = readRenderableText(record.ops, nextSeen);
+    if (deltaText) return deltaText;
+    return Object.values(record)
+      .map((entry) => readRenderableText(entry, nextSeen))
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+  }
+  return '';
+};
+
+const getStructuredLocationLabel = (value?: Partial<StructuredLocationFields> | null): string =>
+  readRenderableText(value?.formattedAddress || value?.formatted_address || value?.location);
+
+const normalizeOwnedBusinessPage = (page: any): PostAuthorOption | null => {
+  const pageId = readRenderableText(page?.id || page?._id);
+  const label = readRenderableText(page?.name || page?.title || page?.pageName);
+  if (!pageId || !label) return null;
+  const subtitle =
+    readRenderableText(page?.tagline || page?.headline || page?.industry || page?.category) || 'Post as page';
+  const avatarUrl = resolveUserAvatarUrl(page) || null;
+  const slug = readRenderableText(page?.slug || page?.handle) || null;
+  return {
+    id: `page:${pageId}`,
+    type: 'page',
+    label,
+    subtitle,
+    avatarUrl,
+    pageId,
+    slug
+  };
+};
+
+type FeedTab = 'latest' | 'following' | 'trending' | 'for_you' | 'hire' | 'sell' | 'learn' | 'local';
+
+const INTENT_FEED_TABS: FeedTab[] = ['for_you', 'hire', 'sell', 'learn', 'local'];
+
+const normalizeFeedTabValue = (value: unknown): FeedTab | null => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (
+    normalized === 'latest' ||
+    normalized === 'following' ||
+    normalized === 'trending' ||
+    normalized === 'for_you' ||
+    normalized === 'hire' ||
+    normalized === 'sell' ||
+    normalized === 'learn' ||
+    normalized === 'local'
+  ) {
+    return normalized as FeedTab;
+  }
+  return null;
+};
+
+const isIntentFeedTab = (value: FeedTab) => INTENT_FEED_TABS.includes(value);
 
 const resolveToggle = (contentValue: boolean | undefined, settingsValue: unknown, fallback = true) => {
   if (typeof contentValue === 'boolean') return contentValue;
@@ -293,24 +643,33 @@ const resolveToggle = (contentValue: boolean | undefined, settingsValue: unknown
   return fallback;
 };
 
-const defaultTopics = [
-  'Product',
-  'Design',
-  'Engineering',
-  'Marketing',
-  'Sales',
-  'Operations',
-  'Finance',
-  'Leadership',
-  'Community',
-  'Hiring',
-  'Events',
-  'Startups',
-  'Freelancing',
-  'Remote Work'
-];
+const normalizeMemberHomeRoles = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => String(entry || '').trim().toLowerCase())
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return [];
+};
 
-const defaultRegions = ['Global', 'North America', 'Europe', 'Africa', 'Asia', 'South America', 'Oceania'];
+const isMemberHomeSectionVisibleToRole = (section: any, role: string | undefined) => {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+  const roles = normalizeMemberHomeRoles(
+    section?.targeting?.roles ?? section?.target_roles ?? section?.roles ?? section?.visibility
+  );
+  if (!normalizedRole || roles.length === 0) return true;
+  return roles.includes(normalizedRole) || roles.includes('all') || roles.includes('*');
+};
+
+const defaultTopics = DEFAULT_MEMBER_HOME_TOPICS;
+
+const defaultRegions = DEFAULT_MEMBER_HOME_REGIONS;
 
 const commentPolicyOptions = [
   { value: 'everyone', label: 'Everyone can comment' },
@@ -348,27 +707,25 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
-const resolveStoryMediaUrl = (story: any) => {
-  const raw =
-    story?.media?.url ||
-    story?.mediaUrl ||
-    story?.media_url ||
-    story?.mediaFileUrl ||
-    story?.media_file_url ||
-    story?.media?.[0]?.url;
-  if (raw) return resolveAssetUrl(raw);
+const resolveStoryType = (story: any): StoryKind => {
+  const raw = String(story?.type || story?.storyType || story?.media?.type || '').trim().toLowerCase();
+  if (raw === 'video') return 'video';
+  if (raw === 'image') return 'image';
+  const media = resolveInlineMedia(story, { typeHint: raw || story?.type });
+  if (media.kind === 'video') return 'video';
+  if (media.kind === 'image') return 'image';
+  return 'text';
+};
 
-  const fileId = story?.mediaFileId || story?.media_file_id;
-  if (typeof fileId === 'string') {
-    if (fileId.startsWith('disk:')) {
-      const relative = fileId.slice('disk:'.length).replace(/^\/+/, '');
-      return resolveAssetUrl(`/uploads/${relative}`);
-    }
-    if (fileId.startsWith('http://') || fileId.startsWith('https://')) {
-      return resolveAssetUrl(fileId);
-    }
+const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
+const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
+const resolveStoryAutoAdvanceDelay = (story: any) => {
+  if (resolveStoryType(story) !== 'video') return STORY_AUTO_ADVANCE_MS;
+  const durationSeconds = Number(story?.media?.duration ?? story?.duration ?? story?.mediaDuration ?? 0);
+  if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    return Math.max(4000, Math.min(STORY_AUTO_ADVANCE_MAX_MS, Math.round(durationSeconds * 1000 + 350)));
   }
-  return '';
+  return STORY_VIDEO_FALLBACK_ADVANCE_MS;
 };
 
 const resolveStoryContent = (story: any) =>
@@ -393,19 +750,123 @@ const resolveStoryAuthorName = (story: any, fallback = 'Community') => {
   return normalized || fallback;
 };
 
-const resolveStoryAuthorAvatar = (story: any) => {
-  const raw =
+const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
+  if (!story || !viewer) return '';
+  const normalizeOwnerToken = (value: unknown) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
+  const storyOwnerTokens = [
+    story?.authorId,
+    story?.userId,
+    story?.user_id,
+    story?.author?.id,
+    story?.authorUsername,
+    story?.author?.username,
+    story?.userName,
+    story?.user_name,
+    story?.user?.username,
+    story?.authorName,
+    story?.author?.displayName,
+    story?.author?.name,
+    story?.user?.displayName,
+    story?.user?.name
+  ].map(normalizeOwnerToken).filter(Boolean);
+  const viewerTokens = [
+    viewer?.id,
+    viewer?.user_id,
+    viewer?.username,
+    viewer?.user_name,
+    viewer?.name,
+    viewer?.email
+  ].map(normalizeOwnerToken).filter(Boolean);
+  if (!storyOwnerTokens.some((token) => viewerTokens.includes(token))) return '';
+
+  const viewerAvatar = resolveUserAvatarUrl(viewer);
+  if (viewerAvatar) return viewerAvatar;
+
+  const viewerProfilePhotoFileId = String(
+    viewer?.profilePhotoFileId || viewer?.profile_photo_file_id || viewer?.avatarFileId || viewer?.avatar_file_id || ''
+  ).trim();
+  if (viewerProfilePhotoFileId) return resolvePostAttachmentMediaUrl({ fileId: viewerProfilePhotoFileId });
+
+  return '';
+};
+
+const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
+  const directAvatar = String(
     story?.authorAvatar ||
-    story?.author?.avatarUrl ||
-    story?.author?.avatar ||
-    story?.authorPhoto ||
-    story?.userAvatar ||
-    story?.user_avatar ||
-    story?.user?.avatarUrl ||
-    story?.user?.avatar ||
-    '';
-  const normalized = String(raw || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.author?.avatar ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo ||
+      ''
+  ).trim();
+  if (
+    directAvatar &&
+    (/^(https?:|data:|blob:|\/|uploads\/)/i.test(directAvatar) ||
+      directAvatar.includes('/uploads/') ||
+      /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(directAvatar))
+  ) {
+    return resolvePostAttachmentMediaUrl({ url: directAvatar });
+  }
+
+  const profilePhotoFileId = String(
+    story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.profile_photo_file_id ||
+      story?.avatarFileId ||
+      story?.avatar_file_id ||
+      story?.author?.profilePhotoFileId ||
+      story?.author?.profile_photo_file_id ||
+      story?.author?.avatarFileId ||
+      story?.author?.avatar_file_id ||
+      story?.user?.profilePhotoFileId ||
+      story?.user?.profile_photo_file_id ||
+      story?.user?.avatarFileId ||
+      story?.user?.avatar_file_id ||
+      ''
+  ).trim();
+  if (profilePhotoFileId) {
+    return resolvePostAttachmentMediaUrl({ fileId: profilePhotoFileId });
+  }
+
+  return resolveUserAvatarUrl({
+    ...story,
+    ...(story?.author || {}),
+    avatarUrl:
+      story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl,
+    avatar:
+      story?.avatar ||
+      story?.author?.avatar ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo,
+    profilePhotoFileId:
+      story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.author?.profilePhotoFileId ||
+      story?.user?.profilePhotoFileId,
+    profile_photo_file_id:
+      story?.profile_photo_file_id ||
+      story?.author?.profile_photo_file_id ||
+      story?.user?.profile_photo_file_id,
+    avatarFileId: story?.avatarFileId || story?.author?.avatarFileId || story?.user?.avatarFileId,
+    avatar_file_id: story?.avatar_file_id || story?.author?.avatar_file_id || story?.user?.avatar_file_id
+  }) || resolveViewerProfileAvatar(story, viewer);
 };
 
 const resolveStoryAuthorInitial = (story: any) => {
@@ -419,7 +880,19 @@ const isStoryActive = (story: any) => {
   return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
 };
 
-const resolveReelMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+const resolveReelMedia = (scroll: ScrollVideo) => {
+  const media = scroll?.media || scroll;
+  const inline = resolveInlineMedia(media, { typeHint: 'video' });
+  if (inline.src) return inline;
+  // Fall back through attachment resolver for nested file/asset payloads.
+  const src = resolvePostAttachmentMediaUrl(media);
+  const poster = resolvePostAttachmentPosterUrl(media);
+  return {
+    kind: (src ? 'video' : 'unknown') as 'video' | 'image' | 'document' | 'unknown',
+    src: src || '',
+    poster: poster || undefined
+  };
+};
 
 const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
   const normalized = String(scroll?.author?.name || '').trim();
@@ -427,8 +900,12 @@ const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
 };
 
 const resolveReelAuthorAvatar = (scroll: ScrollVideo) => {
-  const normalized = String(scroll?.author?.avatar || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+  return (
+    resolveUserAvatarUrl(scroll?.author) ||
+    resolvePostAttachmentMediaUrl(scroll?.author?.avatar) ||
+    resolveAssetUrl(String(scroll?.author?.avatar || '').trim()) ||
+    ''
+  );
 };
 
 const resolveReelAuthorInitial = (scroll: ScrollVideo) => {
@@ -486,14 +963,34 @@ const getApiErrorMessage = (error: any, fallback: string) => {
   return message;
 };
 
-const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
-  const explicit = String(media.type || '').toLowerCase();
+const inferMediaType = (media: {
+  url?: string;
+  mimeType?: string;
+  mime_type?: string;
+  type?: string;
+  kind?: string;
+  mediaType?: string;
+  media_type?: string;
+  contentType?: string;
+  content_type?: string;
+  videoUrl?: string;
+  video_url?: string;
+}) => {
+  const explicit = String(
+    media.type ||
+      media.kind ||
+      media.mediaType ||
+      media.media_type ||
+      media.contentType ||
+      media.content_type ||
+      ''
+  ).toLowerCase();
   if (explicit === 'image' || explicit === 'video' || explicit === 'document') return explicit;
-  const mime = String(media.mimeType || '').toLowerCase();
+  const mime = String(media.mimeType || media.mime_type || '').toLowerCase();
   if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
-  const url = String(media.url || '').toLowerCase();
-  if (/\.(mp4|webm|mov|m4v|ogg)$/.test(url)) return 'video';
+  const url = String(media.url || media.videoUrl || media.video_url || '').toLowerCase();
+  if (/\.(mp4|webm|mov|m4v|ogg|avi|mkv)(\?|$)/.test(url) || url.includes('/video/')) return 'video';
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
   return 'document';
 };
@@ -504,6 +1001,36 @@ const formatMediaDuration = (duration?: number | null) => {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
   return `${mins}:${secs.toString().padStart(2, '0')}`;
+};
+
+const GRAPHIC_WARNING_LABEL = 'Graphic warning';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[24rem] sm:h-[30rem] lg:h-[36rem]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[18rem] sm:h-[22rem] lg:h-[26rem]';
+const BRAND_LOGO_URL = '/logo.png';
+
+const buildPostScrolithaPrompt = (title: string, content: string) => {
+  const safeTitle = String(title || '').trim();
+  const safeContent = String(content || '').replace(/\s+/g, ' ').trim();
+  const excerpt = safeContent.slice(0, 280);
+  if (safeTitle && excerpt) {
+    return `Improve this Scrolith post for clarity, reach, and conversion.\nTitle: ${safeTitle}\nBody: ${excerpt}`;
+  }
+  if (safeTitle) {
+    return `Improve this Scrolith post title and suggest a stronger body copy:\n${safeTitle}`;
+  }
+  if (excerpt) {
+    return `Improve this Scrolith post and suggest better engagement hooks:\n${excerpt}`;
+  }
+  return 'Help me draft a high-performing Scrolith post for global professional audience.';
+};
+
+const buildListingScrolithaPrompt = (kind: 'job' | 'gig', title: string, category: string) => {
+  const safeTitle = String(title || '').trim() || (kind === 'job' ? 'Job opportunity' : 'Service offer');
+  const safeCategory = String(category || '').trim() || (kind === 'job' ? 'Hiring' : 'Services');
+  if (kind === 'job') {
+    return `Improve this job card copy for better applicant quality.\nTitle: ${safeTitle}\nCategory: ${safeCategory}\nReturn concise, enterprise-grade wording.`;
+  }
+  return `Improve this gig card copy for better conversion and trust.\nTitle: ${safeTitle}\nCategory: ${safeCategory}\nReturn concise, enterprise-grade wording.`;
 };
 
 const toPreviewMedia = (media: any): PreviewMedia | null => {
@@ -539,6 +1066,20 @@ const dedupeById = <T extends { id?: string | null }>(items: T[]) => {
     out.push(item);
   });
   return out;
+};
+
+const withFeedFallbackTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+  let timer: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timer = window.setTimeout(() => resolve(fallback), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
 };
 
 const formatListingAmount = (value: any, fallback = 'Flexible') => {
@@ -638,8 +1179,93 @@ const resolveListingImageUrl = (listing: any): string => {
   return raw ? resolveAssetUrl(raw) : '';
 };
 
+const resolveHighlightPostMedia = (post: any): string => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+    if (inferMediaType(attachment) === 'video') {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
+    const mime = String(attachment?.mimeType || attachment?.mime_type || '').trim().toLowerCase();
+    const type = String(attachment?.type || '').trim().toLowerCase();
+    if (mime.startsWith('image/') || type === 'image') {
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+      if (mediaUrl) return mediaUrl;
+    }
+  }
+  return '';
+};
+
+const resolveHighlightPostVideo = (post: any): string => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    if (inferMediaType(attachment) !== 'video') continue;
+    const mediaUrl = String(resolvePostAttachmentMediaUrl(attachment) || '').trim();
+    if (mediaUrl) return mediaUrl;
+  }
+  return '';
+};
+
+const resolveHighlightPostPoster = (post: any): string => {
+  const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+  for (const attachment of attachments) {
+    if (!attachment) continue;
+    const posterUrl = String(resolvePostAttachmentPosterUrl(attachment) || '').trim();
+    if (posterUrl) return posterUrl;
+  }
+  return '';
+};
+
+const resolveHighlightPostFallback = (post: any): string => {
+  const raw = firstNonEmptyString([
+    post?.author?.avatarUrl,
+    post?.authorAvatar,
+    BRAND_LOGO_URL
+  ]);
+  return raw ? resolveAssetUrl(raw) : BRAND_LOGO_URL;
+};
+
+const resolveSyntheticVideoAttachment = (post: any) => {
+  const videoUrl = String(
+    post?.videoUrl ||
+      post?.video_url ||
+      post?.mediaUrl ||
+      post?.media_url ||
+      post?.sourceVideoUrl ||
+      post?.source_video_url ||
+      ''
+  ).trim();
+  if (!videoUrl) return null;
+  return {
+    id: String(post?.videoAttachmentId || post?.video_attachment_id || videoUrl).trim() || videoUrl,
+    url: videoUrl,
+    name: String(post?.title || post?.videoTitle || post?.video_title || 'Video post').trim() || 'Video post',
+    type: 'video',
+    kind: 'video',
+    mimeType: 'video/mp4',
+    thumbnailUrl:
+      String(
+        post?.thumbnailUrl ||
+          post?.thumbnail_url ||
+          post?.posterUrl ||
+          post?.poster_url ||
+          post?.previewUrl ||
+          post?.preview_url ||
+          ''
+      ).trim() || null
+  };
+};
+
 const extractJobsFromPayload = (payload: any): Job[] => {
+  if (Array.isArray(payload?.data?.jobs)) return payload.data.jobs as Job[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Job[];
+  if (Array.isArray(payload?.items)) return payload.items as Job[];
   if (Array.isArray(payload?.jobs)) return payload.jobs as Job[];
+  if (Array.isArray(payload?.data)) return payload.data as Job[];
   if (Array.isArray(payload)) {
     const looksLikeJobList = payload.every((entry) => !entry || typeof entry !== 'object' || Object.prototype.hasOwnProperty.call(entry, 'id'));
     if (looksLikeJobList) return payload as Job[];
@@ -648,7 +1274,11 @@ const extractJobsFromPayload = (payload: any): Job[] => {
 };
 
 const extractGigsFromPayload = (payload: any): Gig[] => {
+  if (Array.isArray(payload?.data?.gigs)) return payload.data.gigs as Gig[];
+  if (Array.isArray(payload?.data?.items)) return payload.data.items as Gig[];
+  if (Array.isArray(payload?.items)) return payload.items as Gig[];
   if (Array.isArray(payload?.gigs)) return payload.gigs as Gig[];
+  if (Array.isArray(payload?.data)) return payload.data as Gig[];
   if (Array.isArray(payload)) {
     const looksLikeGigList = payload.every((entry) => !entry || typeof entry !== 'object' || Object.prototype.hasOwnProperty.call(entry, 'id'));
     if (looksLikeGigList) return payload as Gig[];
@@ -676,17 +1306,20 @@ const mergeSettledResponses = <T extends { id?: string | null }>(
   return merged;
 };
 
-const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content }) => {
+const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content: contentProp }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useParams<{ id?: string }>();
   const { user } = useUser();
+  const { status: liveFeatureStatus } = useLiveFeature();
   const { settings } = useContent();
   const { socket } = useSocket();
   const { showNotification } = useNotification();
   const { profile } = usePerformanceProfile();
   const followStateMap = useFollowStateMap();
+  const [managedContent, setManagedContent] = useState<MemberHomeContent | null>(contentProp ?? null);
   const viewTracked = useRef<Set<string>>(new Set());
+  const desktopFeedSentinelRef = useRef<HTMLDivElement | null>(null);
   const focusPostId = React.useMemo(() => {
     const routeId = String(params.id || '').trim();
     if (routeId) return routeId;
@@ -707,12 +1340,149 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [location.search]
   );
 
+  const loadManagedContent = useCallback(async () => {
+    if (contentProp) {
+      setManagedContent(contentProp);
+      return;
+    }
+    if (!user) {
+      setManagedContent(null);
+      return;
+    }
+
+    try {
+      const sections = await CMSService.getHomepageSections({ role: user.role as any });
+      const memberHomeSection = sections.find(
+        (section: any) =>
+          section?.type === 'member_home' &&
+          section?.isActive !== false &&
+          section?.is_active !== false &&
+          isMemberHomeSectionVisibleToRole(section, user.role)
+      );
+      setManagedContent((memberHomeSection?.content as MemberHomeContent) || null);
+    } catch (error) {
+      console.error('Failed to load managed member home content', error);
+      setManagedContent(null);
+    }
+  }, [contentProp, user]);
+
+  useEffect(() => {
+    void loadManagedContent();
+  }, [loadManagedContent]);
+
+  useEffect(() => {
+    if (!socket || contentProp) return undefined;
+
+    const handleSectionsUpdated = (sections: any[]) => {
+      if (!user) {
+        setManagedContent(null);
+        return;
+      }
+      if (Array.isArray(sections) && sections.length > 0) {
+        const memberHomeSection = sections.find(
+          (section: any) =>
+            section?.type === 'member_home' &&
+            section?.isActive !== false &&
+            section?.is_active !== false &&
+            isMemberHomeSectionVisibleToRole(section, user.role)
+        );
+        setManagedContent((memberHomeSection?.content as MemberHomeContent) || null);
+        return;
+      }
+      void loadManagedContent();
+    };
+
+    socket.on('cms:sections_updated', handleSectionsUpdated);
+    return () => {
+      socket.off('cms:sections_updated', handleSectionsUpdated);
+    };
+  }, [contentProp, loadManagedContent, socket, user]);
+
+  const content = useMemo(() => contentProp ?? managedContent ?? undefined, [contentProp, managedContent]);
+
   const [feedTab, setFeedTab] = useState<FeedTab>('latest');
   const [feedTopic, setFeedTopic] = useState('');
   const [feedRegion, setFeedRegion] = useState('');
   const [feedLoading, setFeedLoading] = useState(false);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
+  const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
+  const [feedOffsetFallbackEnabled, setFeedOffsetFallbackEnabled] = useState(false);
+  const [feedTerminal, setFeedTerminal] = useState(false);
+  const feedEmptyPageStreakRef = useRef(0);
+  const feedDiscoveryUsedRef = useRef(false);
+  /** Phase 3: prefer enterprise orchestrator; fall back to Phase 1 continuous loaders. */
+  const feedTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
+  /** Once orchestrated fails this session, stay on legacy until deliberate hard refresh. */
+  const feedOrchestratedFailedRef = useRef(false);
+  const feedAbortRef = useRef<AbortController | null>(null);
+  const desktopConstrainedFeed = profile.lowBandwidth || profile.dataSaver;
+  const desktopInitialRenderCount = desktopConstrainedFeed ? 6 : 8;
+  const desktopRenderStep = desktopConstrainedFeed ? 4 : 6;
+  const [renderedFeedItemCount, setRenderedFeedItemCount] = useState(desktopInitialRenderCount);
+  const renderedFeedItemCountRef = useRef(desktopInitialRenderCount);
+  const feedItemsRef = useRef<FeedPost[]>([]);
+  const feedLoadRequestIdRef = useRef(0);
+  const feedLoadingMoreRef = useRef(false);
+  const feedLoadingRef = useRef(false);
+  const feedNextCursorRef = useRef<string | null>(null);
+  const feedOffsetFallbackRef = useRef(false);
+  const feedTerminalRef = useRef(false);
+  const feedInFlightCursorRef = useRef<string | null>(null);
+  const feedLastCompletedCursorRef = useRef<string | null>(null);
+  const feedLastCompletedAddedRef = useRef(0);
+  const extractFeedItems = useCallback((value: any) => extractFeedItemList(value), []);
+  const extractFeedCursor = useCallback((value: any) => extractNextCursor(value), []);
+  const commitFeedItems = useCallback((items: FeedPost[], options?: { forceResetWindow?: boolean }) => {
+    const previousLength = feedItemsRef.current.length;
+    const previousRendered = renderedFeedItemCountRef.current;
+    feedItemsRef.current = items;
+    setFeedItems(items);
+    const nextRendered = resolveRenderedCountAfterCommit({
+      previousRendered,
+      previousLength,
+      nextLength: items.length,
+      initialWindow: desktopInitialRenderCount,
+      forceReset: Boolean(options?.forceResetWindow)
+    });
+    renderedFeedItemCountRef.current = nextRendered;
+    setRenderedFeedItemCount(nextRendered);
+  }, [desktopInitialRenderCount]);
+  const appendFeedItems = useCallback((items: FeedPost[]) => {
+    if (!items.length) return { addedCount: 0 };
+    const { merged, addedCount } = mergeUniqueFeedItems(feedItemsRef.current, items);
+    if (addedCount <= 0) return { addedCount: 0 };
+    feedItemsRef.current = merged as FeedPost[];
+    setFeedItems(merged as FeedPost[]);
+    setRenderedFeedItemCount((prev) => {
+      const minimum = Math.min(desktopInitialRenderCount, merged.length || desktopInitialRenderCount);
+      const nextCount = Math.max(prev + Math.max(addedCount, desktopRenderStep), minimum);
+      const clamped = Math.min(merged.length, nextCount);
+      renderedFeedItemCountRef.current = clamped;
+      return clamped;
+    });
+    return { addedCount };
+  }, [desktopInitialRenderCount, desktopRenderStep]);
+  // Render from committed feed state directly — deferred slicing caused blank gaps during refresh.
+  const renderableFeedItems = useMemo(
+    () => feedItems.slice(0, Math.min(renderedFeedItemCount, feedItems.length)),
+    [feedItems, renderedFeedItemCount]
+  );
+  const interestSurveyPostId = useMemo(
+    () =>
+      pickInterestSurveyCandidateId(
+        renderableFeedItems.map((post: any) => ({
+          id: post?.id,
+          authorId: post?.authorUserId || post?.authorId,
+          initialSignal: post?.userState?.interestSignal
+        })),
+        user?.id,
+        'post'
+      ),
+    [renderableFeedItems, user?.id]
+  );
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
   const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
@@ -724,9 +1494,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [sidebarTopAd, setSidebarTopAd] = useState<SidebarAdCard | null>(null);
   const [sidebarFeaturedAd, setSidebarFeaturedAd] = useState<SidebarAdCard | null>(null);
   const [sidebarMiddleAd, setSidebarMiddleAd] = useState<SidebarAdCard | null>(null);
+  const [marketplacePreviewListings, setMarketplacePreviewListings] = useState<MarketplaceListing[]>([]);
+  const [marketplacePreviewLoading, setMarketplacePreviewLoading] = useState(false);
+  const [groupPreviewRecommendations, setGroupPreviewRecommendations] = useState<CommunityClub[]>([]);
+  const [groupPreviewLoading, setGroupPreviewLoading] = useState(false);
+  const [groupJoinBusy, setGroupJoinBusy] = useState<Record<string, boolean>>({});
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [gigs, setGigs] = useState<Gig[]>([]);
+  const [featuredSeries, setFeaturedSeries] = useState<ScrollSeriesDiscovery[]>([]);
+  const [broadcastChannels, setBroadcastChannels] = useState<BroadcastChannelSummary[]>([]);
+  const [officeHours, setOfficeHours] = useState<HighlightCommunityEvent[]>([]);
   const [listingJobsPool, setListingJobsPool] = useState<Job[]>([]);
   const [listingGigsPool, setListingGigsPool] = useState<Gig[]>([]);
   const [listingImageErrors, setListingImageErrors] = useState<Record<string, boolean>>({});
@@ -740,10 +1518,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [searchGroups, setSearchGroups] = useState<SearchGroupMap>(() => emptySearchGroups());
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchRequestRef = useRef(0);
   const [stories, setStories] = useState<any[]>([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [reels, setReels] = useState<ScrollVideo[]>([]);
   const [reelsLoading, setReelsLoading] = useState(false);
+  const reelsRef = useRef<ScrollVideo[]>([]);
   const [scrollConfig, setScrollConfig] = useState<ScrollConfig | null>(null);
   const [scrollCreateOpen, setScrollCreateOpen] = useState(false);
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
@@ -753,6 +1533,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
+  useEffect(() => {
+    feedItemsRef.current = feedItems;
+  }, [feedItems]);
   const [storyDraft, setStoryDraft] = useState<StoryDraft>(() => ({
     content: '',
     visibility: 'public',
@@ -764,14 +1547,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     ...getDefaultStoryTextDraft()
   }));
   const [storyPosting, setStoryPosting] = useState(false);
+  const [storyMediaUploadBusy, setStoryMediaUploadBusy] = useState(false);
+  const [storyMediaUploadLabel, setStoryMediaUploadLabel] = useState('');
+  const [storyMediaUploadProgress, setStoryMediaUploadProgress] = useState(0);
   const [storyEditSaving, setStoryEditSaving] = useState(false);
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
   const [storyCommentOpen, setStoryCommentOpen] = useState(false);
-  const [storyCommentDraft, setStoryCommentDraft] = useState('');
   const [storyRepostOpen, setStoryRepostOpen] = useState(false);
   const [storySendOpen, setStorySendOpen] = useState(false);
   const [storyDashOpen, setStoryDashOpen] = useState(false);
+  const [storyTouchOverlayMode, setStoryTouchOverlayMode] = useState(false);
+  const [storyOverlayVisible, setStoryOverlayVisible] = useState(true);
   const [storyCameraOpen, setStoryCameraOpen] = useState(false);
   const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
   const storyVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -781,18 +1568,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
-  const [postDraft, setPostDraft] = useState<PostDraft>({
-    title: '',
-    content: '',
-    tags: '',
-    mentions: '',
-    topic: '',
-    location: '',
-    visibility: 'public',
-    commentPolicy: 'everyone',
-    media: []
-  });
+  const [postDraft, setPostDraft] = useState<PostDraft>(createEmptyPostDraft);
+  const [desktopComposerOpen, setDesktopComposerOpen] = useState(false);
+  const [desktopComposerIntent, setDesktopComposerIntent] = useState<DesktopComposerIntent>('text');
+  const [composerDraftNotice, setComposerDraftNotice] = useState<string | null>(null);
+  const [composerStatusMessage, setComposerStatusMessage] = useState('');
+  const [postLocationDetails, setPostLocationDetails] = useState<Partial<StructuredLocationFields> | null>(null);
+  const [postLocationPickerOpen, setPostLocationPickerOpen] = useState(false);
+  const [ownedBusinessPages, setOwnedBusinessPages] = useState<PostAuthorOption[]>([]);
+  const [ownedBusinessPagesLoading, setOwnedBusinessPagesLoading] = useState(false);
+  const [postAuthorScopeId, setPostAuthorScopeId] = useState('user');
   const [posting, setPosting] = useState(false);
+  const publishGuardRef = useRef(createPublishGuard());
+  /** Tracks media count for multi-file validation without stale-closure races. */
+  const postMediaCountRef = useRef(0);
+  /** Latest media snapshot for unmount blob cleanup. */
+  const postMediaItemsRef = useRef<PostMediaItem[]>([]);
+  /** Stable close/save path — avoid recreating onClose every keystroke (focus trap churn). */
+  const postDraftRef = useRef(postDraft);
+  const postingRef = useRef(posting);
+  const postAuthorScopeIdRef = useRef(postAuthorScopeId);
+  const composerDraftKey = useMemo(
+    () =>
+      buildComposerDraftKey({
+        userId: user?.id,
+        surface: 'member-home',
+        identityId: postAuthorScopeId || 'user'
+      }),
+    [postAuthorScopeId, user?.id]
+  );
+  const composerDraftKeyRef = useRef(composerDraftKey);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
   const [aiSuggestion, setAiSuggestion] = useState('');
@@ -800,10 +1605,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false);
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiSuggestionWarning, setAiSuggestionWarning] = useState<string | null>(null);
   const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
+  const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
   const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
+  const [expandedPost, setExpandedPost] = useState<any | null>(null);
   const postMediaInputRef = useRef<HTMLInputElement | null>(null);
   const postCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const postTitleInputRef = useRef<HTMLInputElement | null>(null);
   const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
@@ -819,31 +1629,104 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [sliderItems, setSliderItems] = useState<any[]>([]);
   const composerRef = useRef<HTMLDivElement | null>(null);
+  const ownedBusinessPagesLoadedRef = useRef(false);
   const searchRef = useRef<HTMLDivElement | null>(null);
   const sidebarRefreshTimeoutRef = useRef<number | null>(null);
   const adImpressionsRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
   const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    feedItemsRef.current = feedItems;
+  }, [feedItems]);
+
+  useEffect(() => {
+    reelsRef.current = reels;
+  }, [reels]);
+  const storyOverlayHideTimerRef = useRef<number | null>(null);
+  const storyAutoAdvanceTimerRef = useRef<number | null>(null);
   const storyLastTapAtRef = useRef(0);
   const [selfProfileCover, setSelfProfileCover] = useState('');
 
-  const openPostDetail = useCallback(
-    (postId: string) => {
-      const id = String(postId || '').trim();
-      if (!id) return;
-      navigate(`/post/${encodeURIComponent(id)}`);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(hover: none), (pointer: coarse)');
+    const sync = () => setStoryTouchOverlayMode(query.matches);
+    sync();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', sync);
+      return () => query.removeEventListener('change', sync);
+    }
+    query.addListener(sync);
+    return () => query.removeListener(sync);
+  }, []);
+
+  const revealStoryOverlay = useCallback(() => {
+    if (!storyTouchOverlayMode) return;
+    setStoryOverlayVisible(true);
+  }, [storyTouchOverlayMode]);
+
+  const findPrimaryVideoAttachment = useCallback((post: any) => {
+    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    return (
+      attachments.find((entry: any) => {
+        const type = inferMediaType(entry || {});
+        return type === 'video';
+      }) || null
+    );
+  }, []);
+
+  const openVideoPostInScroll = useCallback(
+    (post: any, media: any) => {
+      const postId = String(post?.id || '').trim();
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
+      if (!postId || !mediaUrl) return;
+      const sourcePayload: PendingPostVideoScrollViewerSource = {
+        sourcePostId: postId,
+        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        mediaUrl,
+        thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
+        title: String(post?.title || '').trim() || null,
+        description: String(post?.content || '').trim() || null,
+        location: String(post?.location || '').trim() || null,
+        authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
+        authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || '').trim() || null,
+        authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
+        createdAt: String(post?.createdAt || '').trim() || null
+      };
+      stashPendingPostVideoScrollViewerSource(sourcePayload);
+      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
+        state: {
+          pendingViewerSource: sourcePayload
+        }
+      });
     },
     [navigate]
   );
 
+  const openPostCard = useCallback(
+    (post: any) => {
+      if (!post?.id) return;
+      const primaryVideo = findPrimaryVideoAttachment(post);
+      if (primaryVideo) {
+        openVideoPostInScroll(post, primaryVideo);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [findPrimaryVideoAttachment, openVideoPostInScroll]
+  );
+
   const openPostFromText = useCallback(
-    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+    (event: React.MouseEvent<HTMLElement>, post: any) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
-      openPostDetail(postId);
+      openPostCard(post);
     },
-    [openPostDetail]
+    [openPostCard]
   );
 
   const triggerPostDoubleTapLike = useCallback(
@@ -873,17 +1756,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [user?.id]
   );
 
+  const handlePostMediaPrimaryAction = useCallback(
+    (post: any, media: any) => {
+      const type = inferMediaType(media || {});
+      if (type === 'video') {
+        openVideoPostInScroll(post, media);
+        return;
+      }
+      const preview = toPreviewMedia({
+        ...media,
+        url: resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || media?.url,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl
+      });
+      if (preview) {
+        setPreviewMedia(preview);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [openVideoPostInScroll]
+  );
+
   const queueOpenPostFromMediaTap = useCallback(
-    (postId: string, mediaKey: string) => {
+    (post: any, media: any, mediaKey: string) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
       const timerKey = `${postId}:${mediaKey}`;
       const existing = postMediaTapTimersRef.current[timerKey];
       if (existing) window.clearTimeout(existing);
       postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
         delete postMediaTapTimersRef.current[timerKey];
-        openPostDetail(postId);
+        handlePostMediaPrimaryAction(post, media);
       }, 220);
     },
-    [openPostDetail]
+    [handlePostMediaPrimaryAction]
   );
 
   const onPostMediaDoubleClick = useCallback(
@@ -941,6 +1847,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const showDiscover = resolveToggle(content?.showDiscover, true, true);
   const showFollowing = resolveToggle(content?.showFollowing, true, true);
   const showTrending = resolveToggle(undefined, memberHomeFeed.enableTrendingTab, true);
+  const showIntentModes = resolveToggle(undefined, memberHomeFeed.enableIntentModes, true);
+  const showPipelineSave = resolveToggle(undefined, memberHomeFeed.enablePipelineSave, true);
+  const showWhyThisPost = resolveToggle(undefined, memberHomeFeed.enableWhyThisPost, true);
   const showComposer = resolveToggle(content?.showComposer, memberHomeWidgets.postComposerEnabled, true);
   const showSearch = resolveToggle(content?.showSearch, true, true);
   const showStories = resolveToggle(content?.showStories, memberHomeWidgets.storiesEnabled, true);
@@ -958,16 +1867,30 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const showSidebarAds =
     resolveToggle(undefined, memberHomeAds.enabled, false) &&
     resolveToggle(undefined, memberHomeWidgets.rightSidebarAdsEnabled, true);
+  const showFeaturedSidebarAd = resolveToggle(undefined, memberHomeAds.leftSidebarFeaturedEnabled, true);
   const showTopSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarTopEnabled, true);
-  const showFeaturedSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.leftSidebarFeaturedEnabled, true);
   const showMiddleSidebarAd = showSidebarAds && resolveToggle(undefined, memberHomeAds.rightSidebarMiddleEnabled, true);
   const postDensity = String(memberHomeFeed.postDensity || 'comfortable').toLowerCase() === 'compact' ? 'compact' : 'comfortable';
+  const defaultIntentFeedTab: FeedTab = (() => {
+    const configured = normalizeFeedTabValue(memberHomeFeed.defaultIntentMode);
+    if (configured && configured !== 'latest' && configured !== 'trending') {
+      return configured;
+    }
+    return 'for_you';
+  })();
 
   const defaultFeedTab: FeedTab = (() => {
-    const explicit = String(memberHomeFeed.defaultTab || '').toLowerCase();
+    const explicit = normalizeFeedTabValue(memberHomeFeed.defaultTab);
+    if (showIntentModes) {
+      if (explicit && explicit !== 'latest') return explicit;
+      const scopeFallback = String(memberHomeFeed.defaultScope || '').toLowerCase();
+      if (scopeFallback === 'following') return 'following';
+      return defaultIntentFeedTab;
+    }
+
     if (explicit === 'following') return 'following';
-    if (explicit === 'trending' || explicit === 'popular') return 'trending';
-    if (explicit === 'latest' || explicit === 'discover') return 'latest';
+    if (explicit === 'trending') return 'trending';
+    if (explicit === 'latest') return 'latest';
 
     const scopeFallback = String(memberHomeFeed.defaultScope || '').toLowerCase();
     if (scopeFallback === 'following') return 'following';
@@ -1024,14 +1947,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const isGuest = !user || String(user?.role || '').toLowerCase() === 'guest';
   const listingPoolLimit = Math.max(maxListingCardsPerFeed * 4, maxJobs * 2, maxGigs * 2, 12);
   const listingCardEntries = useMemo(() => {
-    if (!showListingCards || !user || !feedItems.length) return [];
-    const slots = Math.min(maxListingCardsPerFeed, Math.floor(feedItems.length / listingCardEveryPosts));
+    if (!showListingCards || !feedItems.length) return [];
+    const slots = Math.min(
+      maxListingCardsPerFeed,
+      Math.max(1, Math.floor(feedItems.length / listingCardEveryPosts))
+    );
     if (slots <= 0) return [];
 
     const jobPool = shuffleArray(dedupeById((listingJobsPool || []) as Array<Job & { id: string }>)).slice(0, slots * 2);
     const gigPool = shuffleArray(dedupeById((listingGigsPool || []) as Array<Gig & { id: string }>)).slice(0, slots * 2);
     const entries: Array<{ kind: 'job' | 'gig'; item: any }> = [];
-    let preferJob = ((String(user.id || '').length + feedItems.length) % 2) === 0;
+    let preferJob = ((String(user?.id || 'guest').length + feedItems.length) % 2) === 0;
 
     while (entries.length < slots && (jobPool.length || gigPool.length)) {
       if (preferJob && jobPool.length) {
@@ -1049,7 +1975,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     return entries.filter((entry) => Boolean(entry.item?.id));
   }, [
     showListingCards,
-    user,
+    user?.id,
     feedItems.length,
     maxListingCardsPerFeed,
     listingCardEveryPosts,
@@ -1058,15 +1984,159 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   ]);
   const currentUserId = String((user as any)?.id || (user as any)?.user_id || '').trim();
   const feedTabStorageKey = `member_home_feed_tab:${currentUserId || 'guest'}`;
+  const feedCacheKey = `member_home_feed_cache:v4:${currentUserId || 'guest'}`;
   const feedTabInitializedRef = useRef(false);
+  const [feedTabReady, setFeedTabReady] = useState(false);
   const currentUsername = String((user as any)?.username || (user as any)?.user_name || '').trim();
   const userHeadline = user?.title || (user as any)?.headline || (user as any)?.tagline || user?.role || 'Member';
   const userLocation = user?.location || (user as any)?.country || '';
+  const resolvedUserAvatar = resolveUserAvatarUrl(user);
   const composerTitle = content?.composerTitle || 'Share a quick update or idea with your network.';
+  const userPostAuthorOption = useMemo<PostAuthorOption>(
+    () => ({
+      id: 'user',
+      type: 'user',
+      label: String(user?.name || currentUsername || 'You').trim() || 'You',
+      subtitle: userHeadline || 'Post as yourself',
+      avatarUrl: resolvedUserAvatar || null,
+      pageId: null,
+      slug: null
+    }),
+    [currentUsername, resolvedUserAvatar, user?.name, userHeadline]
+  );
+  const desktopPostAuthorOptions = useMemo(
+    () => [userPostAuthorOption, ...ownedBusinessPages],
+    [ownedBusinessPages, userPostAuthorOption]
+  );
+  const activePostAuthor = useMemo(
+    () =>
+      desktopPostAuthorOptions.find((option) => option.id === postAuthorScopeId) || userPostAuthorOption,
+    [desktopPostAuthorOptions, postAuthorScopeId, userPostAuthorOption]
+  );
+  const activePostBusinessPageId = activePostAuthor.type === 'page' ? activePostAuthor.pageId || null : null;
+  const postLocationSummary = composePostLocationValue(
+    getStructuredLocationLabel(postLocationDetails) || String(postDraft.location || '').trim(),
+    postDraft.region
+  );
   const profileViewersTitle = content?.profileViewersTitle || 'Profile viewers';
   const profileViewingTitle = content?.profileViewingTitle || 'Recently viewed';
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  useEffect(() => {
+    if (!desktopPostAuthorOptions.some((option) => option.id === postAuthorScopeId)) {
+      setPostAuthorScopeId('user');
+    }
+  }, [desktopPostAuthorOptions, postAuthorScopeId]);
+
+  useEffect(() => {
+    if (!desktopComposerOpen || !user?.id || ownedBusinessPagesLoadedRef.current) return;
+    let active = true;
+    setOwnedBusinessPagesLoading(true);
+    CommunityService.getMyBusinessPages()
+      .then((pages) => {
+        if (!active) return;
+        const normalized = (Array.isArray(pages) ? pages : [])
+          .map(normalizeOwnedBusinessPage)
+          .filter((entry): entry is PostAuthorOption => Boolean(entry));
+        setOwnedBusinessPages(normalized);
+        ownedBusinessPagesLoadedRef.current = true;
+      })
+      .catch((error) => {
+        console.error('Unable to load owned business pages for desktop composer', error);
+        if (!active) return;
+        setOwnedBusinessPages([]);
+        ownedBusinessPagesLoadedRef.current = true;
+      })
+      .finally(() => {
+        if (active) setOwnedBusinessPagesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [desktopComposerOpen, user?.id]);
+
+  useEffect(() => {
+    if (!desktopComposerOpen) return;
+    const timer = window.setTimeout(() => {
+      if (desktopComposerIntent === 'article') {
+        postTitleInputRef.current?.focus();
+      } else {
+        composerInputRef.current?.focus();
+      }
+      if (desktopComposerIntent === 'photo' || desktopComposerIntent === 'video') {
+        postMediaInputRef.current?.click();
+      }
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [desktopComposerIntent, desktopComposerOpen]);
+
+  // Keep multi-file attach validation + unmount cleanup in sync with draft media.
+  useEffect(() => {
+    postMediaCountRef.current = postDraft.media.length;
+    postMediaItemsRef.current = postDraft.media;
+  }, [postDraft.media]);
+
+  // Keep latest draft snapshot for stable close/save callbacks (must not remount editor/focus trap).
+  useEffect(() => {
+    postDraftRef.current = postDraft;
+  }, [postDraft]);
+  useEffect(() => {
+    postingRef.current = posting;
+  }, [posting]);
+  useEffect(() => {
+    postAuthorScopeIdRef.current = postAuthorScopeId;
+  }, [postAuthorScopeId]);
+  useEffect(() => {
+    composerDraftKeyRef.current = composerDraftKey;
+  }, [composerDraftKey]);
+
+  // Persist text/settings draft while typing (no media bytes).
+  useEffect(() => {
+    if (!user?.id) return;
+    const timer = window.setTimeout(() => {
+      saveComposerDraft(composerDraftKey, {
+        title: postDraft.title,
+        content: postDraft.content,
+        tags: postDraft.tags,
+        mentions: postDraft.mentions,
+        topic: postDraft.topic,
+        region: postDraft.region,
+        location: postDraft.location,
+        visibility: postDraft.visibility,
+        commentPolicy: postDraft.commentPolicy,
+        graphicWarning: postDraft.graphicWarning,
+        isAIEnhanced: postDraft.isAIEnhanced,
+        aiInsightPreference: postDraft.aiInsightPreference,
+        authorScopeId: postAuthorScopeId
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [
+    composerDraftKey,
+    postAuthorScopeId,
+    postDraft.aiInsightPreference,
+    postDraft.commentPolicy,
+    postDraft.content,
+    postDraft.graphicWarning,
+    postDraft.isAIEnhanced,
+    postDraft.location,
+    postDraft.mentions,
+    postDraft.region,
+    postDraft.tags,
+    postDraft.title,
+    postDraft.topic,
+    postDraft.visibility,
+    user?.id
+  ]);
+
+  // Revoke any remaining blob previews on unmount (navigation / teardown).
+  useEffect(() => {
+    return () => {
+      postMediaItemsRef.current.forEach((item) => revokePreviewUrl(item.url));
+    };
+  }, []);
   const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
@@ -1085,26 +2155,96 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       return filterActiveStories(next).slice(0, maxStories);
     });
     setActiveStory((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+    setStoryActionTarget((current) =>
+      current?.id === updated.id
+        ? {
+            ...current,
+            ...updated,
+            interactions: {
+              ...(current?.interactions || {}),
+              ...(updated?.interactions || {})
+            }
+          }
+        : current
+    );
   }, [filterActiveStories, maxStories]);
 
-  const buildProfileUrl = (entry?: { id?: string | null; username?: string | null }) => {
+  const buildProfileUrl = useCallback((entry?: { id?: string | null; username?: string | null }) => {
     const handle = (entry?.username || '').toString().trim().replace(/^@+/, '');
     if (handle) return `/u/${handle}`;
     const id = (entry?.id || '').toString().trim();
     if (id) return `/profile/${id}`;
     if (currentUserId) return `/profile/${currentUserId}`;
     return '/profile/edit';
-  };
-  const buildPageUrl = (page?: { slug?: string | null; handle?: string | null }) => {
+  }, [currentUserId]);
+  const buildSeriesUrl = useCallback((seriesId?: string | null) => {
+    const id = String(seriesId || '').trim();
+    if (!id) return '/scroll';
+    return `/scroll?series=${encodeURIComponent(id)}`;
+  }, []);
+  const buildPageUrl = useCallback((page?: { slug?: string | null; handle?: string | null }) => {
     const slug = String(page?.slug || page?.handle || '').trim().replace(/^@+/, '');
     if (!slug) return '/community';
-    return `/community?page=${encodeURIComponent(slug)}`;
-  };
+    return `/company/${encodeURIComponent(slug)}`;
+  }, []);
+  const resolveSearchItemUrl = useCallback(
+    (item: any, normalizedType?: SearchGroupKey | string | undefined) => {
+      const direct = String(item?.url || item?.link || item?.href || '').trim();
+      if (direct) return direct;
+
+      const kind = String(normalizedType || item?.type || item?.kind || item?.entityType || item?.category || '')
+        .trim()
+        .toLowerCase();
+
+      if (kind === 'people' || kind === 'person' || kind === 'users' || kind === 'user') {
+        return buildProfileUrl({
+          id: item?.id || item?._id || item?.userId || item?.user_id || null,
+          username: item?.username || item?.handle || item?.meta?.username || null
+        });
+      }
+
+      if (kind === 'pages' || kind === 'page') {
+        return buildPageUrl({
+          slug: item?.slug || item?.handle || item?.username || item?.meta?.slug || null,
+          handle: item?.handle || item?.username || null
+        });
+      }
+
+      if (kind === 'jobs' || kind === 'job') {
+        const id = String(item?.slug || item?.id || item?._id || item?.jobId || item?.job_id || '').trim();
+        return id ? `/jobs/${encodeURIComponent(id)}` : '';
+      }
+
+      if (kind === 'gigs' || kind === 'gig') {
+        const id = String(item?.slug || item?.id || item?._id || item?.gigId || item?.gig_id || '').trim();
+        return id ? `/gigs/${encodeURIComponent(id)}` : '';
+      }
+
+      if (kind === 'marketplace' || kind === 'marketplace_listing' || kind === 'listing' || kind === 'product' || kind === 'item') {
+        const id = String(item?.slug || item?.id || item?._id || item?.listingId || item?.listing_id || '').trim();
+        return id ? `/marketplace/listing/${encodeURIComponent(id)}` : '/marketplace';
+      }
+
+      if (kind === 'posts' || kind === 'post') {
+        const id = String(item?.id || item?._id || item?.postId || item?.post_id || '').trim();
+        return id ? `/post/${encodeURIComponent(id)}` : '';
+      }
+
+      return '';
+    },
+    [buildPageUrl, buildProfileUrl]
+  );
   const normalizeSidebarAd = useCallback((ad: any): SidebarAdCard | null => {
     const id = String(ad?.id || '').trim();
     if (!id) return null;
     const media = Array.isArray(ad?.media) ? ad.media[0] : null;
     const mediaUrl = resolveAssetUrl(media?.url || ad?.imageUrl || ad?.mediaUrl || '');
+    const mediaType =
+      media && inferMediaType(media) === 'video'
+        ? 'video'
+        : /\.(mp4|mov|m4v|webm|ogg)(\?|$)/i.test(String(mediaUrl || '').toLowerCase())
+          ? 'video'
+          : 'image';
     return {
       id,
       title: String(ad?.title || 'Sponsored').trim() || 'Sponsored',
@@ -1112,6 +2252,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       ctaText: String(ad?.ctaText || ad?.cta || '').trim(),
       destinationUrl: String(ad?.destinationUrl || ad?.targetUrl || '').trim(),
       mediaUrl: mediaUrl || undefined,
+      mediaType,
       placement: String(ad?.placement || '').trim() || undefined
     };
   }, []);
@@ -1126,7 +2267,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       handle: source?.pageHandle || source?.handle || page?.handle || '',
       tagline: source?.headline || source?.tagline || page?.tagline || page?.description || '',
       industry: source?.industry || page?.industry || '',
-      avatar: source?.avatar || page?.logo?.url || page?.logoUrl || null,
+      avatar: resolveUserAvatarUrl(source || page) || null,
       followersCount: Number(source?.followersCount || page?.followersCount || 0),
       isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
       followId: source?.followId || page?.followId || null
@@ -1162,8 +2303,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     content?.gigCreationQuickActionSubtitle ||
     (content as any)?.gig_creation_quick_action_subtitle ||
     'Generate your gig setup with AI guidance';
-  const searchPlaceholder = content?.searchPlaceholder || 'Search posts, jobs, gigs, people, or pages';
-  const searchHint = content?.searchHint || 'Search across posts, jobs, gigs, people, and pages.';
+  const searchPlaceholder = content?.searchPlaceholder || 'Search posts, jobs, gigs, people, pages, or marketplace items';
+  const searchHint = content?.searchHint || 'Search across marketplace items, posts, jobs, gigs, people, and pages.';
 
   const normalizePost = useCallback((post: any): FeedPost => {
     const interactions = { ...(post.interactions || {}) };
@@ -1173,6 +2314,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (interactions.shares === undefined) interactions.shares = post.sharesCount ?? post.shares_count ?? 0;
     if (interactions.views === undefined) interactions.views = post.viewsCount ?? post.views_count ?? 0;
     if (interactions.reactions === undefined) interactions.reactions = post.reactions || {};
+    if (interactions.dashGcoinTotal === undefined) interactions.dashGcoinTotal = post.dashGcoinTotal ?? post.dash_gcoin_total ?? 0;
     const authorId = post.authorId || post.userId || post.user_id || post.author?.id || post.author?.userId || post.author?.user_id;
     const authorName = post.authorName || post.userName || post.user_name || post.author?.displayName || post.author?.name || 'Community member';
     const authorUsername =
@@ -1183,7 +2325,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       post.author?.userName ||
       post.author?.user_name ||
       null;
-    const authorAvatar = post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+    const authorAvatar = resolveUserAvatarUrl(post.author || post);
     const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
     const authorUserId =
       post.authorUserId ||
@@ -1196,23 +2338,45 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       aiInsightTextRaw === null || aiInsightTextRaw === undefined
         ? null
         : String(aiInsightTextRaw).trim() || null;
+    const baseAttachments = Array.isArray(post.attachments)
+      ? post.attachments
+      : Array.isArray(post.media)
+        ? post.media
+        : [];
+    const syntheticVideoAttachment = resolveSyntheticVideoAttachment(post);
+    const attachments =
+      syntheticVideoAttachment && !baseAttachments.some((entry: any) => inferMediaType(entry || {}) === 'video')
+        ? [syntheticVideoAttachment, ...baseAttachments]
+        : baseAttachments;
+    const tags = Array.isArray(post.tags) ? post.tags : [];
+    const mentions = Array.isArray(post.mentions) ? post.mentions : [];
 
     return {
       id: post.id || `${authorId}-${Date.now()}`,
-      title: post.title,
-      content: post.content,
+      title:
+        readRenderableText(post.title) ||
+        readRenderableText(post.headline) ||
+        readRenderableText(post.subject) ||
+        null,
+      content:
+        readRenderableText(post.content) ||
+        readRenderableText(post.body) ||
+        readRenderableText(post.text) ||
+        readRenderableText(post.description) ||
+        '',
       attachmentFileIds: Array.isArray(post.attachmentFileIds)
         ? post.attachmentFileIds
-        : Array.isArray(post.attachments)
-          ? post.attachments.map((item: any) => item?.id).filter(Boolean)
+        : attachments.length > 0
+          ? attachments.map((item: any) => item?.id || item?.fileId || item?.file_id).filter(Boolean)
           : [],
-      attachments: (post.attachments || []).map((item: any) => ({
-        id: item.id || item.fileId,
-        url: item.url || item,
+      attachments: attachments.map((item: any) => ({
+        ...item,
+        id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
+        url: resolvePostAttachmentMediaUrl(item) || item.url || '',
         name: item.name || item.originalName || item.filename,
         mimeType: item.mimeType || item.mime_type,
         type: item.type || inferMediaType(item),
-        thumbnailUrl: item.thumbnailUrl || item.thumbnail_url,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item) || item.thumbnailUrl || item.thumbnail_url || null,
         duration: item.duration,
         width: item.width,
         height: item.height
@@ -1221,7 +2385,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
         displayName: post.author?.displayName || authorName,
-        avatarUrl: post.author?.avatarUrl || authorAvatar,
+        avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
@@ -1237,14 +2401,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       authorAvatar,
       createdAt: post.createdAt || post.created_at,
       updatedAt: post.updatedAt || post.updated_at,
-      tags: post.tags || [],
-      mentions: post.mentions || [],
+      tags,
+      mentions,
       topic: post.topic || null,
+      topicSummary: Array.isArray(post.topicSummary)
+        ? dedupeLabels(post.topicSummary.map((entry: string) => String(entry || '').trim()))
+        : dedupeLabels([post.topic || '', ...(tags as string[])]),
       location: post.location || null,
       visibility: post.visibility,
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
+      repostsEnabled: post.repostsEnabled ?? post.reposts_enabled ?? true,
+      offerTags: normalizeContentOfferTags(post.offerTags ?? post.offer_tags),
+      originalPost:
+        post.originalPost && typeof post.originalPost === 'object'
+          ? {
+              id: post.originalPost.id,
+              authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+              authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+              title: readRenderableText(post.originalPost.title) || null,
+              content: readRenderableText(post.originalPost.content) || null
+            }
+          : null,
       isPinned: post.isPinned ?? post.is_pinned ?? false,
       isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+      graphicWarning: Boolean(post.graphicWarning ?? post.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post.isAIEnhanced ?? post.is_ai_enhanced ?? false),
+      dashGcoinTotal: Number(post.dashGcoinTotal ?? post.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
       aiInsightEnabled: Boolean(post.aiInsightEnabled ?? post.ai_insight_enabled ?? false),
       aiInsightGenerated: Boolean(
         post.aiInsightGenerated ??
@@ -1259,6 +2441,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             ? Number(post.ai_score)
             : null,
       interactions,
+      ranking: post.ranking || undefined,
+      pipelineState: post.pipelineState || undefined,
       userState: post.userState || post.user_state || {}
     };
   }, []);
@@ -1286,7 +2470,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         item.id === updated.id
           ? {
               ...item,
-              ...updated,
+              ...Object.fromEntries(Object.entries(updated).filter(([, value]) => value !== undefined)),
+              title: updated.title !== undefined ? updated.title : item.title,
+              content: updated.content !== undefined ? updated.content : item.content,
+              attachmentFileIds:
+                updated.attachmentFileIds !== undefined ? updated.attachmentFileIds : item.attachmentFileIds,
+              attachments: updated.attachments !== undefined ? updated.attachments : item.attachments,
+              tags: updated.tags !== undefined ? updated.tags : item.tags,
+              mentions: updated.mentions !== undefined ? updated.mentions : item.mentions,
+              topic: updated.topic !== undefined ? updated.topic : item.topic,
+              topicSummary: updated.topicSummary !== undefined ? updated.topicSummary : item.topicSummary,
+              location: updated.location !== undefined ? updated.location : item.location,
+              author:
+                updated.author !== undefined
+                  ? { ...(item.author || {}), ...(updated.author || {}) }
+                  : item.author,
+              authorId: updated.authorId !== undefined ? updated.authorId : item.authorId,
+              authorUserId: updated.authorUserId !== undefined ? updated.authorUserId : item.authorUserId,
+              authorName: updated.authorName !== undefined ? updated.authorName : item.authorName,
+              authorUsername: updated.authorUsername !== undefined ? updated.authorUsername : item.authorUsername,
+              authorAvatar: updated.authorAvatar !== undefined ? updated.authorAvatar : item.authorAvatar,
+              originalPost: updated.originalPost !== undefined ? updated.originalPost : item.originalPost,
+              ranking: updated.ranking !== undefined ? updated.ranking : item.ranking,
+              pipelineState:
+                updated.pipelineState !== undefined
+                  ? { ...(item.pipelineState || {}), ...(updated.pipelineState || {}) }
+                  : item.pipelineState,
               interactions: updated.interactions
                 ? { ...(item.interactions || {}), ...updated.interactions }
                 : item.interactions,
@@ -1302,19 +2511,350 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [syncCommentCount]);
 
-  const loadFeed = useCallback(async () => {
+  const togglePipelineSave = useCallback(
+    async (post: FeedPost) => {
+      if (!user) {
+        showNotification('warning', 'Pipeline', 'Please sign in to save opportunities.');
+        return;
+      }
+
+      if (pipelineBusyByPostId[post.id]) return;
+
+      const nextSaved = !Boolean(post.pipelineState?.saved);
+      setPipelineBusyByPostId((prev) => ({ ...prev, [post.id]: true }));
+      try {
+        if (nextSaved) {
+          await PipelineService.save({
+            entityType: 'POST',
+            entityId: post.id,
+            sourceSurface: 'member_home',
+            meta: {
+              topics: post.topicSummary?.length ? post.topicSummary : dedupeLabels([post.topic || '', ...(post.tags || [])]),
+              authorId: post.authorUserId || post.authorId || post.author?.id || null,
+              businessPageId: post.author?.type === 'business' ? post.author?.id || null : null,
+              reason: post.ranking?.primaryReason || null
+            }
+          });
+        } else {
+          await PipelineService.remove('POST', post.id);
+        }
+
+        applyPostUpdate({
+          id: post.id,
+          pipelineState: { saved: nextSaved }
+        } as FeedPost);
+        showNotification('success', 'Pipeline', nextSaved ? 'Saved to your pipeline.' : 'Removed from your pipeline.');
+      } catch (error: any) {
+        showNotification('error', 'Pipeline', getApiErrorMessage(error, 'Unable to update pipeline status.'));
+      } finally {
+        setPipelineBusyByPostId((prev) => {
+          const next = { ...prev };
+          delete next[post.id];
+          return next;
+        });
+      }
+    },
+    [applyPostUpdate, pipelineBusyByPostId, showNotification, user]
+  );
+
+  const loadFeed = useCallback(async (options?: { forceRetryOrchestrated?: boolean; hardReset?: boolean }) => {
     if (!user) return;
-    setFeedLoading(true);
+    // One in-flight initial/soft-refresh at a time (superseded by newer sequence).
+    if (feedLoadingRef.current && !options?.hardReset) {
+      // Allow tab/filter changes to supersede via request sequence below.
+    }
+    const requestId = ++feedLoadRequestIdRef.current;
+    feedLoadingRef.current = true;
+    const hadExistingContent = feedItemsRef.current.length > 0;
+    // Never blank existing content: skeleton only when empty.
+    if (!hadExistingContent) {
+      setFeedLoading(true);
+    }
     try {
       const scope = feedTab === 'following' ? 'following' : 'discover';
+      const requestedMode =
+        feedTab === 'latest'
+          ? showIntentModes
+            ? defaultIntentFeedTab
+            : undefined
+          : feedTab === 'trending'
+            ? showIntentModes
+              ? defaultIntentFeedTab
+              : undefined
+            : feedTab !== 'following'
+              ? feedTab
+              : undefined;
+      const resolvedMode =
+        requestedMode && String(requestedMode).toLowerCase() !== 'for_you' ? requestedMode : undefined;
       const payload: any = { limit: maxFeedItems, scope };
+      if (resolvedMode) payload.mode = resolvedMode;
       if (scope === 'discover' && showCategoriesFilter) {
         if (feedTopic) payload.topic = feedTopic;
         if (feedRegion) payload.region = feedRegion;
       }
-      const data = await CommunityService.getFeed(payload);
-      const items = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : [];
-      const normalized = items.map(normalizePost);
+      const normalizeFeedItems = (sourceItems: any[]) =>
+        (Array.isArray(sourceItems) ? sourceItems : [])
+          .map((item) => {
+            try {
+              return normalizePost(item);
+            } catch (normalizeError) {
+              console.warn('Skipping malformed desktop feed post', normalizeError, item);
+              return null;
+            }
+          })
+          .filter((item): item is FeedPost => Boolean(item));
+      const mergeFeedItems = (preferred: FeedPost[], fallback: FeedPost[]) =>
+        dedupeById(
+          [...preferred, ...fallback].filter(Boolean) as Array<FeedPost & { id?: string | null }>
+        ) as FeedPost[];
+
+      // Phase 3: try enterprise orchestrator first (cursor-only). Soft-fail → Phase 1 loaders.
+      // Stay on legacy after a session failure unless hard refresh forces retry.
+      const mayTryOrchestrated =
+        options?.forceRetryOrchestrated ||
+        options?.hardReset ||
+        !feedOrchestratedFailedRef.current ||
+        feedTransportRef.current === 'orchestrated';
+      if (mayTryOrchestrated) {
+      try {
+        // Abort only superseded initial requests (not load-more).
+        feedAbortRef.current?.abort();
+        const controller = new AbortController();
+        feedAbortRef.current = controller;
+        const orchestratedMode =
+          scope === 'following'
+            ? 'following'
+            : resolvedMode || (showIntentModes ? defaultIntentFeedTab : 'for_you') || 'for_you';
+        const orchestrated = await MemberFeedService.tryFetchPage({
+          surface: 'member_home',
+          mode: String(orchestratedMode),
+          limit: maxFeedItems,
+          topic: scope === 'discover' && showCategoriesFilter ? feedTopic || undefined : undefined,
+          region: scope === 'discover' && showCategoriesFilter ? feedRegion || undefined : undefined,
+          signal: controller.signal,
+          timeoutMs: desktopConstrainedFeed ? 12000 : 18000
+        });
+        if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
+        if (orchestrated && Array.isArray(orchestrated.posts)) {
+          const normalized = normalizeFeedItems(orchestrated.posts);
+          if (normalized.length > 0 || orchestrated.hasMore) {
+            feedTransportRef.current = 'orchestrated';
+            feedOrchestratedFailedRef.current = false;
+            feedEmptyPageStreakRef.current = 0;
+            feedDiscoveryUsedRef.current = true; // skip Phase 1 discovery supplement while orchestrated
+            feedTerminalRef.current = !orchestrated.hasMore && normalized.length === 0;
+            setFeedTerminal(feedTerminalRef.current);
+            // Soft refresh: merge first page over existing pages — never drop already-loaded items.
+            const nextItems =
+              hadExistingContent && !options?.hardReset
+                ? (mergeUniqueFeedItems(normalized, feedItemsRef.current).merged as FeedPost[])
+                : normalized;
+            commitFeedItems(nextItems, {
+              forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent
+            });
+            // Only reset cursor on deliberate hard reset / empty prior list.
+            if (!hadExistingContent || options?.hardReset) {
+              feedNextCursorRef.current = orchestrated.nextCursor;
+              setFeedNextCursor(orchestrated.nextCursor);
+              feedOffsetFallbackRef.current = false;
+              setFeedOffsetFallbackEnabled(false);
+            }
+            logFeedLifecycle({
+              surface: 'member_home',
+              transport: 'orchestrated',
+              kind: hadExistingContent ? 'soft_refresh' : 'initial',
+              sequence: requestId,
+              cursor: null,
+              nextCursor: orchestrated.nextCursor,
+              itemCount: normalized.length,
+              hasMore: orchestrated.hasMore,
+              feedCountBefore: hadExistingContent ? feedItemsRef.current.length : 0,
+              feedCountAfter: normalized.length
+            });
+            if (orchestrated.jobs.length) {
+              setListingJobsPool((prev) =>
+                dedupeById([...(orchestrated.jobs as any[]), ...((prev || []) as any[])]) as any
+              );
+            }
+            if (orchestrated.gigs.length) {
+              setListingGigsPool((prev) =>
+                dedupeById([...(orchestrated.gigs as any[]), ...((prev || []) as any[])]) as any
+              );
+            }
+            return;
+          }
+        }
+        // Empty orchestrated response → try Phase 1 without marking permanent failure.
+      } catch (orchestratorError) {
+        console.warn('Member-home orchestrated feed unavailable; using Phase 1 continuous feed', orchestratorError);
+        feedOrchestratedFailedRef.current = true;
+        feedTransportRef.current = resolveTransportAfterFailure(feedTransportRef.current, 'orchestrated');
+      }
+      }
+      feedTransportRef.current = 'legacy';
+      const shouldFetchCommunityBaseline = scope === 'discover' && !feedTopic && !feedRegion;
+      const applyImmediateFeedSeed = (itemsToSeed: FeedPost[]) => {
+        if (!itemsToSeed.length) return;
+        if (requestId !== feedLoadRequestIdRef.current) return;
+        commitFeedItems(itemsToSeed);
+      };
+      const feedRequest = withFeedFallbackTimeout(
+        CommunityService.getFeed(payload),
+        desktopConstrainedFeed ? 15000 : 18000,
+        null
+      );
+      const serviceBaselineRequest = shouldFetchCommunityBaseline
+        ? withFeedFallbackTimeout(CommunityService.getPosts({ limit: maxFeedItems }), 12000, [] as any[])
+        : Promise.resolve([] as any[]);
+      const publicBaselineRequest = shouldFetchCommunityBaseline
+        ? withFeedFallbackTimeout(fetchPublicCommunityPostsBaseline(maxFeedItems), 9000, [] as any[])
+        : Promise.resolve([] as any[]);
+      void publicBaselineRequest
+        .then((value) => {
+          const normalizedBaselineItems = normalizeFeedItems(extractFeedItems(value));
+          if (normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
+            applyImmediateFeedSeed(normalizedBaselineItems);
+          }
+        })
+        .catch(() => {
+          // Ignore seeding failures and continue with the merged load below.
+        });
+      const [feedResult, serviceBaselineResult, publicBaselineResult] = await Promise.allSettled([
+        feedRequest,
+        serviceBaselineRequest,
+        publicBaselineRequest
+      ]);
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
+      const data = feedResult.status === 'fulfilled' ? feedResult.value : null;
+      let nextCursor = extractFeedCursor(data);
+      let items = extractFeedItems(data);
+      const normalizedServiceBaselineItems =
+        serviceBaselineResult.status === 'fulfilled'
+          ? normalizeFeedItems(extractFeedItems(serviceBaselineResult.value))
+          : [];
+      const normalizedPublicBaselineItems =
+        publicBaselineResult.status === 'fulfilled'
+          ? normalizeFeedItems(extractFeedItems(publicBaselineResult.value))
+          : [];
+      const normalizedBaselineItems = mergeFeedItems(
+        normalizedPublicBaselineItems,
+        normalizedServiceBaselineItems
+      );
+      if (normalizedBaselineItems.length > 0 && feedItemsRef.current.length === 0) {
+        applyImmediateFeedSeed(normalizedBaselineItems);
+      }
+      if (
+        scope === 'discover' &&
+        resolvedMode &&
+        !feedTopic &&
+        !feedRegion &&
+        items.length === 0
+      ) {
+        try {
+          const fallbackData = await CommunityService.getFeed({ limit: maxFeedItems, scope: 'discover' });
+          const fallbackItems = extractFeedItems(fallbackData);
+          if (fallbackItems.length > 0) {
+            items = fallbackItems;
+            nextCursor = extractFeedCursor(fallbackData);
+          }
+        } catch (fallbackError) {
+          console.warn('Failed to load desktop discover feed fallback', fallbackError);
+        }
+      }
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
+      const normalizedFeedItems = normalizeFeedItems(items);
+      let normalized = normalizedFeedItems;
+      if (shouldFetchCommunityBaseline) {
+        normalized = mergeFeedItems(normalizedFeedItems, normalizedBaselineItems);
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const emergencyPosts = normalizeFeedItems(
+            extractFeedItems(
+              await withFeedFallbackTimeout(fetchPublicCommunityPostsBaseline(maxFeedItems), 9000, [] as any[])
+            )
+          );
+          if (emergencyPosts.length > 0) {
+            normalized = emergencyPosts;
+          }
+        } catch (emergencyBaselineError) {
+          console.warn('Failed to load emergency desktop community baseline', emergencyBaselineError);
+        }
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const emergencyPosts = normalizeFeedItems(
+            extractFeedItems(
+              await withFeedFallbackTimeout(CommunityService.getPosts({ limit: maxFeedItems }), 12000, [] as any[])
+            )
+          );
+          if (emergencyPosts.length > 0) {
+            normalized = emergencyPosts;
+          }
+        } catch (emergencyPostsError) {
+          console.warn('Failed to load emergency desktop posts feed', emergencyPostsError);
+        }
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const authoritativePosts = normalizeFeedItems(
+            extractFeedItems(await CommunityService.getPosts({ limit: maxFeedItems }))
+          );
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativePosts.length > 0) {
+            normalized = authoritativePosts;
+          }
+        } catch (authoritativePostsError) {
+          console.warn('Failed to load authoritative desktop posts baseline', authoritativePostsError);
+        }
+      }
+      if (normalized.length === 0 && shouldFetchCommunityBaseline) {
+        try {
+          const authoritativePublicPosts = normalizeFeedItems(
+            extractFeedItems(await fetchPublicCommunityPostsBaseline(maxFeedItems))
+          );
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativePublicPosts.length > 0) {
+            normalized = authoritativePublicPosts;
+          }
+        } catch (authoritativePublicPostsError) {
+          console.warn('Failed to load authoritative desktop public posts baseline', authoritativePublicPostsError);
+        }
+      }
+      if (normalized.length === 0 && scope === 'discover') {
+        try {
+          const authoritativeFeedResponse = await CommunityService.getFeed(payload);
+          const authoritativeFeedItems = normalizeFeedItems(extractFeedItems(authoritativeFeedResponse));
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativeFeedItems.length > 0) {
+            nextCursor = nextCursor || extractFeedCursor(authoritativeFeedResponse);
+            normalized = shouldFetchCommunityBaseline
+              ? mergeFeedItems(authoritativeFeedItems, normalizedBaselineItems)
+              : authoritativeFeedItems;
+          }
+        } catch (authoritativeFeedError) {
+          console.warn('Failed to load authoritative desktop discover feed', authoritativeFeedError);
+        }
+      }
+      if (
+        normalized.length === 0 &&
+        scope === 'discover' &&
+        resolvedMode &&
+        !feedTopic &&
+        !feedRegion
+      ) {
+        try {
+          const authoritativeFallbackResponse = await CommunityService.getFeed({ limit: maxFeedItems, scope: 'discover' });
+          const authoritativeFallbackItems = normalizeFeedItems(extractFeedItems(authoritativeFallbackResponse));
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (authoritativeFallbackItems.length > 0) {
+            nextCursor = nextCursor || extractFeedCursor(authoritativeFallbackResponse);
+            normalized = authoritativeFallbackItems;
+          }
+        } catch (authoritativeFallbackError) {
+          console.warn('Failed to load authoritative desktop discover fallback feed', authoritativeFallbackError);
+        }
+      }
       const sorted =
         feedTab === 'trending'
           ? [...normalized].sort((a, b) => {
@@ -1333,7 +2873,63 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               return bScore - aScore;
             })
           : normalized;
-      setFeedItems(sorted);
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
+      const shouldPreserveExistingFeed =
+        sorted.length === 0 &&
+        feedItemsRef.current.length > 0 &&
+        scope === 'discover' &&
+        !feedTopic &&
+        !feedRegion;
+      const softMerged =
+        hadExistingContent && !options?.hardReset && sorted.length > 0
+          ? (mergeUniqueFeedItems(sorted, feedItemsRef.current).merged as FeedPost[])
+          : sorted;
+      const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : softMerged;
+      feedEmptyPageStreakRef.current = 0;
+      // Soft refresh keeps discovery/offset state so pagination is not reset.
+      if (!hadExistingContent || options?.hardReset) {
+        feedDiscoveryUsedRef.current = false;
+        feedTerminalRef.current = false;
+        setFeedTerminal(false);
+      }
+      commitFeedItems(effectiveFeedItems, { forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent });
+      if (!hadExistingContent || options?.hardReset || shouldPreserveExistingFeed) {
+        const preservedCursor =
+          shouldPreserveExistingFeed || (hadExistingContent && !options?.hardReset)
+            ? feedNextCursorRef.current
+            : nextCursor;
+        if (!hadExistingContent || options?.hardReset) {
+          feedNextCursorRef.current = nextCursor;
+          setFeedNextCursor(nextCursor);
+          const offsetEnabled =
+            Boolean(effectiveFeedItems.length) &&
+            !nextCursor &&
+            scope === 'discover' &&
+            !feedTopic &&
+            !feedRegion;
+          feedOffsetFallbackRef.current = offsetEnabled;
+          setFeedOffsetFallbackEnabled(offsetEnabled);
+        } else if (shouldPreserveExistingFeed) {
+          feedNextCursorRef.current = preservedCursor;
+          setFeedNextCursor(preservedCursor);
+        }
+      }
+      if (effectiveFeedItems.length > 0) {
+        try {
+          window.localStorage.setItem(
+            feedCacheKey,
+            JSON.stringify({
+              ts: Date.now(),
+              items: effectiveFeedItems.slice(0, 80)
+            })
+          );
+        } catch {
+          // Ignore cache write failures.
+        }
+      }
+      if (shouldPreserveExistingFeed) {
+        return;
+      }
       const followSeed: Record<string, boolean> = {};
       const authorIds = new Set<string>();
       sorted.forEach((post) => {
@@ -1362,16 +2958,390 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       });
       setCommentCounts(counts);
     } catch (error) {
+      if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
       console.error('Failed to load home feed', error);
-      setFeedItems([]);
+      // Soft failure: keep existing list and pagination state.
+      if (!feedItemsRef.current.length) {
+        feedNextCursorRef.current = null;
+        setFeedNextCursor(null);
+        feedOffsetFallbackRef.current = false;
+        setFeedOffsetFallbackEnabled(false);
+        try {
+          const raw = window.localStorage.getItem(feedCacheKey);
+          const parsed = raw ? (JSON.parse(raw) as { items?: FeedPost[] }) : null;
+          const cachedItems = Array.isArray(parsed?.items) ? parsed.items : [];
+          if (cachedItems.length > 0) {
+            commitFeedItems(cachedItems);
+            return;
+          }
+        } catch {
+          // Ignore cache read failures.
+        }
+      }
     } finally {
-      setFeedLoading(false);
+      if (requestId === feedLoadRequestIdRef.current) {
+        feedLoadingRef.current = false;
+        setFeedLoading(false);
+      }
     }
-  }, [user, feedTab, feedTopic, feedRegion, maxFeedItems, normalizePost, showCategoriesFilter]);
+  }, [
+    commitFeedItems,
+    defaultIntentFeedTab,
+    desktopConstrainedFeed,
+    extractFeedCursor,
+    extractFeedItems,
+    feedCacheKey,
+    feedRegion,
+    feedTab,
+    feedTopic,
+    maxFeedItems,
+    normalizePost,
+    showCategoriesFilter,
+    showIntentModes,
+    user
+  ]);
+
+  const loadMoreFeed = useCallback(async () => {
+    if (!user || feedLoadingMoreRef.current || feedTerminalRef.current || feedLoadingRef.current) return;
+    const cursor = String(feedNextCursorRef.current || '').trim();
+    if (
+      shouldSkipDuplicateCursorRequest({
+        cursor,
+        inFlightCursor: feedInFlightCursorRef.current,
+        loadMoreInFlight: feedLoadingMoreRef.current,
+        lastCompletedCursor: feedLastCompletedCursorRef.current,
+        lastCompletedAddedCount: feedLastCompletedAddedRef.current
+      })
+    ) {
+      return;
+    }
+
+    const scope = feedTab === 'following' ? 'following' : 'discover';
+    const canUseOffsetFallback =
+      !cursor &&
+      feedOffsetFallbackRef.current &&
+      scope === 'discover' &&
+      !feedTopic &&
+      !feedRegion &&
+      feedItemsRef.current.length > 0;
+    const canUseDiscoverySupplement =
+      !cursor &&
+      !canUseOffsetFallback &&
+      !feedDiscoveryUsedRef.current &&
+      scope === 'discover' &&
+      !feedTopic &&
+      !feedRegion;
+    if (!cursor && !canUseOffsetFallback && !canUseDiscoverySupplement) {
+      feedTerminalRef.current = true;
+      setFeedTerminal(true);
+      return;
+    }
+    const requestedMode =
+      feedTab === 'latest'
+        ? showIntentModes
+          ? defaultIntentFeedTab
+          : undefined
+        : feedTab === 'trending'
+          ? showIntentModes
+            ? defaultIntentFeedTab
+            : undefined
+          : feedTab !== 'following'
+            ? feedTab
+            : undefined;
+    const resolvedMode =
+      requestedMode && String(requestedMode).toLowerCase() !== 'for_you' ? requestedMode : undefined;
+    const payload: any = { limit: maxFeedItems, scope, cursor };
+    if (!canUseOffsetFallback && !canUseDiscoverySupplement) {
+      if (resolvedMode) payload.mode = resolvedMode;
+      if (scope === 'discover' && showCategoriesFilter) {
+        if (feedTopic) payload.topic = feedTopic;
+        if (feedRegion) payload.region = feedRegion;
+      }
+    }
+
+    feedLoadingMoreRef.current = true;
+    feedInFlightCursorRef.current = cursor || null;
+    setFeedLoadingMore(true);
+    try {
+      // Phase 3: continue on orchestrator cursor when transport is orchestrated.
+      if (feedTransportRef.current === 'orchestrated' && cursor && !feedOrchestratedFailedRef.current) {
+        try {
+          const orchestratedMode =
+            scope === 'following'
+              ? 'following'
+              : resolvedMode || (showIntentModes ? defaultIntentFeedTab : 'for_you') || 'for_you';
+          const page = await MemberFeedService.tryFetchPage({
+            surface: 'member_home',
+            mode: String(orchestratedMode),
+            limit: maxFeedItems,
+            cursor,
+            topic: scope === 'discover' && showCategoriesFilter ? feedTopic || undefined : undefined,
+            region: scope === 'discover' && showCategoriesFilter ? feedRegion || undefined : undefined,
+            timeoutMs: desktopConstrainedFeed ? 12000 : 18000
+          });
+          if (page) {
+            const appendedItems = (page.posts || [])
+              .map((item) => {
+                try {
+                  return normalizePost(item);
+                } catch {
+                  return null;
+                }
+              })
+              .filter((item): item is FeedPost => Boolean(item));
+            const { addedCount } = appendFeedItems(appendedItems);
+            if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
+            else feedEmptyPageStreakRef.current += 1;
+            feedLastCompletedCursorRef.current = cursor;
+            feedLastCompletedAddedRef.current = addedCount;
+            if (page.jobs.length) {
+              setListingJobsPool((prev) =>
+                dedupeById([...((prev || []) as any[]), ...(page.jobs as any[])]) as any
+              );
+            }
+            if (page.gigs.length) {
+              setListingGigsPool((prev) =>
+                dedupeById([...((prev || []) as any[]), ...(page.gigs as any[])]) as any
+              );
+            }
+            const stopUnchanged = shouldStopUnchangedCursorLoop({
+              requestedCursor: cursor,
+              returnedCursor: page.nextCursor,
+              uniqueAddedCount: addedCount,
+              consecutiveEmptyPages: feedEmptyPageStreakRef.current,
+              maxEmptyPages: 2
+            });
+            if (
+              !page.hasMore ||
+              (!page.nextCursor && addedCount === 0) ||
+              stopUnchanged ||
+              shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2)
+            ) {
+              feedNextCursorRef.current = null;
+              setFeedNextCursor(null);
+              feedOffsetFallbackRef.current = false;
+              setFeedOffsetFallbackEnabled(false);
+              feedTerminalRef.current = true;
+              setFeedTerminal(true);
+            } else {
+              feedNextCursorRef.current = page.nextCursor;
+              setFeedNextCursor(page.nextCursor);
+              feedOffsetFallbackRef.current = false;
+              setFeedOffsetFallbackEnabled(false);
+              feedTerminalRef.current = false;
+              setFeedTerminal(false);
+            }
+            logFeedLifecycle({
+              surface: 'member_home',
+              transport: 'orchestrated',
+              kind: 'load_more',
+              sequence: feedLoadRequestIdRef.current,
+              cursor,
+              nextCursor: page.nextCursor,
+              itemCount: appendedItems.length,
+              hasMore: page.hasMore,
+              feedCountAfter: feedItemsRef.current.length
+            });
+            return;
+          }
+          // Soft-fail → drop to Phase 1 for remaining pages; stick for session.
+          feedOrchestratedFailedRef.current = true;
+          feedTransportRef.current = resolveTransportAfterFailure(feedTransportRef.current, 'orchestrated');
+        } catch (orchestratedMoreError) {
+          console.warn('Orchestrated load-more failed; falling back to Phase 1', orchestratedMoreError);
+          feedOrchestratedFailedRef.current = true;
+          feedTransportRef.current = resolveTransportAfterFailure(feedTransportRef.current, 'orchestrated');
+        }
+      }
+
+      let response: any = null;
+      let appendedItems: FeedPost[] = [];
+
+      if (canUseDiscoverySupplement) {
+        feedDiscoveryUsedRef.current = true;
+        try {
+          const discoveryMode =
+            (resolvedMode as any) ||
+            (showIntentModes ? defaultIntentFeedTab : 'for_you') ||
+            'for_you';
+          const discovery = await Phase2Service.getDiscoveryFeed({
+            mode: String(discoveryMode).toLowerCase() === 'latest' ? 'for_you' : (discoveryMode as any),
+            limit: maxFeedItems
+          });
+          const discoveryPosts = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'post' && item?.id)
+            .map((item: any) => {
+              try {
+                return normalizePost({
+                  id: item.id,
+                  title: item.title,
+                  content: item.description || item.title,
+                  author: item.author,
+                  ranking: {
+                    score: Number(item.score || 0),
+                    primaryReason: Array.isArray(item.why) ? item.why[0] : 'Recommended for you',
+                    reasons: item.why || []
+                  },
+                  createdAt: item.createdAt || item.created_at || new Date().toISOString()
+                });
+              } catch {
+                return null;
+              }
+            })
+            .filter((item): item is FeedPost => Boolean(item));
+          appendedItems = discoveryPosts;
+          // Refresh job/gig inject pools from discovery so mixed cards keep flowing.
+          const discoveryJobs = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'job' && item?.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              budget: item.metrics?.budget || item.budget,
+              ...item
+            }));
+          const discoveryGigs = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'gig' && item?.id)
+            .map((item: any) => ({
+              id: item.id,
+              title: item.title,
+              description: item.description,
+              price: item.metrics?.price || item.price,
+              ...item
+            }));
+          if (discoveryJobs.length) {
+            setListingJobsPool((prev) => dedupeById([...(prev || []), ...discoveryJobs] as any));
+          }
+          if (discoveryGigs.length) {
+            setListingGigsPool((prev) => dedupeById([...(prev || []), ...discoveryGigs] as any));
+          }
+        } catch (discoveryError) {
+          console.warn('Member-home discovery supplement failed', discoveryError);
+          appendedItems = [];
+        }
+      } else {
+        response = canUseOffsetFallback
+          ? await CommunityService.getPosts({ limit: maxFeedItems, offset: feedItemsRef.current.length })
+          : await CommunityService.getFeed(payload);
+        appendedItems = (Array.isArray(extractFeedItems(response)) ? extractFeedItems(response) : [])
+          .map((item) => {
+            try {
+              return normalizePost(item);
+            } catch (normalizeError) {
+              console.warn('Skipping malformed appended desktop feed post', normalizeError, item);
+              return null;
+            }
+          })
+          .filter((item): item is FeedPost => Boolean(item));
+      }
+
+      const { addedCount } = appendFeedItems(appendedItems);
+      if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
+      else feedEmptyPageStreakRef.current += 1;
+      feedLastCompletedCursorRef.current = cursor || null;
+      feedLastCompletedAddedRef.current = addedCount;
+
+      const nextCursor =
+        canUseOffsetFallback || canUseDiscoverySupplement ? null : extractFeedCursor(response);
+      const hasMoreFlag =
+        canUseOffsetFallback || canUseDiscoverySupplement ? null : extractHasMore(response);
+      const offsetEnabled =
+        shouldContinueOffsetFallback({
+          usedOffsetFallback: canUseOffsetFallback,
+          nextCursor,
+          pageItemCount: appendedItems.length,
+          pageSize: maxFeedItems,
+          uniqueAddedCount: addedCount
+        }) &&
+        scope === 'discover' &&
+        !feedTopic &&
+        !feedRegion;
+
+      const terminal = resolveFeedTerminalState({
+        nextCursor,
+        hasMoreFlag,
+        uniqueAddedCount: addedCount,
+        offsetFallbackEnabled: offsetEnabled,
+        secondarySourcesRemaining: !feedDiscoveryUsedRef.current && scope === 'discover'
+      });
+      const stopUnchanged = shouldStopUnchangedCursorLoop({
+        requestedCursor: cursor,
+        returnedCursor: nextCursor,
+        uniqueAddedCount: addedCount,
+        consecutiveEmptyPages: feedEmptyPageStreakRef.current,
+        maxEmptyPages: 2
+      });
+
+      if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2) || terminal.isTerminal || stopUnchanged) {
+        feedNextCursorRef.current = null;
+        setFeedNextCursor(null);
+        feedOffsetFallbackRef.current = false;
+        setFeedOffsetFallbackEnabled(false);
+        feedTerminalRef.current = true;
+        setFeedTerminal(true);
+      } else {
+        feedNextCursorRef.current = nextCursor;
+        setFeedNextCursor(nextCursor);
+        feedOffsetFallbackRef.current = offsetEnabled;
+        setFeedOffsetFallbackEnabled(offsetEnabled);
+        feedTerminalRef.current = false;
+        setFeedTerminal(false);
+      }
+      logFeedLifecycle({
+        surface: 'member_home',
+        transport: feedTransportRef.current,
+        kind: 'load_more',
+        sequence: feedLoadRequestIdRef.current,
+        cursor: cursor || null,
+        nextCursor,
+        itemCount: appendedItems.length,
+        hasMore: !terminal.isTerminal,
+        feedCountAfter: feedItemsRef.current.length
+      });
+    } catch (error) {
+      // Keep cursor/offset so IntersectionObserver can retry without full reload.
+      console.error('Failed to load more home feed', error);
+    } finally {
+      feedLoadingMoreRef.current = false;
+      feedInFlightCursorRef.current = null;
+      setFeedLoadingMore(false);
+    }
+  }, [
+    appendFeedItems,
+    defaultIntentFeedTab,
+    desktopConstrainedFeed,
+    extractFeedCursor,
+    extractFeedItems,
+    feedRegion,
+    feedTab,
+    feedTopic,
+    maxFeedItems,
+    normalizePost,
+    showCategoriesFilter,
+    showIntentModes,
+    user
+  ]);
+
+  const extractMarketplacePreviewListings = useCallback((value: any): MarketplaceListing[] => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.listings)) return value.listings;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+  }, []);
+
+  const extractGroupPreviewRecommendations = useCallback((value: any): CommunityClub[] => {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.groups)) return value.groups;
+    if (Array.isArray(value?.clubs)) return value.clubs;
+    if (Array.isArray(value?.items)) return value.items;
+    return [];
+  }, []);
 
   const loadSidebar = useCallback(async () => {
     if (!user) return;
     setViewersLoading(true);
+    setMarketplacePreviewLoading(true);
+    setGroupPreviewLoading(true);
     try {
       const tasks: Promise<any>[] = [];
       tasks.push(
@@ -1428,12 +3398,48 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           : Promise.resolve([])
       );
       tasks.push(
-        showSidebarAds
-          ? CommunityService.getPublicAds({ limit: 12 })
+        showSidebarAds || showFeaturedSidebarAd
+          ? Promise.allSettled([
+              CommunityService.getPublicAds({ placement: 'homepage', limit: 6 }),
+              CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 8 }),
+              CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
+              CommunityService.getPublicAds({ limit: 10 })
+            ]).then((results) => {
+              const merged: any[] = [];
+              results.forEach((result) => {
+                if (result.status === 'fulfilled' && Array.isArray(result.value)) {
+                  merged.push(...result.value);
+                }
+              });
+              const seen = new Set<string>();
+              return merged.filter((ad) => {
+                const id = String(ad?.id || '').trim();
+                if (!id || seen.has(id)) return false;
+                seen.add(id);
+                return true;
+              });
+            })
+          : Promise.resolve([])
+      );
+      tasks.push(
+        showDiscover
+          ? CommunityService.getClubs({
+              limit: 8
+            }).catch(() => [])
+          : Promise.resolve([])
+      );
+      tasks.push(
+        showDiscover
+          ? listMarketplaceListings({
+              page: 1,
+              pageSize: 4,
+              sort: 'recommended'
+            }).catch(() => [])
           : Promise.resolve([])
       );
 
-      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes] = await Promise.allSettled(tasks);
+      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes, groupsRes, marketplaceRes] =
+        await Promise.allSettled(tasks);
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
         ? profilesRes.value.slice(0, maxProfiles).map((p: any) => ({
@@ -1482,23 +3488,39 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         }))
       );
 
-      const rawJobsList = jobsRes.status === 'fulfilled'
+      let rawJobsList = jobsRes.status === 'fulfilled'
         ? mergeSettledResponses<Job & { id?: string | null }>(jobsRes.value, extractJobsFromPayload)
         : [];
+      if (rawJobsList.length === 0 && (showJobs || showEmployers)) {
+        try {
+          const fallbackJobs = await jobsApi.getJobs({ status: 'active', limit: listingPoolLimit });
+          rawJobsList = extractJobsFromPayload(fallbackJobs);
+        } catch (jobsFallbackError) {
+          console.warn('Failed to load desktop jobs fallback', jobsFallbackError);
+        }
+      }
       const jobsList = shuffleArray(
         dedupeById((rawJobsList || []) as Array<Job & { id: string }>)
       );
-      setListingJobsPool(jobsList.slice(0, listingPoolLimit));
-      setJobs(jobsList.slice(0, maxJobs));
+      setListingJobsPool((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList.slice(0, listingPoolLimit)));
+      setJobs((prev) => (jobsList.length === 0 && prev.length ? prev : jobsList.slice(0, maxJobs)));
 
-      const rawGigsList = gigsRes.status === 'fulfilled'
+      let rawGigsList = gigsRes.status === 'fulfilled'
         ? mergeSettledResponses<Gig & { id?: string | null }>(gigsRes.value, extractGigsFromPayload)
         : [];
+      if (rawGigsList.length === 0 && (showGigs || showFreelancers)) {
+        try {
+          const fallbackGigs = await gigsApi.getGigs({ status: 'active', limit: listingPoolLimit });
+          rawGigsList = extractGigsFromPayload(fallbackGigs);
+        } catch (gigsFallbackError) {
+          console.warn('Failed to load desktop gigs fallback', gigsFallbackError);
+        }
+      }
       const gigsList = shuffleArray(
         dedupeById((rawGigsList || []) as Array<Gig & { id: string }>)
       );
-      setListingGigsPool(gigsList.slice(0, listingPoolLimit));
-      setGigs(gigsList.slice(0, maxGigs));
+      setListingGigsPool((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList.slice(0, listingPoolLimit)));
+      setGigs((prev) => (gigsList.length === 0 && prev.length ? prev : gigsList.slice(0, maxGigs)));
 
       const employerMap = new Map<string, ProfileCard>();
       jobsList.forEach((job: Job) => {
@@ -1545,9 +3567,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
       const normalizedAds =
         adsRes.status === 'fulfilled' && Array.isArray(adsRes.value)
-          ? adsRes.value
-              .map((ad: any) => normalizeSidebarAd(ad))
-              .filter(Boolean) as SidebarAdCard[]
+          ? shuffleArray(
+              adsRes.value
+                .map((ad: any) => normalizeSidebarAd(ad))
+                .filter(Boolean) as SidebarAdCard[]
+            )
           : [];
       let sidebarAdCursor = 0;
       const topAd = showTopSidebarAd ? (normalizedAds[sidebarAdCursor++] || null) : null;
@@ -1556,10 +3580,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       setSidebarTopAd(topAd);
       setSidebarFeaturedAd(featuredAd);
       setSidebarMiddleAd(middleAd);
+      setGroupPreviewRecommendations(
+        groupsRes.status === 'fulfilled'
+          ? extractGroupPreviewRecommendations(groupsRes.value)
+              .filter((group) => String(group?.id || '').trim())
+              .filter((group) => String(group?.status || 'active').toLowerCase() === 'active')
+              .filter((group) => !group.isJoined && !group.is_joined)
+              .sort(
+                (left, right) =>
+                  Number(Boolean(right.pendingInvite)) - Number(Boolean(left.pendingInvite)) ||
+                  Number(right.memberCount ?? right.member_count ?? 0) - Number(left.memberCount ?? left.member_count ?? 0)
+              )
+              .slice(0, 3)
+          : []
+      );
+      setMarketplacePreviewListings(
+        marketplaceRes.status === 'fulfilled'
+          ? extractMarketplacePreviewListings(marketplaceRes.value).slice(0, 3)
+          : []
+      );
     } catch (error) {
       console.error('Failed to load member home sidebar data', error);
     } finally {
       setViewersLoading(false);
+      setMarketplacePreviewLoading(false);
+      setGroupPreviewLoading(false);
     }
   }, [
     user,
@@ -1582,6 +3627,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     showTopSidebarAd,
     showFeaturedSidebarAd,
     showMiddleSidebarAd,
+    showDiscover,
+    extractGroupPreviewRecommendations,
+    extractMarketplacePreviewListings,
     normalizeSidebarAd,
     normalizeRecommendedPage
   ]);
@@ -1595,16 +3643,119 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }, 120);
   }, [loadSidebar]);
 
+  const buildGroupRecommendationPath = useCallback((group: CommunityClub) => {
+    const reference = String(group.slug || group.id || '').trim();
+    if (!reference) return '/community/clubs';
+    const search = new URLSearchParams();
+    search.set('group', reference);
+    return `/community/clubs?${search.toString()}`;
+  }, []);
+
+  const handleJoinGroupRecommendation = useCallback(
+    async (group: CommunityClub) => {
+      const groupId = String(group.id || '').trim();
+      if (!groupId) return;
+      if (!user) {
+        showNotification('warning', 'Groups', 'Please sign in to join groups.');
+        return;
+      }
+
+      const isPrivate = String(group.visibility || 'public').toLowerCase() === 'private';
+      const joinMode = String(group.joinMode || 'open').toLowerCase();
+      const requiresApproval = joinMode === 'request' || isPrivate;
+      const inviteOnly = joinMode === 'invite_only';
+
+      if (inviteOnly && !group.pendingInvite) {
+        showNotification('warning', 'Groups', `${group.name} accepts members by invite only.`);
+        return;
+      }
+
+      setGroupJoinBusy((current) => ({ ...current, [groupId]: true }));
+      try {
+        if (requiresApproval && !group.pendingInvite) {
+          const response = await CommunityService.requestToJoinClub(groupId);
+          if (response.pending) {
+            showNotification('success', 'Groups', `Your request to join ${group.name} is awaiting review.`);
+            setGroupPreviewRecommendations((current) =>
+              current.map((entry) =>
+                entry.id === groupId
+                  ? {
+                      ...entry,
+                      pendingRequest: response.request || {
+                        id: `pending-${groupId}`,
+                        status: 'pending'
+                      }
+                    }
+                  : entry
+              )
+            );
+          } else {
+            showNotification('success', 'Groups', `Join request sent to ${group.name}.`);
+          }
+        } else {
+          await CommunityService.joinClub(groupId);
+          showNotification('success', 'Groups', `You joined ${group.name}.`);
+          setGroupPreviewRecommendations((current) => current.filter((entry) => entry.id !== groupId));
+        }
+        scheduleSidebarRefresh();
+      } catch (error: any) {
+        showNotification('error', 'Groups', error?.message || 'Unable to join this group.');
+      } finally {
+        setGroupJoinBusy((current) => ({ ...current, [groupId]: false }));
+      }
+    },
+    [scheduleSidebarRefresh, showNotification, user]
+  );
+
+  useEffect(() => {
+    if (!user || !showDiscover) {
+      setFeaturedSeries([]);
+      setBroadcastChannels([]);
+      setOfficeHours([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      Promise.allSettled([ScrollService.getDiscoverableSeries(3), CommunityService.getBroadcastChannels(3), CommunityService.getEvents()])
+        .then(([seriesResult, channelsResult, eventsResult]) => {
+          if (cancelled) return;
+          setFeaturedSeries(
+            seriesResult.status === 'fulfilled' && Array.isArray(seriesResult.value) ? seriesResult.value.slice(0, 3) : []
+          );
+          setBroadcastChannels(
+            channelsResult.status === 'fulfilled' && Array.isArray(channelsResult.value) ? channelsResult.value.slice(0, 3) : []
+          );
+          setOfficeHours(
+            eventsResult.status === 'fulfilled'
+              ? getHighlightedCommunityEvents(Array.isArray(eventsResult.value) ? eventsResult.value : [], 2)
+              : []
+          );
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setFeaturedSeries([]);
+          setBroadcastChannels([]);
+          setOfficeHours([]);
+        });
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [showDiscover, user]);
+
   const loadStories = useCallback(async () => {
     if (!user || !showStories) return;
     setStoriesLoading(true);
     try {
       const feed = await CommunityService.getStoriesFeed();
       const list = Array.isArray(feed) ? feed : [];
-      setStories(filterActiveStories(list).slice(0, maxStories));
+      const nextStories = await hydrateStoryAuthorAvatars(filterActiveStories(list).slice(0, maxStories), user);
+      setStories((prev) => {
+        return nextStories.length === 0 && prev.length ? prev : nextStories;
+      });
     } catch (error) {
       console.error('Failed to load stories', error);
-      setStories([]);
     } finally {
       setStoriesLoading(false);
     }
@@ -1618,12 +3769,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       const nextReels = Array.isArray(feed?.items)
         ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxReels)
         : [];
+      if (nextReels.length === 0 && reelsRef.current.length > 0) {
+        setScrollConfig(feed?.config || null);
+        return;
+      }
       setScrollConfig(feed?.config || null);
       setReels(nextReels);
     } catch (error) {
       console.error('Failed to load reels', error);
-      setScrollConfig(null);
-      setReels([]);
+      if (!reelsRef.current.length) {
+        setScrollConfig(null);
+        setReels([]);
+      }
     } finally {
       setReelsLoading(false);
     }
@@ -1709,6 +3866,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (key === 'pages' || key === 'page') return 'pages';
     if (key === 'jobs' || key === 'job') return 'jobs';
     if (key === 'gigs' || key === 'gig') return 'gigs';
+    if (key === 'marketplace' || key === 'marketplace_listing' || key === 'listing' || key === 'product' || key === 'item') return 'marketplace';
+    if (key === 'posts' || key === 'post') return 'posts';
     return undefined;
   }, []);
 
@@ -1725,13 +3884,50 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       subtitle: item.subtitle || undefined,
       description: item.description || item.excerpt || item.summary || item.subtitle,
       excerpt: item.excerpt,
-      url: item.url || item.link || item.href,
+      url: resolveSearchItemUrl(item, normalizedType),
       avatarUrl: avatar,
       image: avatar || undefined,
       category: item.category,
       meta: item.meta || {}
     };
-  }, [normalizeSearchType]);
+  }, [normalizeSearchType, resolveSearchItemUrl]);
+
+  const normalizeMarketplaceSearchItem = useCallback((listing: MarketplaceListing): SearchResultItem => {
+    const categoryName = String(listing?.category?.name || '').trim();
+    const location = String(listing?.location || '').trim();
+    const price = listing?.price !== undefined && listing?.price !== null && listing.price !== ''
+      ? `${listing.currency || 'USD'} ${listing.price}`
+      : '';
+    const subtitle = [price, categoryName, location].filter(Boolean).join(' - ');
+    const image =
+      listing.coverImage ||
+      (Array.isArray(listing.images) && listing.images.length
+        ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url)
+        : null) ||
+      null;
+    return {
+      id: listing.id,
+      type: 'marketplace',
+      title: listing.title || 'Marketplace item',
+      subtitle: subtitle || 'Marketplace listing',
+      description: listing.description || undefined,
+      url: `/marketplace/listing/${encodeURIComponent(listing.slug || listing.id)}`,
+      avatarUrl: image,
+      image: image || undefined,
+      category: categoryName || 'Marketplace',
+      meta: {
+        price: listing.price,
+        currency: listing.currency,
+        brand: listing.brand,
+        location: listing.location
+      }
+    };
+  }, []);
+
+  const resolveMarketplaceListingUrl = useCallback((listing: MarketplaceListing) => {
+    const slugOrId = String(listing?.slug || listing?.id || '').trim();
+    return slugOrId ? `/marketplace/listing/${encodeURIComponent(slugOrId)}` : '/marketplace';
+  }, []);
 
   const normalizeSearchGroups = useCallback((groups: any): SearchGroupMap => {
     const next = emptySearchGroups();
@@ -1752,23 +3948,68 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [searchGroups]
   );
 
+  const searchRecommendationPrompts = useMemo(() => {
+    const clean = searchQuery.trim();
+    if (clean.length >= 2) {
+      const encoded = encodeURIComponent(clean);
+      return [
+        { label: `Search all Scrolith for "${clean}"`, url: `/search?q=${encoded}` },
+        { label: `Marketplace items matching "${clean}"`, url: `/marketplace?search=${encoded}` },
+        { label: `People matching "${clean}"`, url: `/search?q=${encoded}&type=people` },
+        { label: `Posts mentioning "${clean}"`, url: `/search?q=${encoded}&type=posts` },
+        { label: `Pages related to "${clean}"`, url: `/search?q=${encoded}&type=pages` }
+      ];
+    }
+    return MEMBER_HOME_SEARCH_PROMPTS.map((label) => ({
+      label,
+      url: `/search?q=${encodeURIComponent(label)}`
+    }));
+  }, [searchQuery]);
+
   const performSearch = useCallback(async (term: string) => {
     const clean = term.trim();
     if (!clean) {
+      searchRequestRef.current += 1;
       setSearchResults([]);
       setSearchGroups(emptySearchGroups());
+      setSearchLoading(false);
       return;
     }
+    const requestId = searchRequestRef.current + 1;
+    searchRequestRef.current = requestId;
     setSearchLoading(true);
     try {
       const perType = Math.max(2, Math.min(6, Math.ceil(maxSearchResults / 2)));
-      const unified = await SearchService.searchUnified(clean, {
-        limit: Math.max(maxSearchResults, 12),
-        perType
+      const [unified, posts, marketplaceResponse] = await Promise.all([
+        SearchService.searchUnified(clean, {
+          limit: Math.max(maxSearchResults, 12),
+          perType
+        }),
+        SearchService.search(clean, { type: 'posts', limit: Math.max(4, Math.min(8, maxSearchResults)) }).catch(() => []),
+        listMarketplaceListings({
+          search: clean,
+          page: 1,
+          pageSize: Math.max(4, Math.min(8, maxSearchResults)),
+          sort: 'recommended'
+        }).catch(() => null)
+      ]);
+      const marketplaceListings = Array.isArray(marketplaceResponse)
+        ? marketplaceResponse
+        : Array.isArray((marketplaceResponse as any)?.listings)
+          ? (marketplaceResponse as any).listings
+          : Array.isArray((marketplaceResponse as any)?.items)
+            ? (marketplaceResponse as any).items
+            : [];
+      const marketplaceItems = marketplaceListings.map(normalizeMarketplaceSearchItem);
+      const groups = normalizeSearchGroups({
+        ...(unified.groups || {}),
+        posts: Array.isArray((unified.groups as any)?.posts) && (unified.groups as any).posts.length
+          ? (unified.groups as any).posts
+          : posts,
+        marketplace: marketplaceItems
       });
-      const groups = normalizeSearchGroups(unified.groups);
       const merged = Array.isArray(unified.results) && unified.results.length
-        ? unified.results.map(normalizeSearchItem)
+        ? [...unified.results, ...(posts || [])].map(normalizeSearchItem).concat(marketplaceItems)
         : SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
       const unique = Array.from(
         new Map(
@@ -1780,19 +4021,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             ])
         ).values()
       );
+      if (searchRequestRef.current !== requestId) return;
       setSearchGroups(groups);
       setSearchResults(unique.slice(0, maxSearchResults));
       if (user?.id) {
         SearchService.saveSearchHistory(user.id, clean).catch(() => {});
       }
     } catch (error) {
+      if (searchRequestRef.current !== requestId) return;
       console.error('Search failed', error);
       setSearchResults([]);
       setSearchGroups(emptySearchGroups());
     } finally {
-      setSearchLoading(false);
+      if (searchRequestRef.current === requestId) {
+        setSearchLoading(false);
+      }
     }
-  }, [maxSearchResults, normalizeSearchGroups, normalizeSearchItem, user?.id]);
+  }, [maxSearchResults, normalizeMarketplaceSearchItem, normalizeSearchGroups, normalizeSearchItem, user?.id]);
 
   useEffect(() => {
     if (!currentUserId) {
@@ -1800,14 +4045,46 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       return;
     }
     let active = true;
-    const fallbackCoverRaw = (user as any)?.coverPhotoUrl || (user as any)?.cover_photo_url || '';
-    const fallbackCover = fallbackCoverRaw ? resolveAssetUrl(String(fallbackCoverRaw)) : '';
+    // Match FreelancerProfile/EditProfile: resolve cover from the same fields and
+    // prefer a stable content URL (no OptimizedImage transform query params).
+    const resolveCoverCandidate = (source: any) => {
+      if (!source) return '';
+      const raw =
+        source?.coverPhotoUrl ||
+        source?.cover_photo_url ||
+        source?.coverUrl ||
+        source?.cover_url ||
+        '';
+      const fileId =
+        source?.coverFileId ||
+        source?.cover_file_id ||
+        source?.coverPhotoFileId ||
+        source?.cover_photo_file_id ||
+        '';
+      return (
+        resolvePostAttachmentMediaUrl({
+          url: raw,
+          fileId,
+          path: source?.cover?.path || source?.cover?.url
+        }) ||
+        resolvePostAttachmentMediaUrl(source?.cover) ||
+        (raw ? resolveAssetUrl(String(raw)) : '') ||
+        ''
+      );
+    };
+    const fallbackCover = resolveCoverCandidate(user);
     const loadSelfCover = async () => {
       try {
-        const profile = await UserService.getProfile(currentUserId);
+        // Prefer /profile/me for the signed-in owner (same source as dashboard profile).
+        let profile: any = null;
+        try {
+          profile = await UserService.getMyProfile();
+        } catch {
+          profile = await UserService.getProfile(currentUserId);
+        }
         if (!active) return;
-        const coverRaw = profile?.coverPhotoUrl || (profile as any)?.cover_photo_url || '';
-        setSelfProfileCover(coverRaw ? resolveAssetUrl(String(coverRaw)) : fallbackCover);
+        const resolved = resolveCoverCandidate(profile) || fallbackCover;
+        setSelfProfileCover(resolved);
       } catch {
         if (active) setSelfProfileCover(fallbackCover);
       }
@@ -1822,6 +4099,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (!showSearch) return;
     const term = searchQuery.trim();
     if (term.length < 2) {
+      searchRequestRef.current += 1;
       setSearchResults([]);
       setSearchGroups(emptySearchGroups());
       setSearchLoading(false);
@@ -1847,7 +4125,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const updatePostMedia = useCallback((localId: string, patch: Partial<PostMediaItem>) => {
     setPostDraft((prev) => ({
       ...prev,
-      media: prev.media.map((item) => (item.localId === localId ? { ...item, ...patch } : item))
+      media: prev.media.map((item) => {
+        if (item.localId !== localId) return item;
+        // Revoke blob preview when swapping to a durable URL.
+        if (patch.url && patch.url !== item.url && String(item.url || '').startsWith('blob:')) {
+          revokePreviewUrl(item.url);
+        }
+        return { ...item, ...patch };
+      })
     }));
   }, []);
 
@@ -1856,21 +4141,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   }, []);
 
   const handlePostMediaRemove = useCallback((localId: string) => {
-    setPostDraft((prev) => ({
-      ...prev,
-      media: prev.media.filter((item) => item.localId !== localId)
-    }));
+    setPostDraft((prev) => {
+      const target = prev.media.find((item) => item.localId === localId);
+      if (!target) return prev;
+      if (target.url) revokePreviewUrl(target.url);
+      const nextMedia = prev.media.filter((item) => item.localId !== localId);
+      postMediaCountRef.current = nextMedia.length;
+      postMediaItemsRef.current = nextMedia;
+      return {
+        ...prev,
+        media: nextMedia
+      };
+    });
+    setComposerStatusMessage('Attachment removed.');
   }, []);
 
   const uploadPostFile = useCallback(async (file: File) => {
     if (!user) return;
+    const validation = validateComposerFile(file, {
+      currentCount: postMediaCountRef.current
+    });
+    if (!validation.ok) {
+      showNotification('warning', 'Attachments', validation.reason);
+      setComposerStatusMessage(validation.reason);
+      return;
+    }
+    // Reserve a slot immediately so concurrent multi-file picks cannot exceed the limit.
+    postMediaCountRef.current += 1;
     const localId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const mime = String(file.type || '').toLowerCase();
-    const inferred: PostMediaItem['type'] = mime.startsWith('video/')
-      ? 'video'
-      : mime.startsWith('image/')
-        ? 'image'
-        : 'document';
+    const inferred = validation.kind;
     const previewUrl = URL.createObjectURL(file);
     addPostMediaItem({
       localId,
@@ -1880,12 +4179,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       uploading: true,
       progress: 0
     });
+    setComposerStatusMessage(`Uploading ${file.name}…`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community', {
         role: user.role,
         visibility: postDraft.visibility === 'private' ? 'private' : 'public',
         userId: user.id,
-        onProgress: (percent) => updatePostMedia(localId, { progress: percent })
+        onProgress: (percent) => {
+          updatePostMedia(localId, { progress: percent });
+          setComposerStatusMessage(`Uploading ${file.name}: ${percent}%`);
+        }
       });
       updatePostMedia(localId, {
         id: uploaded.id,
@@ -1895,20 +4198,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url,
         duration: uploaded.duration,
         uploading: false,
-        progress: 100
+        progress: 100,
+        error: undefined
       });
+      setComposerStatusMessage(`${file.name} uploaded.`);
     } catch (error: any) {
       console.error('Upload failed', error);
-      updatePostMedia(localId, { uploading: false, error: error?.message || 'Upload failed' });
+      const message = error?.message || 'Upload failed';
+      updatePostMedia(localId, { uploading: false, error: message });
+      setComposerStatusMessage(`${file.name} failed: ${message}`);
     }
-  }, [addPostMediaItem, postDraft.visibility, updatePostMedia, user]);
+  }, [addPostMediaItem, postDraft.visibility, showNotification, updatePostMedia, user]);
 
   const handlePostMedia = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
-    files.forEach((file) => uploadPostFile(file));
+    files.forEach((file) => {
+      void uploadPostFile(file);
+    });
     if (postMediaInputRef.current) postMediaInputRef.current.value = '';
   }, [uploadPostFile]);
+
+  const handleComposerDrop = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const files = Array.from(event.dataTransfer?.files || []);
+      if (!files.length) return;
+      files.forEach((file) => {
+        void uploadPostFile(file);
+      });
+    },
+    [uploadPostFile]
+  );
+
+  const handleComposerPaste = useCallback(
+    (event: React.ClipboardEvent) => {
+      const items = Array.from(event.clipboardData?.items || []);
+      const imageItems = items.filter((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'));
+      if (!imageItems.length) return;
+      event.preventDefault();
+      imageItems.forEach((item) => {
+        const file = item.getAsFile();
+        if (file) void uploadPostFile(file);
+      });
+    },
+    [uploadPostFile]
+  );
 
   const startCamera = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
@@ -2010,45 +4346,52 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     setAiSuggestionMode(null);
     setAiOriginalText('');
     setAiCompareView('compare');
+    setAiSuggestionWarning(null);
   }, []);
+
+  const getPostDraftText = useCallback(() => String(postDraft.content || ''), [postDraft.content]);
 
   const runPostAi = useCallback(
     async (mode: PostEnhanceMode) => {
-      const text = String(postDraft.content || '').trim();
+      const text = getPostDraftText().trim();
       if (!text) {
-        showNotification('warning', 'AI Assistant', 'Write some text first, then run AI enhancement.');
+        showNotification('warning', 'Scrolitha', 'Write some text first, then run Scrolitha enhancement.');
         return;
       }
       if (aiLoading) return;
 
       setAiLoading(true);
       setAiRunningMode(mode);
+      setAiError(null);
+      setAiSuggestionWarning(null);
       try {
         const result = await AIService.enhancePostDraft({ text, mode });
         const enhancedText = String(result?.enhancedText || '').trim();
         if (!enhancedText) {
-          showNotification('warning', 'AI Assistant', 'No suggestion was returned. Please try again.');
+          showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
           return;
         }
 
-        setAiOriginalText(postDraft.content);
+        setAiOriginalText(text);
         setAiSuggestion(enhancedText);
         setAiSuggestionMode(mode);
         setAiCompareView('compare');
+        if (result.fallbackUsed || result.warning) {
+          setAiSuggestionWarning(
+            result.warning || 'Scrolitha used backup processing for this suggestion. Please review before applying.'
+          );
+        }
         setAiSuggestionOpen(true);
       } catch (error: any) {
-        const message =
-          error?.response?.data?.error ||
-          error?.response?.data?.message ||
-          error?.message ||
-          'Unable to process AI enhancement right now.';
-        showNotification('error', 'AI Assistant', message);
+        console.error('Failed to run post AI', error);
+        setAiError(error?.message || 'An unknown error occurred');
+        showNotification('error', 'Scrolitha', 'Scrolitha could not improve this text right now. Please try again.');
       } finally {
         setAiLoading(false);
         setAiRunningMode(null);
       }
     },
-    [aiLoading, postDraft.content, showNotification]
+    [aiLoading, getPostDraftText, showNotification]
   );
 
   const applyAiSuggestionReplace = useCallback(() => {
@@ -2069,47 +4412,58 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
 
   const handlePostSubmit = useCallback(async () => {
     if (!user) return;
-    if (postDraft.media.some((item) => item.uploading)) {
-      showNotification('warning', 'Posts', 'Wait for uploads to finish before posting.');
+    if (!publishGuardRef.current.tryBegin()) {
       return;
     }
-    if (postDraft.media.some((item) => item.error)) {
-      showNotification('warning', 'Posts', 'Remove failed uploads before posting.');
+    const attachmentGate = canPublishWithAttachments(postDraft.media);
+    if (!attachmentGate.ok) {
+      showNotification('warning', 'Posts', attachmentGate.reason);
+      setComposerStatusMessage(attachmentGate.reason);
+      publishGuardRef.current.end();
       return;
     }
     const attachmentFileIds = postDraft.media.map((m) => m.id).filter(Boolean) as string[];
     const hasText = Boolean(postDraft.title.trim() || postDraft.content.trim());
     if (!hasText && attachmentFileIds.length === 0) {
       showNotification('warning', 'Posts', 'Add text or at least one attachment.');
+      setComposerStatusMessage('Add text or at least one attachment.');
+      publishGuardRef.current.end();
       return;
     }
     setPosting(true);
+    setComposerStatusMessage('Publishing…');
     try {
+      const submitLocation = composePostLocationValue(postDraft.location, postDraft.region);
       const created = await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
         attachmentFileIds,
+        businessPageId: activePostBusinessPageId || undefined,
         topic: postDraft.topic || undefined,
-        location: postDraft.location || undefined,
+        location: submitLocation || undefined,
         visibility: postDraft.visibility,
-        commentPolicy: postDraft.commentPolicy
+        commentPolicy: postDraft.commentPolicy,
+        graphicWarning: postDraft.graphicWarning,
+        isAIEnhanced: postDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(postDraft.aiInsightPreference),
+        offerTags: postDraft.offerTags
       });
-      setPostDraft({
-        title: '',
-        content: '',
-        tags: '',
-        mentions: '',
-        topic: '',
-        location: '',
-        visibility: 'public',
-        commentPolicy: 'everyone',
-        media: []
-      });
+      // Clear blob previews before wiping draft.
+      postDraft.media.forEach((item) => revokePreviewUrl(item.url));
+      postMediaCountRef.current = 0;
+      postMediaItemsRef.current = [];
+      setPostDraft(createEmptyPostDraft());
+      setPostLocationDetails(null);
+      setPostLocationPickerOpen(false);
+      setDesktopComposerOpen(false);
+      setComposerDraftNotice(null);
+      clearComposerDraft(composerDraftKey);
       if (created) {
         const normalized = normalizePost(created);
-        setFeedItems((prev) => [normalized, ...prev]);
+        setFeedItems((prev) => [normalized, ...prev.filter((item) => String(item.id) !== String(normalized.id))]);
         setCommentCounts((prev) => ({ ...prev, [normalized.id]: 0 }));
       }
+      setComposerStatusMessage('Your update is live.');
       showNotification('success', 'Posts', 'Your update is live.');
     } catch (error: any) {
       console.error('Post failed', error);
@@ -2118,11 +4472,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         error?.response?.data?.message ||
         error?.message ||
         'Unable to post update.';
+      setComposerStatusMessage(serverMessage);
       showNotification('error', 'Posts', serverMessage);
+      // Keep draft + attachments on failure (do not clear).
     } finally {
       setPosting(false);
+      publishGuardRef.current.end();
     }
-  }, [normalizePost, postDraft, showNotification, user]);
+  }, [activePostBusinessPageId, composerDraftKey, normalizePost, postDraft, showNotification, user]);
 
   const beginEditPost = useCallback((post: FeedPost) => {
     const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
@@ -2136,9 +4493,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       tags: (post.tags || []).join(', '),
       mentions: (post.mentions || []).join(', '),
       topic: post.topic || '',
+      region: '',
       location: post.location || '',
       visibility: (post.visibility as PostDraft['visibility']) || 'public',
       commentPolicy,
+      graphicWarning: Boolean(post.graphicWarning),
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      aiInsightPreference: resolveStoredPostAiInsightPreference(post.aiInsightEnabled),
+      offerTags: normalizeContentOfferTags(post.offerTags).map((entry) => ({
+        offerType: entry.offerType as OfferTagSelection['offerType'],
+        offerId: entry.offerId
+      })),
       media: (post.attachments || []).map((media, index) => ({
         localId: `${post.id}-media-${media.id || index}`,
         id: media.id,
@@ -2179,7 +4544,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
-        commentPolicy: editingDraft.commentPolicy
+        commentPolicy: editingDraft.commentPolicy,
+        graphicWarning: editingDraft.graphicWarning,
+        isAIEnhanced: editingDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(
+          resolvePostAiInsightPreference(editingDraft.aiInsightPreference, 'off')
+        )
       });
       if (updated) {
         applyPostUpdate(normalizePost(updated));
@@ -2307,7 +4677,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         textFont: storyDraft.textFont,
         textAlign: storyDraft.textAlign
       });
-      setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStories((prev) =>
+        filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
+      );
       setStoryDraft({
         content: '',
         visibility: 'public',
@@ -2322,6 +4694,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       setStoryPosting(false);
     }
   }, [maxStories, showNotification, storyDraft, user]);
+
+  const clearStoryMediaUploadState = useCallback(() => {
+    setStoryMediaUploadBusy(false);
+    setStoryMediaUploadLabel('');
+    setStoryMediaUploadProgress(0);
+  }, []);
 
   const openStoryEditor = useCallback((story: any) => {
     if (!story) return;
@@ -2406,6 +4784,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         viewerLiked: liked,
         _count: { ...(story._count || {}), likes: likesCount }
       });
+      window.dispatchEvent(
+        new CustomEvent('community:story_liked', {
+          detail: {
+            storyId: story.id,
+            userId: user.id,
+            liked,
+            likesCount,
+            story: {
+              id: story.id,
+              likesCount,
+              viewerLiked: liked,
+              _count: { ...(story._count || {}), likes: likesCount }
+            }
+          }
+        })
+      );
     } catch (error: any) {
       console.error('Failed to like story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to like story.');
@@ -2417,27 +4811,39 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const publishStoryFile = useCallback(async (file: File, type: 'image' | 'video') => {
     if (!user) return;
     setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(0);
+    setStoryMediaUploadLabel(`Uploading ${file.name}`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community', {
         role: user.role,
         visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-        userId: user.id
+        userId: user.id,
+        onProgress: (percent) => {
+          setStoryMediaUploadProgress(percent || 0);
+          setStoryMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+        }
       });
+      setStoryMediaUploadProgress(100);
+      setStoryMediaUploadLabel('Preparing your story for publish...');
       const created = await CommunityService.createStory({
         type,
         mediaFileId: uploaded.id,
         caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
-      setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStories((prev) =>
+        filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
+      );
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
     } finally {
       setStoryPosting(false);
+      clearStoryMediaUploadState();
     }
-  }, [maxStories, showNotification, storyDraft.visibility, user]);
+  }, [clearStoryMediaUploadState, maxStories, showNotification, storyDraft.visibility, user]);
 
   const handleStoryDeviceSelection = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -2451,28 +4857,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         return;
       }
       setStoryPosting(true);
+      setStoryMediaUploadBusy(true);
+      setStoryMediaUploadProgress(0);
+      setStoryMediaUploadLabel(`Uploading ${file.name}`);
       try {
         const uploaded = await FileService.uploadFile(file, 'community', {
           role: user.role,
           visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-          userId: user.id
+          userId: user.id,
+          onProgress: (percent) => {
+            setStoryMediaUploadProgress(percent || 0);
+            setStoryMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+          }
         });
+        setStoryMediaUploadProgress(100);
+        setStoryMediaUploadLabel(`${file.name} is ready to publish.`);
         setStoryMediaDraftFile(uploaded);
         setStoryMediaPreviewOpen(true);
       } catch (error: any) {
         console.error(error);
         showNotification('error', 'Stories', error?.message || 'Unable to upload story media.');
+        clearStoryMediaUploadState();
       } finally {
         setStoryPosting(false);
+        setStoryMediaUploadBusy(false);
       }
     },
-    [showNotification, storyDraft.visibility, user]
+    [clearStoryMediaUploadState, showNotification, storyDraft.visibility, user]
   );
 
   const publishStorySelectedMedia = useCallback(async () => {
     if (!user) return;
     if (!storyMediaDraftFile?.id) return;
     setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(100);
+    setStoryMediaUploadLabel('Preparing your story for publish...');
+    let published = false;
     try {
       const mime = String(storyMediaDraftFile?.mimeType || storyMediaDraftFile?.mime_type || '').toLowerCase();
       const explicitType = String(storyMediaDraftFile?.type || '').toLowerCase();
@@ -2483,18 +4904,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
-      setStories((prev) => filterActiveStories([created, ...prev]).slice(0, maxStories));
+      setStories((prev) =>
+        filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
+      );
       setStoryMediaPreviewOpen(false);
       setStoryMediaDraftFile(null);
       setStoryDraft((prev) => ({ ...prev, content: '' }));
+      published = true;
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
+      setStoryMediaUploadLabel('Media is ready. Review your caption and try publishing again.');
     } finally {
       setStoryPosting(false);
+      if (published) {
+        clearStoryMediaUploadState();
+      } else {
+        setStoryMediaUploadBusy(false);
+        setStoryMediaUploadProgress(storyMediaDraftFile?.id ? 100 : 0);
+      }
     }
-  }, [maxStories, showNotification, storyDraft.content, storyDraft.visibility, storyMediaDraftFile, user]);
+  }, [clearStoryMediaUploadState, maxStories, showNotification, storyDraft.content, storyDraft.visibility, storyMediaDraftFile, user]);
 
   const startStoryCamera = useCallback(async () => {
     if (Capacitor.isNativePlatform()) {
@@ -2623,14 +5054,37 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
         }
       });
+      window.dispatchEvent(
+        new CustomEvent('community:story_engaged', {
+          detail: {
+            storyId,
+            type,
+            interactions,
+            story: {
+              id: storyId,
+              ...(payload || {}),
+              commentsCount: interactions.comments ?? payload?.commentsCount ?? story.commentsCount ?? 0,
+              repostsCount: interactions.reposts ?? payload?.repostsCount ?? story.repostsCount ?? 0,
+              dashesCount: interactions.dashes ?? payload?.dashesCount ?? story.dashesCount ?? 0,
+              sendsCount: interactions.sends ?? payload?.sendsCount ?? story.sendsCount ?? 0,
+              interactions: {
+                ...(story.interactions || {}),
+                comments: interactions.comments ?? payload?.commentsCount ?? story.interactions?.comments ?? story.commentsCount ?? 0,
+                reposts: interactions.reposts ?? payload?.repostsCount ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
+                dashes: interactions.dashes ?? payload?.dashesCount ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
+                sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
+              }
+            }
+          }
+        })
+      );
       return response;
     },
     [applyStoryUpdate]
   );
 
   const buildStoryUrl = useCallback((storyId: string) => {
-    if (typeof window === 'undefined') return `/community?story=${encodeURIComponent(storyId)}`;
-    return `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
+    return buildPublicAppUrl(`/community?story=${encodeURIComponent(storyId)}`);
   }, []);
 
   const ensureStoryAuth = useCallback(
@@ -2647,7 +5101,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       if (!ensureStoryAuth('Log in to comment on stories?')) return;
       if (!story?.id) return;
       setStoryActionTarget(story);
-      setStoryCommentDraft('');
       setStoryCommentOpen(true);
     },
     [ensureStoryAuth]
@@ -2681,31 +5134,6 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     },
     [ensureStoryAuth]
   );
-
-  const submitStoryComment = useCallback(async () => {
-    const story = storyActionTarget;
-    const storyId = String(story?.id || '').trim();
-    if (!storyId || storyActionBusy[storyId]) return;
-    const content = String(storyCommentDraft || '').trim();
-    if (!content) {
-      showNotification('warning', 'Stories', 'Comment cannot be empty.');
-      return;
-    }
-    setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
-    try {
-      await CommunityService.createPost({
-        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
-      });
-      await engageStoryAndSync(story, 'comment');
-      setStoryCommentOpen(false);
-      setStoryCommentDraft('');
-      showNotification('success', 'Stories', 'Comment shared to your feed.');
-    } catch (error: any) {
-      showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
-    } finally {
-      setStoryActionBusy((prev) => ({ ...prev, [storyId]: false }));
-    }
-  }, [buildStoryUrl, engageStoryAndSync, showNotification, storyActionBusy, storyActionTarget, storyCommentDraft]);
 
   const repostStory = useCallback(
     async (comment?: string) => {
@@ -2741,6 +5169,34 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const activeStoryIndex = activeStory?.id ? stories.findIndex((story) => story.id === activeStory.id) : -1;
   const hasPrevStory = activeStoryIndex > 0;
   const hasNextStory = activeStoryIndex >= 0 && activeStoryIndex < stories.length - 1;
+  const storyOverlayShouldShow = !storyTouchOverlayMode || storyOverlayVisible;
+  const activeStoryAuthorId = String(
+    activeStory?.authorId || activeStory?.author?.id || activeStory?.userId || activeStory?.user?.id || activeStory?.user_id || ''
+  ).trim();
+  const activeStoryInitialIsFollowing = activeStoryAuthorId
+    ? (followStateMap[activeStoryAuthorId] ?? activeStory?.viewer?.isFollowingAuthor)
+    : undefined;
+
+  useEffect(() => {
+    setStoryOverlayVisible(!storyTouchOverlayMode);
+  }, [activeStory?.id, storyTouchOverlayMode]);
+
+  useEffect(() => {
+    if (storyOverlayHideTimerRef.current) {
+      window.clearTimeout(storyOverlayHideTimerRef.current);
+      storyOverlayHideTimerRef.current = null;
+    }
+    if (!activeStory?.id || !storyTouchOverlayMode || !storyOverlayVisible) return;
+    storyOverlayHideTimerRef.current = window.setTimeout(() => {
+      setStoryOverlayVisible(false);
+    }, STORY_CONTROL_HIDE_DELAY_MS);
+    return () => {
+      if (storyOverlayHideTimerRef.current) {
+        window.clearTimeout(storyOverlayHideTimerRef.current);
+        storyOverlayHideTimerRef.current = null;
+      }
+    };
+  }, [activeStory?.id, storyOverlayVisible, storyTouchOverlayMode]);
 
   const goToStoryByOffset = useCallback(
     (offset: number) => {
@@ -2755,19 +5211,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [activeStory?.id, stories, openStory]
   );
 
+  const advanceActiveStory = useCallback(() => {
+    if (!activeStory?.id) return;
+    if (hasNextStory) {
+      void goToStoryByOffset(1);
+      return;
+    }
+    setActiveStory(null);
+  }, [activeStory?.id, goToStoryByOffset, hasNextStory]);
+
   const onStoryGestureStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest('button, a, input, textarea, select, label')) {
       storyGestureStartRef.current = null;
       return;
     }
+    revealStoryOverlay();
     const touch = event.changedTouches?.[0];
     if (!touch) {
       storyGestureStartRef.current = null;
       return;
     }
     storyGestureStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
+  }, [revealStoryOverlay]);
 
   const onStoryGestureEnd = useCallback(
     (event: React.TouchEvent<HTMLElement>) => {
@@ -2829,24 +5295,42 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [activeStory?.id, goToStoryByOffset]);
 
+  useEffect(() => {
+    if (storyAutoAdvanceTimerRef.current) {
+      window.clearTimeout(storyAutoAdvanceTimerRef.current);
+      storyAutoAdvanceTimerRef.current = null;
+    }
+    if (!activeStory?.id) return;
+    const delay = resolveStoryAutoAdvanceDelay(activeStory);
+    storyAutoAdvanceTimerRef.current = window.setTimeout(() => {
+      advanceActiveStory();
+    }, delay);
+    return () => {
+      if (storyAutoAdvanceTimerRef.current) {
+        window.clearTimeout(storyAutoAdvanceTimerRef.current);
+        storyAutoAdvanceTimerRef.current = null;
+      }
+    };
+  }, [activeStory?.commentsCount, activeStory?.createdAt, activeStory?.id, activeStory?.media?.duration, advanceActiveStory]);
+
   const activeStoryShareUrl = storyActionTarget?.id
     ? buildStoryUrl(String(storyActionTarget.id))
-    : (typeof window === 'undefined' ? '/community' : `${window.location.origin}/community`);
+    : buildPublicAppUrl('/community');
   const activeStoryDashRecipient = String(
     storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
   ).trim();
   const downloadStoryMedia = useCallback(
     async (story: any) => {
-      const mediaUrl = resolveStoryMediaUrl(story);
-      if (!mediaUrl) {
+      const media = resolveStoryMedia(story);
+      if (!media.src) {
         showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
         return;
       }
       try {
         const result = await downloadToDevice({
-          url: mediaUrl,
+          url: media.src,
           fileName: `${resolveStoryAuthorName(story, 'story')}-story-${String(story?.id || Date.now())}`,
-          mimeType: story?.type === 'video' ? 'video/mp4' : story?.type === 'image' ? 'image/jpeg' : ''
+          mimeType: media.kind === 'video' ? 'video/mp4' : media.kind === 'image' ? 'image/jpeg' : ''
         });
         showNotification(
           'success',
@@ -2860,25 +5344,57 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     [showNotification]
   );
 
+  // Initial feed only when user/tab/filters change — NOT when loadFeed identity changes
+  // (cursor/pagination updates must not re-trigger a full initial load).
+  const userId = user?.id;
   useEffect(() => {
-    if (!user) return;
-    loadFeed();
-  }, [user, feedTab, feedTopic, feedRegion, loadFeed]);
+    if (!userId || !feedTabReady) return;
+    // Deliberate surface change: allow orchestrated retry and clear empty-loop guards.
+    feedLastCompletedCursorRef.current = null;
+    feedLastCompletedAddedRef.current = 0;
+    feedEmptyPageStreakRef.current = 0;
+    feedDiscoveryUsedRef.current = false;
+    feedTerminalRef.current = false;
+    setFeedTerminal(false);
+    feedNextCursorRef.current = null;
+    setFeedNextCursor(null);
+    feedOffsetFallbackRef.current = false;
+    setFeedOffsetFallbackEnabled(false);
+    // Tab/filter change is a deliberate hard reset of the primary stream.
+    void loadFeed({ forceRetryOrchestrated: true, hardReset: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFeed omitted intentionally to stop request loops
+  }, [userId, feedTab, feedTopic, feedRegion, feedTabReady]);
 
   useEffect(() => {
     if (feedTabInitializedRef.current) return;
     let restored: FeedTab | null = null;
     try {
       const stored = window.localStorage.getItem(feedTabStorageKey);
-      if (stored === 'latest' || stored === 'following' || stored === 'trending') {
-        restored = stored;
+      const parsed = normalizeFeedTabValue(stored);
+      if (parsed) {
+        restored = showIntentModes && parsed === 'latest' ? defaultIntentFeedTab : parsed;
       }
     } catch (e) {
       // Ignore storage failures and continue with defaults.
     }
     setFeedTab(restored || defaultFeedTab);
     feedTabInitializedRef.current = true;
-  }, [defaultFeedTab, feedTabStorageKey]);
+    setFeedTabReady(true);
+  }, [defaultFeedTab, defaultIntentFeedTab, feedTabStorageKey, showIntentModes]);
+
+  useEffect(() => {
+    if (!feedCacheKey) return;
+    try {
+      const raw = window.localStorage.getItem(feedCacheKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { items?: FeedPost[] };
+      const cachedItems = Array.isArray(parsed?.items) ? parsed.items : [];
+      if (!cachedItems.length) return;
+      commitFeedItems(cachedItems);
+    } catch {
+      // Ignore cache read failures.
+    }
+  }, [commitFeedItems, feedCacheKey]);
 
   useEffect(() => {
     if (!feedTabInitializedRef.current) return;
@@ -2890,18 +5406,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   }, [feedTab, feedTabStorageKey]);
 
   useEffect(() => {
+    if (showIntentModes && feedTab === 'latest') {
+      setFeedTab(defaultIntentFeedTab);
+      return;
+    }
+    if (!showIntentModes && isIntentFeedTab(feedTab)) {
+      setFeedTab(showFollowing ? 'following' : showTrending ? 'trending' : 'latest');
+      return;
+    }
     if (feedTab === 'following' && !showFollowing) {
-      setFeedTab(showTrending ? 'trending' : 'latest');
+      setFeedTab(showIntentModes ? defaultIntentFeedTab : showTrending ? 'trending' : 'latest');
       return;
     }
     if (feedTab === 'trending' && !showTrending) {
-      setFeedTab(showFollowing ? 'following' : 'latest');
+      setFeedTab(showFollowing ? 'following' : showIntentModes ? defaultIntentFeedTab : 'latest');
       return;
     }
-    if (feedTab === 'latest' && !showDiscover) {
+    if (!showIntentModes && feedTab === 'latest' && !showDiscover) {
       setFeedTab(showFollowing ? 'following' : showTrending ? 'trending' : 'latest');
     }
-  }, [feedTab, showDiscover, showFollowing, showTrending]);
+  }, [defaultIntentFeedTab, feedTab, showDiscover, showFollowing, showIntentModes, showTrending]);
 
   useEffect(() => {
     if (!user) return;
@@ -2917,40 +5441,105 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   }, [user, showStories, showMessages, showSlider, loadStories, loadReels, loadMessages, loadSlider]);
 
   useEffect(() => {
-    if (!feedRegion && user) {
-      setFeedRegion(user.location || user.country || '');
-    }
-  }, [feedRegion, user]);
+    setRenderedFeedItemCount((prev) => {
+      if (!feedItems.length) {
+        renderedFeedItemCountRef.current = desktopInitialRenderCount;
+        return desktopInitialRenderCount;
+      }
+      const minimum = Math.min(desktopInitialRenderCount, feedItems.length);
+      let next = prev;
+      if (prev < minimum) next = minimum;
+      if (prev > feedItems.length) next = feedItems.length;
+      renderedFeedItemCountRef.current = next;
+      return next;
+    });
+  }, [desktopInitialRenderCount, feedItems.length]);
 
   useEffect(() => {
     viewTracked.current.clear();
   }, [user?.id]);
 
   useEffect(() => {
-    if (!user?.id || !feedItems.length) return;
-    feedItems.forEach((post) => {
+    if (!user?.id || !renderableFeedItems.length) return;
+    renderableFeedItems.forEach((post) => {
       if (!post?.id || viewTracked.current.has(post.id)) return;
       viewTracked.current.add(post.id);
       CommunityService.postView(post.id).catch(() => {});
     });
-  }, [feedItems, user?.id]);
+  }, [renderableFeedItems, user?.id]);
+
+  // Single stable IntersectionObserver — callback reads refs so pagination state
+  // changes do not disconnect/reconnect (which re-fires while the sentinel is visible).
+  const loadMoreFeedRef = useRef(loadMoreFeed);
+  loadMoreFeedRef.current = loadMoreFeed;
+  useEffect(() => {
+    const node = desktopFeedSentinelRef.current;
+    if (!node) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        const hasUnrendered =
+          renderedFeedItemCountRef.current < feedItemsRef.current.length;
+        if (hasUnrendered && entry?.isIntersecting) {
+          setRenderedFeedItemCount((prev) => {
+            const next = Math.min(
+              feedItemsRef.current.length,
+              prev + desktopRenderStep
+            );
+            renderedFeedItemCountRef.current = next;
+            return next;
+          });
+          return;
+        }
+        if (
+          !shouldAllowObserverLoadMore({
+            isIntersecting: Boolean(entry?.isIntersecting),
+            initialLoading: feedLoadingRef.current,
+            loadMoreInFlight: feedLoadingMoreRef.current,
+            isTerminal: feedTerminalRef.current,
+            hasCursor: Boolean(String(feedNextCursorRef.current || '').trim()),
+            offsetFallbackEnabled: feedOffsetFallbackRef.current,
+            secondarySourceRemaining: !feedDiscoveryUsedRef.current,
+            hasUnrenderedItems: hasUnrendered
+          })
+        ) {
+          return;
+        }
+        void loadMoreFeedRef.current();
+      },
+      // Moderate rootMargin: 900px kept the sentinel constantly intersecting on short pages.
+      { rootMargin: '320px 0px', threshold: 0 }
+    );
+    obs.observe(node);
+    return () => obs.disconnect();
+  }, [desktopRenderStep, userId, feedTabReady]);
 
   useEffect(() => {
     if (!socket || !user) return;
-    const refreshFeed = () => loadFeed();
+    const softRefreshFeed = () => {
+      void loadFeed();
+    };
     const refreshStories = () => loadStories();
     const refreshSlider = () => loadSlider();
     const refreshSidebar = () => scheduleSidebarRefresh();
     const handlePostCreated = (payload: any) => {
       const created = payload?.post || payload;
       if (!created?.id) {
-        refreshFeed();
+        softRefreshFeed();
         return;
       }
       const normalized = normalizePost(created);
+      // Realtime insert must not reset pagination or clear the list.
       setFeedItems((prev) => {
-        if (prev.some((item) => item.id === normalized.id)) return prev;
-        return [normalized, ...prev];
+        const { next, inserted } = prependRealtimeItem(prev, normalized);
+        if (!inserted) return prev;
+        feedItemsRef.current = next;
+        setRenderedFeedItemCount((count) => {
+          const updated = Math.min(next.length, Math.max(count + 1, count));
+          renderedFeedItemCountRef.current = updated;
+          return updated;
+        });
+        return next;
       });
       syncCommentCount(normalized.id, normalized.interactions?.comments ?? 0);
     };
@@ -3069,8 +5658,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       );
     };
     socket.on('community:post_created', handlePostCreated);
-    socket.on('community:post_updated', refreshFeed);
-    socket.on('community:post_deleted', refreshFeed);
+    socket.on('community:post_updated', softRefreshFeed);
+    socket.on('community:post_deleted', softRefreshFeed);
     socket.on('community:story_created', handleStoryCreated);
     socket.on('community:story_deleted', refreshStories);
     socket.on('community:story_updated', handleStoryUpdated);
@@ -3086,8 +5675,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     socket.on('reco:rules_updated', refreshSidebar);
     return () => {
       socket.off('community:post_created', handlePostCreated);
-      socket.off('community:post_updated', refreshFeed);
-      socket.off('community:post_deleted', refreshFeed);
+      socket.off('community:post_updated', softRefreshFeed);
+      socket.off('community:post_deleted', softRefreshFeed);
       socket.off('community:story_created', handleStoryCreated);
       socket.off('community:story_deleted', refreshStories);
       socket.off('community:story_updated', handleStoryUpdated);
@@ -3478,7 +6067,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (!user) return;
     try {
       const id = await MessagingService.createConversation([
-        { id: user.id, name: user.name || 'You', avatar: user.avatar, role: user.role },
+        { id: user.id, name: user.name || 'You', avatar: resolvedUserAvatar || undefined, role: user.role },
         { id: target.id, name: target.name, avatar: target.avatar || undefined }
       ]);
       window.location.href = `/messages/${id}`;
@@ -3491,6 +6080,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
   const markListingImageError = useCallback((imageKey: string) => {
     setListingImageErrors((prev) => (prev[imageKey] ? prev : { ...prev, [imageKey]: true }));
   }, []);
+
+  const openScrolithaFromMemberHome = useCallback(
+    (prompt: string) => {
+      const params = new URLSearchParams(location.search);
+      ['post', 'postId', 'story', 'storyId', 'scroll', 'edit', 'modal', 'focus'].forEach((key) => {
+        params.delete(key);
+      });
+      const query = params.toString();
+      const base = `${location.pathname}${query ? `?${query}` : ''}`;
+      navigate(buildScrolithaPath(base, prompt));
+    },
+    [location.pathname, location.search, navigate]
+  );
 
   const renderInlineListingCard = useCallback(
     (entry: { kind: 'job' | 'gig'; item: any }, slotIndex: number) => {
@@ -3508,7 +6110,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         return (
           <article
             key={`feed_listing_job_${slotIndex}_${listingId}`}
-            className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-4 shadow-sm"
+            className="rounded-3xl border border-indigo-200/80 bg-gradient-to-br from-indigo-50 via-white to-white p-5 shadow-sm"
           >
             <div className="flex items-center justify-between gap-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-600">Featured Job</p>
@@ -3520,18 +6122,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               <p className="text-base font-semibold text-slate-900 line-clamp-2">{job?.title || 'Job opportunity'}</p>
               <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                 <span>{contactName}</span>
-                {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
+                {isClientVerified(job) ? (
+                  <VerifiedBadge
+                    size={16}
+                    level={getClientVerificationLevel(job)}
+                    className="ml-1"
+                    subjectRole="employer"
+                    subjectType={(job as any)?.clientType || 'business'}
+                  />
+                ) : null}
                 <ProBadge role="employer" isPro={job?.clientIsPro} />
                 {job?.category ? <span>- {job.category}</span> : null}
               </p>
               <p className="mt-2 text-sm text-slate-600">Budget: {formatListingAmount(job?.budget)}</p>
             </Link>
+            <div className="mt-3 rounded-2xl border border-indigo-100 bg-white/80 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-700">Scrolitha recommendation</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    openScrolithaFromMemberHome(
+                      buildListingScrolithaPrompt('job', String(job?.title || ''), String(job?.category || ''))
+                    )
+                  }
+                  className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700 transition hover:bg-indigo-100"
+                >
+                  Enhance copy
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-slate-600">Optimize title, clarity, and action intent for stronger applications.</p>
+            </div>
             <Link to={`/jobs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-indigo-100 bg-white">
               {hasListingImage ? (
                 <img
                   src={listingImageUrl}
                   alt={job?.title || 'Featured job'}
-                  className="h-40 w-full object-cover"
+                  className="h-48 w-full object-cover"
                   loading="lazy"
                   onError={() => markListingImageError(listingImageKey)}
                 />
@@ -3587,7 +6214,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
       return (
         <article
           key={`feed_listing_gig_${slotIndex}_${listingId}`}
-          className="rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-4 shadow-sm"
+          className="rounded-3xl border border-emerald-200/80 bg-gradient-to-br from-emerald-50 via-white to-white p-5 shadow-sm"
         >
           <div className="flex items-center justify-between gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-600">Featured Gig</p>
@@ -3599,18 +6226,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             <p className="text-base font-semibold text-slate-900 line-clamp-2">{gig?.title || 'Service offer'}</p>
             <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <span>{contactName}</span>
-              {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
+              {isFreelancerVerified(gig) ? (
+                <VerifiedBadge
+                  size={16}
+                  level={getFreelancerVerificationLevel(gig)}
+                  className="ml-1"
+                  subjectRole="freelancer"
+                  subjectType={(gig as any)?.freelancerType || 'user'}
+                />
+              ) : null}
               <ProBadge role="freelancer" isPro={gig?.freelancerIsPro} />
               {gig?.category ? <span>- {gig.category}</span> : null}
             </p>
             <p className="mt-2 text-sm text-slate-600">From {formatListingAmount(gig?.price, '$0')}</p>
           </Link>
+          <div className="mt-3 rounded-2xl border border-emerald-100 bg-white/80 px-3 py-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Scrolitha recommendation</p>
+              <button
+                type="button"
+                onClick={() =>
+                  openScrolithaFromMemberHome(
+                    buildListingScrolithaPrompt('gig', String(gig?.title || ''), String(gig?.category || ''))
+                  )
+                }
+                className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 transition hover:bg-emerald-100"
+              >
+                Enhance copy
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-slate-600">Refine offer positioning and trust signals for better conversion.</p>
+          </div>
           <Link to={`/gigs/${encodeURIComponent(listingId)}`} className="mt-3 block overflow-hidden rounded-2xl border border-emerald-100 bg-white">
             {hasListingImage ? (
               <img
                 src={listingImageUrl}
                 alt={gig?.title || 'Featured gig'}
-                className="h-40 w-full object-cover"
+                className="h-48 w-full object-cover"
                 loading="lazy"
                 onError={() => markListingImageError(listingImageKey)}
               />
@@ -3663,94 +6315,785 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     if (!postId) return null;
     if (!attachments?.length) return null;
     const isSingleAttachment = attachments.length === 1;
-    const mediaPreviewHeightClass = isSingleAttachment ? 'h-64 md:h-80' : 'h-44 md:h-52';
+    const mediaPreviewHeightClass = isSingleAttachment ? FEED_SINGLE_MEDIA_HEIGHT_CLASS : FEED_MULTI_MEDIA_HEIGHT_CLASS;
     return (
-      <div className={`mt-3 grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
-        {attachments.map((media) => {
-          const type = inferMediaType(media || {});
-          const mediaKey = String(media.id || media.url || '');
-          const durationLabel = formatMediaDuration((media as any)?.duration);
-          if (type === 'video') {
-            return (
-              <div
-                key={media.id || media.url}
-                role="button"
-                tabIndex={0}
-                onClick={(event) => {
-                  if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                  queueOpenPostFromMediaTap(postId, mediaKey);
-                }}
-                onDoubleClick={(event) => {
-                  if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                  onPostMediaDoubleClick(event, post, mediaKey);
-                }}
-                onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    openPostDetail(postId);
-                  }
-                }}
-                className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
-              >
-                <InlineAutoplayVideo
-                  src={media.url}
-                  poster={(media as any)?.thumbnailUrl || undefined}
-                  className={`${mediaPreviewHeightClass} w-full object-cover`}
-                  controls={false}
-                  autoplayEnabled={profile.autoplayEnabled}
-                  preload="metadata"
-                />
-                {durationLabel && (
-                  <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                    {durationLabel}
-                  </span>
-                )}
-              </div>
-            );
-          }
-          if (type === 'image') {
+      <GraphicWarningGate
+        active={Boolean(post?.graphicWarning)}
+        revealed={Boolean(revealedGraphicPosts[postId])}
+        onReveal={() => setRevealedGraphicPosts((prev) => ({ ...prev, [postId]: true }))}
+        label={GRAPHIC_WARNING_LABEL}
+        className="mt-3"
+      >
+        <div className={`grid gap-3 ${isSingleAttachment ? 'grid-cols-1' : 'md:grid-cols-2'}`}>
+          {attachments.map((media) => {
+            const type = inferMediaType(media || {});
+            const mediaKey = String(media.id || media.url || '');
+            const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || (media as any)?.url || '').trim();
+            const posterUrl = String(resolvePostAttachmentPosterUrl(media) || (media as any)?.thumbnailUrl || '').trim();
+            const durationLabel = formatMediaDuration((media as any)?.duration);
+            if (!mediaUrl && type !== 'document') return null;
+            if (type === 'video') {
+              return (
+                <div
+                  key={media.id || media.url}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(event) => {
+                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                    queueOpenPostFromMediaTap(post, media, mediaKey);
+                  }}
+                  onDoubleClick={(event) => {
+                    if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                    onPostMediaDoubleClick(event, post, mediaKey);
+                  }}
+                  onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handlePostMediaPrimaryAction(post, media);
+                    }
+                  }}
+                  className="group relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                >
+                  <InlineAutoplayVideo
+                    src={mediaUrl}
+                    poster={posterUrl || undefined}
+                    className={`${mediaPreviewHeightClass} w-full object-cover`}
+                    controls={false}
+                    loop
+                    autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                    preload="metadata"
+                    loadingLabel="Video loading"
+                  />
+                  {durationLabel && (
+                    <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                      {durationLabel}
+                    </span>
+                  )}
+                </div>
+              );
+            }
+            if (type === 'image') {
+              return (
+                <button
+                  key={media.id || media.url}
+                  type="button"
+                  onClick={() => handlePostMediaPrimaryAction(post, media)}
+                  onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                  onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                  className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                >
+                  <OptimizedImage
+                    src={posterUrl || mediaUrl}
+                    fallbackSrc={mediaUrl}
+                    alt={media.name || 'Post media'}
+                    width={640}
+                    height={400}
+                    sizes="(max-width: 1024px) 100vw, 640px"
+                    className={`${mediaPreviewHeightClass} w-full object-cover`}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </button>
+              );
+            }
+            const isPdf =
+              String(media.mimeType || '').toLowerCase() === 'application/pdf' ||
+              mediaUrl.toLowerCase().endsWith('.pdf');
             return (
               <button
                 key={media.id || media.url}
                 type="button"
-                onClick={() => queueOpenPostFromMediaTap(postId, mediaKey)}
-                onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
-                onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                onClick={() => handlePostMediaPrimaryAction(post, media)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left text-xs text-slate-600 hover:bg-slate-100"
               >
-                <img
-                  src={(media as any).thumbnailUrl || media.url}
-                  alt={media.name || 'Post media'}
-                  className={`${mediaPreviewHeightClass} w-full object-cover`}
-                  loading="lazy"
-                  decoding="async"
-                />
+                <p className="truncate font-semibold text-slate-700">{media.name || media.url?.split('/').pop() || 'Attachment'}</p>
+                <p className="mt-1 text-[11px] text-slate-500">{isPdf ? 'PDF document' : 'Document'}</p>
               </button>
             );
-          }
-          const isPdf = String(media.mimeType || '').toLowerCase() === 'application/pdf' || String(media.url || '').toLowerCase().endsWith('.pdf');
-          return (
-            <button
-              key={media.id || media.url}
-              type="button"
-              onClick={() => openPostDetail(postId)}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-left text-xs text-slate-600 hover:bg-slate-100"
-            >
-              <p className="truncate font-semibold text-slate-700">{media.name || media.url?.split('/').pop() || 'Attachment'}</p>
-              <p className="mt-1 text-[11px] text-slate-500">{isPdf ? 'PDF document' : 'Document'}</p>
-            </button>
-          );
-        })}
-      </div>
+          })}
+        </div>
+      </GraphicWarningGate>
     );
   };
 
+  const openDesktopComposer = useCallback(
+    (intent: DesktopComposerIntent = 'text') => {
+      if (!showComposer) return;
+      // Restore session draft if the current composer is empty.
+      const existingMeaningful = isComposerDraftMeaningful({
+        title: postDraft.title,
+        content: postDraft.content,
+        topic: postDraft.topic,
+        location: postDraft.location,
+        region: postDraft.region
+      });
+      if (!existingMeaningful) {
+        const saved = loadComposerDraft(composerDraftKey);
+        if (saved) {
+          setPostDraft((prev) => ({
+            ...prev,
+            title: saved.title ?? prev.title,
+            content: saved.content ?? prev.content,
+            tags: saved.tags ?? prev.tags,
+            mentions: saved.mentions ?? prev.mentions,
+            topic: saved.topic ?? prev.topic,
+            region: saved.region ?? prev.region,
+            location: saved.location ?? prev.location,
+            visibility: (saved.visibility as PostDraft['visibility']) || prev.visibility,
+            commentPolicy: (saved.commentPolicy as PostDraft['commentPolicy']) || prev.commentPolicy,
+            graphicWarning:
+              typeof saved.graphicWarning === 'boolean' ? saved.graphicWarning : prev.graphicWarning,
+            isAIEnhanced: typeof saved.isAIEnhanced === 'boolean' ? saved.isAIEnhanced : prev.isAIEnhanced,
+            aiInsightPreference: resolvePostAiInsightPreference(
+              saved.aiInsightPreference,
+              prev.aiInsightPreference
+            )
+          }));
+          if (saved.authorScopeId) setPostAuthorScopeId(saved.authorScopeId);
+          setComposerDraftNotice('Restored your unfinished draft from this session.');
+        }
+      }
+      composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setDesktopComposerIntent(intent);
+      setDesktopComposerOpen(true);
+    },
+    [composerDraftKey, postDraft.content, postDraft.location, postDraft.region, postDraft.title, postDraft.topic, showComposer]
+  );
+
+  const closeDesktopComposer = useCallback(() => {
+    // Do not dismiss mid-publish (guard + UI busy state).
+    if (postingRef.current || publishGuardRef.current.isBusy()) return;
+    // Persist draft safely on close (text/settings only) from latest refs —
+    // callback identity stays stable so ComposerShell never re-inits the focus trap mid-typing.
+    const draft = postDraftRef.current;
+    saveComposerDraft(composerDraftKeyRef.current, {
+      title: draft.title,
+      content: draft.content,
+      tags: draft.tags,
+      mentions: draft.mentions,
+      topic: draft.topic,
+      region: draft.region,
+      location: draft.location,
+      visibility: draft.visibility,
+      commentPolicy: draft.commentPolicy,
+      graphicWarning: draft.graphicWarning,
+      isAIEnhanced: draft.isAIEnhanced,
+      aiInsightPreference: draft.aiInsightPreference,
+      authorScopeId: postAuthorScopeIdRef.current
+    });
+    setDesktopComposerOpen(false);
+    setPostLocationPickerOpen(false);
+  }, []);
+
+  const discardComposerDraft = useCallback(() => {
+    if (posting || publishGuardRef.current.isBusy()) return;
+    postDraft.media.forEach((item) => revokePreviewUrl(item.url));
+    postMediaCountRef.current = 0;
+    postMediaItemsRef.current = [];
+    setPostDraft(createEmptyPostDraft());
+    setPostLocationDetails(null);
+    setPostLocationPickerOpen(false);
+    setComposerDraftNotice(null);
+    clearComposerDraft(composerDraftKey);
+    setComposerStatusMessage('Draft discarded.');
+  }, [composerDraftKey, postDraft.media, posting]);
+
   const focusComposer = useCallback(() => {
-    if (!showComposer) return;
-    composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    window.setTimeout(() => composerInputRef.current?.focus(), 250);
-  }, [showComposer]);
+    openDesktopComposer('text');
+  }, [openDesktopComposer]);
+
+  const handlePostAuthorScopeChange = useCallback((nextValue: string) => {
+    setPostAuthorScopeId(nextValue);
+    setPostDraft((prev) => (prev.offerTags.length ? { ...prev, offerTags: [] } : prev));
+  }, []);
+
+  const handlePostLocationDetailsChange = useCallback((nextValue: Partial<StructuredLocationFields>) => {
+    setPostLocationDetails((prev) => {
+      const merged = { ...(prev || {}), ...(nextValue || {}) };
+      const nextLabel = getStructuredLocationLabel(merged);
+      setPostDraft((current) => ({
+        ...current,
+        location: nextLabel || String(current.location || '').trim()
+      }));
+      return merged;
+    });
+  }, []);
+
+  const renderDesktopComposer = useCallback(() => {
+    if (!showComposer) return null;
+
+    const publishBlocked =
+      posting ||
+      postDraft.media.some((item) => item.uploading) ||
+      postDraft.media.some((item) => item.error) ||
+      (!postDraft.title.trim() &&
+        !postDraft.content.trim() &&
+        !postDraft.media.some((item) => item.id));
+
+    return (
+      <>
+        <div ref={composerRef} className={`mt-4 ${composerEntryCard}`}>
+          <div className="flex items-center gap-3 sm:gap-4">
+            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 sm:h-14 sm:w-14">
+              {resolvedUserAvatar ? (
+                <OptimizedImage
+                  src={resolvedUserAvatar}
+                  alt={user.name || 'User'}
+                  width={128}
+                  height={128}
+                  sizes="56px"
+                  className="h-full w-full object-cover"
+                  loading="lazy"
+                  decoding="async"
+                />
+              ) : (
+                <Users className="mx-auto mt-3.5 h-5 w-5 text-slate-400 sm:mt-4" aria-hidden="true" />
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => openDesktopComposer('text')}
+              className={composerEntryTrigger}
+              aria-haspopup="dialog"
+            >
+              Start a post
+            </button>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            <button type="button" onClick={() => openDesktopComposer('video')} className={composerEntryShortcut}>
+              <Video className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+              Video
+            </button>
+            <button type="button" onClick={() => openDesktopComposer('photo')} className={composerEntryShortcut}>
+              <ImageIcon className="h-4 w-4 text-sky-600" aria-hidden="true" />
+              Photo
+            </button>
+            <button type="button" onClick={() => openDesktopComposer('article')} className={composerEntryShortcut}>
+              <FileText className="h-4 w-4 text-amber-600" aria-hidden="true" />
+              Write article
+            </button>
+          </div>
+          {composerDraftNotice ? (
+            <div className={`mt-3 ${composerDraftBanner}`} role="status">
+              <span>{composerDraftNotice}</span>
+              <button type="button" onClick={discardComposerDraft} className="text-xs font-semibold underline">
+                Discard draft
+              </button>
+            </div>
+          ) : null}
+        </div>
+
+        <ComposerShell
+          open={desktopComposerOpen}
+          title="Create a post"
+          onClose={closeDesktopComposer}
+          statusMessage={composerStatusMessage}
+          header={
+            <>
+              <div className="flex min-w-0 items-center gap-3 sm:gap-4">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 sm:h-14 sm:w-14">
+                  {activePostAuthor.avatarUrl ? (
+                    <img
+                      src={activePostAuthor.avatarUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      width={56}
+                      height={56}
+                    />
+                  ) : (
+                    <Users className="h-5 w-5 text-slate-400" aria-hidden="true" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">Posting as</p>
+                  <p className="truncate text-base font-semibold text-slate-950 sm:text-lg">{activePostAuthor.label}</p>
+                  <p className="truncate text-sm text-slate-500">
+                    {activePostAuthor.subtitle} · {composerTitle}
+                  </p>
+                </div>
+              </div>
+              <div className="flex w-full min-w-0 flex-wrap items-start gap-2 sm:w-auto sm:min-w-[240px] sm:flex-nowrap">
+                <label className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 sm:px-4">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Identity
+                  </span>
+                  <select
+                    value={postAuthorScopeId}
+                    onChange={(event) => handlePostAuthorScopeChange(event.target.value)}
+                    className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                    aria-label="Posting identity"
+                  >
+                    {desktopPostAuthorOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                        {option.type === 'page' ? ' — Page' : ' — Personal'}
+                      </option>
+                    ))}
+                  </select>
+                  {ownedBusinessPagesLoading ? (
+                    <span className="mt-1 block text-[11px] text-slate-500">Loading your pages…</span>
+                  ) : null}
+                </label>
+                <label className="min-w-[8.5rem] rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
+                  <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Audience
+                  </span>
+                  <select
+                    value={postDraft.visibility}
+                    onChange={(event) =>
+                      setPostDraft((prev) => ({
+                        ...prev,
+                        visibility: event.target.value as PostDraft['visibility']
+                      }))
+                    }
+                    className="mt-1 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                    aria-label="Audience"
+                  >
+                    <option value="public">Public</option>
+                    <option value="network">Network</option>
+                    <option value="friends">Friends</option>
+                    <option value="private">Private</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={closeDesktopComposer}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+                  aria-label="Close create post dialog"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </>
+          }
+          footer={
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => postMediaInputRef.current?.click()}
+                  className={composerToolbarBtn}
+                  aria-label="Add media from device"
+                >
+                  <Video className="h-4 w-4" aria-hidden="true" />
+                  Media
+                </button>
+                <button type="button" onClick={startCamera} className={composerToolbarBtn} aria-label="Open camera">
+                  <Camera className="h-4 w-4" aria-hidden="true" />
+                  Camera
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeDesktopComposer}
+                  className={composerSecondaryBtn}
+                  disabled={posting}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handlePostSubmit()}
+                  disabled={publishBlocked}
+                  className={composerPrimaryBtn}
+                  aria-busy={posting}
+                >
+                  {posting ? 'Publishing…' : 'Publish'}
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div
+            className="mx-auto max-w-3xl space-y-4"
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }}
+            onDrop={handleComposerDrop}
+            onPaste={handleComposerPaste}
+          >
+            {composerDraftNotice ? (
+              <div className={composerDraftBanner} role="status">
+                <span>{composerDraftNotice}</span>
+                <button type="button" onClick={discardComposerDraft} className="text-xs font-semibold underline">
+                  Discard draft
+                </button>
+              </div>
+            ) : null}
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
+              <MentionHashtagTextarea
+                ref={composerInputRef}
+                value={postDraft.content}
+                onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
+                placeholder="What do you want to talk about?"
+                mentionsEnabled={mentionsEnabled}
+                hashtagsEnabled={hashtagsEnabled}
+                className={composerEditor}
+              />
+              <div className="mt-3">
+                <div className="flex flex-wrap gap-2">
+                  {postAiActions.map((action) => (
+                    <button
+                      key={action.mode}
+                      type="button"
+                      onClick={() => void runPostAi(action.mode)}
+                      disabled={aiLoading || posting}
+                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-[11px] text-slate-500">
+                  {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
+                  {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI suggestions never
+                  publish without your approval. Drag and drop or paste images to attach.
+                </p>
+              </div>
+            </div>
+
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+                    <div className="space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <input
+                          ref={postTitleInputRef}
+                          value={postDraft.title}
+                          onChange={(event) => setPostDraft((prev) => ({ ...prev, title: event.target.value }))}
+                          placeholder="Post title (optional)"
+                          className={composerField}
+                        />
+                        <select
+                          value={postDraft.commentPolicy}
+                          onChange={(event) =>
+                            setPostDraft((prev) => ({
+                              ...prev,
+                              commentPolicy: event.target.value as PostDraft['commentPolicy']
+                            }))
+                          }
+                          className={composerField}
+                          aria-label="Who can comment"
+                        >
+                          {commentPolicyOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Topic
+                          </span>
+                          <input
+                            value={postDraft.topic}
+                            onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
+                            list="member_home_topics"
+                            placeholder="Topic (optional)"
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                          />
+                        </label>
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Region
+                          </span>
+                          <select
+                            value={postDraft.region}
+                            onChange={(event) => {
+                              const nextRegion = event.target.value;
+                              setPostDraft((prev) => {
+                                const currentLocation = String(prev.location || '').trim();
+                                const previousRegion = String(prev.region || '').trim();
+                                const nextLocation =
+                                  !currentLocation || currentLocation === previousRegion
+                                    ? nextRegion
+                                    : currentLocation;
+                                return {
+                                  ...prev,
+                                  region: nextRegion,
+                                  location: nextLocation
+                                };
+                              });
+                            }}
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                          >
+                            <option value="">Select region (optional)</option>
+                            {regions.map((region) => (
+                              <option key={region} value={region}>
+                                {region}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Location</p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {postLocationSummary || 'Use map search or current location to enrich this post.'}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setPostLocationPickerOpen((prev) => !prev)}
+                              className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+                            >
+                              <MapPin className="h-3.5 w-3.5" />
+                              {postLocationPickerOpen ? 'Hide map' : postLocationSummary ? 'Edit with map' : 'Auto-detect with map'}
+                            </button>
+                          </div>
+                          <input
+                            value={postDraft.location}
+                            onChange={(event) => {
+                              const nextValue = event.target.value;
+                              setPostDraft((prev) => ({ ...prev, location: nextValue }));
+                              setPostLocationDetails(null);
+                            }}
+                            list="member_home_locations"
+                            placeholder={user?.location || user?.country || 'Location (optional)'}
+                            className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 shadow-sm outline-none transition focus:border-slate-400"
+                          />
+                          {postLocationPickerOpen ? (
+                            <div className="mt-4">
+                              <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">Loading map picker...</div>}>
+                                <LocationPicker
+                                  value={postLocationDetails}
+                                  onChange={handlePostLocationDetailsChange}
+                                  label="Integrated map location"
+                                  placeholder="Search city, area, or place"
+                                />
+                              </Suspense>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                      <OfferTagSelector
+                        mode={activePostBusinessPageId ? 'business' : 'user'}
+                        ownerUserId={activePostBusinessPageId ? undefined : user?.id}
+                        businessPageId={activePostBusinessPageId}
+                        value={postDraft.offerTags}
+                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, offerTags: nextValue }))}
+                        label={activePostBusinessPageId ? 'Tag page offers' : 'Tag storefront offers'}
+                        helperText={
+                          activePostBusinessPageId
+                            ? "Attach this page's offers so viewers can open the page storefront or start a brief without leaving the post."
+                            : 'Attach relevant services so viewers can open your storefront, message you, or start a brief without leaving the post.'
+                        }
+                      />
+                    </div>
+
+                    <div className="space-y-4">
+                      <div className="grid gap-3">
+                        <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={postDraft.graphicWarning}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({ ...prev, graphicWarning: event.target.checked }))
+                            }
+                          />
+                          <span className="inline-flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            {GRAPHIC_WARNING_LABEL}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm">
+                          <input
+                            type="checkbox"
+                            checked={postDraft.isAIEnhanced}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({ ...prev, isAIEnhanced: event.target.checked }))
+                            }
+                          />
+                          <span className="inline-flex items-center gap-2">
+                            <Sparkles className="h-4 w-4 text-emerald-600" />
+                            Mark as AI-enhanced
+                          </span>
+                        </label>
+                        <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+                          <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                            Scrolitha AI insight
+                          </span>
+                          <select
+                            value={postDraft.aiInsightPreference}
+                            onChange={(event) =>
+                              setPostDraft((prev) => ({
+                                ...prev,
+                                aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'auto')
+                              }))
+                            }
+                            className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                          >
+                            <option value="auto">Automatic</option>
+                            <option value="on">Generate for this post</option>
+                            <option value="off">Do not generate</option>
+                          </select>
+                        </label>
+                      </div>
+
+                      {postDraft.media.length > 0 ? (
+                        <div className="grid gap-3">
+                          {postDraft.media.map((media) => {
+                            const type = media.type || inferMediaType(media);
+                            const durationLabel = formatMediaDuration(media.duration);
+                            return (
+                              <div
+                                key={media.localId}
+                                className={composerAttachmentTile}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => handlePostMediaRemove(media.localId)}
+                                  className="absolute right-3 top-3 z-10 rounded-full bg-white/90 p-1.5 text-slate-500 shadow-sm hover:text-slate-700"
+                                  aria-label={`Remove attachment ${media.name || ''}`.trim()}
+                                >
+                                  <X className="h-4 w-4" aria-hidden="true" />
+                                </button>
+                                {type === 'video' ? (
+                                  <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        setPreviewMedia(toPreviewMedia(media));
+                                      }
+                                    }}
+                                    className="relative block h-48 w-full cursor-pointer overflow-hidden"
+                                  >
+                                    <InlineAutoplayVideo
+                                      src={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                      poster={resolvePostAttachmentPosterUrl(media) || resolveAssetUrl(media.thumbnailUrl) || undefined}
+                                      className="h-48 w-full object-cover"
+                                      controls={false}
+                                      loop
+                                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                      preload="metadata"
+                                      loadingLabel="Video preview loading"
+                                    />
+                                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent px-4 pb-3 pt-10">
+                                      <div className="inline-flex rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-900 shadow-sm">
+                                        Autoplay preview
+                                      </div>
+                                    </div>
+                                    {durationLabel ? (
+                                      <span className="absolute bottom-3 right-3 rounded bg-black/75 px-2 py-1 text-[10px] font-semibold text-white">
+                                        {durationLabel}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                ) : type === 'image' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="block h-48 w-full"
+                                  >
+                                    <OptimizedImage
+                                      src={resolvePostAttachmentPosterUrl(media) || resolveAssetUrl(media.thumbnailUrl || media.url) || ''}
+                                      fallbackSrc={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                      alt={media.name || 'Post media'}
+                                      width={960}
+                                      height={540}
+                                      sizes="(max-width: 1280px) 100vw, 420px"
+                                      className="h-48 w-full object-cover"
+                                      loading="lazy"
+                                      decoding="async"
+                                    />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
+                                    className="flex h-40 w-full flex-col items-center justify-center p-4 text-xs text-slate-500"
+                                  >
+                                    <FileText className="mb-2 h-6 w-6 text-slate-400" />
+                                    {media.name || 'Attachment'}
+                                  </button>
+                                )}
+                                {media.uploading ? (
+                                  <div className="absolute inset-0 flex items-center justify-center bg-white/75 text-xs font-semibold text-slate-600">
+                                    Uploading {media.progress ?? 0}%
+                                  </div>
+                                ) : null}
+                                {media.error ? (
+                                  <div className="absolute inset-x-0 bottom-0 bg-red-50 px-3 py-2 text-[10px] text-red-600">
+                                    {media.error}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center text-sm text-slate-500">
+                          Add media to make your post richer across desktop and mobile.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <datalist id="member_home_topics">
+                    {topics.slice(0, 500).map((topic) => (
+                      <option key={topic} value={topic} />
+                    ))}
+                  </datalist>
+                  <datalist id="member_home_locations">
+                    {regions.slice(0, 500).map((region) => (
+                      <option key={region} value={region} />
+                    ))}
+                  </datalist>
+          </div>
+        </ComposerShell>
+      </>
+    );
+  }, [
+    activePostAuthor,
+    activePostBusinessPageId,
+    aiLoading,
+    composerDraftNotice,
+    composerStatusMessage,
+    discardComposerDraft,
+    handleComposerDrop,
+    handleComposerPaste,
+    handlePostSubmit,
+    aiRunningMode,
+    closeDesktopComposer,
+    composerTitle,
+    desktopComposerOpen,
+    desktopPostAuthorOptions,
+    handlePostAuthorScopeChange,
+    handlePostLocationDetailsChange,
+    handlePostMediaRemove,
+    hashtagsEnabled,
+    mentionsEnabled,
+    openDesktopComposer,
+    ownedBusinessPagesLoading,
+    postAuthorScopeId,
+    postDraft,
+    postLocationDetails,
+    postLocationPickerOpen,
+    postLocationSummary,
+    posting,
+    postAiActions,
+    regions,
+    runPostAi,
+    showComposer,
+    startCamera,
+    topics,
+    resolvedUserAvatar,
+    user?.country,
+    user?.id,
+    user?.location,
+    user?.name
+  ]);
 
   const routeToAuth = useCallback(
     (mode: 'login' | 'signup', action: 'project_brief' | 'gig_creation') => {
@@ -3804,20 +7147,258 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
     }
   }, [isGuest, navigate, projectBriefPrompt, routeToAuth, showNotification]);
 
+  const focusFeedSection = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    document.getElementById('member-home-feed-stream')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const openInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
+    if (typeof window !== 'undefined' && group) {
+      window.dispatchEvent(
+        new CustomEvent('insights:open_section', {
+          detail: { group, section: sectionId }
+        })
+      );
+    }
+    if (typeof document === 'undefined') return;
+    window.setTimeout(() => {
+      document.querySelector(`[data-insights-section="${sectionId}"]`)?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }, group ? 120 : 0);
+  }, []);
+
+  const discoveryAd = sidebarFeaturedAd || sidebarTopAd || sidebarMiddleAd;
+
+  const memberHomeHighlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
+    const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(feedItems.length) }];
+    if (jobs.length) pills.push({ label: 'Jobs', value: String(jobs.length) });
+    if (gigs.length) pills.push({ label: 'Gigs', value: String(gigs.length) });
+    if (officeHours.length) pills.push({ label: 'Live', value: String(officeHours.length) });
+    if (featuredSeries.length) pills.push({ label: 'Series', value: String(featuredSeries.length) });
+    if (broadcastChannels.length) pills.push({ label: 'Channels', value: String(broadcastChannels.length) });
+    if (profiles.length || recommendedPages.length) {
+      pills.push({ label: 'Network', value: String(profiles.length + recommendedPages.length) });
+    }
+    if (discoveryAd) pills.push({ label: 'Sponsored', value: '1' });
+    return pills;
+  }, [
+    broadcastChannels.length,
+    discoveryAd,
+    featuredSeries.length,
+    feedItems.length,
+    gigs.length,
+    jobs.length,
+    officeHours.length,
+    profiles.length,
+    recommendedPages.length
+  ]);
+
+  const memberHomeHighlightItems = useMemo<MemberHomeHighlightItem[]>(() => {
+    const items: MemberHomeHighlightItem[] = [];
+    const topJob = jobs[0] as any;
+    const topGig = gigs[0] as any;
+    const topOfficeHour = officeHours[0];
+    const topSeries = featuredSeries[0];
+    const topBroadcastChannel = broadcastChannels[0];
+    const topProfile = profiles[0];
+    const topPage = recommendedPages[0];
+    const topPost = feedItems[0];
+
+    items.push({
+      id: 'desktop-scrolitha-coach',
+      eyebrow: 'Scrolitha coach',
+      title: 'Improve posts, gigs, and briefs faster',
+      description: 'Use Scrolitha inside member_home to polish drafts before you publish, package, or match.',
+      meta: 'Posts · Gigs · Briefs',
+      badge: 'AI',
+      ctaLabel: 'Open coach',
+      onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
+      mediaUrl: '/logo.png',
+      icon: <Sparkles className="h-4 w-4" />,
+      tone: 'violet'
+    });
+
+    if (topJob) {
+      items.push({
+        id: `desktop-job:${topJob.id}`,
+        eyebrow: 'Featured jobs',
+        title: topJob.title || 'Recommended job',
+        description: [topJob.clientName || 'Employer', topJob.category || 'Professional opportunity'].filter(Boolean).join(' · '),
+        meta: `Budget: ${formatListingAmount(topJob?.budget)}`,
+        badge: 'Live',
+        ctaLabel: 'Browse jobs',
+        href: topJob?.id ? `/jobs/${encodeURIComponent(topJob.id)}` : '/browse-jobs',
+        mediaUrl: resolveListingImageUrl(topJob),
+        icon: <Briefcase className="h-4 w-4" />,
+        tone: 'blue'
+      });
+    }
+
+    if (topGig) {
+      items.push({
+        id: `desktop-gig:${topGig.id}`,
+        eyebrow: 'Featured gigs',
+        title: topGig.title || 'Recommended gig',
+        description: [topGig.freelancerName || 'Freelancer', topGig.category || 'Service listing'].filter(Boolean).join(' · '),
+        meta: `From ${formatListingAmount(topGig?.price, 'Pricing available')}`,
+        badge: 'Recommended',
+        ctaLabel: 'Browse gigs',
+        href: topGig?.id ? `/gigs/${encodeURIComponent(topGig.id)}` : '/browse',
+        mediaUrl: resolveListingImageUrl(topGig),
+        icon: <Sparkles className="h-4 w-4" />,
+        tone: 'violet'
+      });
+    }
+
+    if (topOfficeHour) {
+      items.push({
+        id: `desktop-office-hours:${topOfficeHour.id}`,
+        eyebrow: 'Live AMAs / office hours',
+        title: topOfficeHour.title || 'Upcoming office hours',
+        description: topOfficeHour.description,
+        meta: topOfficeHour.metaLabel,
+        badge: topOfficeHour.badge,
+        ctaLabel: topOfficeHour.isRegistered ? 'View session' : 'Open office hours',
+        onClick: () => openInsightsSection('live-office-hours', 'opportunity'),
+        mediaUrl: topOfficeHour.image || '',
+        fallbackMediaUrl: '/logo.png',
+        icon: <CalendarDays className="h-4 w-4" />,
+        tone: 'amber'
+      });
+    }
+
+    if (topSeries) {
+      const featuredScroll = topSeries.featuredScroll || topSeries.previewItems?.[0] || topSeries.items?.[0]?.scroll || null;
+      items.push({
+        id: `desktop-series:${topSeries.id}`,
+        eyebrow: 'Series / playlists',
+        title: topSeries.title || 'Bingeable Scroll series',
+        description:
+          topSeries.description ||
+          featuredScroll?.description ||
+          featuredScroll?.title ||
+          'Creator-curated Scroll playlists keep the strongest work in sequence.',
+        meta: `${topSeries.creator.name} · ${topSeries.itemCount} items`,
+        badge: 'Series',
+        ctaLabel: 'Open series',
+        href: buildSeriesUrl(topSeries.id),
+        mediaUrl: featuredScroll?.media?.thumbnailUrl || featuredScroll?.media?.url || '',
+        icon: <Video className="h-4 w-4" />,
+        tone: 'rose'
+      });
+    }
+
+    if (topBroadcastChannel) {
+      items.push({
+        id: `desktop-broadcast:${topBroadcastChannel.id}`,
+        eyebrow: 'Broadcast updates',
+        title: topBroadcastChannel.name || topBroadcastChannel.source?.name || 'Creator updates',
+        description:
+          topBroadcastChannel.latestUpdate?.content ||
+          topBroadcastChannel.description ||
+          'Follow creator and company updates without digging through the full feed.',
+        meta: `${topBroadcastChannel.memberCount} followers · ${topBroadcastChannel.updateCount} updates`,
+        badge: topBroadcastChannel.isFollowing ? 'Following' : 'Live',
+        ctaLabel: 'Open source',
+        href: String(topBroadcastChannel.source?.href || '').trim() || '/community',
+        mediaUrl: topBroadcastChannel.source?.avatar || '',
+        icon: <MessageCircle className="h-4 w-4" />,
+        tone: 'emerald'
+      });
+    }
+
+    if (topProfile || topPage) {
+      const networkTitle = topProfile?.name || topPage?.name || 'Grow your network';
+      const networkDescription =
+        [topProfile?.name, topPage?.name].filter(Boolean).join(' · ') ||
+        'Recommended people and pages are available directly on your member home.';
+      items.push({
+        id: 'desktop-network',
+        eyebrow: 'Follow recommendations',
+        title: networkTitle,
+        description: networkDescription,
+        meta: `${profiles.length} people · ${recommendedPages.length} pages`,
+        badge: 'Grow',
+        ctaLabel: topProfile ? 'View profile' : 'Open page',
+        href: topProfile ? buildProfileUrl(topProfile) : topPage ? buildPageUrl(topPage) : undefined,
+        mediaUrl: topProfile?.avatar || topPage?.avatar || '',
+        icon: <Users className="h-4 w-4" />,
+        tone: 'emerald'
+      });
+    }
+
+    if (discoveryAd) {
+      items.push({
+        id: `desktop-ad:${discoveryAd.id}`,
+        eyebrow: 'Sponsored',
+        title: discoveryAd.title || 'Featured campaign',
+        description: discoveryAd.body || 'Approved ad campaigns are supported directly on member home.',
+        meta: 'Live campaign',
+        badge: 'Sponsored',
+        ctaLabel: discoveryAd.ctaText || 'Open campaign',
+        onClick: () => handleSidebarAdClick(discoveryAd),
+        mediaUrl: discoveryAd.mediaUrl || '',
+        icon: <Star className="h-4 w-4" />,
+        tone: 'amber'
+      });
+    } else if (topPost) {
+      items.push({
+        id: `desktop-post:${topPost.id}`,
+        eyebrow: 'Feed pulse',
+        title: topPost.title || topPost.author?.displayName || topPost.authorName || 'Fresh from your network',
+        description:
+          String(topPost.content || 'Posts and community updates stay live and accessible directly from member home.').trim(),
+        meta: `${feedItems.length} posts loaded`,
+        badge: 'Fresh',
+        ctaLabel: 'Open post',
+        onClick: () => openPostCard(topPost),
+        mediaUrl: resolveHighlightPostMedia(topPost),
+        videoUrl: resolveHighlightPostVideo(topPost),
+        posterUrl: resolveHighlightPostPoster(topPost),
+        fallbackMediaUrl: resolveHighlightPostFallback(topPost),
+        icon: <Compass className="h-4 w-4" />,
+        tone: 'slate'
+      });
+    }
+
+    return items.slice(0, 6);
+  }, [
+    broadcastChannels,
+    buildSeriesUrl,
+    buildPageUrl,
+    buildProfileUrl,
+    discoveryAd,
+    feedItems,
+    featuredSeries,
+    gigs,
+    handleSidebarAdClick,
+    jobs,
+    openPostCard,
+    officeHours,
+    openInsightsSection,
+    profiles,
+    recommendedPages
+  ]);
+
   return (
-    <section className="relative bg-[#f3f2ef] py-6 sm:py-12 text-base sm:text-[17px] leading-relaxed">
-      <div className="pointer-events-none absolute inset-0 opacity-60">
+    <section
+      className="relative w-full min-w-0 bg-[#f3f2ef] py-5 sm:py-10 text-base sm:text-[17px] leading-relaxed"
+      data-testid="scrolith-member-home"
+    >
+      <div className="pointer-events-none absolute inset-0 opacity-50">
         <div className="absolute -top-24 left-[-8%] h-72 w-72 rounded-full bg-[radial-gradient(circle_at_center,#e0f2fe,transparent_70%)]" />
         <div className="absolute top-16 right-[-10%] h-80 w-80 rounded-full bg-[radial-gradient(circle_at_center,#fef3c7,transparent_70%)]" />
       </div>
 
-      <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="relative z-30 mb-6 overflow-visible flex flex-col gap-4 rounded-3xl border border-white/70 bg-white/80 p-4 sm:p-6 shadow-sm backdrop-blur rise-fade">
+      <div className={enterprisePageShell} data-testid="scrolith-member-home-shell">
+        <div className={`relative z-30 mb-6 overflow-visible flex flex-col gap-4 ${enterprisePanel} ${enterprisePanelPadding} bg-white/95 rise-fade`}>
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="min-w-0 lg:flex-1">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Home</p>
-              <h2 className="text-2xl sm:text-3xl font-semibold text-slate-900">{content?.title || 'Grow your professional world'}</h2>
-              <p className="text-sm sm:text-base text-slate-500">{content?.subtitle || 'Catch up on your network, opportunities, and community highlights.'}</p>
+              <p className={enterpriseWidgetTitle}>Home</p>
+              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 sm:text-[1.85rem]">{content?.title || 'Grow your professional world'}</h2>
+              <p className="mt-1.5 text-[15px] leading-relaxed text-slate-600 sm:text-base">{content?.subtitle || 'Catch up on your network, opportunities, and community highlights.'}</p>
             </div>
             <div className="w-full lg:w-auto flex flex-col gap-3 sm:flex-row sm:items-center lg:justify-end">
               {showSearch && (
@@ -3839,16 +7420,42 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     className="h-12 sm:h-14 w-full rounded-full border border-slate-200 bg-white pl-12 pr-5 text-base sm:text-lg text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
                   />
                   {searchOpen && (
-                    <div className="absolute left-0 right-0 top-[calc(100%+0.625rem)] z-[300] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                    <div
+                      className="absolute left-0 right-0 top-[calc(100%+0.625rem)] z-[300] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+                      style={{ contain: 'layout paint' }}
+                    >
                       <div className="border-b border-slate-100 px-4 py-2 text-xs text-slate-500">
                         {searchHint}
-                        {searchQuery.trim().length >= 2 && !searchLoading ? ' (' + searchResults.length + ' result' + (searchResults.length === 1 ? '' : 's') + ')' : ''}
+                        {searchQuery.trim().length >= 2 && !searchLoading && searchResults.length > 0
+                          ? ' (' + searchResults.length + ' result' + (searchResults.length === 1 ? '' : 's') + ')'
+                          : ''}
                       </div>
-                      <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2">
+                      <div className="max-h-[min(65vh,32rem)] overflow-y-auto overscroll-contain pb-2" style={{ scrollbarGutter: 'stable' }}>
                         {searchLoading ? (
                           <div className="px-4 py-3 text-sm text-slate-500">Searching...</div>
                         ) : searchSections.length === 0 ? (
-                          <div className="px-4 py-3 text-sm text-slate-500">No results yet.</div>
+                          <div className="px-3 py-3">
+                            <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                              <Sparkles className="h-3.5 w-3.5" />
+                              Scrolith embedded recommendations
+                            </div>
+                            <div className="space-y-1">
+                              {searchRecommendationPrompts.map((prompt) => (
+                                <button
+                                  key={prompt.url}
+                                  type="button"
+                                  onClick={() => {
+                                    setSearchOpen(false);
+                                    navigate(prompt.url);
+                                  }}
+                                  className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                >
+                                  <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                                  <span className="truncate">{prompt.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         ) : (
                           searchSections.map((section) => (
                             <div key={section.key} className="px-2 py-1">
@@ -3874,13 +7481,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                   <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-slate-50">
                                     <div className="h-10 w-10 overflow-hidden rounded-full bg-slate-100">
                                       {imageSrc ? (
-                                        <img src={imageSrc} alt={result.title || result.name || section.label} className="h-full w-full object-cover" />
+                                        <OptimizedImage
+                                          src={resolveAssetUrl(imageSrc)}
+                                          alt={result.title || result.name || section.label}
+                                          width={96}
+                                          height={96}
+                                          sizes="48px"
+                                          className="h-full w-full object-cover"
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
                                       ) : typeKey === 'people' ? (
                                         <Users className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       ) : typeKey === 'pages' ? (
                                         <Compass className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       ) : typeKey === 'jobs' ? (
                                         <Briefcase className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
+                                      ) : typeKey === 'marketplace' ? (
+                                        <ShoppingBag className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       ) : (
                                         <Sparkles className="mx-auto mt-2.5 h-5 w-5 text-slate-500" />
                                       )}
@@ -3890,7 +7508,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                       <p className="truncate text-xs text-slate-500">{subtitle}</p>
                                     </div>
                                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase text-slate-500">
-                                      {section.label.slice(0, -1)}
+                                      {SEARCH_GROUP_BADGES[typeKey] || section.label}
                                     </span>
                                   </div>
                                 );
@@ -3898,9 +7516,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 const key = result.id || `${section.key}-${result.title || result.name || href}-${index}`;
                                 if (href.startsWith('/')) {
                                   return (
-                                    <Link key={key} to={href} onClick={() => setSearchOpen(false)}>
+                                    <button
+                                      key={key}
+                                      type="button"
+                                      onClick={() => {
+                                        setSearchOpen(false);
+                                        navigate(href);
+                                      }}
+                                      className="block w-full text-left"
+                                    >
                                       {itemNode}
-                                    </Link>
+                                    </button>
                                   );
                                 }
 
@@ -3930,71 +7556,140 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
           </div>
         </div>
 
-        <div className="relative z-0 grid items-start gap-6 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
-          <aside className="order-2 space-y-4 lg:order-1">
-            <div className="overflow-hidden rounded-3xl border border-white/70 bg-white shadow-sm rise-fade-delay-1">
-              <div className="relative h-16 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600">
-                {selfProfileCover && (
-                  <img src={selfProfileCover} alt="Profile cover" className="h-full w-full object-cover" />
-                )}
-                <div className="absolute inset-0 bg-slate-900/35" />
-              </div>
-              <div className="p-4 sm:p-5">
-                <div className="-mt-10 flex items-end gap-3">
-                  <div className="h-16 w-16 rounded-2xl bg-slate-100 overflow-hidden ring-4 ring-white">
-                    {user?.avatar ? (
-                      <img src={user.avatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
-                    ) : (
-                      <Users className="mx-auto mt-4 h-6 w-6 text-slate-400" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="text-base font-semibold text-slate-900">{user?.name || user?.username || 'Community member'}</p>
-                    <p className="text-sm text-slate-500">{userHeadline}</p>
-                    {userLocation && <p className="text-sm text-slate-400">{userLocation}</p>}
-                  </div>
+        <div className={enterpriseMemberHomeGrid} data-testid="scrolith-member-home-grid">
+          <aside className={enterpriseLeftColumn} aria-label="Profile and shortcuts" data-testid="scrolith-member-home-left">
+            {/*
+              Profile identity card: cover stays clipped; panel allows overflow so the
+              centered avatar can sit 40% over the cover bottom edge without clipping.
+            */}
+            <div
+              className="rise-fade-delay-1 overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05),0_8px_24px_-18px_rgba(15,23,42,0.18)]"
+              data-testid="scrolith-member-home-profile-card"
+            >
+              <div className="relative">
+                <div className="relative h-24 overflow-hidden rounded-t-2xl bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600 sm:h-28">
+                  {selfProfileCover ? (
+                    // Plain img (same as FreelancerProfile) so cover reuses the browser-cached
+                    // content URL. OptimizedImage adds ?w=&h= variants that miss cache and can 404.
+                    <img
+                      src={selfProfileCover}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="eager"
+                      decoding="async"
+                      onError={() => setSelfProfileCover('')}
+                    />
+                  ) : null}
+                  <div className="pointer-events-none absolute inset-0 bg-slate-900/35" />
                 </div>
-                <div className="mt-4 space-y-2 text-sm text-slate-500">
+                {/*
+                  top-full + -translate-y-[40%] pins the avatar to the cover bottom edge
+                  with ~40% of the avatar over the cover (proportional on all breakpoints).
+                */}
+                <div
+                  className="absolute left-1/2 top-full z-20 h-[4.5rem] w-[4.5rem] -translate-x-1/2 -translate-y-[40%] overflow-hidden rounded-full bg-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-[5px] ring-white sm:h-20 sm:w-20"
+                  data-testid="scrolith-member-home-profile-avatar"
+                  aria-hidden={!resolvedUserAvatar}
+                >
+                  {resolvedUserAvatar ? (
+                    <OptimizedImage
+                      src={resolvedUserAvatar}
+                      alt={user.name || 'User'}
+                      width={160}
+                      height={160}
+                      sizes="80px"
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                      <Users className="h-7 w-7 text-slate-400" />
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/*
+                Reserve space for the avatar portion that hangs below the cover (~60% of
+                avatar height) plus name breathing room so content never sits under the face.
+              */}
+              <div className={`${enterprisePanelPadding} pt-[3.15rem] text-center sm:pt-[3.35rem]`}>
+                <div className="min-w-0">
+                  <p className="truncate text-[17px] font-semibold leading-snug text-slate-900">
+                    {user?.name || user?.username || 'Community member'}
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-slate-600">{userHeadline}</p>
+                  {userLocation ? <p className="mt-0.5 truncate text-sm text-slate-500">{userLocation}</p> : null}
+                </div>
+                <div className="mt-5 space-y-2 text-left text-sm text-slate-600">
                   <div className="flex items-center justify-between">
                     <span>Profile strength</span>
-                    <span className="font-semibold text-slate-700">72%</span>
+                    <span className="font-semibold text-slate-800">72%</span>
                   </div>
-                  <div className="h-2 rounded-full bg-slate-100">
-                    <div className="h-2 w-3/4 rounded-full bg-slate-900" />
+                  <div className="h-2.5 rounded-full bg-slate-100">
+                    <div className="h-2.5 w-3/4 rounded-full bg-slate-900" />
                   </div>
                 </div>
                 <Link
                   to={buildProfileUrl({ id: currentUserId || undefined, username: currentUsername || undefined })}
-                  className="mt-4 inline-flex w-full items-center justify-center rounded-full border border-slate-200 px-3 py-2 text-sm font-semibold uppercase text-slate-600"
+                  className={`mt-5 w-full ${enterpriseCta}`}
                 >
                   View profile
                 </Link>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-2">
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Quick actions</p>
-              <div className="mt-3 space-y-2">
+            <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-2`}>
+              <p className={enterpriseWidgetTitle}>Quick actions</p>
+              <div className="mt-4 grid grid-cols-2 gap-2.5">
                 <button
                   type="button"
                   onClick={focusComposer}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700"
+                  className="col-span-2 flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-[15px] font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   Share an update
-                  <Plus className="h-4 w-4 text-slate-400" />
+                  <Plus className="h-5 w-5 text-slate-400" />
                 </button>
-                <Link to="/browse-jobs" className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700">
+                <button
+                  type="button"
+                  onClick={() => navigate('/browse-jobs')}
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
+                >
                   Browse jobs
-                  <Briefcase className="h-4 w-4 text-slate-400" />
-                </Link>
-                <Link to="/browse" className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700">
+                  <Briefcase className="h-5 w-5 text-slate-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/browse')}
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
+                >
                   Browse gigs
-                  <Sparkles className="h-4 w-4 text-slate-400" />
-                </Link>
-                <Link to="/messages" className="flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-2 text-sm sm:text-base text-slate-700">
+                  <Sparkles className="h-5 w-5 text-slate-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/marketplace')}
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
+                >
+                  Marketplace
+                  <ShoppingBag className="h-5 w-5 text-slate-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/community/clubs')}
+                  className="flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
+                >
+                  Groups
+                  <Users className="h-5 w-5 text-slate-400" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/messages')}
+                  className="col-span-2 flex min-h-12 w-full items-center justify-between rounded-xl border border-slate-200 px-3.5 py-2.5 text-left text-sm font-medium text-slate-800 transition hover:border-slate-300 hover:bg-slate-50 sm:text-[15px]"
+                >
                   Messages
-                  <MessageCircle className="h-4 w-4 text-slate-400" />
-                </Link>
+                  <MessageCircle className="h-5 w-5 text-slate-400" />
+                </button>
               </div>
 
               <div className="mt-4 rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-blue-50 p-3">
@@ -4030,43 +7725,265 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       <Briefcase className="h-4 w-4 text-indigo-500" />
                     </div>
                   </button>
+
+                  {showFeaturedSidebarAd ? (
+                    <div className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-left shadow-sm">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                          Sponsored
+                        </span>
+                        <Star className="h-3.5 w-3.5 text-amber-500" />
+                      </div>
+                      {sidebarFeaturedAd ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                            className="block w-full text-left"
+                          >
+                            <p className="line-clamp-2 text-sm font-semibold text-slate-900">{sidebarFeaturedAd.title}</p>
+                            {sidebarFeaturedAd.body ? (
+                              <p className="mt-1 line-clamp-2 text-xs text-slate-500">{sidebarFeaturedAd.body}</p>
+                            ) : null}
+                          </button>
+                          {sidebarFeaturedAd.mediaUrl ? (
+                            <div
+                              onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                              className="mt-2 cursor-pointer overflow-hidden rounded-lg border border-amber-100 bg-amber-50"
+                            >
+                              {sidebarFeaturedAd.mediaType === 'video' ? (
+                                <AdVideoPlayer
+                                  src={sidebarFeaturedAd.mediaUrl}
+                                  className="h-20 w-full"
+                                  videoClassName="h-full w-full object-cover"
+                                  preload="metadata"
+                                />
+                              ) : (
+                                <img
+                                  src={sidebarFeaturedAd.mediaUrl}
+                                  alt={sidebarFeaturedAd.title}
+                                  className="h-20 w-full object-cover"
+                                />
+                              )}
+                            </div>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
+                            className="mt-2 inline-flex rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white"
+                          >
+                            {sidebarFeaturedAd.ctaText || 'Learn more'}
+                          </button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-slate-600">Approved campaigns rotate here once available.</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  <div className="rounded-xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-cyan-50 px-3 py-3 text-left shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <ShoppingBag className="h-4 w-4 text-emerald-600" />
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Marketplace</p>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">Recommended items picked for this feed.</p>
+                      </div>
+                      <Link
+                        to="/marketplace"
+                        className="inline-flex shrink-0 rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-50"
+                      >
+                        Open
+                      </Link>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {marketplacePreviewLoading ? (
+                        <div className="space-y-2">
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                        </div>
+                      ) : marketplacePreviewListings.length > 0 ? (
+                        marketplacePreviewListings.map((listing) => {
+                          const image = resolveAssetUrl(
+                            listing.coverImage ||
+                              (Array.isArray(listing.images) && listing.images.length
+                                ? (typeof listing.images[0] === 'string' ? listing.images[0] : listing.images[0]?.url)
+                                : '')
+                          );
+                          const price = formatListingAmount(listing.price, listing.currency || 'USD');
+                          const location = String(listing.location || '').trim();
+                          return (
+                            <Link
+                              key={listing.id}
+                              to={resolveMarketplaceListingUrl(listing)}
+                              className="group flex items-center gap-3 rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm"
+                            >
+                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                                {image ? (
+                                  <OptimizedImage
+                                    src={resolveAssetUrl(image)}
+                                    alt={listing.title || 'Marketplace item'}
+                                    width={960}
+                                    height={720}
+                                    sizes="(max-width: 768px) 100vw, 320px"
+                                    className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center">
+                                    <ShoppingBag className="h-5 w-5 text-slate-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold text-slate-900">{listing.title || 'Marketplace item'}</p>
+                                <p className="mt-0.5 truncate text-xs text-slate-500">
+                                  {price}
+                                  {location ? ` · ${location}` : ''}
+                                </p>
+                                <div className="mt-1 flex items-center gap-2">
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                    Recommended
+                                  </span>
+                                  {listing.brand ? (
+                                    <span className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                                      {listing.brand}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-emerald-600" />
+                            </Link>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-emerald-200 bg-white/80 px-3 py-3 text-xs text-slate-600">
+                          Marketplace recommendations will appear here once active listings are available.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-50 via-sky-50 to-indigo-50 px-3 py-3 text-left shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <Users className="h-4 w-4 text-blue-600" />
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Groups</p>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-600">Recommended professional communities to join from this feed.</p>
+                      </div>
+                      <Link
+                        to="/community/clubs"
+                        className="inline-flex shrink-0 rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 transition hover:border-blue-300 hover:bg-blue-50"
+                      >
+                        Open
+                      </Link>
+                    </div>
+
+                    <div className="mt-3 space-y-2">
+                      {groupPreviewLoading ? (
+                        <div className="space-y-2">
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                        </div>
+                      ) : groupPreviewRecommendations.length > 0 ? (
+                        groupPreviewRecommendations.map((group) => {
+                          const groupId = String(group.id || '').trim();
+                          const image = resolveAssetUrl(group.avatarImage || group.coverImage || group.cover_image || '');
+                          const memberCount = Number(group.memberCount ?? group.member_count ?? 0);
+                          const isInviteOnly = String(group.joinMode || 'open').toLowerCase() === 'invite_only';
+                          const requiresApproval =
+                            String(group.joinMode || 'open').toLowerCase() === 'request' ||
+                            String(group.visibility || 'public').toLowerCase() === 'private';
+                          const joinLabel = group.pendingInvite
+                            ? 'Open invite'
+                            : group.pendingRequest
+                              ? 'Pending'
+                              : isInviteOnly
+                                ? 'Invite only'
+                                : requiresApproval
+                                  ? 'Request'
+                                  : 'Join';
+                          const summary = String(group.summary || group.description || group.category || '').trim();
+                          return (
+                            <div
+                              key={group.id}
+                              className="rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 transition hover:border-blue-200 hover:shadow-sm"
+                            >
+                              <div className="flex items-start gap-3">
+                                <Link to={buildGroupRecommendationPath(group)} className="group flex min-w-0 flex-1 items-start gap-3">
+                                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                                    {image ? (
+                                      <img
+                                        src={image}
+                                        alt={group.name || 'Group'}
+                                        className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+                                      />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-blue-100 to-indigo-100">
+                                        <Users className="h-5 w-5 text-blue-500" />
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-semibold text-slate-900">{group.name || 'Professional group'}</p>
+                                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                                      {memberCount > 0 ? `${memberCount.toLocaleString()} members` : 'New community'}
+                                      {group.category ? ` · ${group.category}` : ''}
+                                    </p>
+                                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                                        {group.visibility === 'private' ? 'Private' : 'Public'}
+                                      </span>
+                                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                        {String(group.joinMode || 'open').replace('_', ' ')}
+                                      </span>
+                                    </div>
+                                    {summary ? <p className="mt-1 line-clamp-2 text-[11px] text-slate-600">{summary}</p> : null}
+                                  </div>
+                                </Link>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (group.pendingInvite) {
+                                      navigate(buildGroupRecommendationPath(group));
+                                      return;
+                                    }
+                                    void handleJoinGroupRecommendation(group);
+                                  }}
+                                  disabled={Boolean(groupJoinBusy[groupId]) || Boolean(group.pendingRequest)}
+                                  className="inline-flex shrink-0 rounded-full border border-blue-200 bg-blue-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
+                                >
+                                  {groupJoinBusy[groupId] ? 'Working' : joinLabel}
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-dashed border-blue-200 bg-white/80 px-3 py-3 text-xs text-slate-600">
+                          Group recommendations will appear here once active communities are available.
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-              {showFeaturedSidebarAd && (
-                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
-                  {sidebarFeaturedAd ? (
-                    <>
-                      <p className="text-sm font-semibold text-slate-900">{sidebarFeaturedAd.title}</p>
-                      {sidebarFeaturedAd.body ? (
-                        <p className="mt-2 text-xs text-slate-600 line-clamp-3">{sidebarFeaturedAd.body}</p>
-                      ) : null}
-                      {sidebarFeaturedAd.mediaUrl ? (
-                        <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white">
-                          <img
-                            src={sidebarFeaturedAd.mediaUrl}
-                            alt={sidebarFeaturedAd.title}
-                            className="h-24 w-full object-cover"
-                          />
-                        </div>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => handleSidebarAdClick(sidebarFeaturedAd)}
-                        className="mt-3 inline-flex rounded-full bg-slate-900 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white"
-                      >
-                        {sidebarFeaturedAd.ctaText || 'Learn more'}
-                      </button>
-                    </>
-                  ) : (
-                    <p className="text-xs text-slate-600">Sponsored campaigns appear here once approved.</p>
-                  )}
-                </div>
-              )}
             </div>
           </aside>
 
-          <main className="order-1 min-w-0 space-y-4 lg:order-2">
+          {/* Use div+role, not nested <main> — invalid landmark nesting can break CSS grid placement */}
+          <div
+            className={enterpriseFeedColumn}
+            role="region"
+            aria-label="Home feed"
+            data-testid="scrolith-member-home-feed"
+          >
             {showSlider && sliderItems.length > 0 && (
               <div className="rounded-3xl border border-white/70 bg-white p-3 sm:p-4 shadow-sm rise-fade-delay-1">
                 <div className="flex items-center justify-between">
@@ -4077,10 +7994,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   {sliderItems.map((slide: any) => (
                     <div key={slide.id || slide.title} className="min-w-[200px] max-w-[200px] sm:min-w-[230px] sm:max-w-[230px] overflow-hidden rounded-2xl border border-slate-200 bg-white">
                       {slide.imageUrl && (
-                        <img src={slide.imageUrl} alt={slide.title || 'Highlight'} className="h-28 w-full object-cover" />
+                        <OptimizedImage
+                          src={resolveAssetUrl(slide.imageUrl)}
+                          alt={slide.title || 'Highlight'}
+                          width={640}
+                          height={224}
+                          sizes="(max-width: 768px) 100vw, 320px"
+                          className="h-28 w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       )}
                       {slide.videoUrl && (
-                        <video src={slide.videoUrl} controls className="h-28 w-full object-cover" />
+                        <video src={resolveAssetUrl(slide.videoUrl)} controls className="h-28 w-full object-cover" />
                       )}
                       <div className="p-3">
                         <p className="text-sm font-semibold text-slate-800 line-clamp-1">{slide.title || 'Highlight'}</p>
@@ -4167,13 +8093,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       >
                         Camera
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   ) : (
                     <div className="flex flex-wrap items-center gap-2">
@@ -4184,13 +8112,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       >
                         Create Scroll
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100"
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -4200,7 +8130,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <button
                       type="button"
                       onClick={() => storyDeviceInputRef.current?.click()}
-                      className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
+                      className="flex h-56 min-w-[132px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-60 sm:min-w-[148px]"
                       disabled={storyPosting}
                     >
                       <Plus className="h-5 w-5 mb-2" />
@@ -4216,26 +8146,58 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           key={story.id}
                           type="button"
                           onClick={() => openStory(story)}
-                          className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:min-w-[120px]"
+                          className="relative h-56 min-w-[132px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 sm:h-60 sm:min-w-[148px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveStoryMediaUrl(story);
-                            if (mediaUrl) {
-                              return story.type === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="h-full w-full object-cover"
-                                  autoPlay
-                                  muted
-                                  playsInline
-                                  loop
-                                  preload="metadata"
-                                />
-                              ) : (
-                                <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                            const media = resolveStoryMedia(story);
+                            const text = resolveStoryContent(story);
+                            const isTextStory = String(story?.type || '').trim().toLowerCase() === 'text';
+                            if (isTextStory && text) {
+                              const style = getStoryTextStyle(story);
+                              return (
+                                <div
+                                  className="flex h-full w-full items-center justify-center px-3 text-center text-sm font-semibold"
+                                  style={{
+                                    background: style.background,
+                                    color: style.color,
+                                    fontFamily: style.fontFamily,
+                                    textAlign: style.textAlign as any
+                                  }}
+                                >
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
+                                </div>
                               );
                             }
-                            const text = resolveStoryContent(story);
+                            if (media.src) {
+                              return media.kind === 'video' ? (
+                                <InlineAutoplayVideo
+                                  key={String(story?.id || media.src)}
+                                  src={media.src}
+                                  poster={media.poster}
+                                  className="h-full w-full object-cover"
+                                  containerClassName="h-full w-full"
+                                  controls={false}
+                                  loop
+                                  preload="metadata"
+                                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                  showMuteToggle={false}
+                                />
+                              ) : (
+                                <OptimizedImage
+                                  src={media.src}
+                                  alt="Story"
+                                  width={176}
+                                  height={264}
+                                  sizes="88px"
+                                  className="h-full w-full object-cover"
+                                />
+                              );
+                            }
                             if (text) {
                               const style = getStoryTextStyle(story);
                               return (
@@ -4248,7 +8210,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                     textAlign: style.textAlign as any
                                   }}
                                 >
-                                  <span className="line-clamp-4 whitespace-pre-wrap">{text}</span>
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
                                 </div>
                               );
                             }
@@ -4258,16 +8225,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           })()}
                           {(() => {
                             const authorName = resolveStoryAuthorName(story, 'Community');
-                            const authorAvatar = resolveStoryAuthorAvatar(story);
+                            const authorAvatar = resolveStoryAuthorAvatar(story, user);
                             const authorInitial = resolveStoryAuthorInitial(story);
                             return (
-                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                                {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                                ) : (
-                                  <span>{authorInitial}</span>
-                                )}
-                              </div>
+                              <StoryAuthorAvatar
+                                src={authorAvatar}
+                                name={authorName}
+                                initial={authorInitial}
+                                className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow"
+                                width={56}
+                                height={56}
+                                sizes="28px"
+                              />
                             );
                           })()}
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
@@ -4282,7 +8251,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <button
                       type="button"
                       onClick={() => setScrollCreateOpen(true)}
-                      className="h-44 min-w-[110px] rounded-2xl border border-dashed border-slate-200 flex flex-col items-center justify-center text-xs text-slate-500 sm:min-w-[120px]"
+                      className="flex h-56 min-w-[132px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 text-xs text-slate-500 sm:h-60 sm:min-w-[148px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Create Scroll
@@ -4297,11 +8266,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           key={scroll.id}
                           type="button"
                           onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
-                          className="relative h-44 min-w-[110px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:min-w-[120px]"
+                          className="relative h-56 min-w-[132px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:h-60 sm:min-w-[148px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveReelMediaUrl(scroll);
-                            if (!mediaUrl) {
+                            const media = resolveReelMedia(scroll);
+                            if (!media.src) {
                               return (
                                 <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
                                   Scroll
@@ -4309,14 +8278,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               );
                             }
                             return (
-                              <video
-                                src={mediaUrl}
+                              <InlineAutoplayVideo
+                                key={String(scroll?.id || media.src)}
+                                src={media.src}
+                                poster={media.poster}
                                 className="h-full w-full object-cover"
-                                autoPlay
-                                muted
-                                playsInline
+                                containerClassName="h-full w-full"
+                                controls={false}
                                 loop
                                 preload="metadata"
+                                autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                showMuteToggle={false}
                               />
                             );
                           })()}
@@ -4327,7 +8299,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             return (
                               <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                                 {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                  <OptimizedImage
+                                    src={authorAvatar}
+                                    alt={authorName}
+                                    width={96}
+                                    height={96}
+                                    sizes="48px"
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
                                 ) : (
                                   <span>{authorInitial}</span>
                                 )}
@@ -4346,13 +8327,67 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               </div>
             )}
 
-            <div className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
+            {memberHomeHighlightItems.length ? (
+              <Suspense
+                fallback={
+                  <div className="rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm rise-fade-delay-1">
+                    Loading discovery board...
+                  </div>
+                }
+              >
+                <MemberHomeHighlightsBoard
+                  title="Member Home Discovery Board"
+                  subtitle="Surface the best of Scrolith in one place: Scrolitha coach, live office hours, featured opportunities, follow recommendations, and sponsored campaigns."
+                  pills={memberHomeHighlightPills}
+                  items={memberHomeHighlightItems}
+                  className="rise-fade-delay-1"
+                />
+              </Suspense>
+            ) : null}
+
+            <Suspense
+              fallback={
+                <div className="mt-4 rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm">
+                  Loading live streams...
+                </div>
+              }
+            >
+              <LiveFeaturedRail
+                surface="memberHome"
+                title="Featured Live Streams"
+                subtitle="Keep active livestreams visible on desktop and mobile web with a one-tap watch rail."
+                className="mt-4"
+              />
+            </Suspense>
+
+            <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
               <div className="mb-3 flex items-center justify-between">
                 <p className="text-sm font-semibold text-slate-900">{feedTitle}</p>
               </div>
               <div className="sticky top-24 z-10 -mx-2 sm:-mx-4 border-y border-slate-100 bg-white/95 px-2 sm:px-4 py-3 backdrop-blur">
                 <div className="flex flex-wrap items-center gap-3">
-                {showDiscover && (
+                {showIntentModes ? (
+                  <>
+                    {[
+                      { value: 'for_you' as FeedTab, label: 'For you', Icon: Compass },
+                      { value: 'hire' as FeedTab, label: 'Hire', Icon: Briefcase },
+                      { value: 'sell' as FeedTab, label: 'Sell', Icon: Coins },
+                      { value: 'learn' as FeedTab, label: 'Learn', Icon: Sparkles },
+                      { value: 'local' as FeedTab, label: 'Local', Icon: MapPin }
+                    ].map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        onClick={() => setFeedTab(value)}
+                        className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide ${
+                          feedTab === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        <Icon className="mr-2 inline h-4 w-4" />
+                        {label}
+                      </button>
+                    ))}
+                  </>
+                ) : showDiscover ? (
                   <button
                     onClick={() => setFeedTab('latest')}
                     className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide ${
@@ -4362,7 +8397,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     <Compass className="mr-2 inline h-4 w-4" />
                     Latest
                   </button>
-                )}
+                ) : null}
                 {showFollowing && (
                   <button
                     onClick={() => setFeedTab('following')}
@@ -4386,7 +8421,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   </button>
                 )}
                 <button
-                  onClick={() => loadFeed()}
+                  onClick={() => void loadFeed({ forceRetryOrchestrated: true })}
                   className="ml-auto rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold uppercase text-slate-600"
                 >
                   Refresh
@@ -4433,236 +8468,45 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   )}
                 </div>
               )}
-              {showComposer && (
-                <div ref={composerRef} className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
-                  <div className="flex items-start gap-3">
-                    <div className="h-11 w-11 rounded-2xl bg-slate-100 overflow-hidden">
-                      {user?.avatar ? (
-                        <img src={user.avatar} alt={user.name || 'User'} className="h-full w-full object-cover" />
-                      ) : (
-                        <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
-                      )}
-                    </div>
-                    <div className="flex-1 space-y-3">
-                      <p className="text-sm text-slate-600">{composerTitle}</p>
-                      <MentionHashtagTextarea
-                        ref={composerInputRef}
-                        value={postDraft.content}
-                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
-                        placeholder="Write your update, ask a question, or share what you are working on..."
-                        mentionsEnabled={mentionsEnabled}
-                        hashtagsEnabled={hashtagsEnabled}
-                        className="min-h-[120px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700 focus:border-slate-400 focus:outline-none"
-                      />
-                      <div className="text-xs text-slate-500">
-                        {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
-                        {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
-                      </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                        <div className="flex flex-wrap gap-2">
-                          {postAiActions.map((action) => (
-                            <button
-                              key={action.mode}
-                              type="button"
-                              onClick={() => void runPostAi(action.mode)}
-                              disabled={aiLoading || posting}
-                              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              <Sparkles className="h-3.5 w-3.5" />
-                              {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
-                            </button>
-                          ))}
-                        </div>
-                        <p className="mt-2 text-[11px] text-slate-500">
-                          When AI is used, content remains user-authored.
-                        </p>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          value={postDraft.title}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, title: event.target.value }))}
-                          placeholder="Post title (optional)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                        <select
-                          value={postDraft.visibility}
-                          onChange={(event) =>
-                            setPostDraft((prev) => ({ ...prev, visibility: event.target.value as PostDraft['visibility'] }))
-                          }
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        >
-                          <option value="public">Public</option>
-                          <option value="network">Network</option>
-                          <option value="friends">Friends</option>
-                          <option value="private">Private</option>
-                        </select>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <select
-                          value={postDraft.commentPolicy}
-                          onChange={(event) =>
-                            setPostDraft((prev) => ({ ...prev, commentPolicy: event.target.value as PostDraft['commentPolicy'] }))
-                          }
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        >
-                          {commentPolicyOptions.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          value={postDraft.topic}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, topic: event.target.value }))}
-                          list="member_home_topics"
-                          placeholder="Topic (optional)"
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                        <input
-                          value={postDraft.location}
-                          onChange={(event) => setPostDraft((prev) => ({ ...prev, location: event.target.value }))}
-                          list="member_home_locations"
-                          placeholder={user?.location || user?.country || 'Location (optional)'}
-                          className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
-                        />
-                      </div>
-                      <datalist id="member_home_topics">
-                        {topics.slice(0, 500).map((topic) => (
-                          <option key={topic} value={topic} />
-                        ))}
-                      </datalist>
-                      <datalist id="member_home_locations">
-                        {regions.slice(0, 500).map((region) => (
-                          <option key={region} value={region} />
-                        ))}
-                      </datalist>
-
-                      {postDraft.media.length > 0 && (
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {postDraft.media.map((media) => {
-                            const type = media.type || inferMediaType(media);
-                            const durationLabel = formatMediaDuration(media.duration);
-                            return (
-                              <div key={media.localId} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                                <button
-                                  type="button"
-                                  onClick={() => handlePostMediaRemove(media.localId)}
-                                  className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-500 hover:text-slate-700"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                                {type === 'video' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="relative block h-40 w-full"
-                                  >
-                                    {media.thumbnailUrl ? (
-                                      <img src={media.thumbnailUrl} alt={media.name || 'Video preview'} className="h-40 w-full object-cover" />
-                                    ) : (
-                                      <div className="flex h-40 w-full items-center justify-center bg-slate-200">
-                                        <Video className="h-8 w-8 text-slate-500" />
-                                      </div>
-                                    )}
-                                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                                      <div className="rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-900">Play</div>
-                                    </div>
-                                    {durationLabel && (
-                                      <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                                        {durationLabel}
-                                      </span>
-                                    )}
-                                  </button>
-                                ) : type === 'image' ? (
-                                  <button type="button" onClick={() => setPreviewMedia(toPreviewMedia(media))} className="block h-40 w-full">
-                                    <img
-                                      src={media.thumbnailUrl || media.url}
-                                      alt={media.name || 'Post media'}
-                                      className="h-40 w-full object-cover"
-                                      loading="lazy"
-                                      decoding="async"
-                                    />
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="flex h-40 w-full flex-col items-center justify-center p-4 text-xs text-slate-500"
-                                  >
-                                    <FileText className="mb-2 h-6 w-6 text-slate-400" />
-                                    {media.name || 'Attachment'}
-                                  </button>
-                                )}
-                                {media.uploading && (
-                                  <div className="absolute inset-0 flex items-center justify-center bg-white/70 text-xs font-semibold text-slate-600">
-                                    Uploading {media.progress ?? 0}%
-                                  </div>
-                                )}
-                                {media.error && (
-                                  <div className="absolute inset-x-0 bottom-0 bg-red-50 px-3 py-2 text-[10px] text-red-600">
-                                    {media.error}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => postMediaInputRef.current?.click()}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                      >
-                        <Video className="h-4 w-4" />
-                        From device
-                      </button>
-                      <button
-                        type="button"
-                        onClick={startCamera}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                      >
-                        <Camera className="h-4 w-4" />
-                        Camera
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handlePostSubmit}
-                      disabled={posting || postDraft.media.some((item) => item.uploading)}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
-                    >
-                      {posting ? 'Posting...' : 'Post update'}
-                    </button>
-                  </div>
-                </div>
-              )}
+              {renderDesktopComposer()}
             </div>
 
             <div className="space-y-4">
-              {feedLoading ? (
-                <div className="rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+              {shouldShowInitialSkeleton({ loading: feedLoading, existingItemCount: feedItems.length }) ? (
+                <div
+                  className="min-h-[24rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm"
+                  role="status"
+                  aria-live="polite"
+                >
                   Loading your feed...
                 </div>
               ) : feedItems.length === 0 ? (
-                <div className="rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
-                  No posts found. Follow creators or switch to Discover to explore.
+                <div className="min-h-[12rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
+                  {feedTopic || feedRegion
+                    ? 'No posts match the current filters. Clear the topic or region filter to widen your feed.'
+                    : 'No posts found. Follow creators or switch to Discover to explore.'}
                 </div>
               ) : (
-                feedItems.map((post, postIndex) => {
+                renderableFeedItems.map((post, postIndex) => {
                   const isEditing = editingPostId === post.id && editingDraft;
+                  const postBusy = Boolean(postActionBusy[post.id]);
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
+                  const postTitle =
+                    readRenderableText(post.title) ||
+                    readRenderableText((post as any).headline) ||
+                    readRenderableText((post as any).subject);
+                  const postContent =
+                    readRenderableText(post.content) ||
+                    readRenderableText((post as any).body) ||
+                    readRenderableText((post as any).text) ||
+                    readRenderableText((post as any).description) ||
+                    readRenderableText(post.originalPost?.content) ||
+                    '';
                   const resolvedAuthor = {
                     id: post.author?.id || post.authorId,
                     username: post.author?.username ?? post.authorUsername,
                     displayName: post.author?.displayName || post.authorName,
-                    avatarUrl: post.author?.avatarUrl || post.authorAvatar,
+                    avatarUrl: resolveUserAvatarUrl(post.author || post) || post.authorAvatar,
                     type: post.author?.type || (post.businessPage ? 'business' : 'user'),
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
@@ -4675,9 +8519,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   const initialIsFollowing =
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
-                    <React.Fragment key={post.id}>
+                    <React.Fragment key={getStableFeedReactKey(post, postIndex)}>
                       <article
-                        className={`rise-fade rounded-[32px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] ${postDensity === 'compact' ? 'p-4' : 'p-6'}`}
+                        className={`${enterprisePostCard} ${postDensity === 'compact' ? enterprisePostCardCompact : enterprisePostCardPadding}`}
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -4712,27 +8556,41 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 Highlighted
                               </span>
                             )}
+                            {post.isAIEnhanced && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                <Sparkles className="h-3 w-3" />
+                                AI-enhanced
+                              </span>
+                            )}
+                            {post.graphicWarning && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                <AlertTriangle className="h-3 w-3" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
+                            )}
                           </>
                         }
                         rightSlot={
+                          <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
                             <PostOptionsButton
                               post={post}
                               icon={<MoreHorizontal className="h-4 w-4" />}
                               buttonClassName="rounded-full border border-slate-200 bg-white p-2.5 text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                            onHideFromFeed={(hiddenPostId) => {
-                              setFeedItems((prev) => prev.filter((item) => item.id !== hiddenPostId));
-                              setCommentCounts((prev) => {
-                                const next = { ...prev };
-                                delete next[hiddenPostId];
-                                return next;
-                              });
-                              if (editingPostId === hiddenPostId) cancelEditPost();
-                            }}
-                            onEditPost={beginEditPost}
-                            onDeletePost={handleDeletePost}
-                            onTogglePin={handleTogglePin}
-                            onToggleHighlight={handleToggleHighlight}
-                          />
+                              onHideFromFeed={(hiddenPostId) => {
+                                setFeedItems((prev) => prev.filter((item) => item.id !== hiddenPostId));
+                                setCommentCounts((prev) => {
+                                  const next = { ...prev };
+                                  delete next[hiddenPostId];
+                                  return next;
+                                });
+                                if (editingPostId === hiddenPostId) cancelEditPost();
+                              }}
+                              onEditPost={beginEditPost}
+                              onDeletePost={handleDeletePost}
+                              onTogglePin={handleTogglePin}
+                              onToggleHighlight={handleToggleHighlight}
+                            />
+                          </div>
                         }
                       />
                       {isEditing ? (
@@ -4757,6 +8615,60 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           <div className="text-xs text-slate-500">
                             {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
                             {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported
+                          </div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.graphicWarning)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, graphicWarning: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
+                            </label>
+                            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.isAIEnhanced)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, isAIEnhanced: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <Sparkles className="h-4 w-4 text-emerald-600" />
+                                Mark as AI-enhanced
+                              </span>
+                            </label>
+                            <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                              <span className="block text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                Scrolitha AI insight
+                              </span>
+                              <select
+                                value={editingDraft?.aiInsightPreference || 'off'}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'off')
+                                        }
+                                      : prev
+                                  )
+                                }
+                                className="mt-2 w-full bg-transparent text-sm font-semibold text-slate-900 outline-none"
+                              >
+                                <option value="on">Generate for this post</option>
+                                <option value="off">Do not generate</option>
+                              </select>
+                            </label>
                           </div>
                           <div className="grid gap-3 md:grid-cols-2">
                             <select
@@ -4823,9 +8735,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                       <X className="h-4 w-4" />
                                     </button>
                                     {type === 'video' ? (
-                                      <video src={media.url} className="h-40 w-full object-cover" controls />
+                                      <video
+                                        src={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                        className="h-40 w-full object-cover"
+                                        controls
+                                      />
                                     ) : type === 'image' ? (
-                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                      <OptimizedImage
+                                        src={resolvePostAttachmentPosterUrl(media) || resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                        fallbackSrc={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
+                                        alt={media.name || 'Post media'}
+                                        width={960}
+                                        height={540}
+                                        sizes="(max-width: 1280px) 100vw, 420px"
+                                        className="h-40 w-full object-cover"
+                                        loading="lazy"
+                                        decoding="async"
+                                      />
                                     ) : (
                                       <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-slate-500">
                                         {media.name || 'Attachment'}
@@ -4847,49 +8773,51 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             <button
                               type="button"
                               onClick={submitPostEdit}
-                              disabled={actionBusy}
+                              disabled={postBusy}
                               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
                             >
-                              {actionBusy ? 'Saving...' : 'Save changes'}
+                              {postBusy ? 'Saving...' : 'Save changes'}
                             </button>
                           </div>
                         </div>
                       ) : (
                         <>
                           <div className="mt-4 space-y-4">
-                            {post.title ? (
-                              <button
-                                type="button"
-                                onClick={() => openPostDetail(post.id)}
-                                className="text-left text-xl font-semibold tracking-tight text-slate-950 hover:text-blue-700 hover:underline"
-                              >
-                                {post.title}
-                              </button>
-                            ) : null}
                             {focusPostId === post.id && focusMentionToken ? (
                               <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                                 You were mentioned in this post.
                               </div>
                             ) : null}
-                            <div
-                              className="cursor-pointer text-[15px] leading-7 text-slate-700"
-                              role="button"
-                              tabIndex={0}
-                              onClick={(event) => openPostFromText(event, post.id)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' || event.key === ' ') {
-                                  event.preventDefault();
-                                  openPostDetail(post.id);
-                                }
-                              }}
-                            >
-                              <MentionText
-                                text={post.content}
-                                mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                            <PostOriginPreview originalPost={post.originalPost} />
+                            {postContent || postTitle ? (
+                              <TranslatablePostText
+                                post={post}
                                 viewerId={user?.id}
                                 viewerUsername={user?.username}
+                                mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                                expandable
+                                titleClassName="text-left text-[1.35rem] font-semibold leading-snug tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere] sm:text-[1.4rem]"
+                                contentWrapperClassName="cursor-pointer text-[15px] leading-[1.7] text-slate-700 [overflow-wrap:anywhere] sm:text-base sm:leading-[1.75]"
+                                buttonClassName="text-slate-900"
+                                translationRowClassName="text-slate-500"
+                                onTitleClick={postTitle ? () => openPostCard(post) : undefined}
+                                onContentClick={(event) => openPostFromText(event, post)}
+                                onContentKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    openPostCard(post);
+                                  }
+                                }}
                               />
-                            </div>
+                            ) : !post.attachments?.length ? (
+                              <button
+                                type="button"
+                                onClick={() => openPostCard(post)}
+                                className="text-left text-sm italic text-slate-500 transition hover:text-slate-700"
+                              >
+                                Open post
+                              </button>
+                            ) : null}
                             {post.tags?.length ? (
                               <div className="flex flex-wrap gap-2">
                                 {post.tags.map((tag) => (
@@ -4899,6 +8827,27 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                                 ))}
                               </div>
                             ) : null}
+                            <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-indigo-50 px-3 py-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  Scrolitha coach
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    openScrolithaFromMemberHome(buildPostScrolithaPrompt(postTitle, postContent));
+                                  }}
+                                  className="inline-flex items-center rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 transition hover:bg-violet-100"
+                                >
+                                  Enhance post
+                                </button>
+                              </div>
+                              <p className="mt-1 text-xs text-slate-600">Get recommendation prompts for stronger reach, clarity, and conversion.</p>
+                            </div>
+                            <ContentOfferTags offerTags={post.offerTags} />
                             {post.aiInsightGenerated && post.aiInsightText ? (
                               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
                                 <div className="flex items-center justify-between gap-2">
@@ -4930,11 +8879,37 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                               <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                                 {post.topic ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Topic: {post.topic}</span> : null}
                                 {post.location ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Location: {post.location}</span> : null}
+                                {showWhyThisPost && post.ranking?.primaryReason ? (
+                                  <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 font-semibold text-sky-700 shadow-sm">
+                                    Why this post: {post.ranking.primaryReason}
+                                  </span>
+                                ) : null}
+                                {showPipelineSave ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => togglePipelineSave(post)}
+                                    disabled={Boolean(pipelineBusyByPostId[post.id])}
+                                    className={`rounded-full border px-3 py-1.5 font-semibold shadow-sm transition ${
+                                      post.pipelineState?.saved
+                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                        : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-900'
+                                    } ${pipelineBusyByPostId[post.id] ? 'cursor-not-allowed opacity-60' : ''}`}
+                                  >
+                                    {pipelineBusyByPostId[post.id]
+                                      ? 'Saving...'
+                                      : post.pipelineState?.saved
+                                        ? 'Saved to pipeline'
+                                        : 'Save to pipeline'}
+                                  </button>
+                                ) : null}
                               </div>
                             </div>
                           <PostEngagementBar
                             postId={post.id}
+                            postTitle={post.title}
+                            postContent={post.content}
                             authorId={post.authorUserId || post.authorId}
+                            dashGcoinTotal={Number(post.dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
                             commentPolicy={post.commentPolicy}
                             postRepostsEnabled={post.repostsEnabled}
                             commentCount={commentCount}
@@ -4943,6 +8918,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
                             initialUserReaction={post.userState?.reaction}
+                            interestSurveyEnabled={post.id === interestSurveyPostId}
+                            initialInterestSignal={post.userState?.interestSignal}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             onCommentCountChange={syncCommentCount}
@@ -4962,61 +8939,125 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   );
                 })
               )}
+              <div ref={desktopFeedSentinelRef} className="h-10 shrink-0" aria-hidden="true" />
+              {feedLoadingMore ? (
+                <div className="min-h-[2.5rem] pb-2 text-center text-xs font-medium text-slate-500" role="status" aria-live="polite">
+                  Loading more posts...
+                </div>
+              ) : renderedFeedItemCount < feedItems.length ? (
+                <div className="flex min-h-[3rem] flex-col items-center gap-2 pb-2">
+                  <div className="text-center text-xs font-medium text-slate-500">
+                    Scroll to reveal more posts.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRenderedFeedItemCount((prev) => {
+                        const next = Math.min(feedItems.length, prev + desktopRenderStep);
+                        renderedFeedItemCountRef.current = next;
+                        return next;
+                      })
+                    }
+                    className="rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                  >
+                    Show more
+                  </button>
+                </div>
+              ) : feedTerminal ? (
+                <div className="pb-3 text-center text-xs font-medium text-slate-500">
+                  You&apos;re all caught up. No more unique posts from available sources.
+                </div>
+              ) : feedNextCursor || feedOffsetFallbackEnabled || !feedDiscoveryUsedRef.current ? (
+                <div className="flex justify-center pb-3">
+                  <button
+                    type="button"
+                    onClick={() => void loadMoreFeed()}
+                    className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                  >
+                    Load more
+                  </button>
+                </div>
+              ) : null}
             </div>
-          </main>
+          </div>
 
-          <aside className="order-3 space-y-4">
-            <InsightsQuickPanel />
+          <aside
+            className={enterpriseRightColumn}
+            aria-label="Recommendations and insights"
+            data-testid="scrolith-member-home-right"
+          >
+            <Suspense
+              fallback={
+                <div className={`${enterprisePanel} ${enterprisePanelPadding} text-sm text-slate-500`}>
+                  Loading insights...
+                </div>
+              }
+            >
+              <InsightsQuickPanel desktopMode="rail" className="" />
+            </Suspense>
             {showTopSidebarAd && (
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 sm:p-5 shadow-sm">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
+              <div className={`${enterprisePanel} border-amber-200 bg-amber-50/90 ${enterprisePanelPadding}`}>
+                <div className={`mb-3 ${enterpriseSponsoredLabel}`}>Sponsored</div>
                 {sidebarTopAd ? (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">{sidebarTopAd.title}</p>
+                    <p className={enterpriseWidgetHeading}>{sidebarTopAd.title}</p>
                     {sidebarTopAd.body ? (
-                      <p className="mt-2 text-sm text-slate-600 line-clamp-3">{sidebarTopAd.body}</p>
+                      <p className="mt-2 line-clamp-3 text-[15px] leading-relaxed text-slate-600">{sidebarTopAd.body}</p>
                     ) : null}
                     {sidebarTopAd.mediaUrl ? (
-                      <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
-                        <img
-                          src={sidebarTopAd.mediaUrl}
-                          alt={sidebarTopAd.title}
-                          className="h-32 w-full object-cover"
-                        />
+                      <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white" style={{ aspectRatio: '16 / 9' }}>
+                        {sidebarTopAd.mediaType === 'video' ? (
+                          <AdVideoPlayer
+                            src={sidebarTopAd.mediaUrl}
+                            className="h-full w-full"
+                            videoClassName="h-full w-full object-cover"
+                            preload="auto"
+                          />
+                        ) : (
+                          <img
+                            src={sidebarTopAd.mediaUrl}
+                            alt={sidebarTopAd.title}
+                            className="h-full w-full object-cover"
+                          />
+                        )}
                       </div>
                     ) : null}
                     <button
                       type="button"
                       onClick={() => handleSidebarAdClick(sidebarTopAd)}
-                      className="mt-4 inline-flex rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white"
+                      className={`mt-4 ${enterpriseCtaPrimary}`}
                     >
                       {sidebarTopAd.ctaText || 'Learn more'}
                     </button>
                   </>
                 ) : (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">No sponsored campaigns available right now.</p>
-                    <p className="mt-2 text-sm text-slate-600">Approved campaigns from the ads manager will appear here automatically.</p>
+                    <p className={enterpriseWidgetHeading}>No sponsored campaigns available right now.</p>
+                    <p className="mt-2 text-[15px] text-slate-600">Approved campaigns from the ads manager will appear here automatically.</p>
                   </>
                 )}
               </div>
             )}
             {showMessages && (
-              <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center justify-between text-base font-semibold text-slate-900">
-                  <div className="flex items-center gap-2">
-                    <MessageCircle className="h-4 w-4 text-slate-600" />
-                    {messagesTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <MessageCircle className="h-5 w-5 shrink-0 text-slate-600" />
+                    <h3 className={enterpriseWidgetHeading}>{messagesTitle}</h3>
                   </div>
-                  <Link to="/messages" className="text-[11px] font-semibold uppercase text-slate-400">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/messages')}
+                    className="text-xs font-semibold uppercase tracking-wide text-slate-500 transition hover:text-slate-800"
+                  >
                     View all
-                  </Link>
+                  </button>
                 </div>
                 <div className="mt-4 space-y-3">
                   {messagesLoading ? (
-                    <p className="text-sm text-slate-500">Loading messages...</p>
+                    <p className="text-[15px] text-slate-500">Loading messages...</p>
                   ) : conversations.length === 0 ? (
-                    <p className="text-sm text-slate-500">No messages yet.</p>
+                    <p className="text-[15px] text-slate-500">No messages yet.</p>
                   ) : (
                     conversations.map((conversation) => {
                       const participants = Array.isArray(conversation.participants)
@@ -5024,30 +9065,40 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         : [];
                       const primary = participants[0] || conversation.participants?.[0] || {};
                       return (
-                        <Link
+                        <button
                           key={conversation.id}
-                          to={`/messages/${conversation.id}`}
-                          className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200 p-3 hover:border-slate-300"
+                          type="button"
+                          onClick={() => navigate(`/messages/${conversation.id}`)}
+                          className="flex min-h-[3.5rem] w-full items-start justify-between gap-3 rounded-xl border border-slate-200 p-3.5 text-left transition hover:border-slate-300 hover:bg-slate-50/80"
                         >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
                               {primary.avatar ? (
-                                <img src={primary.avatar} alt={primary.name || 'Message'} className="h-full w-full object-cover" />
+                                <OptimizedImage
+                                  src={resolveAssetUrl(primary.avatar)}
+                                  alt={primary.name || 'Message'}
+                                  width={96}
+                                  height={96}
+                                  sizes="48px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
                               ) : (
-                                <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
+                                <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
                               )}
                             </div>
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-800">{primary.name || 'Conversation'}</p>
+                              <p className="truncate text-[15px] font-semibold text-slate-900">{primary.name || 'Conversation'}</p>
                               <p className="truncate text-sm text-slate-500">{conversation.lastMessage || 'Start the conversation'}</p>
                             </div>
                           </div>
                           {conversation.unreadCount ? (
-                            <span className="rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white">
                               {conversation.unreadCount}
                             </span>
                           ) : null}
-                        </Link>
+                        </button>
                       );
                     })
                   )}
@@ -5056,37 +9107,46 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             )}
 
             {(showProfileViewers || showProfileViewing) && (
-              <div className="rounded-3xl border border-white/70 bg-white p-4 sm:p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center justify-between text-base font-semibold text-slate-900">
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4 text-slate-600" />
-                    {profileViewersTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <Users className="h-5 w-5 shrink-0 text-slate-600" />
+                    <h3 className={enterpriseWidgetHeading}>{profileViewersTitle}</h3>
                   </div>
-                  <span className="text-[11px] font-semibold uppercase text-slate-400">Last 7 days</span>
+                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Last 7 days</span>
                 </div>
 
                 <div className="mt-4 space-y-3">
                   {viewersLoading ? (
-                    <p className="text-sm text-slate-500">Loading viewers...</p>
+                    <p className="text-[15px] text-slate-500">Loading viewers...</p>
                   ) : profileViewers.length === 0 ? (
-                    <p className="text-sm text-slate-500">No profile views yet.</p>
+                    <p className="text-[15px] text-slate-500">No profile views yet.</p>
                   ) : (
                     profileViewers.map((viewer) => (
                       <Link
                         key={`${viewer.id}-${viewer.viewedAt}`}
                         to={buildProfileUrl(viewer)}
-                        className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3 hover:border-slate-300"
+                        className="flex min-h-[3.5rem] items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5 transition hover:border-slate-300 hover:bg-slate-50/80"
                       >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
                             {viewer.avatar ? (
-                              <img src={viewer.avatar} alt={viewer.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(viewer.avatar)}
+                                alt={viewer.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
-                              <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
+                              <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="truncate text-base font-semibold text-slate-800">{viewer.name}</p>
+                            <p className="truncate text-[15px] font-semibold text-slate-900">{viewer.name}</p>
                             <p className="truncate text-sm text-slate-500">{viewer.subtitle}</p>
                           </div>
                         </div>
@@ -5116,7 +9176,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           >
                             <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                               {viewer.avatar ? (
-                                <img src={viewer.avatar} alt={viewer.name} className="h-full w-full object-cover" />
+                                <OptimizedImage
+                                  src={resolveAssetUrl(viewer.avatar)}
+                                  alt={viewer.name}
+                                  width={96}
+                                  height={96}
+                                  sizes="40px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
                               ) : (
                                 <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                               )}
@@ -5135,19 +9204,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             )}
 
             {showPagesRecommendations && (
-              <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <Briefcase className="h-4 w-4 text-slate-600" />
-                  {pagesTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center gap-2.5">
+                  <Briefcase className="h-5 w-5 text-slate-600" />
+                  <h3 className={enterpriseWidgetHeading}>{pagesTitle}</h3>
                 </div>
                 <div className="mt-4 space-y-3">
                   {recommendedPages.length === 0 ? (
-                    <p className="text-sm text-slate-500">No page recommendations available yet.</p>
+                    <p className="text-[15px] text-slate-500">No page recommendations available yet.</p>
                   ) : (
                     recommendedPages.map((page) => (
-                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3">
+                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5">
                         <div className="min-w-0">
-                          <Link to={buildPageUrl(page)} className="block truncate text-base font-semibold text-slate-800 hover:text-blue-600">
+                          <Link to={buildPageUrl(page)} className="block truncate text-[15px] font-semibold text-slate-900 hover:text-blue-600">
                             {page.name}
                           </Link>
                           <p className="truncate text-sm text-slate-500">{page.tagline || page.industry || 'Business page'}</p>
@@ -5157,7 +9226,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                           type="button"
                           disabled={Boolean(pagesFollowBusy[page.id])}
                           onClick={() => handlePageFollow(page)}
-                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase ${
+                          className={`min-h-10 shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold uppercase ${
                             page.isFollowing
                               ? 'border-slate-300 text-slate-600'
                               : 'border-blue-200 text-blue-600'
@@ -5173,69 +9242,87 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             )}
 
             {showMiddleSidebarAd && (
-              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-amber-600">Sponsored</div>
+              <div className={`${enterprisePanel} border-amber-200 bg-amber-50/90 ${enterprisePanelPadding}`}>
+                <div className={`mb-3 ${enterpriseSponsoredLabel}`}>Sponsored</div>
                 {sidebarMiddleAd ? (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">{sidebarMiddleAd.title}</p>
+                    <p className={enterpriseWidgetHeading}>{sidebarMiddleAd.title}</p>
                     {sidebarMiddleAd.body ? (
-                      <p className="mt-2 text-sm text-slate-600 line-clamp-3">{sidebarMiddleAd.body}</p>
+                      <p className="mt-2 line-clamp-3 text-[15px] leading-relaxed text-slate-600">{sidebarMiddleAd.body}</p>
                     ) : null}
                     {sidebarMiddleAd.mediaUrl ? (
-                      <div className="mt-3 overflow-hidden rounded-2xl border border-amber-100 bg-white">
-                        <img
-                          src={sidebarMiddleAd.mediaUrl}
-                          alt={sidebarMiddleAd.title}
-                          className="h-32 w-full object-cover"
-                        />
+                      <div className="mt-3 overflow-hidden rounded-xl border border-amber-100 bg-white" style={{ aspectRatio: '16 / 9' }}>
+                        {sidebarMiddleAd.mediaType === 'video' ? (
+                          <AdVideoPlayer
+                            src={sidebarMiddleAd.mediaUrl}
+                            className="h-full w-full"
+                            videoClassName="h-full w-full object-cover"
+                            preload="auto"
+                          />
+                        ) : (
+                          <img
+                            src={sidebarMiddleAd.mediaUrl}
+                            alt={sidebarMiddleAd.title}
+                            className="h-full w-full object-cover"
+                          />
+                        )}
                       </div>
                     ) : null}
                     <button
                       type="button"
                       onClick={() => handleSidebarAdClick(sidebarMiddleAd)}
-                      className="mt-4 inline-flex rounded-full border border-slate-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-700"
+                      className={`mt-4 ${enterpriseCta}`}
                     >
                       {sidebarMiddleAd.ctaText || 'View campaign'}
                     </button>
                   </>
                 ) : (
                   <>
-                    <p className="text-sm font-semibold text-slate-900">No sponsored campaigns available right now.</p>
-                    <p className="mt-2 text-sm text-slate-600">Enable and approve ad campaigns in Admin - Community - Ads Manager.</p>
+                    <p className={enterpriseWidgetHeading}>No sponsored campaigns available right now.</p>
+                    <p className="mt-2 text-[15px] text-slate-600">Enable and approve ad campaigns in Admin - Community - Ads Manager.</p>
                   </>
                 )}
               </div>
             )}
 
             {showProfiles && (
-              <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-1">
-                <div className="flex items-center gap-2 text-base font-semibold text-slate-900">
-                  <Sparkles className="h-4 w-4 text-amber-500" />
-                  {profilesTitle}
+              <div className={`${enterprisePanel} ${enterprisePanelPadding} rise-fade-delay-1`}>
+                <div className="flex items-center gap-2.5">
+                  <Sparkles className="h-5 w-5 text-amber-500" />
+                  <h3 className={enterpriseWidgetHeading}>{profilesTitle}</h3>
                 </div>
                 <div className="mt-4 space-y-3">
                   {profiles.length === 0 ? (
-                    <p className="text-sm text-slate-500">No recommendations yet.</p>
+                    <p className="text-[15px] text-slate-500">No recommendations yet.</p>
                   ) : (
                     profiles.map((profile) => (
-                      <div key={profile.id} className="flex items-center justify-between">
-                        <Link to={buildProfileUrl(profile)} className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
+                      <div key={profile.id} className="flex items-center justify-between gap-3">
+                        <Link to={buildProfileUrl(profile)} className="flex min-w-0 items-center gap-3">
+                          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
                             {profile.avatar ? (
-                              <img src={profile.avatar} alt={profile.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(profile.avatar)}
+                                alt={profile.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
-                              <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
+                              <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
                             )}
                           </div>
-                          <div>
-                            <p className="text-base font-semibold text-slate-800">{profile.name}</p>
-                            <p className="text-sm text-slate-500">{profile.subtitle}</p>
+                          <div className="min-w-0">
+                            <p className="truncate text-[15px] font-semibold text-slate-900">{profile.name}</p>
+                            <p className="truncate text-sm text-slate-500">{profile.subtitle}</p>
                           </div>
                         </Link>
                         <div className="flex gap-2">
                           <button
                             onClick={() => handleFollow(profile)}
-                            className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold uppercase text-slate-600"
+                            className="min-h-10 rounded-full border border-slate-200 px-3.5 py-2 text-xs font-semibold uppercase text-slate-700"
                           >
                             {followingIds.has(profile.id) ? 'Following' : 'Follow'}
                           </button>
@@ -5253,7 +9340,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               </div>
             )}
 
-            {isFreelancer && showJobs && (
+            {showJobs && (
               <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <Briefcase className="h-4 w-4 text-slate-700" />
@@ -5268,7 +9355,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <p className="text-sm font-semibold text-slate-800 break-words [overflow-wrap:anywhere]">{job.title}</p>
                         <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
                           <span className="break-words [overflow-wrap:anywhere]">{job.clientName || 'Employer'}</span>
-                          {isClientVerified(job) ? <VerifiedBadge size={16} level={getClientVerificationLevel(job)} className="ml-1" /> : null}
+                          {isClientVerified(job) ? (
+                            <VerifiedBadge
+                              size={16}
+                              level={getClientVerificationLevel(job)}
+                              className="ml-1"
+                              subjectRole="employer"
+                              subjectType={(job as any)?.clientType || 'business'}
+                            />
+                          ) : null}
                           <ProBadge role="employer" isPro={(job as any)?.clientIsPro} />
                           <span>&middot; {job.category}</span>
                         </p>
@@ -5302,7 +9397,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                             {employer.avatar ? (
-                              <img src={employer.avatar} alt={employer.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(employer.avatar)}
+                                alt={employer.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                             )}
@@ -5333,7 +9437,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
               </div>
             )}
 
-            {isEmployer && showGigs && (
+            {showGigs && (
               <div className="rounded-3xl border border-white/70 bg-white p-5 shadow-sm rise-fade-delay-2">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <Sparkles className="h-4 w-4 text-indigo-500" />
@@ -5348,7 +9452,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <p className="text-sm font-semibold text-slate-800 break-words [overflow-wrap:anywhere]">{gig.title}</p>
                         <p className="text-sm text-slate-500 flex items-center gap-2 flex-wrap">
                           <span className="break-words [overflow-wrap:anywhere]">{gig.freelancerName || 'Freelancer'}</span>
-                          {isFreelancerVerified(gig) ? <VerifiedBadge size={16} level={getFreelancerVerificationLevel(gig)} className="ml-1" /> : null}
+                          {isFreelancerVerified(gig) ? (
+                            <VerifiedBadge
+                              size={16}
+                              level={getFreelancerVerificationLevel(gig)}
+                              className="ml-1"
+                              subjectRole="freelancer"
+                              subjectType={(gig as any)?.freelancerType || 'user'}
+                            />
+                          ) : null}
                           <ProBadge role="freelancer" isPro={(gig as any)?.freelancerIsPro} />
                           <span>&middot; {gig.category}</span>
                         </p>
@@ -5375,7 +9487,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-full bg-slate-100 overflow-hidden">
                             {freelancer.avatar ? (
-                              <img src={freelancer.avatar} alt={freelancer.name} className="h-full w-full object-cover" />
+                              <OptimizedImage
+                                src={resolveAssetUrl(freelancer.avatar)}
+                                alt={freelancer.name}
+                                width={96}
+                                height={96}
+                                sizes="48px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
                             ) : (
                               <Users className="mx-auto mt-2 h-5 w-5 text-slate-400" />
                             )}
@@ -5420,6 +9541,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                     ? `Mode: ${postAiActions.find((entry) => entry.mode === aiSuggestionMode)?.label || aiSuggestionMode}`
                     : 'Review before applying'}
                 </p>
+                {aiSuggestionWarning && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+                    {aiSuggestionWarning}
+                  </div>
+                )}
               </div>
               <button
                 type="button"
@@ -5531,27 +9657,56 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         onChange={handleStoryDeviceSelection}
       />
 
-      <ScrollCreateModal
-        open={scrollCreateOpen}
-        onClose={() => setScrollCreateOpen(false)}
-        config={scrollConfig}
-        onCreated={(created) => {
-          setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
-          setStoryRailTab('reels');
-        }}
-      />
+      {scrollCreateOpen ? (
+        <Suspense fallback={null}>
+          <ScrollCreateModal
+            open={scrollCreateOpen}
+            onClose={() => setScrollCreateOpen(false)}
+            config={scrollConfig}
+            onCreated={(created) => {
+              setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
+              setStoryRailTab('reels');
+            }}
+          />
+        </Suspense>
+      ) : null}
+
+      {storyMediaUploadLabel && storyMediaUploadBusy && !storyMediaPreviewOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Uploading story media</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  Scrolith is uploading your file and preparing it for story publishing.
+                </p>
+              </div>
+              <StoryUploadStatusCard
+                busy={storyMediaUploadBusy}
+                label={storyMediaUploadLabel}
+                progress={storyMediaUploadProgress}
+                hint="Keep this window open while your story media uploads."
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {storyMediaPreviewOpen && storyMediaDraftFile?.id && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
           <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">Story preview</h3>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Story preview</h3>
+                <p className="text-xs text-slate-500">Review your media, add a caption, and publish when ready.</p>
+              </div>
               <button
                 type="button"
                 onClick={() => {
                   if (storyPosting) return;
                   setStoryMediaPreviewOpen(false);
                   setStoryMediaDraftFile(null);
+                  clearStoryMediaUploadState();
                 }}
                 className="text-slate-500 hover:text-slate-700"
               >
@@ -5560,6 +9715,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
             </div>
 
             <div className="mt-4 space-y-4">
+              {storyMediaUploadLabel ? (
+                <StoryUploadStatusCard
+                  busy={storyMediaUploadBusy}
+                  label={storyMediaUploadLabel}
+                  progress={storyMediaUploadProgress}
+                  hint={
+                    storyMediaUploadBusy
+                      ? 'Scrolith is finalizing your upload before publish.'
+                      : 'Your media is uploaded. Add a caption if you want, then publish.'
+                  }
+                />
+              ) : null}
               <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
                 {(() => {
                   const url =
@@ -5585,7 +9752,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       preload="metadata"
                     />
                   ) : (
-                    <img src={url} alt="Story preview" className="h-56 w-full object-cover" />
+                    <OptimizedImage
+                      src={resolveAssetUrl(url)}
+                      alt="Story preview"
+                      width={720}
+                      height={1280}
+                      sizes="(max-width: 768px) 100vw, 420px"
+                      className="h-56 w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   );
                 })()}
               </div>
@@ -5624,6 +9800,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                       if (storyPosting) return;
                       setStoryMediaPreviewOpen(false);
                       setStoryMediaDraftFile(null);
+                      clearStoryMediaUploadState();
                       storyDeviceInputRef.current?.click();
                     }}
                     className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
@@ -5854,21 +10031,32 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
                   </div>
                 ) : (
                   (() => {
-                    const mediaUrl = resolveStoryMediaUrl(editingStory);
-                    if (mediaUrl) {
-                      return editingStory.type === 'video' ? (
-                        <video
-                          src={mediaUrl}
+                    const media = resolveStoryMedia(editingStory);
+                    if (media.src) {
+                      return media.kind === 'video' ? (
+                        <InlineAutoplayVideo
+                          key={String(editingStory?.id || media.src)}
+                          src={media.src}
+                          poster={media.poster}
+                          className="h-44 sm:h-48 w-full object-cover"
+                          containerClassName="h-44 sm:h-48 w-full"
                           controls
-                          autoPlay
-                          muted
-                          playsInline
                           loop
                           preload="metadata"
-                          className="h-44 sm:h-48 w-full object-cover"
+                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                          showMuteToggle={false}
                         />
                       ) : (
-                        <img src={mediaUrl} alt="Story media" className="h-44 sm:h-48 w-full object-cover" />
+                        <OptimizedImage
+                          src={media.src}
+                          alt="Story media"
+                          width={720}
+                          height={1280}
+                          sizes="(max-width: 768px) 100vw, 420px"
+                          className="h-44 sm:h-48 w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       );
                     }
                     return (
@@ -6042,322 +10230,46 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content 
         </div>
       )}
 
-      {activeStory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-6">
-          <div className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const authorName = resolveStoryAuthorName(activeStory, 'Community member');
-                  const authorAvatar = resolveStoryAuthorAvatar(activeStory);
-                  const authorInitial = resolveStoryAuthorInitial(activeStory);
-                  return (
-                    <>
-                      <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-700 text-xs font-semibold text-white">
-                        {authorAvatar ? (
-                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{authorInitial}</span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">{authorName}</p>
-                        <p className="text-xs text-slate-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-              <div className="flex items-center gap-2">
-                {resolveStoryMediaUrl(activeStory) ? (
-                  <button
-                    type="button"
-                    onClick={() => void downloadStoryMedia(activeStory)}
-                    className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <Download className="h-3.5 w-3.5" />
-                      Download
-                    </span>
-                  </button>
-                ) : null}
-                {canManageStory(activeStory) && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => openStoryEditor(activeStory)}
-                      className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStoryDelete(activeStory)}
-                      className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-600"
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
-                <button onClick={() => setActiveStory(null)} className="text-slate-500 hover:text-slate-700" type="button">
-                  Close
-                </button>
-              </div>
-            </div>
-            <div
-              className="relative mt-4 overflow-hidden rounded-2xl bg-slate-100 aspect-[9/16] sm:aspect-[9/14]"
-              style={{ touchAction: 'pan-y' }}
-              onTouchStart={onStoryGestureStart}
-              onTouchEnd={onStoryGestureEnd}
-              onDoubleClick={onStoryMediaDoubleClick}
-              onPointerDown={(event) => {
-                if (event.pointerType !== 'touch') return;
-                const target = event.target as HTMLElement | null;
-                if (target?.closest('button, a, input, textarea, select, label')) {
-                  storyGestureStartRef.current = null;
-                  return;
-                }
-                storyGestureStartRef.current = { x: event.clientX, y: event.clientY };
-              }}
-              onPointerUp={(event) => {
-                if (event.pointerType !== 'touch') return;
-                const target = event.target as HTMLElement | null;
-                if (target?.closest('button, a, input, textarea, select, label')) return;
-                const start = storyGestureStartRef.current;
-                storyGestureStartRef.current = null;
-                if (!start) return;
-                const deltaX = event.clientX - start.x;
-                const deltaY = event.clientY - start.y;
-                if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
-                  if (deltaX > 0) void goToStoryByOffset(-1);
-                  if (deltaX < 0) void goToStoryByOffset(1);
-                }
-              }}
-            >
-              {(() => {
-                const mediaUrl = resolveStoryMediaUrl(activeStory);
-                if (mediaUrl) {
-                  return activeStory.type === 'video' ? (
-                    <video
-                      src={mediaUrl}
-                      autoPlay
-                      muted
-                      playsInline
-                      loop
-                      preload="metadata"
-                      className="h-full w-full object-cover bg-black"
-                    />
-                  ) : (
-                    <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
-                  );
-                }
-                const text = resolveStoryContent(activeStory);
-                if (text) {
-                  const style = getStoryTextStyle(activeStory);
-                  return (
-                    <div
-                      className="flex h-full w-full items-center justify-center px-4 sm:px-6 text-center"
-                      style={{
-                        background: style.background,
-                        color: style.color,
-                        fontFamily: style.fontFamily,
-                        textAlign: style.textAlign as any
-                      }}
-                    >
-                      <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">{text}</p>
-                    </div>
-                  );
-                }
-                return <div className="flex h-full w-full items-center justify-center text-sm text-slate-500">No media</div>;
-              })()}
-              <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/15 to-black/45" />
-              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
-                <button
-                  type="button"
-                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
-                    hasPrevStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
-                  }`}
-                  onClick={() => goToStoryByOffset(-1)}
-                  disabled={!hasPrevStory}
-                  aria-label="Previous story"
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </button>
-                <button
-                  type="button"
-                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
-                    hasNextStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
-                  }`}
-                  onClick={() => goToStoryByOffset(1)}
-                  disabled={!hasNextStory}
-                  aria-label="Next story"
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
-                <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
-                  <div className="flex items-center gap-2">
-                    <span>{formatCompactMetric(activeStory.likesCount ?? activeStory._count?.likes ?? 0)} likes</span>
-                    <span>{formatCompactMetric(activeStory.commentsCount ?? activeStory.interactions?.comments)} comments</span>
-                    <span>{formatCompactMetric(activeStory.repostsCount ?? activeStory.interactions?.reposts)} reposts</span>
-                  </div>
-                </div>
-              </div>
-              <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
-                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[54px]" />
-                <button
-                  type="button"
-                  onClick={() => handleStoryCommentAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.commentsCount ?? activeStory.interactions?.comments)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryRepostAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Repeat2 className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.repostsCount ?? activeStory.interactions?.reposts)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryDashAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Coins className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">Dash</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStorySendAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <SendIcon className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.sendsCount ?? activeStory.interactions?.sends)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryLike(activeStory)}
-                  className={`inline-flex min-w-[52px] flex-col items-center rounded-xl px-1.5 py-1.5 text-white transition ${
-                    activeStory.viewerLiked ? 'bg-rose-600/85' : 'bg-black/45 hover:bg-black/65'
-                  }`}
-                  disabled={storyActionBusy[activeStory.id]}
-                >
-                  <Heart className={`h-3.5 w-3.5 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactMetric(activeStory.likesCount ?? activeStory._count?.likes ?? 0)}</span>
-                </button>
-              </div>
-            </div>
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
-              <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
-              <span>{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</span>
-            </div>
-            {(() => {
-              const text = resolveStoryContent(activeStory);
-              const mediaUrl = resolveStoryMediaUrl(activeStory);
-              if (text && mediaUrl) {
-                return <p className="mt-3 text-sm text-slate-700">{text}</p>;
-              }
-              return null;
-            })()}
-          </div>
-        </div>
-      )}
-
-      {storyCommentOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setStoryCommentOpen(false)}
-          />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-slate-900 shadow-2xl">
-            <h3 className="text-base font-semibold">Comment on story</h3>
-            <p className="mt-1 text-xs text-slate-500">Your comment will be shared to your feed and linked to this story.</p>
-            <textarea
-              value={storyCommentDraft}
-              onChange={(event) => setStoryCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-4 w-full rounded-xl border border-slate-200 p-3 text-sm text-slate-700"
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStoryCommentOpen(false)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitStoryComment()}
-                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white"
-                disabled={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-              >
-                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
+      {activeStory ? (
+        <EnterpriseStoryViewer
+          story={activeStory}
+          stories={stories}
+          viewer={user}
+          onClose={() => setActiveStory(null)}
+          onNavigate={(nextStory) => {
+            if (!nextStory?.id) return;
+            void openStory(nextStory);
+          }}
+          onEdit={() => openStoryEditor(activeStory)}
+          onDelete={() => void handleStoryDelete(activeStory)}
+          canManage={canManageStory(activeStory)}
+          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+        />
       ) : null}
 
-      <RepostModal
-        isOpen={storyRepostOpen}
-        onClose={() => setStoryRepostOpen(false)}
-        busy={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-        onRepostNow={async () => repostStory()}
-        onRepostWithComment={async (comment) => repostStory(comment)}
-      />
+      {expandedPost || previewMedia ? (
+        <Suspense fallback={null}>
+          {expandedPost ? (
+            <PostExpandModal
+              open={Boolean(expandedPost)}
+              post={expandedPost}
+              viewerId={user?.id}
+              viewerUsername={user?.username}
+              onClose={() => setExpandedPost(null)}
+            />
+          ) : null}
 
-      <PostShareModal
-        isOpen={storySendOpen}
-        onClose={() => setStorySendOpen(false)}
-        postUrl={activeStoryShareUrl}
-        entityLabel="story"
-        shareText={
-          storyActionTarget?.id
-            ? `Check this story on Scrolith: ${activeStoryShareUrl}`
-            : 'Check this story on Scrolith'
-        }
-        onShareToNetwork={() => {
-          if (!storyActionTarget?.id) return;
-          setStorySendOpen(false);
-          setStoryRepostOpen(true);
-        }}
-        onTrackedShare={async () => {
-          if (!storyActionTarget?.id) return;
-          await engageStoryAndSync(storyActionTarget, 'send');
-        }}
-      />
-
-      <SendGcoinModal
-        isOpen={storyDashOpen}
-        onClose={() => setStoryDashOpen(false)}
-        prefillRecipientId={activeStoryDashRecipient || undefined}
-        titleOverride="Dash Story Creator"
-        subtitleOverride="Support this story creator instantly with your Gcoin balance."
-        onSuccess={async () => {
-          if (!storyActionTarget?.id) return;
-          await engageStoryAndSync(storyActionTarget, 'dash');
-        }}
-      />
-
-      <MediaPreviewModal
-        open={Boolean(previewMedia)}
-        media={previewMedia}
-        onClose={() => setPreviewMedia(null)}
-      />
+          {previewMedia ? (
+            <MediaPreviewModal
+              open={Boolean(previewMedia)}
+              media={previewMedia}
+              onClose={() => setPreviewMedia(null)}
+            />
+          ) : null}
+        </Suspense>
+      ) : null}
     </section>
   );
 };
 
 export default MemberHomeSection;
-

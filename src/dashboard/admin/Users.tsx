@@ -69,6 +69,9 @@ import { GcoinService } from '../../services/gcoin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { useUser } from '../../context/UserContext';
+import VerifiedBadge from '../../components/common/VerifiedBadge';
+import FilePickerModal from '../shared/FilePickerModal';
+import { resolveVerificationLevel } from '../../utils/verification';
 
 interface Wallet {
   userId: string;
@@ -123,6 +126,40 @@ interface UsersManagementTabProps {
 }
 
 type EditableUser = Partial<UserType> & { password?: string; status?: string };
+type DemoAutomationOverview = {
+  config?: {
+    enabled?: boolean;
+    aiEnabled?: boolean;
+    cadenceMinutes?: number;
+    maxPostsPerRun?: number;
+    maxLikesPerRun?: number;
+    lastRunAt?: string | null;
+    lastRunSummary?: {
+      postsCreated?: number;
+      likesCreated?: number;
+      skippedAccounts?: number;
+      notes?: string[];
+      finishedAt?: string;
+    } | null;
+  };
+  stats?: {
+    managedAccounts?: number;
+    activeAccounts?: number;
+    automationEnabledAccounts?: number;
+  };
+  accounts?: Array<{
+    id: string;
+    name?: string;
+    email?: string;
+    username?: string | null;
+    avatar?: string | null;
+    profilePhotoFileId?: string | null;
+    profession?: string | null;
+    country?: string | null;
+    automationEnabled?: boolean;
+    isActive?: boolean;
+  }>;
+};
 
 const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   onUserUpdated,
@@ -154,11 +191,22 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isAdjustingBalance, setIsAdjustingBalance] = useState(false);
   const [isAdjustingGcoin, setIsAdjustingGcoin] = useState(false);
+  const [isModerating, setIsModerating] = useState(false);
   const [balanceAdjustment, setBalanceAdjustment] = useState({ amount: '', reason: '' });
   const [gcoinAdjustment, setGcoinAdjustment] = useState({ amount: '', reason: '' });
+  const [moderationAction, setModerationAction] = useState({
+    action: 'warning' as 'warning' | 'strike' | 'restriction' | 'ban',
+    reason: '',
+    userMessage: '',
+    restrictedFeatures: 'post, comment, react',
+    restrictionHours: '24'
+  });
+  const [userModeration, setUserModeration] = useState<any | null>(null);
 
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [bulkAction, setBulkAction] = useState<string>('');
+  const [demoOverview, setDemoOverview] = useState<DemoAutomationOverview | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -170,20 +218,43 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     }
   }, [subTab]);
 
+  useEffect(() => {
+    if (!isEditModalOpen || !editingUser?.id) {
+      setUserModeration(null);
+      return;
+    }
+
+    let active = true;
+    AdminService.getUserModerationStatus(editingUser.id)
+      .then((data) => {
+        if (active) setUserModeration(data || null);
+      })
+      .catch((error) => {
+        console.error('Failed to load user moderation summary:', error);
+        if (active) setUserModeration(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [editingUser?.id, isEditModalOpen]);
+
   const loadData = async () => {
     setRefreshing(true);
     setError(null);
     try {
-      const [uData, wData, sData, gData] = await Promise.all([
+      const [uData, wData, sData, gData, demoData] = await Promise.all([
         AdminService.getUsers(),
         WalletService.getAllWallets(),
         AdminService.getSubscribers(),
-        GcoinService.getAllWallets()
+        GcoinService.getAllWallets(),
+        AdminService.getSystemDemoAccountsOverview().catch(() => null)
       ]);
       setUsers(uData || []);
       setWallets(wData || []);
       setSubscribers(sData || []);
       setGcoinWallets(gData || []);
+      setDemoOverview(demoData);
       showNotification('success', 'Data Loaded', 'User data refreshed successfully.');
     } catch (error) {
       console.error('Failed to load users/subscribers data:', error);
@@ -216,11 +287,39 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     return Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 });
   };
 
-  const handleEditUser = (user: UserType) => {
-    setEditingUser({ ...user, password: '' });
+  const handleEditUser = (user: Partial<UserType> & { id: string }) => {
+    setEditingUser({
+      ...user,
+      username: user.username ?? '',
+      avatar: user.avatar ?? '',
+      profilePhotoFileId: user.profilePhotoFileId ?? undefined,
+      password: ''
+    });
     setBalanceAdjustment({ amount: '', reason: '' });
     setGcoinAdjustment({ amount: '', reason: '' });
+    setModerationAction({
+      action: 'warning',
+      reason: '',
+      userMessage: '',
+      restrictedFeatures: 'post, comment, react',
+      restrictionHours: '24'
+    });
+    setUserModeration(null);
     setIsEditModalOpen(true);
+  };
+
+  const handleEditDemoAccount = (entry: NonNullable<DemoAutomationOverview['accounts']>[number]) => {
+    handleEditUser({
+      id: entry.id,
+      name: entry.name || '',
+      email: entry.email || '',
+      username: entry.username || '',
+      avatar: entry.avatar || '',
+      profilePhotoFileId: entry.profilePhotoFileId || undefined,
+      role: 'user',
+      status: entry.isActive ? 'active' : 'inactive',
+      isActive: Boolean(entry.isActive)
+    } as Partial<UserType> & { id: string });
   };
 
   const handleStatusUpdate = async (userId: string, status: string) => {
@@ -241,7 +340,23 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     setIsSaving(true);
     try {
       const { password, ...userPayload } = editingUser;
-      await AdminService.updateUserDetail(editingUser.id, userPayload, adminId);
+      const payload: Record<string, any> = { ...userPayload };
+      if (typeof payload.name === 'string') payload.name = payload.name.trim();
+      if (typeof payload.email === 'string') payload.email = payload.email.trim();
+      if (typeof payload.username === 'string') {
+        const nextUsername = payload.username.trim();
+        if (nextUsername) payload.username = nextUsername;
+        else delete payload.username;
+      }
+      if (typeof payload.avatar === 'string') {
+        const nextAvatar = payload.avatar.trim();
+        if (nextAvatar) payload.avatar = nextAvatar;
+        else delete payload.avatar;
+      }
+      if (payload.profilePhotoFileId === undefined || payload.profilePhotoFileId === null || payload.profilePhotoFileId === '') {
+        delete payload.profilePhotoFileId;
+      }
+      await AdminService.updateUserDetail(editingUser.id, payload as Partial<UserType>, adminId);
       if (password && password.trim()) {
         await AdminService.updateUserPassword(editingUser.id, password.trim(), adminId);
       }
@@ -299,6 +414,45 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     }
   };
 
+  const handleApplyModeration = async () => {
+    if (!editingUser?.id) return;
+    const restrictedFeatures = moderationAction.restrictedFeatures
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean);
+    const restrictionHours = Number(moderationAction.restrictionHours || 0);
+    if (moderationAction.action === 'restriction' && restrictedFeatures.length === 0) {
+      showNotification('warning', 'Missing Features', 'Select at least one restricted feature or keep the default set.');
+      return;
+    }
+    setIsModerating(true);
+    try {
+      const result = await AdminService.applyUserModerationAction(
+        editingUser.id,
+        {
+          action: moderationAction.action,
+          reason: moderationAction.reason || undefined,
+          userMessage: moderationAction.userMessage || undefined,
+          severity: moderationAction.action === 'ban' ? 'high' : moderationAction.action === 'restriction' ? 'medium' : 'low',
+          restrictedFeatures: restrictedFeatures.length ? restrictedFeatures : ['post', 'comment', 'react'],
+          restrictionHours: Number.isFinite(restrictionHours) ? Math.max(0, restrictionHours) : 0,
+          source: 'admin_users_dashboard',
+          sourceLabel: 'Users dashboard'
+        },
+        adminId
+      );
+      const actionLabel = String(result?.action || moderationAction.action);
+      showNotification('success', 'Moderation Applied', `Account ${actionLabel} saved successfully.`);
+      setUserModeration(result || null);
+      await loadData();
+    } catch (error: any) {
+      console.error('Failed to apply moderation action:', error);
+      showNotification('error', 'Moderation Error', error?.response?.data?.error || 'Failed to apply moderation action.');
+    } finally {
+      setIsModerating(false);
+    }
+  };
+
   const handleDeleteUser = async (userId: string) => {
     if (window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
       try {
@@ -310,6 +464,72 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
         console.error('Failed to delete user:', error);
         showNotification('error', 'Deletion Error', 'Failed to delete user account.');
       }
+    }
+  };
+
+  const handleSeedDemoAccounts = async () => {
+    const countInput = window.prompt('How many system demo accounts should be seeded?', '50');
+    const count = Number(countInput || '50');
+    if (!Number.isFinite(count) || count <= 0) return;
+    setDemoBusy(true);
+    try {
+      const result = await AdminService.seedSystemDemoAccounts(count);
+      showNotification(
+        'success',
+        'Demo Accounts Seeded',
+        `Created ${Number(result?.createdCount || 0)} account(s), existing ${Number(result?.existingCount || 0)}.`
+      );
+      await loadData();
+    } catch (error) {
+      console.error('Failed to seed demo accounts:', error);
+      showNotification('error', 'Seed Failed', 'Unable to seed demo accounts right now.');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleRunDemoCycle = async () => {
+    setDemoBusy(true);
+    try {
+      const result = await AdminService.runSystemDemoAccountsCycle();
+      const summary = result?.summary || {};
+      showNotification(
+        'success',
+        'Automation Run Complete',
+        `Posts: ${Number(summary.postsCreated || 0)}, Likes: ${Number(summary.likesCreated || 0)}`
+      );
+      await loadData();
+    } catch (error: any) {
+      const message = String(error?.response?.data?.error || error?.message || 'Failed to run automation cycle');
+      showNotification('error', 'Automation Run Failed', message);
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleUpdateDemoConfig = async (patch: Partial<NonNullable<DemoAutomationOverview['config']>>) => {
+    setDemoBusy(true);
+    try {
+      await AdminService.updateSystemDemoAccountsConfig(patch);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to update demo config:', error);
+      showNotification('error', 'Update Failed', 'Unable to update demo automation settings.');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleToggleDemoAccount = async (accountId: string, enabled: boolean) => {
+    setDemoBusy(true);
+    try {
+      await AdminService.toggleSystemDemoAccountAutomation(accountId, enabled);
+      await loadData();
+    } catch (error) {
+      console.error('Failed to toggle demo account automation:', error);
+      showNotification('error', 'Update Failed', 'Unable to toggle demo account automation state.');
+    } finally {
+      setDemoBusy(false);
     }
   };
 
@@ -482,6 +702,150 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
       {subTab === 'users' && (
         <>
+          <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-base font-semibold text-gray-900">System Demo Accounts (Admin Controlled)</h3>
+                <p className="text-sm text-gray-600">
+                  Labeled demo profiles for internal or controlled enterprise simulations. Use with platform policy controls.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSeedDemoAccounts}
+                  disabled={demoBusy}
+                  className="px-3 py-2 rounded-lg bg-gray-100 text-gray-800 text-sm font-medium hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Seed Accounts
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunDemoCycle}
+                  disabled={demoBusy || !demoOverview?.config?.enabled}
+                  className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                >
+                  Run Cycle Now
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-gray-500">Managed Accounts</div>
+                <div className="font-semibold text-gray-900">{Number(demoOverview?.stats?.managedAccounts || 0)}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-gray-500">Automation Enabled</div>
+                <div className="font-semibold text-gray-900">{Number(demoOverview?.stats?.automationEnabledAccounts || 0)}</div>
+              </div>
+              <div className="rounded-lg border border-gray-200 p-3">
+                <div className="text-gray-500">Last Run</div>
+                <div className="font-semibold text-gray-900">
+                  {demoOverview?.config?.lastRunAt ? new Date(demoOverview.config.lastRunAt).toLocaleString() : 'Never'}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4 text-sm">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(demoOverview?.config?.enabled)}
+                  onChange={(event) => handleUpdateDemoConfig({ enabled: event.target.checked })}
+                  disabled={demoBusy}
+                />
+                Enable Automation
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={Boolean(demoOverview?.config?.aiEnabled)}
+                  onChange={(event) => handleUpdateDemoConfig({ aiEnabled: event.target.checked })}
+                  disabled={demoBusy}
+                />
+                Use Scrolitha for Post Drafting
+              </label>
+              <label className="inline-flex items-center gap-2">
+                Cadence (minutes)
+                <input
+                  type="number"
+                  min={1}
+                  max={120}
+                  defaultValue={Number(demoOverview?.config?.cadenceMinutes || 15)}
+                  onBlur={(event) =>
+                    handleUpdateDemoConfig({ cadenceMinutes: Number(event.target.value || 15) })
+                  }
+                  className="w-20 px-2 py-1 border border-gray-300 rounded"
+                  disabled={demoBusy}
+                />
+              </label>
+            </div>
+
+            {Array.isArray(demoOverview?.accounts) && demoOverview!.accounts!.length > 0 && (
+              <div className="rounded-lg border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-gray-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Demo Account</th>
+                      <th className="px-3 py-2 text-left">Username</th>
+                      <th className="px-3 py-2 text-left">Profession</th>
+                      <th className="px-3 py-2 text-left">Country</th>
+                      <th className="px-3 py-2 text-left">Automation</th>
+                      <th className="px-3 py-2 text-left">Profile</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {demoOverview!.accounts!.slice(0, 20).map((entry) => (
+                      <tr key={entry.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={entry.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(entry.name || 'Demo')}&background=0D8ABC&color=fff`}
+                              alt={entry.name || 'Demo account'}
+                              className="h-10 w-10 rounded-full border border-gray-200 object-cover"
+                            />
+                            <div>
+                              <div className="font-medium text-gray-900">{entry.name || 'Unnamed'}</div>
+                              <div className="text-xs text-gray-500">{entry.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 text-gray-700">{entry.username || '-'}</td>
+                        <td className="px-3 py-2 text-gray-700">{entry.profession || '-'}</td>
+                        <td className="px-3 py-2 text-gray-700">{entry.country || '-'}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            disabled={demoBusy || !entry.isActive}
+                            onClick={() => handleToggleDemoAccount(entry.id, !Boolean(entry.automationEnabled))}
+                            className={`px-2.5 py-1 rounded text-xs font-medium ${
+                              entry.automationEnabled
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-700'
+                            }`}
+                          >
+                            {entry.automationEnabled ? 'Enabled' : 'Disabled'}
+                          </button>
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => handleEditDemoAccount(entry)}
+                            className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                          >
+                            <Edit3 className="h-3.5 w-3.5" />
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {selectedUsers.length > 0 && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center justify-between">
               <div className="flex items-center">
@@ -933,6 +1297,37 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
             </div>
             <form onSubmit={handleSaveUser}>
               <div className="space-y-4">
+                <div className="flex items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <button
+                    type="button"
+                    onClick={() => setIsFilePickerOpen(true)}
+                    className="group relative h-20 w-20 overflow-hidden rounded-full border-4 border-white bg-gray-200 shadow-sm"
+                    aria-label="Change profile photo"
+                  >
+                    <img
+                      src={editingUser.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(editingUser.name || editingUser.username || 'User')}&background=0D8ABC&color=fff`}
+                      alt={editingUser.name || editingUser.username || 'User'}
+                      className="h-full w-full object-cover"
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition group-hover:opacity-100">
+                      <Camera className="h-5 w-5 text-white" />
+                    </span>
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-gray-900">Profile photo</div>
+                    <div className="text-xs text-gray-500">
+                      Update the account avatar and profile photo file reference.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsFilePickerOpen(true)}
+                      className="mt-2 inline-flex items-center rounded-full border border-gray-200 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-white"
+                    >
+                      <Camera className="mr-1.5 h-3.5 w-3.5" />
+                      Change Photo
+                    </button>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Name</label>
                   <input
@@ -941,6 +1336,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     value={editingUser.name || ''}
                     onChange={e => setEditingUser({ ...editingUser, name: e.target.value })}
                     placeholder="Enter full name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Username</label>
+                  <input
+                    type="text"
+                    className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    value={editingUser.username || ''}
+                    onChange={e => setEditingUser({ ...editingUser, username: e.target.value })}
+                    placeholder="demo.username"
                   />
                 </div>
                 <div>
@@ -980,6 +1385,68 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     <option value="banned">Banned</option>
                   </select>
                 </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">Verification Status</label>
+                    <select
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={String(editingUser.kycStatus || editingUser.kyc_status || (editingUser.isVerified ? 'verified' : 'pending')).toLowerCase()}
+                      onChange={e => {
+                        const nextStatus = e.target.value;
+                        const nextVerified = nextStatus === 'verified';
+                        setEditingUser({
+                          ...editingUser,
+                          kycStatus: nextStatus as any,
+                          kyc_status: nextStatus as any,
+                          isVerified: nextVerified,
+                          is_verified: nextVerified
+                        } as EditableUser);
+                      }}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="under_review">Under review</option>
+                      <option value="verified">Verified</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Standard verification is controlled here. Business and Pro badge variants are still derived from account role and active plans.
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-white/80 bg-white px-3 py-2">
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">Public badge preview</div>
+                      <div className="text-xs text-gray-500">How this account will appear on public cards and profiles.</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {resolveVerificationLevel({
+                        isVerified: editingUser.isVerified,
+                        kycStatus: editingUser.kycStatus || editingUser.kyc_status,
+                        role: editingUser.role,
+                        type: editingUser.role === 'employer' ? 'business' : 'user',
+                        isProFreelancer: Boolean((editingUser as any).freelancerPlanActive && editingUser.role === 'freelancer'),
+                        isProEmployer: Boolean((editingUser as any).employerPlanActive && editingUser.role === 'employer')
+                      }) ? (
+                        <VerifiedBadge
+                          size={18}
+                          level={resolveVerificationLevel({
+                            isVerified: editingUser.isVerified,
+                            kycStatus: editingUser.kycStatus || editingUser.kyc_status,
+                            role: editingUser.role,
+                            type: editingUser.role === 'employer' ? 'business' : 'user',
+                            isProFreelancer: Boolean((editingUser as any).freelancerPlanActive && editingUser.role === 'freelancer'),
+                            isProEmployer: Boolean((editingUser as any).employerPlanActive && editingUser.role === 'employer')
+                          })}
+                          subjectRole={editingUser.role}
+                          subjectType={editingUser.role === 'employer' ? 'business' : 'user'}
+                        />
+                      ) : (
+                        <span className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-500">
+                          No badge
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Set New Password</label>
                   <input
@@ -990,6 +1457,116 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     placeholder="Leave blank to keep current password"
                   />
                   <p className="text-xs text-gray-500 mt-1">Leave blank if you don't want to change the password.</p>
+                </div>
+
+                <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-gray-900">Account moderation</div>
+                      <div className="text-xs text-gray-600">Apply warning, strike, temporary restrictions, or ban.</div>
+                    </div>
+                    <div className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-700 border border-amber-200">
+                      Real-time notice
+                    </div>
+                  </div>
+
+                  {userModeration?.activeViolationCount ? (
+                    <div className="rounded-lg border border-amber-200 bg-white p-3 text-xs text-gray-700">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-gray-900">Current active violations</span>
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 font-bold text-amber-700">
+                          {Number(userModeration.activeViolationCount || 0)}
+                        </span>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        {(userModeration.activeViolations || []).slice(0, 2).map((violation: any) => (
+                          <div key={violation.id} className="rounded-md bg-gray-50 px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium text-gray-900 capitalize">{violation.action || violation.type}</span>
+                              <span className="text-[11px] text-gray-500">{violation.expiresAt ? `until ${new Date(violation.expiresAt).toLocaleString()}` : 'active'}</span>
+                            </div>
+                            <div className="text-[11px] text-gray-600">{violation.reason || 'No reason provided'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-white/80 bg-white p-3 text-xs text-gray-500">
+                      No active warning, strike, or restriction is currently applied.
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Action</label>
+                      <select
+                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        value={moderationAction.action}
+                        onChange={(e) => setModerationAction(prev => ({ ...prev, action: e.target.value as any }))}
+                      >
+                        <option value="warning">Warning</option>
+                        <option value="strike">Strike</option>
+                        <option value="restriction">Restrict features</option>
+                        <option value="ban">Ban</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Restriction hours</label>
+                      <input
+                        type="number"
+                        min={0}
+                        className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                        value={moderationAction.restrictionHours}
+                        onChange={(e) => setModerationAction(prev => ({ ...prev, restrictionHours: e.target.value }))}
+                        placeholder="24"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Restricted features</label>
+                    <input
+                      type="text"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      value={moderationAction.restrictedFeatures}
+                      onChange={(e) => setModerationAction(prev => ({ ...prev, restrictedFeatures: e.target.value }))}
+                      placeholder="post, comment, react"
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">Use post, comment, and react to block posting, commenting, or reactions.</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">Reason</label>
+                    <textarea
+                      rows={2}
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      value={moderationAction.reason}
+                      onChange={(e) => setModerationAction(prev => ({ ...prev, reason: e.target.value }))}
+                      placeholder="Explain why this moderation action is being applied."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">User message</label>
+                    <textarea
+                      rows={2}
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                      value={moderationAction.userMessage}
+                      onChange={(e) => setModerationAction(prev => ({ ...prev, userMessage: e.target.value }))}
+                      placeholder="Message shown in app and email"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={handleApplyModeration}
+                      disabled={isModerating}
+                      className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {isModerating ? 'Applying...' : 'Apply Moderation'}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="mt-6 border-t pt-4 space-y-4">
@@ -1092,6 +1669,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
           </div>
         </div>
       )}
+
+      <FilePickerModal
+        isOpen={isFilePickerOpen}
+        onClose={() => setIsFilePickerOpen(false)}
+        onSelect={handleFileSelect}
+        acceptedTypes="image/*"
+        filterType="image"
+        title="Update Demo Account Photo"
+        role="admin"
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import { useUser } from '../context/UserContext';
 import { useContent } from '../context/ContentContext';
 import { UserService } from '../services/user';
@@ -14,6 +14,9 @@ import FilePickerModal from '../dashboard/shared/FilePickerModal';
 import { FileService } from '../services/files';
 import { Capacitor } from '@capacitor/core';
 import { captureAndUpload } from '../mobile/uploads';
+import { getPublicAppOrigin } from '../utils/siteUrl';
+
+const LocationPicker = React.lazy(() => import('../components/common/LocationPicker'));
 
 interface EditProfileProps {
     isEmbedded?: boolean;
@@ -53,7 +56,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
     const [introRecording, setIntroRecording] = useState(false);
     const [introUploading, setIntroUploading] = useState(false);
     const usernameRegex = /^[a-z0-9][a-z0-9._-]{2,29}$/;
-    const publicBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.scrolith.com';
+    const publicBaseUrl = getPublicAppOrigin();
     const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
     const profileDemographics = (settings as any)?.profileDemographics || {};
     const demographicsEnabled = profileDemographics?.enabled !== false;
@@ -101,6 +104,22 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                 title: '',
                 bio: '',
                 location: '',
+                formattedAddress: '',
+                formatted_address: '',
+                country: '',
+                countryCode: '',
+                country_code: '',
+                state: '',
+                city: '',
+                region: '',
+                postalCode: '',
+                postal_code: '',
+                latitude: null,
+                longitude: null,
+                placeId: '',
+                place_id: '',
+                locationSource: '',
+                location_source: '',
                 gender: '',
                 date_of_birth: null,
                 dateOfBirth: null,
@@ -219,6 +238,17 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
         } finally {
             setIsSaving(false);
         }
+    };
+
+    const handleLocationChange = (next: Partial<UserProfile>) => {
+        setProfile((prev) => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                ...next,
+                location: String(next.location ?? next.formattedAddress ?? next.formatted_address ?? prev.location ?? ''),
+            };
+        });
     };
 
     const saveUsername = async (value: string) => {
@@ -666,7 +696,7 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
 
                                     <div className="flex items-center space-x-6">
                                         <div className="relative group w-24 h-24 rounded-full bg-gray-100 overflow-hidden border-2 border-gray-200 cursor-pointer" onClick={() => openPicker('avatar')}>
-                                            <img src={user?.avatar || "https://via.placeholder.com/150"} alt="Profile" className="w-full h-full object-cover" />
+                                            <img src={user?.avatar || "/placeholders/avatar.svg"} alt="Profile" className="w-full h-full object-cover" />
                                             <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                                                 <Camera className="w-6 h-6 text-white" />
                                             </div>
@@ -753,12 +783,14 @@ const EditProfile: React.FC<EditProfileProps> = ({ isEmbedded = false }) => {
                                             />
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-medium text-gray-700 mb-1">Location</label>
-                                            <input 
-                                                className="w-full border-gray-300 rounded-lg p-2"
-                                                value={profile.location}
-                                                onChange={e => setProfile({...profile, location: e.target.value})}
-                                            />
+                                            <Suspense fallback={<div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-500">Loading map...</div>}>
+                                                <LocationPicker
+                                                    value={profile}
+                                                    onChange={handleLocationChange}
+                                                    label="Location"
+                                                    placeholder="Search your city, state, or country"
+                                                />
+                                            </Suspense>
                                         </div>
                                         {genderEnabled && (
                                             <div>

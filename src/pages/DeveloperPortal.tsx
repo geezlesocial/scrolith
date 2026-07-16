@@ -5,6 +5,7 @@ import { DeveloperPlatformService } from '../services/developerPlatform';
 import { CommunityService } from '../services/community';
 import { FileService } from '../services/files';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { buildPublicAppUrl } from '../utils/siteUrl';
 
 type LinkMethod = 'SCROLITH_LOGIN_CONFIRM' | 'EMAIL_OTP';
 type LookupType = 'EMAIL' | 'USERNAME';
@@ -234,7 +235,7 @@ const DeveloperPortal: React.FC = () => {
   );
 
   const connectedPageUrl = useMemo(
-    () => (connectedPageSlug ? `https://scrolith.com/company/${encodeURIComponent(connectedPageSlug)}` : ''),
+    () => (connectedPageSlug ? buildPublicAppUrl(`/company/${encodeURIComponent(connectedPageSlug)}`) : ''),
     [connectedPageSlug]
   );
 

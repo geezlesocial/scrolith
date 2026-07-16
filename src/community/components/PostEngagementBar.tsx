@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  EyeIcon as Eye,
   ChevronDownIcon as ChevronDown,
   CoinsIcon as Coins,
   MessageCircleIcon as MessageCircle,
@@ -10,11 +11,15 @@ import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
+import { postOptionsApi } from '../../services/postOptions';
 import PostComments from '../../components/PostComments';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
 import RepostModal from './RepostModal';
-import { useSocket } from '../../context/SocketContext';
+import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
+import ReactionReactorsModal from './ReactionReactorsModal';
+import ReactionSummaryButton from './ReactionSummaryButton';
+import { normalizeShareText } from '../../utils/postShare';
 
 type AllowedReaction = {
   key: string;
@@ -25,7 +30,10 @@ type AllowedReaction = {
 
 type Props = {
   postId: string;
+  postTitle?: string | null;
+  postContent?: string | null;
   authorId?: string;
+  dashGcoinTotal?: number;
   commentPolicy?: string | null;
   postRepostsEnabled?: boolean;
   commentCount: number;
@@ -37,6 +45,8 @@ type Props = {
   focusCommentId?: string;
   focusMentionToken?: string;
   onCommentCountChange?: (postId: string, count: number) => void;
+  interestSurveyEnabled?: boolean;
+  initialInterestSignal?: string | null;
   features?: {
     reactions?: boolean;
     comments?: boolean;
@@ -77,6 +87,13 @@ const toSafeCount = (value: unknown) => {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return 0;
   return Math.max(0, Math.trunc(numeric));
+};
+
+const formatDashGcoin = (value: unknown) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '0';
+  if (Number.isInteger(numeric)) return String(numeric);
+  return numeric.toFixed(numeric >= 100 ? 0 : 2).replace(/\.00$/, '');
 };
 
 const sumReactions = (counts?: Record<string, number>) =>
@@ -142,7 +159,10 @@ const buildPostUrl = (postId: string) =>
 
 const PostEngagementBar: React.FC<Props> = ({
   postId,
+  postTitle,
+  postContent,
   authorId,
+  dashGcoinTotal = 0,
   commentPolicy,
   postRepostsEnabled,
   commentCount,
@@ -154,13 +174,14 @@ const PostEngagementBar: React.FC<Props> = ({
   focusCommentId,
   focusMentionToken,
   onCommentCountChange,
+  interestSurveyEnabled = false,
+  initialInterestSignal,
   features,
   className = ''
 }) => {
   const { user } = useUser();
   const { settings } = useContent();
   const { showNotification } = useNotification();
-  const { isConnected } = useSocket();
   const isCoarsePointer = useIsCoarsePointer();
 
   const reactionsSettings = (settings as any)?.reactions || {};
@@ -172,8 +193,12 @@ const PostEngagementBar: React.FC<Props> = ({
   const sendEnabled = features?.send !== false;
   const dashEnabled = features?.dash !== false && (memberHomeSettings?.feed?.dashEnabled ?? (memberHomeSettings as any)?.feed?.dash_enabled ?? true) !== false;
   const dashEnabledForPost = dashEnabled && !(authorId && user?.id && String(authorId) === String(user.id));
-  const actionCols = Math.max(1, [reactionsEnabled, commentsEnabled, repostsEnabled, sendEnabled, dashEnabledForPost].filter(Boolean).length);
-  const compactActions = actionCols >= 5;
+  const shareText = useMemo(() => {
+    const heading = normalizeShareText(postTitle, 120);
+    const summary = normalizeShareText(postContent, 220);
+    if (heading && summary && heading !== summary) return `${heading}\n\n${summary}`;
+    return heading || summary || undefined;
+  }, [postContent, postTitle]);
 
   const allowed = useMemo(() => normalizeAllowed(reactionsSettings?.allowed), [reactionsSettings?.allowed]);
   const allowedMap = useMemo(() => {
@@ -186,18 +211,20 @@ const PostEngagementBar: React.FC<Props> = ({
   const [counts, setCounts] = useState<Record<string, number>>(initialReactionCounts || {});
   const [userReaction, setUserReaction] = useState<string | null>(typeof initialUserReaction === 'undefined' ? null : (initialUserReaction || null));
   const [busy, setBusy] = useState(false);
+  const [dashTotal, setDashTotal] = useState<number>(Number(dashGcoinTotal || 0));
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerAnchor, setPickerAnchor] = useState<'summary' | 'button'>('button');
   const [pickerPosition, setPickerPosition] = useState<FloatingPosition | null>(null);
+  const [reactorsOpen, setReactorsOpen] = useState(false);
+  const [reactorsInitialKey, setReactorsInitialKey] = useState<string | null>(null);
   const [commentsOpen, setCommentsOpen] = useState(() => Boolean(focusCommentId));
   const [focusInputKey, setFocusInputKey] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
   const [repostOpen, setRepostOpen] = useState(false);
   const [dashOpen, setDashOpen] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [interestSignal, setInterestSignal] = useState<string | null>(initialInterestSignal || null);
 
   const buttonRef = useRef<HTMLButtonElement | null>(null);
-  const summaryRef = useRef<HTMLButtonElement | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const commentsAnchorRef = useRef<HTMLDivElement | null>(null);
   const hoverOpenTimerRef = useRef<number | null>(null);
@@ -216,10 +243,14 @@ const PostEngagementBar: React.FC<Props> = ({
   };
 
   useEffect(() => setCounts(initialReactionCounts || {}), [postId, initialReactionCounts]);
+  useEffect(() => setDashTotal(Number(dashGcoinTotal || 0)), [dashGcoinTotal, postId]);
   useEffect(() => {
     if (typeof initialUserReaction === 'undefined') return;
     setUserReaction(initialUserReaction || null);
   }, [postId, initialUserReaction]);
+  useEffect(() => {
+    setInterestSignal(initialInterestSignal || null);
+  }, [postId, initialInterestSignal]);
 
   useEffect(() => {
     const onUpdated = (event: Event) => {
@@ -237,13 +268,25 @@ const PostEngagementBar: React.FC<Props> = ({
         setUserReaction(mine || null);
       }
     };
+    const onGcoinDonated = (event: Event) => {
+      const raw = (event as CustomEvent).detail;
+      const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+      if (!detail) return;
+      const eventPostId = String(detail.postId || detail.post_id || '').trim();
+      if (!eventPostId || eventPostId !== String(postId)) return;
+      setDashTotal(Number(detail.dashGcoinTotal || detail.dash_gcoin_total || 0));
+    };
     window.addEventListener('community:post_reaction_updated', onUpdated as EventListener);
-    return () => window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+    window.addEventListener('community:gcoin_donated', onGcoinDonated as EventListener);
+    return () => {
+      window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+      window.removeEventListener('community:gcoin_donated', onGcoinDonated as EventListener);
+    };
   }, [postId, user?.id]);
 
   useEffect(() => {
     if (!pickerOpen || isCoarsePointer) return;
-    const anchorEl = pickerAnchor === 'summary' ? summaryRef.current : buttonRef.current;
+    const anchorEl = buttonRef.current;
     if (!anchorEl) return;
     const reposition = () => setPickerPosition(computeFloatingPosition(anchorEl.getBoundingClientRect(), 380, 260));
     reposition();
@@ -253,14 +296,14 @@ const PostEngagementBar: React.FC<Props> = ({
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
     };
-  }, [pickerOpen, pickerAnchor, isCoarsePointer]);
+  }, [pickerOpen, isCoarsePointer]);
 
   useEffect(() => {
     if (!pickerOpen) return;
     const onPointerDown = (event: MouseEvent | TouchEvent) => {
       const target = event.target as HTMLElement | null;
       if (!target) return;
-      if (buttonRef.current?.contains(target) || summaryRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target) || pickerRef.current?.contains(target)) return;
       setPickerOpen(false);
     };
     const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setPickerOpen(false); };
@@ -323,16 +366,23 @@ const PostEngagementBar: React.FC<Props> = ({
 
   const likeLabel = userReaction ? (allowedMap.get(userReaction)?.label || DEFAULT_META[userReaction]?.label || 'Like') : 'Like';
   const likeEmoji = userReaction ? (allowedMap.get(userReaction)?.emoji || DEFAULT_META[userReaction]?.emoji || DEFAULT_META.like.emoji) : '';
-  const actionButtonBase = compactActions
-    ? 'group flex w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-[20px] border border-transparent bg-white px-2 py-2.5 text-[11px] font-semibold leading-tight text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm'
-    : 'group flex w-full min-w-0 items-center justify-center gap-2.5 rounded-[20px] border border-transparent bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:border-slate-200 hover:bg-white hover:shadow-sm';
+  const reactionCountLabel = totalReactions > 0 ? totalReactions.toLocaleString() : '0';
+  const commentCountLabel = Math.max(0, toSafeCount(commentCount)).toLocaleString();
+  const repostCountLabel = Math.max(0, toSafeCount(repostCount)).toLocaleString();
+  const dashCountLabel = formatDashGcoin(dashTotal);
+  const sendCountLabel = Math.max(0, toSafeCount(shareCount)).toLocaleString();
+  const viewCountLabel = Math.max(0, toSafeCount(viewCount)).toLocaleString();
+  const actionButtonBase =
+    'group relative inline-flex min-h-[52px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-transparent bg-transparent px-1 py-2 text-slate-700 transition duration-enterprise hover:bg-slate-100/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 sm:min-h-[56px]';
+  const actionIconBase =
+    'inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition duration-enterprise group-hover:bg-slate-200 sm:h-10 sm:w-10';
+  const actionLabelBase = 'hidden text-[11px] font-semibold tracking-wide text-slate-600 sm:inline';
   const postUrl = buildPostUrl(postId);
 
   const onReactionButtonHover = () => {
     if (isCoarsePointer) return;
     clearTimers();
     hoverOpenTimerRef.current = window.setTimeout(() => {
-      setPickerAnchor('button');
       setPickerOpen(true);
       hoverOpenTimerRef.current = null;
     }, 220);
@@ -344,7 +394,6 @@ const PostEngagementBar: React.FC<Props> = ({
     longPressTriggeredRef.current = false;
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTriggeredRef.current = true;
-      setPickerAnchor('button');
       setPickerOpen(true);
       longPressTimerRef.current = null;
     }, 360);
@@ -365,169 +414,245 @@ const PostEngagementBar: React.FC<Props> = ({
     void react(userReaction || defaultReactionKey);
   };
 
+  const stopActionPropagation = (event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
+  const triggerAction = (event: React.SyntheticEvent, callback: () => void) => {
+    event.preventDefault();
+    event.stopPropagation();
+    callback();
+  };
+
+  const openReactors = (reactionKey?: string | null) => {
+    if (!ensureAuth()) return;
+    setReactorsInitialKey(reactionKey || null);
+    setReactorsOpen(true);
+    setPickerOpen(false);
+  };
+
+  const handleInterestSurveySubmit = async (signal: 'INTERESTED' | 'NOT_INTERESTED') => {
+    if (!ensureAuth()) {
+      throw new Error('Authentication required.');
+    }
+    if (signal === 'INTERESTED') {
+      await postOptionsApi.interested(postId, { surface: 'post_interest_survey' });
+    } else {
+      await postOptionsApi.notInterested(postId, { surface: 'post_interest_survey' });
+    }
+    setInterestSignal(signal);
+  };
+
+  const showInterestSurvey =
+    interestSurveyEnabled &&
+    Boolean(postId) &&
+    Boolean(user?.id) &&
+    String(authorId || '').trim() !== String(user?.id || '').trim();
+
   return (
-    <div className={`mt-3 ${className}`}>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-slate-200/80 bg-slate-50/80 px-3 py-3 text-xs text-slate-500">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {showCounts && reactionsEnabled ? (
-            totalReactions > 0 ? (
-              <button
-                ref={summaryRef}
-                type="button"
-                onClick={() => {
-                  setPickerAnchor('summary');
-                  setPickerOpen(true);
-                }}
-                className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/90 bg-white px-3 py-1.5 shadow-sm hover:bg-slate-50"
-              >
-                <span className="inline-flex -space-x-1">
-                  {topReactions.map((item) => (
-                    <span key={item.key} className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-slate-100 text-[11px]">
-                      {item.meta.emoji}
-                    </span>
-                  ))}
-                </span>
-                <span className="font-semibold text-slate-700">{totalReactions}</span>
-                <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
-              </button>
-            ) : (
-              <span className="rounded-full border border-dashed border-slate-200 px-3 py-1.5 text-slate-400">0 reactions</span>
-            )
-          ) : (
-            <span className="text-slate-400">&nbsp;</span>
-          )}
-          <span
-            className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 font-semibold shadow-sm ${
-              isConnected ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
-            }`}
-          >
-            <span className={`h-2 w-2 rounded-full ${isConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-            {isConnected ? 'Live sync' : 'Syncing'}
-          </span>
-        </div>
+    <div className={`mt-4 ${className}`}>
+      {showInterestSurvey ? (
+        <ContentInterestSurvey
+          entityId={postId}
+          viewerId={user?.id}
+          contentType="post"
+          initialSignal={interestSignal}
+          enabled
+          className="mb-3"
+          onSubmit={handleInterestSurveySubmit}
+        />
+      ) : null}
 
-        <div className="flex flex-wrap items-center gap-2">
-          {commentsEnabled ? (
-            <button
-              type="button"
-              onClick={() => {
-                setCommentsOpen(true);
-                setFocusInputKey((prev) => prev + 1);
-                window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm transition hover:text-slate-900"
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <ReactionSummaryButton
+            counts={counts}
+            allowed={allowed}
+            onClick={(event) => triggerAction(event, () => openReactors(null))}
+            className="max-w-full"
+          />
+          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 sm:text-sm">
+            {Number(commentCount) > 0 ? (
+              <span aria-label={`${commentCountLabel} comments`}>{commentCountLabel} comments</span>
+            ) : null}
+            {Number(repostCount) > 0 ? (
+              <span aria-label={`${repostCountLabel} reposts`}>· {repostCountLabel} reposts</span>
+            ) : null}
+            <span
+              className="inline-flex items-center gap-1"
+              title={`${viewCountLabel} views`}
+              aria-label={`${viewCountLabel} views`}
             >
-              <span className="font-semibold text-slate-900">{commentCount}</span> comments
-            </button>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-              <span className="font-semibold text-slate-900">{commentCount}</span> comments
+              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+              {viewCountLabel}
             </span>
-          )}
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">{repostCount}</span> reposts
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">{shareCount}</span> shares
-          </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-white/90 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm">
-            <span className="font-semibold text-slate-900">{viewCount}</span> views
-          </span>
+          </div>
         </div>
-      </div>
 
-      <div
-        className={`mt-3 grid rounded-[24px] border border-slate-200/80 bg-slate-50/70 p-1.5 shadow-sm ${compactActions ? 'gap-1.5' : 'gap-1.5'}`}
-        style={{ gridTemplateColumns: `repeat(${actionCols}, minmax(0, 1fr))` }}
-      >
+        <div className="grid grid-cols-5 gap-1 border-t border-slate-100 pt-1 sm:gap-1.5">
         {reactionsEnabled ? (
           <button
             ref={buttonRef}
             type="button"
             disabled={busy}
-            onClick={onPrimaryReactionClick}
+            aria-label={likeLabel}
+            title={likeLabel}
+            aria-expanded={pickerOpen}
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={(event) => {
+              stopActionPropagation(event);
+              onReactionButtonTouchStart();
+            }}
+            onClick={(event) => triggerAction(event, onPrimaryReactionClick)}
             onMouseEnter={onReactionButtonHover}
             onContextMenu={(event) => {
               event.preventDefault();
-              setPickerAnchor('button');
+              event.stopPropagation();
               setPickerOpen(true);
             }}
-            onTouchStart={onReactionButtonTouchStart}
             onTouchMove={onReactionButtonTouchEnd}
             onTouchEnd={onReactionButtonTouchEnd}
             onTouchCancel={onReactionButtonTouchEnd}
-            className={`${actionButtonBase} ${userReaction ? 'border-blue-200 bg-blue-50/70 text-blue-700 hover:bg-blue-50' : ''} disabled:opacity-60`}
+            className={`${actionButtonBase} ${userReaction ? 'bg-blue-50/80 text-blue-700 hover:bg-blue-50' : ''} disabled:opacity-60`}
           >
-            <span
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-[15px] leading-none transition ${
-                userReaction ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600 group-hover:bg-slate-900 group-hover:text-white'
-              }`}
-            >
-              {likeEmoji || DEFAULT_META.like.emoji}
+            <span className="relative inline-flex items-center justify-center">
+              <span
+                className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-base leading-none transition sm:h-10 sm:w-10 ${
+                  userReaction ? 'bg-blue-100 text-blue-700' : actionIconBase
+                }`}
+              >
+                {likeEmoji || DEFAULT_META.like.emoji}
+              </span>
+              {showCounts && totalReactions > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full border border-white bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm">
+                  {reactionCountLabel}
+                </span>
+              ) : null}
             </span>
-            <span className="max-w-full truncate">{likeLabel}</span>
-            <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} />
+            <span className={actionLabelBase}>{likeLabel}</span>
+            <ChevronDown className={`absolute bottom-1 right-1 h-3 w-3 text-slate-400 transition ${pickerOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
           </button>
         ) : null}
 
         {commentsEnabled ? (
           <button
             type="button"
-            onClick={() => {
-              if (!ensureAuth()) return;
-              setCommentsOpen((prev) => !prev);
-              setFocusInputKey((prev) => prev + 1);
-              window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
-            }}
+            aria-label="Comment"
+            title="Comment"
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) =>
+              triggerAction(event, () => {
+                if (!ensureAuth()) return;
+                setCommentsOpen((prev) => !prev);
+                setFocusInputKey((prev) => prev + 1);
+                window.setTimeout(() => commentsAnchorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 40);
+              })
+            }
             className={actionButtonBase}
+            aria-expanded={commentsOpen}
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
-              <MessageCircle className="h-4 w-4" />
+            <span className="relative inline-flex items-center justify-center">
+              <span className={actionIconBase}>
+                <MessageCircle className="h-4 w-4" />
+              </span>
+              {showCounts && Number(commentCount) > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full border border-white bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm">
+                  {commentCountLabel}
+                </span>
+              ) : null}
             </span>
-            <span className="max-w-full truncate">Comment</span>
+            <span className={actionLabelBase}>Comment</span>
           </button>
         ) : null}
 
         {repostsEnabled ? (
           <button
             type="button"
-            onClick={() => {
-              if (!ensureAuth()) return;
-              setRepostOpen(true);
-            }}
+            aria-label="Repost"
+            title="Repost"
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) =>
+              triggerAction(event, () => {
+                if (!ensureAuth()) return;
+                setRepostOpen(true);
+              })
+            }
             className={actionButtonBase}
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
-              <Repeat2 className="h-4 w-4" />
+            <span className="relative inline-flex items-center justify-center">
+              <span className={actionIconBase}>
+                <Repeat2 className="h-4 w-4" />
+              </span>
+              {showCounts && Number(repostCount) > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full border border-white bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm">
+                  {repostCountLabel}
+                </span>
+              ) : null}
             </span>
-            <span className="max-w-full truncate">Repost</span>
+            <span className={actionLabelBase}>Repost</span>
           </button>
         ) : null}
 
         {dashEnabledForPost ? (
           <button
             type="button"
-            onClick={() => {
-              if (!ensureAuth()) return;
-              setDashOpen(true);
-            }}
+            aria-label="Dash"
+            title="Dash"
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) =>
+              triggerAction(event, () => {
+                if (!ensureAuth()) return;
+                setDashOpen(true);
+              })
+            }
             className={actionButtonBase}
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
-              <Coins className="h-4 w-4" />
+            <span className="relative inline-flex items-center justify-center">
+              <span className={actionIconBase}>
+                <Coins className="h-4 w-4" />
+              </span>
+              {showCounts ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full border border-white bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm">
+                  {dashCountLabel}
+                </span>
+              ) : null}
             </span>
-            <span className="max-w-full truncate">Dash</span>
+            <span className={actionLabelBase}>Dash</span>
           </button>
         ) : null}
 
         {sendEnabled ? (
-          <button type="button" onClick={() => setShareOpen(true)} className={actionButtonBase}>
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white">
-              <Send className="h-4 w-4" />
+          <button
+            type="button"
+            aria-label="Send"
+            title="Send"
+            data-post-action-control="true"
+            onMouseDown={stopActionPropagation}
+            onTouchStart={stopActionPropagation}
+            onClick={(event) => triggerAction(event, () => setShareOpen(true))}
+            className={actionButtonBase}
+          >
+            <span className="relative inline-flex items-center justify-center">
+              <span className={actionIconBase}>
+                <Send className="h-4 w-4" />
+              </span>
+              {showCounts && Number(shareCount) > 0 ? (
+                <span className="absolute -right-1.5 -top-1.5 inline-flex min-w-5 items-center justify-center rounded-full border border-white bg-slate-900 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm">
+                  {sendCountLabel}
+                </span>
+              ) : null}
             </span>
-            <span className="max-w-full truncate">Send</span>
+            <span className={actionLabelBase}>Send</span>
           </button>
         ) : null}
+        </div>
       </div>
 
       {pickerOpen && isCoarsePointer ? (
@@ -542,10 +667,7 @@ const PostEngagementBar: React.FC<Props> = ({
             aria-label="Choose a reaction"
           >
             <div className="mb-3 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">React to this post</p>
-                <p className="text-xs text-slate-500">{isConnected ? 'Realtime sync active' : 'Realtime reconnecting'}</p>
-              </div>
+              <p className="text-sm font-semibold text-slate-900">React to this post</p>
               <button type="button" onClick={() => setPickerOpen(false)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">
                 Close
               </button>
@@ -584,7 +706,6 @@ const PostEngagementBar: React.FC<Props> = ({
         >
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reactions</p>
-            <span className={`text-[11px] font-semibold ${isConnected ? 'text-emerald-600' : 'text-amber-600'}`}>{isConnected ? 'Live' : 'Syncing'}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
             {allowed.map((item) => (
@@ -605,7 +726,13 @@ const PostEngagementBar: React.FC<Props> = ({
           {breakdown.length ? (
             <div className="mt-3 space-y-1.5 border-t border-slate-100 pt-2">
               {breakdown.slice(0, 5).map((item) => (
-                <div key={`summary_${item.key}`} className="rounded-lg bg-slate-50 px-2 py-1.5">
+                <button
+                  key={`summary_${item.key}`}
+                  type="button"
+                  onClick={(event) => triggerAction(event, () => openReactors(item.key))}
+                  className="w-full rounded-lg bg-slate-50 px-2 py-1.5 text-left transition hover:bg-blue-50"
+                  title={`View people who reacted with ${item.label}`}
+                >
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="font-semibold text-slate-700">{item.emoji} {item.label}</span>
                     <span className="text-slate-500">{item.count} ({item.pct}%)</span>
@@ -613,12 +740,23 @@ const PostEngagementBar: React.FC<Props> = ({
                   <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-200">
                     <div className="h-full rounded-full" style={{ width: `${Math.max(4, item.pct)}%`, backgroundColor: item.color }} />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           ) : null}
         </div>
       ) : null}
+
+      <ReactionReactorsModal
+        open={reactorsOpen}
+        onClose={() => setReactorsOpen(false)}
+        targetType="POST"
+        targetId={postId}
+        counts={counts}
+        allowed={allowed}
+        initialReactionKey={reactorsInitialKey}
+        title="People who reacted"
+      />
 
       <div ref={commentsAnchorRef} />
       {commentsEnabled ? (
@@ -677,6 +815,7 @@ const PostEngagementBar: React.FC<Props> = ({
           onClose={() => setShareOpen(false)}
           postId={postId}
           postUrl={postUrl}
+          shareText={shareText}
           onShareToNetwork={() => {
             if (!repostsEnabled) {
               showNotification('info', 'Share', 'Share-to-network is disabled right now.');

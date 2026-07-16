@@ -6,7 +6,6 @@ import api from '../../services/api';
 import { CMSService } from '../../services/cms';
 import { commerceService } from '../../services/commerce';
 import { jobsApi } from '../../services/jobs';
-import { tokenStore } from '../../services/tokenStore';
 import type { PlatformIntegrationsSettings } from '../../types';
 
 const defaultIntegrations: PlatformIntegrationsSettings = {
@@ -224,15 +223,9 @@ const GoogleSettings: React.FC = () => {
       setServerStatus(healthData);
 
       const serviceEntries = Object.entries(healthData?.services || {}) as Array<[string, string]>;
-      const token = await tokenStore.get();
-      const hasToken = Boolean(token);
-      const isAdminUrl = (url: string) => /\/api\/admin\b/i.test(url);
       const checks = await Promise.all(
         serviceEntries.map(async ([name, url]) => {
           const path = url.startsWith('/api') ? url.replace('/api', '') : url;
-          if (!hasToken && isAdminUrl(url)) {
-            return { name, url, status: 'auth-required' as const, detail: 'Login required' };
-          }
           const start = performance.now();
           try {
             await api.get(path);
@@ -252,9 +245,6 @@ const GoogleSettings: React.FC = () => {
       const adminChecks = await Promise.all([
         (async () => {
           const start = performance.now();
-          if (!hasToken) {
-            return { name: 'admin', url: '/api/admin/health', status: 'auth-required' as const, detail: 'Login required' };
-          }
           try {
             await api.get('/admin/health');
             return { name: 'admin', url: '/api/admin/health', status: 'ok' as const, latencyMs: Math.round(performance.now() - start) };
@@ -268,9 +258,6 @@ const GoogleSettings: React.FC = () => {
         })(),
         (async () => {
           const start = performance.now();
-          if (!hasToken) {
-            return { name: 'market-intelligence', url: '/api/admin/market-intelligence/health', status: 'auth-required' as const, detail: 'Login required' };
-          }
           try {
             await api.get('/admin/market-intelligence/health');
             return { name: 'market-intelligence', url: '/api/admin/market-intelligence/health', status: 'ok' as const, latencyMs: Math.round(performance.now() - start) };

@@ -64,7 +64,8 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliate: 'affiliate-program',
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
-    referrals: 'affiliate-program'
+    referrals: 'affiliate-program',
+    marketplace: 'marketplace'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -73,9 +74,23 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     const employerMap: Record<string, string> = {
       jobs: 'my-jobs',
       job: 'my-jobs',
+      'my-jobs': 'my-jobs',
+      order: 'orders',
+      orders: 'orders',
       proposals: 'proposals-offers',
       proposal: 'proposals-offers',
-      offers: 'proposals-offers'
+      offers: 'proposals-offers',
+      'proposals-offers': 'proposals-offers',
+      briefs: 'project-briefs',
+      brief: 'project-briefs',
+      projectbriefs: 'project-briefs',
+      'project-briefs': 'project-briefs',
+      resume: 'resume-reviewer',
+      resumes: 'resume-reviewer',
+      cv: 'resume-reviewer',
+      cvs: 'resume-reviewer',
+      reviewer: 'resume-reviewer',
+      'resume-reviewer': 'resume-reviewer'
     };
     return employerMap[tab] || tab;
   }
@@ -85,7 +100,12 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       gigs: 'my-gigs',
       gig: 'my-gigs',
       proposals: 'my-proposals',
-      proposal: 'my-proposals'
+      proposal: 'my-proposals',
+      resume: 'resume-builder',
+      resumes: 'resume-builder',
+      cv: 'resume-builder',
+      cvs: 'resume-builder',
+      'resume-builder': 'resume-builder'
     };
     return freelancerMap[tab] || tab;
   }
@@ -198,8 +218,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    const newUrl = `${location.pathname}?tab=${tab}`;
-    window.history.replaceState({}, '', newUrl);
+    const params = new URLSearchParams(location.search);
+    params.set('tab', tab);
+    const nextSearch = params.toString();
+    navigate(`${location.pathname}${nextSearch ? `?${nextSearch}` : ''}`, { replace: true });
     setIsSidebarOpen(false);
     window.dispatchEvent(new CustomEvent('dashboard-navigation', { detail: { tab } }));
   };
@@ -247,7 +269,15 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'overview', label: 'Overview', icon: LayoutDashboard, description: 'Live KPIs, command center, and work priorities' },
             { tab: 'community', label: 'Community', icon: Users, description: 'Posts, network momentum, and audience activity' },
-            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Brand pages, settings, and publishing controls' }
+            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Business-page command center, governance, and publishing operations' }
+          ]
+        },
+        {
+          id: 'marketplace',
+          title: 'Marketplace',
+          description: 'Buy and sell listings in one place.',
+          items: [
+            { tab: 'marketplace', label: 'Marketplace', icon: ShoppingBag, description: 'Browse, list, and manage marketplace items' }
           ]
         },
         {
@@ -259,7 +289,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Campaign visibility and promotion controls' },
             { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Delivery queue, milestones, and deadlines' },
             { tab: 'contracts', label: 'Contracts', icon: ClipboardList, description: 'Running engagements and commercial terms' },
-            { tab: 'my-proposals', label: 'My Proposals', icon: FileText, description: 'Pipeline follow-up and proposal outcomes' }
+            { tab: 'my-proposals', label: 'My Proposals', icon: FileText, description: 'Pipeline follow-up and proposal outcomes' },
+            { tab: 'resume-builder', label: 'Resume/CV Builder', icon: FileText, description: 'Generate, edit, preview, and export resumes with Scrolitha AI' }
           ]
         },
         { id: 'finance', title: 'Finance', description: 'Payments, rewards, and monetization readiness.', items: financeItems },
@@ -298,7 +329,15 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'overview', label: 'Overview', icon: LayoutDashboard, description: 'Live hiring command center and queue health' },
             { tab: 'community', label: 'Community', icon: Users, description: 'Audience engagement and publishing surfaces' },
-            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Company page operations and brand governance' }
+            { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Business-page command center, governance, and brand operations' }
+          ]
+        },
+        {
+          id: 'marketplace',
+          title: 'Marketplace',
+          description: 'Browse, list, and manage marketplace items.',
+          items: [
+            { tab: 'marketplace', label: 'Marketplace', icon: ShoppingBag, description: 'Browse, list, and manage marketplace items' }
           ]
         },
         {
@@ -307,7 +346,10 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           description: 'Hiring workflows, candidate review, and delivery management.',
           items: [
             { tab: 'my-jobs', label: 'My Jobs', icon: BriefcaseBusiness, description: 'Open roles, pipeline depth, and response rates' },
+            { tab: 'project-briefs', label: 'Project Briefs', icon: FileText, description: 'AI briefs, requirement drafts, and client-side scoping' },
             { tab: 'my-ads', label: 'My Ads', icon: Megaphone, description: 'Promotion campaigns for hiring visibility' },
+            { tab: 'resume-reviewer', label: 'Resume/CV Reviewer', icon: ClipboardList, description: 'Analyze resumes and public profiles against role criteria' },
+            { tab: 'orders', label: 'Orders', icon: ShoppingBag, description: 'Purchased services, delivery progress, and order status' },
             { tab: 'proposals-offers', label: 'Proposals & Offers', icon: FileText, description: 'Applicant review, shortlist, and offers' },
             { tab: 'contracts', label: 'Contracts', icon: ClipboardList, description: 'Active engagements, milestones, and escrow' }
           ]
@@ -346,14 +388,14 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
         {isSidebarOpen && (
           <button
             type="button"
-            className="fixed inset-0 z-30 bg-black/40 md:hidden"
+            className="fixed inset-x-0 bottom-0 top-14 z-30 bg-black/40 md:hidden"
             aria-label="Close dashboard menu"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[88vw] overflow-y-auto border-r border-gray-200 bg-white p-4 transition-transform duration-200 ease-out md:static md:z-auto md:w-72 md:max-w-none md:translate-x-0 ${
+          className={`fixed bottom-0 left-0 top-14 z-40 w-[84vw] max-w-[320px] overflow-y-auto border-r border-gray-200 bg-white p-3 transition-transform duration-200 ease-out md:static md:inset-y-0 md:z-auto md:w-64 md:max-w-none md:p-3 md:translate-x-0 lg:w-[268px] xl:w-[280px] xl:p-4 ${
             isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
         >
@@ -422,8 +464,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 p-3 sm:p-4 md:p-6">
-            <div className="mx-auto w-full max-w-7xl min-w-0">{children}</div>
+          <main className="min-w-0 flex-1 p-3 sm:p-4 md:p-6 xl:px-8 2xl:px-10">
+            <div className="mx-auto w-full max-w-[1700px] min-w-0">{children}</div>
           </main>
         </div>
       </div>

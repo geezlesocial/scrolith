@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Heart, MessageCircle, Repeat, Share2, Loader2, Zap, Eye, Smile } from 'lucide-react';
+import { Heart, MessageCircle, Repeat, Loader2, Coins, Send, Eye } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { CommunityService } from '../services/community';
 import { useNotification } from '../context/NotificationContext';
@@ -119,23 +119,52 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
         }
     };
 
+    const buttonBase =
+        'group relative inline-flex aspect-square min-h-[64px] flex-1 items-center justify-center rounded-[28px] border border-slate-200/60 bg-white/90 px-2 py-2 text-slate-600 transition hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white hover:shadow-sm';
+    const iconWrap =
+        'inline-flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition group-hover:bg-slate-900 group-hover:text-white';
+    const badgeBase =
+        'absolute -right-2 -top-2 inline-flex min-w-5 items-center justify-center rounded-full border border-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm';
+    const viewCount = Math.max(0, Number(counts.views || 0));
+
     return (
-        <div className="flex items-center justify-between text-gray-500 text-sm mt-3 pt-3 border-t border-gray-100">
+        <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-end">
+                <div
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 shadow-sm"
+                    title={`${viewCount.toLocaleString()} views`}
+                    aria-label={`${viewCount.toLocaleString()} views`}
+                >
+                    <Eye className="h-3.5 w-3.5" />
+                    <span>{viewCount.toLocaleString()} views</span>
+                </div>
+            </div>
+            <div className="grid grid-cols-5 gap-2 rounded-[32px] border border-slate-200/80 bg-slate-50/75 p-2 shadow-sm">
             <button 
                 onClick={handleLike}
                 disabled={isProcessing}
-                className={`flex items-center space-x-1 hover:text-red-500 transition ${state.liked ? 'text-red-500' : ''} ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label={`Like ${counts.likes}`}
+                title={`Like ${counts.likes}`}
+                className={`${buttonBase} ${state.liked ? 'border-rose-200 bg-rose-50/70 text-rose-600 hover:bg-rose-50' : ''} ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-                {isProcessing && type === 'like' ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                    <Heart className={`w-4 h-4 ${state.liked ? 'fill-current' : ''}`} />
-                )}
-                <span>{counts.likes}</span>
+                <span className="relative inline-flex items-center justify-center">
+                    <span className={`${iconWrap} ${state.liked ? 'bg-rose-100 text-rose-600' : ''}`}>
+                        {isProcessing && type === 'like' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Heart className={`h-4 w-4 ${state.liked ? 'fill-current' : ''}`} />
+                        )}
+                    </span>
+                    <span className={`${badgeBase} bg-slate-900`}>
+                        {counts.likes}
+                    </span>
+                </span>
             </button>
 
             <button 
-                className="flex items-center space-x-1 hover:text-blue-500 transition"
+                aria-label={`Comment ${counts.comments}`}
+                title={`Comment ${counts.comments}`}
+                className={buttonBase}
                 onClick={() => {
                     if (checkAuth()) {
                         // Navigate to comments section
@@ -143,51 +172,71 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
                     }
                 }}
             >
-                <MessageCircle className="w-4 h-4" />
-                <span>{counts.comments}</span>
+                <span className="relative inline-flex items-center justify-center">
+                    <span className={iconWrap}>
+                        <MessageCircle className="h-4 w-4" />
+                    </span>
+                    <span className={`${badgeBase} bg-slate-900`}>
+                        {counts.comments}
+                    </span>
+                </span>
             </button>
 
             <button 
                 onClick={handleRepost}
                 disabled={isProcessing}
-                className={`flex items-center space-x-1 hover:text-green-500 transition ${state.reposted ? 'text-green-600' : ''} ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label={`Repost ${counts.reposts}`}
+                title={`Repost ${counts.reposts}`}
+                className={`${buttonBase} ${state.reposted ? 'border-emerald-200 bg-emerald-50/70 text-emerald-600 hover:bg-emerald-50' : ''} ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-                {isProcessing && type === 'repost' ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                    <Repeat className="w-4 h-4" />
-                )}
-                <span>{counts.reposts}</span>
+                <span className="relative inline-flex items-center justify-center">
+                    <span className={`${iconWrap} ${state.reposted ? 'bg-emerald-100 text-emerald-600' : ''}`}>
+                        {isProcessing && type === 'repost' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Repeat className="h-4 w-4" />
+                        )}
+                    </span>
+                    <span className={`${badgeBase} bg-slate-900`}>
+                        {counts.reposts}
+                    </span>
+                </span>
             </button>
 
             <button 
                 onClick={handleShareClick}
                 disabled={isProcessing}
-                className="flex items-center space-x-1 hover:text-indigo-500 transition"
+                aria-label={`Send ${counts.shares}`}
+                title={`Send ${counts.shares}`}
+                className={buttonBase}
             >
-                <Share2 className="w-4 h-4" />
-                <span>{counts.shares}</span>
+                <span className="relative inline-flex items-center justify-center">
+                    <span className={iconWrap}>
+                        <Send className="h-4 w-4" />
+                    </span>
+                    <span className={`${badgeBase} bg-slate-900`}>
+                        {counts.shares}
+                    </span>
+                </span>
             </button>
-
-            <span className="flex items-center space-x-1 text-slate-500">
-                <Eye className="w-4 h-4" />
-                <span>{counts.views ?? 0}</span>
-            </span>
-
-            <span className="flex items-center space-x-1 text-slate-500">
-                <Smile className="w-4 h-4" />
-                <span>{counts.reactions ?? 0}</span>
-            </span>
 
             <button
                 onClick={() => {
                     if (!checkAuth()) return;
                     setIsSendModalOpen(true);
                 }}
-                className="flex items-center space-x-1 hover:text-yellow-500 transition"
+                aria-label={`Donate Dashcoin ${counts.reactions ?? 0}`}
+                title={`Donate Dashcoin ${counts.reactions ?? 0}`}
+                className={buttonBase}
             >
-                <Zap className="w-4 h-4" />
-                <span className="text-xs">Dash</span>
+                <span className="relative inline-flex items-center justify-center">
+                    <span className={`${iconWrap} text-amber-600 group-hover:text-white`}>
+                        <Coins className="h-4 w-4" />
+                    </span>
+                    <span className={`${badgeBase} bg-emerald-600`}>
+                        {counts.reactions ?? 0}
+                    </span>
+                </span>
             </button>
 
             <ShareModal 
@@ -199,6 +248,7 @@ const InteractionBar: React.FC<Props> = ({ type, id, initialCounts, initialState
             />
 
             <SendGcoinModal isOpen={isSendModalOpen} onClose={() => setIsSendModalOpen(false)} donatePostId={type === 'post' ? id : undefined} />
+            </div>
         </div>
     );
 };

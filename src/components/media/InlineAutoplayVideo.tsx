@@ -1,31 +1,143 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 type InlineAutoplayVideoProps = {
   src: string;
   poster?: string | null;
   className?: string;
+  containerClassName?: string;
   controls?: boolean;
   loop?: boolean;
   preload?: 'none' | 'metadata' | 'auto';
   autoplayEnabled?: boolean;
+  active?: boolean;
+  muted?: boolean;
+  defaultMuted?: boolean;
+  onMutedChange?: (muted: boolean) => void;
+  showMuteToggle?: boolean;
+  threshold?: number;
+  rootMargin?: string;
+  preloadRootMargin?: string;
+  eagerLoad?: boolean;
   onDoubleTapLike?: () => void;
+  onEnded?: () => void;
+  onLoadStart?: () => void;
+  onLoadedData?: () => void;
+  onCanPlay?: () => void;
+  onPlaying?: () => void;
+  onError?: () => void;
+  overlay?: React.ReactNode | ((video: HTMLVideoElement | null) => React.ReactNode);
+  loadingLabel?: string | false;
 };
 
 const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   src,
   poster,
   className = '',
+  containerClassName = '',
   controls = true,
   loop = false,
   preload = 'metadata',
   autoplayEnabled = true,
-  onDoubleTapLike
+  active = true,
+  muted,
+  defaultMuted = true,
+  onMutedChange,
+  showMuteToggle = true,
+  threshold = 0.35,
+  rootMargin = '0px 0px -10% 0px',
+  preloadRootMargin = '160px 0px 160px 0px',
+  eagerLoad = false,
+  onDoubleTapLike,
+  onEnded,
+  onLoadStart,
+  onLoadedData,
+  onCanPlay,
+  onPlaying,
+  onError,
+  overlay,
+  loadingLabel = false
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [isMuted, setIsMuted] = useState(true);
+  const [videoNode, setVideoNode] = useState<HTMLVideoElement | null>(null);
+  const [internalMuted, setInternalMuted] = useState(defaultMuted);
   const [isInView, setIsInView] = useState(false);
+  const [shouldLoadSource, setShouldLoadSource] = useState(() => eagerLoad || !autoplayEnabled || controls);
+  const [isLoadingVideo, setIsLoadingVideo] = useState(() => Boolean(src));
   const userPausedRef = useRef(false);
   const lastTapAtRef = useRef(0);
+  const activeRef = useRef(active);
+  const autoplayEnabledRef = useRef(autoplayEnabled);
+  const isInViewRef = useRef(isInView);
+  const internalPauseUntilRef = useRef(0);
+  const isMuted = muted ?? internalMuted;
+  const setVideoElement = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    setVideoNode((current) => (current === node ? current : node));
+  }, []);
+
+  const resumePlaybackFromInteraction = useCallback(() => {
+    const node = videoRef.current;
+    if (!node || !src || !active) return;
+
+    userPausedRef.current = false;
+    internalPauseUntilRef.current = 0;
+    node.muted = isMuted;
+    node.playsInline = true;
+
+    const playNow = () => {
+      const playAttempt = node.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') {
+        playAttempt.catch(() => undefined);
+      }
+    };
+
+    if (!shouldLoadSource) {
+      setShouldLoadSource(true);
+      window.setTimeout(() => {
+        if (videoRef.current === node) {
+          try {
+            node.load();
+          } catch {}
+          playNow();
+        }
+      }, 0);
+      return;
+    }
+
+    if (node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      playNow();
+      return;
+    }
+
+    const playWhenReady = () => {
+      node.removeEventListener('loadeddata', playWhenReady);
+      node.removeEventListener('canplay', playWhenReady);
+      playNow();
+    };
+
+    node.addEventListener('loadeddata', playWhenReady);
+    node.addEventListener('canplay', playWhenReady);
+    try {
+      node.load();
+    } catch {}
+  }, [active, isMuted, shouldLoadSource, src]);
+
+  useEffect(() => {
+    activeRef.current = active;
+    autoplayEnabledRef.current = autoplayEnabled;
+    isInViewRef.current = isInView;
+  }, [active, autoplayEnabled, isInView]);
+
+  useEffect(() => {
+    userPausedRef.current = false;
+    internalPauseUntilRef.current = 0;
+    setIsLoadingVideo(Boolean(src));
+    if (eagerLoad) setShouldLoadSource(Boolean(src));
+  }, [eagerLoad, src]);
+
+  useEffect(() => {
+    if (eagerLoad && src) setShouldLoadSource(true);
+  }, [eagerLoad, src]);
 
   useEffect(() => {
     const node = videoRef.current;
@@ -38,6 +150,18 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     const node = videoRef.current;
     if (!node) return;
 
+    const preloadObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setShouldLoadSource(true);
+        }
+      },
+      {
+        threshold: 0.01,
+        rootMargin: preloadRootMargin
+      }
+    );
+
     const observer = new IntersectionObserver(
       (entries) => {
         const nextInView = Boolean(entries[0]?.isIntersecting);
@@ -47,30 +171,57 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
         }
       },
       {
-        threshold: 0.6,
-        rootMargin: '0px 0px -10% 0px'
+        threshold,
+        rootMargin
       }
     );
 
+    preloadObserver.observe(node);
     observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
+    return () => {
+      preloadObserver.disconnect();
+      observer.disconnect();
+    };
+  }, [preloadRootMargin, rootMargin, threshold]);
 
   useEffect(() => {
     const node = videoRef.current;
     if (!node) return;
 
-    if (!autoplayEnabled || !isInView || document.hidden) {
+    node.muted = isMuted;
+    node.playsInline = true;
+    node.loop = loop;
+
+    const pauseProgrammatically = () => {
+      internalPauseUntilRef.current = Date.now() + 300;
       if (!node.paused) node.pause();
+    };
+
+    const playIfAllowed = () => {
+      if (!autoplayEnabled || !active || !isInView || document.hidden || userPausedRef.current) return;
+      node.muted = isMuted;
+      const playAttempt = node.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') {
+        playAttempt.catch(() => undefined);
+      }
+    };
+
+    if (!autoplayEnabled || !active || !isInView || document.hidden) {
+      pauseProgrammatically();
       return;
     }
 
     if (userPausedRef.current) return;
-    const playAttempt = node.play();
-    if (playAttempt && typeof playAttempt.catch === 'function') {
-      playAttempt.catch(() => {});
-    }
-  }, [autoplayEnabled, isInView, src]);
+
+    playIfAllowed();
+    node.addEventListener('loadedmetadata', playIfAllowed);
+    node.addEventListener('canplay', playIfAllowed);
+
+    return () => {
+      node.removeEventListener('loadedmetadata', playIfAllowed);
+      node.removeEventListener('canplay', playIfAllowed);
+    };
+  }, [active, autoplayEnabled, isInView, isMuted, loop, src]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -78,33 +229,111 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       if (!node) return;
 
       if (document.hidden) {
+        internalPauseUntilRef.current = Date.now() + 300;
         if (!node.paused) node.pause();
         return;
       }
 
-      if (!autoplayEnabled || !isInView || userPausedRef.current) return;
+      if (!autoplayEnabled || !active || !isInView || userPausedRef.current) return;
+      node.muted = isMuted;
       const playAttempt = node.play();
       if (playAttempt && typeof playAttempt.catch === 'function') {
-        playAttempt.catch(() => {});
+        playAttempt.catch(() => undefined);
       }
     };
 
     document.addEventListener('visibilitychange', onVisibilityChange);
     return () => document.removeEventListener('visibilitychange', onVisibilityChange);
-  }, [autoplayEnabled, isInView]);
+  }, [active, autoplayEnabled, isInView, isMuted]);
 
-  const effectivePreload: 'none' | 'metadata' | 'auto' = autoplayEnabled ? preload : 'none';
+  useEffect(() => {
+    const node = videoRef.current;
+    if (!node) return;
+
+    const syncLoadingState = () => {
+      const hasSource = Boolean(node.currentSrc || node.getAttribute('src') || src);
+      const ready = hasSource && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
+      setIsLoadingVideo(Boolean(hasSource && !ready && !node.ended));
+    };
+
+    const handleLoadStart = () => {
+      setIsLoadingVideo(Boolean(src));
+      onLoadStart?.();
+    };
+    const handleWaiting = () => {
+      if (!node.ended) setIsLoadingVideo(true);
+    };
+    const handleLoadedData = () => {
+      setIsLoadingVideo(false);
+      onLoadedData?.();
+    };
+    const handleCanPlay = () => {
+      setIsLoadingVideo(false);
+      onCanPlay?.();
+    };
+    const handlePlaying = () => {
+      setIsLoadingVideo(false);
+      onPlaying?.();
+    };
+    const handleSeeked = () => setIsLoadingVideo(false);
+    const handleEnded = () => setIsLoadingVideo(false);
+    const handleEmptied = () => setIsLoadingVideo(Boolean(src));
+    const handleError = () => {
+      setIsLoadingVideo(false);
+      onError?.();
+    };
+
+    syncLoadingState();
+
+    node.addEventListener('loadstart', handleLoadStart);
+    node.addEventListener('waiting', handleWaiting);
+    node.addEventListener('loadeddata', handleLoadedData);
+    node.addEventListener('canplay', handleCanPlay);
+    node.addEventListener('playing', handlePlaying);
+    node.addEventListener('seeked', handleSeeked);
+    node.addEventListener('ended', handleEnded);
+    node.addEventListener('emptied', handleEmptied);
+    node.addEventListener('error', handleError);
+
+    return () => {
+      node.removeEventListener('loadstart', handleLoadStart);
+      node.removeEventListener('waiting', handleWaiting);
+      node.removeEventListener('loadeddata', handleLoadedData);
+      node.removeEventListener('canplay', handleCanPlay);
+      node.removeEventListener('playing', handlePlaying);
+      node.removeEventListener('seeked', handleSeeked);
+      node.removeEventListener('ended', handleEnded);
+      node.removeEventListener('emptied', handleEmptied);
+      node.removeEventListener('error', handleError);
+    };
+  }, [onCanPlay, onError, onLoadStart, onLoadedData, onPlaying, src, shouldLoadSource]);
+
+  const effectivePreload: 'none' | 'metadata' | 'auto' =
+    shouldLoadSource && active && isInView ? preload : shouldLoadSource ? 'metadata' : 'none';
 
   useEffect(() => {
     const node = videoRef.current;
     if (!node) return;
 
     const onVolumeChange = () => {
-      setIsMuted(Boolean(node.muted || node.volume === 0));
+      const nextMuted = Boolean(node.muted || node.volume === 0);
+      if (muted === undefined) {
+        setInternalMuted((prev) => (prev === nextMuted ? prev : nextMuted));
+      }
+      if (nextMuted !== isMuted) {
+        onMutedChange?.(nextMuted);
+      }
     };
 
     const onPause = () => {
-      if (isInView && !node.ended) {
+      if (
+        Date.now() >= internalPauseUntilRef.current &&
+        isInViewRef.current &&
+        activeRef.current &&
+        autoplayEnabledRef.current &&
+        !document.hidden &&
+        !node.ended
+      ) {
         userPausedRef.current = true;
       }
     };
@@ -122,18 +351,34 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       node.removeEventListener('pause', onPause);
       node.removeEventListener('play', onPlay);
     };
-  }, [isInView]);
+  }, [isMuted, muted, onMutedChange]);
+
+  useEffect(() => {
+    return () => {
+      const node = videoRef.current;
+      if (!node) return;
+      try {
+        node.pause();
+        node.removeAttribute('src');
+        node.load();
+      } catch {
+        // Best-effort cleanup so offscreen story/feed videos do not keep buffers alive.
+      }
+    };
+  }, []);
+
+  const overlayContent = typeof overlay === 'function' ? overlay(videoNode) : overlay;
 
   return (
-    <div className="relative">
+    <div className={['relative', containerClassName].filter(Boolean).join(' ')}>
       <video
-        ref={videoRef}
-        src={src}
+        ref={setVideoElement}
+        src={shouldLoadSource ? src : undefined}
         poster={poster || undefined}
         className={className}
         controls={controls}
         controlsList={controls ? 'nodownload' : undefined}
-        autoPlay={autoplayEnabled}
+        autoPlay={autoplayEnabled && active}
         playsInline
         muted={isMuted}
         loop={loop}
@@ -158,20 +403,48 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
           }
           lastTapAtRef.current = now;
         }}
-      />
-      <button
-        type="button"
-        onClick={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          setIsMuted((prev) => !prev);
+        onPointerUp={(event) => {
+          if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
+          if (controls) return;
+          resumePlaybackFromInteraction();
         }}
-        data-inline-video-control="true"
-        className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white backdrop-blur hover:bg-black/80"
-        aria-label={isMuted ? 'Unmute video' : 'Mute video'}
-      >
-        {isMuted ? 'Unmute' : 'Mute'}
-      </button>
+        onClick={() => {
+          if (controls) return;
+          resumePlaybackFromInteraction();
+        }}
+        onEnded={onEnded}
+      />
+      {loadingLabel !== false && shouldLoadSource && isLoadingVideo ? (
+        <div className="pointer-events-none absolute left-3 top-3 z-10">
+          <span className="rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
+            {typeof loadingLabel === 'string' && loadingLabel.trim() ? loadingLabel : 'Video loading'}
+          </span>
+        </div>
+      ) : null}
+      {overlayContent ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center p-3">
+          {overlayContent}
+        </div>
+      ) : null}
+      {showMuteToggle ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const nextMuted = !isMuted;
+            if (muted === undefined) {
+              setInternalMuted(nextMuted);
+            }
+            onMutedChange?.(nextMuted);
+          }}
+          data-inline-video-control="true"
+          className="absolute right-2 top-2 z-10 rounded-full bg-black/70 px-2 py-1 text-[11px] font-semibold text-white backdrop-blur hover:bg-black/80"
+          aria-label={isMuted ? 'Unmute video' : 'Mute video'}
+        >
+          {isMuted ? 'Unmute' : 'Mute'}
+        </button>
+      ) : null}
     </div>
   );
 };

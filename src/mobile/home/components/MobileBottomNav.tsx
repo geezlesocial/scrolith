@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   BellIcon as Bell,
   BriefcaseIcon as Briefcase,
@@ -7,6 +7,7 @@ import {
   PlusSquareIcon as PlusSquare,
   UsersIcon as Users
 } from '../../../components/icons/ShellIcons';
+import { MOBILE_BOTTOM_NAV_CONTAINER_CLASS } from '../mobileShellLayout';
 
 export type MobileTabKey = 'home' | 'network' | 'post' | 'notifications' | 'jobs' | 'messages';
 
@@ -37,6 +38,24 @@ export default function MobileBottomNav({
   };
 
   const badges = settings?.badges ?? {};
+  const recentTouchActionRef = useRef<{ key: MobileTabKey; at: number } | null>(null);
+  const [optimisticActiveTab, setOptimisticActiveTab] = useState<MobileTabKey>(activeTab);
+
+  useEffect(() => {
+    setOptimisticActiveTab(activeTab);
+  }, [activeTab]);
+
+  const triggerTabChange = useCallback(
+    (key: MobileTabKey) => {
+      const now = Date.now();
+      const previous = recentTouchActionRef.current;
+      if (previous?.key === key && now - previous.at < 260) return;
+      recentTouchActionRef.current = { key, at: now };
+      setOptimisticActiveTab(key);
+      onChange(key);
+    },
+    [onChange]
+  );
 
   const items: Array<{
     key: MobileTabKey;
@@ -86,24 +105,29 @@ export default function MobileBottomNav({
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur"
+      className="pointer-events-auto fixed bottom-0 left-0 right-0 z-[140] border-t border-slate-200 bg-white/95 backdrop-blur"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
-      <div className="mx-auto flex max-w-md items-center justify-around px-2 py-2">
+      <div className={MOBILE_BOTTOM_NAV_CONTAINER_CLASS}>
         {visible.map((item) => {
-          const isActive = activeTab === item.key;
+          const isActive = optimisticActiveTab === item.key;
           const primary = item.isPrimary;
           return (
             <button
               key={item.key}
-              onClick={() => onChange(item.key)}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                triggerTabChange(item.key);
+              }}
               className={[
-                'relative flex flex-col items-center justify-center rounded-xl px-3 py-2 text-[11px] font-semibold',
+                'relative flex flex-col items-center justify-center rounded-xl px-3 py-2 text-[11px] font-semibold touch-manipulation',
                 isActive ? 'text-slate-900' : 'text-slate-500',
                 primary ? 'bg-slate-900 text-white' : 'hover:bg-slate-50'
               ].join(' ')}
               aria-label={item.label}
               type="button"
+              style={{ WebkitTapHighlightColor: 'transparent' }}
             >
               <div className="relative">
                 {item.icon}

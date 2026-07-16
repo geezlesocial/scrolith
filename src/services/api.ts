@@ -1,5 +1,4 @@
 import axios from 'axios';
-import { Capacitor } from '@capacitor/core';
 import { tokenStore } from './tokenStore';
 import { getApiBaseUrl } from '../utils/apiBase';
 import { resolveAssetUrl } from '../utils/assetUrl';
@@ -15,13 +14,8 @@ if (import.meta.env.PROD && !hasBackendEnv) {
   throw new Error('VITE_BACKEND_URL (or VITE_API_URL) must be set when building for production');
 }
 
-const isNative = () => {
-  try {
-    return Capacitor.isNativePlatform();
-  } catch {
-    return false;
-  }
-};
+const isNative = () =>
+  typeof window !== 'undefined' && Boolean((window as any).Capacitor);
 
 const isAbsoluteRequestUrl = (value: unknown) => /^https?:\/\//i.test(String(value || '').trim());
 const parseTimeoutMs = (value: unknown, fallback: number) => {
@@ -51,7 +45,9 @@ const isConstrainedNetwork = () => {
 };
 const DEFAULT_TIMEOUT_MS = parseTimeoutMs(
   import.meta.env.VITE_API_TIMEOUT_MS,
-  isNative() ? (isConstrainedNetwork() ? 9000 : 12000) : 10000
+  isNative()
+    ? (isConstrainedNetwork() ? 22000 : 20000)
+    : (isConstrainedNetwork() ? 18000 : 16000)
 );
 const RETRY_BASE_DELAY_MS = 280;
 const MAX_RETRY_DELAY_MS = 2500;
@@ -79,6 +75,8 @@ const computeRetryDelayMs = (error: any, attempt: number) => {
 };
 const shouldRetryRequest = (error: any) => {
   const config = (error?.config || {}) as any;
+  if (config.__skipRetry) return false;
+
   const method = String(config?.method || 'get').toLowerCase();
   if (method !== 'get') return false;
 
@@ -162,6 +160,19 @@ api.interceptors.request.use(
     if (!config.baseURL && !isAbsoluteRequestUrl(config.url)) {
       config.baseURL = getApiBaseUrl();
     }
+    const isFormDataPayload =
+      typeof FormData !== 'undefined' &&
+      config.data instanceof FormData;
+    if (isFormDataPayload && config.headers) {
+      const headers = config.headers as any;
+      if (typeof headers.delete === 'function') {
+        headers.delete('Content-Type');
+        headers.delete('content-type');
+      } else {
+        delete headers['Content-Type'];
+        delete headers['content-type'];
+      }
+    }
     const token = await readToken();
     if (token) {
       if (!config.headers) {
@@ -187,35 +198,20 @@ api.interceptors.response.use(
   },
   async (error) => {
     if (error.response?.status === 401) {
-      const headers = error.config?.headers || {};
-      const authHeader = headers.Authorization || headers.authorization;
+      const config = (error?.config || {}) as any;
       const url = String(error.config?.url || '').toLowerCase();
-      const message = String(
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        ''
-      ).toLowerCase();
-      const isAuthValidationRoute =
-        url.includes('/auth/me') ||
-        url.includes('/auth/logout') ||
-        url.includes('/auth/refresh');
-      const isTokenInvalid =
-        message.includes('invalid token') ||
-        message.includes('jwt') ||
-        message.includes('token expired') ||
-        message.includes('no token provided') ||
-        message.includes('user not found');
+      const isAuthMeRoute = url.includes('/auth/me');
+      const shouldClearForAuthCheck = isAuthMeRoute && config.__authValidation === true;
 
-      // Clear session only when auth itself failed (invalid/expired token),
-      // not for generic authorization failures on feature endpoints.
-      if (authHeader && (isAuthValidationRoute || isTokenInvalid)) {
-        await tokenStore.clear();
+      // Feature/background endpoints can legitimately return 401 while the app
+      // is still booting, after logout, or for optional widgets. Do not turn
+      // those into global logout redirects. UserContext owns session invalidation
+      // from the authoritative /auth/me check.
+      if (shouldClearForAuthCheck) {
         try {
-          localStorage.removeItem('user');
-        } catch {}
-        const isAuthRoute = window.location.pathname.startsWith('/auth/');
-        if (!isAuthRoute) {
-          window.location.href = '/auth/login';
+          window.dispatchEvent(new CustomEvent('scrolith:auth-invalid'));
+        } catch {
+          // Ignore event dispatch failures in non-browser contexts.
         }
       }
     }

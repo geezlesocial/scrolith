@@ -5,6 +5,7 @@ import { FileService } from '../../services/files';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import { Upload, Eye, Trash2, Copy, Download, Shield } from 'lucide-react';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 
 type TabKey = 'all' | 'images' | 'videos' | 'documents';
 
@@ -63,6 +64,7 @@ const normalizeType = (file: UploadedFile) => {
 const UploadedFilesTab = () => {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('all');
+  const [brokenPreviews, setBrokenPreviews] = useState<Record<string, boolean>>({});
   const { showNotification } = useNotification();
   const { user } = useUser();
 
@@ -73,6 +75,7 @@ const UploadedFilesTab = () => {
     })
       .then(({ files: uploadedFiles }) => {
         setFiles(uploadedFiles);
+        setBrokenPreviews({});
       })
       .catch((error) => {
         console.error('Failed to load files:', error);
@@ -185,22 +188,53 @@ const UploadedFilesTab = () => {
             const normalizedType = normalizeType(file);
             const isImage = normalizedType === 'image';
             const isVideo = normalizedType === 'video';
+            const fileUrl =
+              resolvePostAttachmentMediaUrl({
+                url: file.url,
+                fileId: file.id || (file as any).fileId,
+                storageKey: (file as any).storageKey || (file as any).storage_key
+              }) || String(file.url || '').trim();
+            const previewUrl =
+              resolvePostAttachmentMediaUrl({
+                url: isVideo
+                  ? file.thumbnailUrl || file.thumbnail_url || file.url
+                  : file.url,
+                fileId: isVideo
+                  ? (file as any).thumbnailFileId || file.id || (file as any).fileId
+                  : file.id || (file as any).fileId,
+                storageKey: (file as any).storageKey || (file as any).storage_key
+              }) || fileUrl;
+            const isPreviewBroken = Boolean(brokenPreviews[file.id]);
             return (
               <div key={file.id} className="group relative rounded-xl border border-gray-200 bg-white overflow-hidden shadow-sm hover:shadow-md transition-all">
                 <div className="aspect-video bg-gray-100 flex items-center justify-center overflow-hidden">
-                  {isImage ? (
-                    <img src={file.url} className="w-full h-full object-cover" alt={file.name} />
-                  ) : isVideo ? (
+                  {isImage && !isPreviewBroken ? (
+                    <img
+                      src={previewUrl}
+                      className="w-full h-full object-cover"
+                      alt={file.name}
+                      onError={() =>
+                        setBrokenPreviews((current) => ({ ...current, [file.id]: true }))
+                      }
+                    />
+                  ) : isVideo && !isPreviewBroken ? (
                     <video
-                      src={file.url}
+                      src={fileUrl}
+                      poster={previewUrl || undefined}
                       className="w-full h-full object-cover"
                       muted
                       playsInline
                       preload="metadata"
+                      onError={() =>
+                        setBrokenPreviews((current) => ({ ...current, [file.id]: true }))
+                      }
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center h-full text-gray-400 text-xs font-medium p-4 text-center break-words">
                       <FileTypeLabel type={file.mime_type || file.type} />
+                      {isPreviewBroken ? (
+                        <span className="mt-2 text-amber-600">Preview unavailable</span>
+                      ) : null}
                       <span className="mt-2 text-gray-500">{formatSize(file.size)}</span>
                     </div>
                   )}
@@ -224,7 +258,7 @@ const UploadedFilesTab = () => {
                   </div>
                   <div className="flex justify-between gap-2 pt-1">
                     <a
-                      href={file.url}
+                      href={fileUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex-1 p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 text-xs font-medium flex items-center justify-center gap-1"
@@ -235,12 +269,12 @@ const UploadedFilesTab = () => {
                     <button
                       className="flex-1 p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-xs font-medium flex items-center justify-center gap-1"
                       title="Copy URL"
-                      onClick={() => handleCopyUrl(file.url)}
+                      onClick={() => handleCopyUrl(fileUrl)}
                     >
                       <Copy className="w-3 h-3" /> Copy
                     </button>
                     <a
-                      href={file.url}
+                      href={fileUrl}
                       download
                       className="flex-1 p-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 text-xs font-medium flex items-center justify-center gap-1"
                       title="Download"

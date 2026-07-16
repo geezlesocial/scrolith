@@ -10,6 +10,25 @@ const extractData = <T>(response: any): T => {
   return response as T;
 };
 
+const normalizeRewriteResponse = (payload: any) => {
+  const rewrittenText = String(
+    payload?.rewrittenText ||
+      payload?.enhancedText ||
+      payload?.rewrite ||
+      payload?.text ||
+      payload?.reply ||
+      ''
+  ).trim();
+
+  return {
+    ...(payload && typeof payload === 'object' ? payload : {}),
+    rewrittenText,
+    enhancedText: rewrittenText,
+    rewrite: rewrittenText,
+    text: rewrittenText || String(payload?.text || '').trim()
+  };
+};
+
 export type ScrolithaSuggestedAction = {
   actionId: string;
   actionKey: string;
@@ -38,6 +57,8 @@ export type ScrolithaSuggestedAction = {
     method: string;
   };
 };
+
+export type ScrolithaRewriteMode = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand';
 
 export type ScrolithaChatResponse = {
   conversationId: string | null;
@@ -80,10 +101,24 @@ export type ScrolithaWidgetConfig = {
   maxHistoryItems?: number;
 };
 
+export type ScrolithaChatContext = {
+  page?: string;
+  entityId?: string;
+  surface?: string;
+  accountType?: string;
+  userName?: string;
+  userRole?: string;
+  userId?: string;
+  locale?: string;
+  source?: string;
+  route?: string;
+  [key: string]: unknown;
+};
+
 export class ScrolithaService {
   static async chat(payload: {
     message: string;
-    context?: { page?: string; entityId?: string };
+    context?: ScrolithaChatContext;
     conversationId?: string;
   }): Promise<ScrolithaChatResponse> {
     const response = await api.post('/scrolitha/chat', payload, { timeout: SCROLITHA_CHAT_TIMEOUT_MS });
@@ -99,9 +134,15 @@ export class ScrolithaService {
     return extractData<any>(response);
   }
 
-  static async rewrite(payload: { text: string; tone?: string; goal?: string; scope?: string }): Promise<any> {
+  static async rewrite(payload: {
+    text: string;
+    tone?: string;
+    goal?: string;
+    scope?: string;
+    mode?: ScrolithaRewriteMode;
+  }): Promise<any> {
     const response = await api.post('/scrolitha/rewrite', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
-    return extractData<any>(response);
+    return normalizeRewriteResponse(extractData<any>(response));
   }
 
   static async hashtags(payload: { text: string; scope?: string; limit?: number }): Promise<any> {

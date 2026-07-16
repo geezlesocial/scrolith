@@ -6,10 +6,13 @@ import {
   SparklesIcon as Sparkles,
   TagIcon as Tag
 } from '../../../components/icons/ShellIcons';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
+import OptimizedImage from '../../../components/media/OptimizedImage';
+import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 import { resolveVerificationLevel } from '../../../utils/verification';
-import { resolveAssetUrl } from '../../../utils/assetUrl';
+import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
+import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
 
 type JobLike = {
   id: string;
@@ -21,6 +24,7 @@ type JobLike = {
   clientId?: string | null;
   clientName?: string | null;
   clientAvatar?: string | null;
+  clientProfilePhotoFileId?: string | null;
   clientIsVerified?: boolean;
   client_is_verified?: boolean;
   clientVerified?: boolean;
@@ -44,6 +48,7 @@ type GigLike = {
   freelancerId?: string | null;
   freelancerName?: string | null;
   freelancerAvatar?: string | null;
+  freelancerProfilePhotoFileId?: string | null;
   freelancerIsVerified?: boolean;
   freelancer_is_verified?: boolean;
   freelancerVerified?: boolean;
@@ -53,6 +58,12 @@ type GigLike = {
   freelancer_badge_type?: string | null;
   freelancerIsPro?: boolean;
   freelancerType?: string | null;
+  freelancerTrustScore?: number | null;
+  freelancer_trust_score?: number | null;
+  freelancerTrustTier?: string | null;
+  freelancer_trust_tier?: string | null;
+  freelancerCompletedJobs?: number | null;
+  freelancer_completed_jobs?: number | null;
   image?: string | null;
   images?: string[] | null;
 };
@@ -83,29 +94,103 @@ const firstString = (values: unknown[]): string => {
   return '';
 };
 
-const pickFirstFromList = (values: unknown): string => {
-  if (!Array.isArray(values)) return '';
+const pickFirstMediaEntry = (values: unknown) => {
+  if (!Array.isArray(values)) return null;
   for (const value of values) {
+    if (!value) continue;
     if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'object') return value;
   }
-  return '';
+  return null;
+};
+
+const isRawApiUploadUrl = (value: unknown) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  return (
+    normalized.startsWith('https://api.scrolith.com/uploads/') ||
+    normalized.startsWith('http://api.scrolith.com/uploads/') ||
+    normalized.startsWith('/uploads/') ||
+    normalized.startsWith('uploads/')
+  );
+};
+
+const listingHasUsableImageFileId = (row: any) => {
+  const directCandidates = [
+    row?.imageFileId,
+    row?.image_file_id,
+    row?.thumbnailFileId,
+    row?.thumbnail_file_id,
+    row?.mediaId,
+    row?.media_id,
+    row?.attachmentId,
+    row?.attachment_id,
+    row?.creativeFileId,
+    row?.creative_file_id,
+    row?.fileId,
+    row?.file_id
+  ];
+  if (directCandidates.some((value) => String(value || '').trim())) return true;
+
+  const mediaEntries = [pickFirstMediaEntry(row?.images), pickFirstMediaEntry(row?.media)];
+  return mediaEntries.some((entry: any) => {
+    if (!entry || typeof entry !== 'object') return false;
+    return [
+      entry?.fileId,
+      entry?.file_id,
+      entry?.thumbnailFileId,
+      entry?.thumbnail_file_id,
+      entry?.mediaId,
+      entry?.media_id,
+      entry?.attachmentId,
+      entry?.attachment_id,
+      entry?.asset?.id,
+      entry?.file?.id,
+      entry?.id
+    ].some((value) => String(value || '').trim());
+  });
 };
 
 const resolveListingImage = (row: any) => {
-  const raw = firstString([
-    row?.image,
-    row?.coverImage,
-    row?.cover,
-    row?.thumbnailUrl,
-    row?.thumbnail_url,
-    row?.previewImage,
-    row?.preview_image,
-    pickFirstFromList(row?.images),
-    pickFirstFromList(row?.media),
-    row?.clientAvatar,
-    row?.freelancerAvatar
-  ]);
-  return raw ? resolveAssetUrl(raw) : '';
+  const mediaCandidate =
+    pickFirstMediaEntry(row?.images) ||
+    pickFirstMediaEntry(row?.media) ||
+    row?.image ||
+    row?.coverImage ||
+    row?.cover ||
+    row?.thumbnailUrl ||
+    row?.thumbnail_url ||
+    row?.previewImage ||
+    row?.preview_image ||
+    row?.clientAvatar ||
+    row?.freelancerAvatar ||
+    null;
+  if (isRawApiUploadUrl(mediaCandidate) && !listingHasUsableImageFileId(row)) return '';
+  return mediaCandidate ? resolvePostAttachmentMediaUrl(mediaCandidate) : '';
+};
+
+const resolveListingAvatar = (value: any) => {
+  const normalized = resolveUserAvatarUrl(value);
+  if (normalized) return String(normalized).trim();
+  const directValue =
+    value && typeof value === 'object'
+      ? value.avatarUrl || value.avatar_url || value.avatar || value.clientAvatar || value.freelancerAvatar
+      : value;
+  return String(resolvePostAttachmentMediaUrl(directValue) || '').trim();
+};
+
+const isNestedInteractiveTarget = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  return Boolean(element.closest('a, button, input, textarea, select, label'));
+};
+
+const buildListingScrolithaPrompt = (kind: 'jobs' | 'gigs', title: string, category: string) => {
+  const safeTitle = String(title || '').trim() || (kind === 'jobs' ? 'Job opportunity' : 'Service offer');
+  const safeCategory = String(category || '').trim() || (kind === 'jobs' ? 'Hiring' : 'Services');
+  if (kind === 'jobs') {
+    return `Improve this job listing summary for better applicant quality.\nTitle: ${safeTitle}\nCategory: ${safeCategory}`;
+  }
+  return `Improve this gig offer summary for better conversion and trust.\nTitle: ${safeTitle}\nCategory: ${safeCategory}`;
 };
 
 export default function RecommendedListingCard({
@@ -121,6 +206,7 @@ export default function RecommendedListingCard({
   seeAllHref?: string;
   onContact?: (payload: { kind: 'jobs' | 'gigs'; item: JobLike | GigLike }) => void;
 }) {
+  const navigate = useNavigate();
   const icon = kind === 'jobs' ? <Briefcase className="h-4 w-4" /> : <Tag className="h-4 w-4" />;
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
@@ -134,8 +220,21 @@ export default function RecommendedListingCard({
     [kind, failedImages]
   );
 
+  const openScrolitha = (prompt: string) => {
+    let base = '/m/home';
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      ['post', 'postId', 'story', 'storyId', 'scroll', 'edit', 'modal', 'focus'].forEach((key) => {
+        params.delete(key);
+      });
+      const query = params.toString();
+      base = `${window.location.pathname}${query ? `?${query}` : ''}`;
+    }
+    navigate(buildScrolithaPath(base, prompt));
+  };
+
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_16px_36px_-28px_rgba(15,23,42,0.45)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -176,13 +275,25 @@ export default function RecommendedListingCard({
             const href = `/jobs/${encodeURIComponent(id)}`;
             const canContact = Boolean(job.clientId) && Boolean(onContact);
             const { imageKey, imageUrl, canRenderImage } = getImageState(id, job);
+            const clientAvatar = resolveListingAvatar({
+              avatar: job.clientAvatar,
+              clientAvatar: job.clientAvatar,
+              clientProfilePhotoFileId: job.clientProfilePhotoFileId
+            });
             return (
-              <div key={id} className="rounded-2xl border border-slate-200 bg-white p-3">
+              <div
+                key={id}
+                className="cursor-pointer rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/80 p-4 shadow-sm"
+                onClick={(event) => {
+                  if (isNestedInteractiveTarget(event.target)) return;
+                  navigate(href);
+                }}
+              >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <Link
                       to={href}
-                      className="block text-sm font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
+                  className="block text-base font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
                     >
                       {job.title || 'Job opportunity'}
                     </Link>
@@ -190,24 +301,44 @@ export default function RecommendedListingCard({
                       {job.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{job.category}</span> : null}
                       {budget ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">${budget}</span> : null}
                       {job.clientName ? <span className="break-words [overflow-wrap:anywhere]">by {job.clientName}</span> : null}
-                      {clientVerificationLevel ? <VerifiedBadge size={16} level={clientVerificationLevel} className="ml-1" /> : null}
+                      {clientVerificationLevel ? (
+                        <VerifiedBadge
+                          size={16}
+                          level={clientVerificationLevel}
+                          className="ml-1"
+                          subjectRole={job.clientType === 'business' ? 'business' : 'employer'}
+                          subjectType={job.clientType || 'business'}
+                        />
+                      ) : null}
                     </div>
                   </div>
                   <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                    {job.clientAvatar ? <img src={job.clientAvatar} alt="" className="h-full w-full object-cover" /> : null}
+                    {clientAvatar ? (
+                      <OptimizedImage
+                        src={clientAvatar}
+                        width={36}
+                        height={36}
+                        alt=""
+                        className="h-full w-full object-cover"
+                        onError={(event) => {
+                          (event.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : null}
                   </div>
                 </div>
                 <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                   {canRenderImage ? (
-                    <img
+                    <OptimizedImage
                       src={imageUrl}
+                      width={320}
+                      height={128}
                       alt={job.title || 'Featured job'}
-                      className="h-32 w-full object-cover"
-                      loading="lazy"
+                      className="h-40 w-full object-cover"
                       onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
                     />
                   ) : (
-                    <div className="flex h-32 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
+                    <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
                       <ImageIcon className="h-4 w-4" />
                       <span className="text-xs font-semibold uppercase tracking-wide">Job Image</span>
                     </div>
@@ -235,6 +366,18 @@ export default function RecommendedListingCard({
                     Contact
                   </button>
                 </div>
+                <div className="mt-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-2.5 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Scrolitha recommendation</p>
+                    <button
+                      type="button"
+                      onClick={() => openScrolitha(buildListingScrolithaPrompt('jobs', String(job.title || ''), String(job.category || '')))}
+                      className="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-indigo-700"
+                    >
+                      Enhance
+                    </button>
+                  </div>
+                </div>
               </div>
             );
           }
@@ -254,16 +397,31 @@ export default function RecommendedListingCard({
             type: gig.freelancerType || 'user'
           });
           const price = formatMoney(gig.price);
+          const freelancerTrustScore = gig.freelancerTrustScore ?? gig.freelancer_trust_score ?? null;
+          const freelancerTrustTier = gig.freelancerTrustTier ?? gig.freelancer_trust_tier ?? '';
+          const freelancerCompletedJobs = gig.freelancerCompletedJobs ?? gig.freelancer_completed_jobs ?? null;
           const href = `/gigs/${encodeURIComponent(id)}`;
           const canContact = Boolean(gig.freelancerId) && Boolean(onContact);
           const { imageKey, imageUrl, canRenderImage } = getImageState(id, gig);
+          const freelancerAvatar = resolveListingAvatar({
+            avatar: gig.freelancerAvatar,
+            freelancerAvatar: gig.freelancerAvatar,
+            freelancerProfilePhotoFileId: gig.freelancerProfilePhotoFileId
+          });
           return (
-            <div key={id} className="rounded-2xl border border-slate-200 bg-white p-3">
+            <div
+              key={id}
+              className="cursor-pointer rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50/80 p-4 shadow-sm"
+              onClick={(event) => {
+                if (isNestedInteractiveTarget(event.target)) return;
+                navigate(href);
+              }}
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <Link
                     to={href}
-                    className="block text-sm font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
+                    className="block text-base font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
                   >
                     {gig.title || 'Service offer'}
                   </Link>
@@ -271,24 +429,59 @@ export default function RecommendedListingCard({
                     {gig.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{gig.category}</span> : null}
                     {price ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">${price}</span> : null}
                     {gig.freelancerName ? <span className="break-words [overflow-wrap:anywhere]">by {gig.freelancerName}</span> : null}
-                    {freelancerVerificationLevel ? <VerifiedBadge size={16} level={freelancerVerificationLevel} className="ml-1" /> : null}
+                    {freelancerVerificationLevel ? (
+                      <VerifiedBadge
+                        size={16}
+                        level={freelancerVerificationLevel}
+                        className="ml-1"
+                        subjectRole="freelancer"
+                        subjectType={gig.freelancerType || 'user'}
+                      />
+                    ) : null}
                   </div>
+                  {typeof freelancerTrustScore === 'number' ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
+                        Trust {Math.round(freelancerTrustScore)}/100
+                      </span>
+                      {freelancerTrustTier ? (
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-semibold capitalize text-blue-700">
+                          {freelancerTrustTier}
+                        </span>
+                      ) : null}
+                      {typeof freelancerCompletedJobs === 'number' && freelancerCompletedJobs > 0 ? (
+                        <span className="text-slate-500">{freelancerCompletedJobs} completed</span>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                  {gig.freelancerAvatar ? <img src={gig.freelancerAvatar} alt="" className="h-full w-full object-cover" /> : null}
+                  {freelancerAvatar ? (
+                    <OptimizedImage
+                      src={freelancerAvatar}
+                      width={36}
+                      height={36}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      onError={(event) => {
+                        (event.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : null}
                 </div>
               </div>
               <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
                 {canRenderImage ? (
-                  <img
+                  <OptimizedImage
                     src={imageUrl}
+                    width={320}
+                    height={128}
                     alt={gig.title || 'Featured gig'}
-                    className="h-32 w-full object-cover"
-                    loading="lazy"
+                    className="h-40 w-full object-cover"
                     onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
                   />
                 ) : (
-                  <div className="flex h-32 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
+                  <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
                     <ImageIcon className="h-4 w-4" />
                     <span className="text-xs font-semibold uppercase tracking-wide">Gig Image</span>
                   </div>
@@ -315,6 +508,18 @@ export default function RecommendedListingCard({
                 >
                   Contact
                 </button>
+              </div>
+              <div className="mt-2 rounded-xl border border-emerald-100 bg-emerald-50/60 px-2.5 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Scrolitha recommendation</p>
+                  <button
+                    type="button"
+                    onClick={() => openScrolitha(buildListingScrolithaPrompt('gigs', String(gig.title || ''), String(gig.category || '')))}
+                    className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700"
+                  >
+                    Enhance
+                  </button>
+                </div>
               </div>
             </div>
           );

@@ -1,50 +1,54 @@
 import React, { Suspense, useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useUser } from '../context/UserContext';
+import { useContent } from '../context/ContentContext';
 import { DashboardLayout } from './shared/DashboardLayout';
 import type { UserRole } from '../types';
 import { USER_ROLES } from '../utils/userRoles';
 
-const FreelancerOverview = React.lazy(() =>
-  import('./freelancer/Overview').then((module) => ({ default: module.Overview }))
-);
+const FreelancerOverview = React.lazy(() => import('./freelancer/Overview'));
 const MyGigs = React.lazy(() => import('./freelancer/MyGigs'));
 const Orders = React.lazy(() => import('./freelancer/Orders'));
 const FreelancerContracts = React.lazy(() => import('./freelancer/Contracts'));
 const MyProposals = React.lazy(() => import('./freelancer/MyProposals'));
 const FreelancerUploadedFiles = React.lazy(() => import('./freelancer/UploadedFiles'));
 const WalletModule = React.lazy(() => import('./freelancer/WalletModule'));
-
 const EmployerOverview = React.lazy(() => import('./employer/Overview'));
 const MyJobs = React.lazy(() => import('./employer/MyJobs'));
-const ProposalsOffers = React.lazy(() =>
-  import('./employer/ProposalsOffers').then((module) => ({ default: module.ProposalsOffers }))
-);
+const ProposalsOffers = React.lazy(() => import('./employer/ProposalsOffers'));
+const ProjectBriefs = React.lazy(() => import('./employer/ProjectBriefs'));
 const EmployerContracts = React.lazy(() => import('./employer/Contracts'));
 const EmployerUploadedFiles = React.lazy(() => import('./employer/UploadedFiles'));
 const EmployerFavorites = React.lazy(() => import('./employer/Favorites'));
 const EmployerReviews = React.lazy(() => import('./employer/Reviews'));
-
 const FreelancerReviews = React.lazy(() => import('./freelancer/Reviews'));
 const FreelancerLikes = React.lazy(() => import('./freelancer/Likes'));
-const MyAds = React.lazy(() => import('../pages/MyAds'));
-const CommunityDashboard = React.lazy(() => import('./shared/CommunityDashboard'));
 const SupportCenter = React.lazy(() => import('./shared/SupportCenter'));
 const GcoinPanel = React.lazy(() => import('./shared/GcoinPanel'));
 const MessagesPanel = React.lazy(() => import('./shared/MessagesPanel'));
+const MarketplacePage = React.lazy(() => import('../pages/marketplace/MarketplacePage'));
 const Favorites = React.lazy(() => import('../pages/Favorites'));
-const KYCVerification = React.lazy(() =>
-  import('./shared/KYCVerification').then((module) => ({ default: module.KYCVerification }))
-);
-const EditProfile = React.lazy(() => import('../profile/EditProfile'));
+const KYCVerification = React.lazy(() => import('./shared/KYCVerification'));
 const SettingsModule = React.lazy(() => import('./shared/SettingsModule'));
 const Membership = React.lazy(() => import('./shared/Membership'));
 const ManagePagesModule = React.lazy(() => import('./shared/ManagePagesModule'));
 const AffiliateDashboardModule = React.lazy(() => import('./shared/AffiliateDashboardModule'));
+const MyAds = React.lazy(() => import('../pages/MyAds'));
+const CommunityDashboard = React.lazy(() => import('./shared/CommunityDashboard'));
+const EditProfile = React.lazy(() => import('../profile/EditProfile'));
+const ResumeBuilder = React.lazy(() => import('../pages/freelancer/ResumeBuilder'));
+const ResumeReviewer = React.lazy(() => import('../pages/client/ResumeReviewer'));
 
 const DashboardSectionLoader = () => (
   <div className="rounded-xl border border-gray-200 bg-white p-6 text-sm text-gray-500">
     Loading dashboard module...
+  </div>
+);
+
+const ResumeModuleDisabled = ({ title, description }: { title: string; description: string }) => (
+  <div className="rounded-[8px] border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+    <p className="font-semibold text-amber-950">{title}</p>
+    <p className="mt-2 leading-6">{description}</p>
   </div>
 );
 
@@ -82,7 +86,8 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliate: 'affiliate-program',
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
-    referrals: 'affiliate-program'
+    referrals: 'affiliate-program',
+    marketplace: 'marketplace'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -92,10 +97,23 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       jobs: 'my-jobs',
       job: 'my-jobs',
       'my-jobs': 'my-jobs',
+      order: 'orders',
+      orders: 'orders',
       proposals: 'proposals-offers',
       proposal: 'proposals-offers',
       offers: 'proposals-offers',
-      'proposals-offers': 'proposals-offers'
+      'proposals-offers': 'proposals-offers',
+      briefs: 'project-briefs',
+      brief: 'project-briefs',
+      projectbriefs: 'project-briefs',
+      'project-briefs': 'project-briefs',
+      'resume-builder': 'resume-reviewer',
+      resume: 'resume-reviewer',
+      resumes: 'resume-reviewer',
+      cv: 'resume-reviewer',
+      cvs: 'resume-reviewer',
+      reviewer: 'resume-reviewer',
+      'resume-reviewer': 'resume-reviewer'
     };
     return employerMap[tab] || tab;
   }
@@ -107,7 +125,12 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
       'my-gigs': 'my-gigs',
       proposals: 'my-proposals',
       proposal: 'my-proposals',
-      'my-proposals': 'my-proposals'
+      'my-proposals': 'my-proposals',
+      'resume-builder': 'resume-builder',
+      resume: 'resume-builder',
+      resumes: 'resume-builder',
+      cv: 'resume-builder',
+      cvs: 'resume-builder'
     };
     return freelancerMap[tab] || tab;
   }
@@ -117,6 +140,7 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
 
 export const DashboardRouter: React.FC = () => {
   const { user } = useUser();
+  const { settings } = useContent();
   const [currentTab, setCurrentTab] = useState('overview');
   const location = useLocation();
 
@@ -139,6 +163,16 @@ export const DashboardRouter: React.FC = () => {
     // Default to the user's role or guest
     return (user?.role as UserRole) || USER_ROLES.GUEST;
   }, [asParam, user, location.pathname]);
+
+  const resumeAiPolicy = React.useMemo(() => {
+    const source = (settings?.system as any)?.resumeAi ?? (settings?.system as any)?.resume_ai ?? {};
+    return {
+      enabled: source.enabled !== false && source.resume_enabled !== false,
+      builderEnabled: source.builderEnabled !== false && source.builder_enabled !== false,
+      reviewerEnabled: source.reviewerEnabled !== false && source.reviewer_enabled !== false,
+      adminAccessEnabled: source.adminAccessEnabled !== false && source.admin_access_enabled !== false
+    };
+  }, [settings]);
 
   useEffect(() => {
     const handleNavigation = (event: CustomEvent) => {
@@ -177,11 +211,18 @@ export const DashboardRouter: React.FC = () => {
         case 'my-ads':
           return <MyAds />;
         case 'orders':
-          return <Orders />;
+          return <Orders viewerRole="freelancer" />;
         case 'contracts':
           return <FreelancerContracts />;
         case 'my-proposals':
           return <MyProposals />;
+        case 'resume-builder':
+          return resumeAiPolicy.enabled && resumeAiPolicy.builderEnabled
+            ? <ResumeBuilder />
+            : <ResumeModuleDisabled
+                title="Resume/CV Builder is disabled"
+                description="An administrator has temporarily disabled the resume builder. You can still browse the rest of your dashboard."
+              />;
         case 'wallet':
           return <WalletModule />;
         case 'membership':
@@ -196,6 +237,8 @@ export const DashboardRouter: React.FC = () => {
           return <GcoinPanel />;
         case 'messages':
           return <MessagesPanel />;
+        case 'marketplace':
+          return <MarketplacePage variant="dashboard" />;
         case 'support':
           return <SupportCenter />;
         case 'uploaded-files':
@@ -225,8 +268,19 @@ export const DashboardRouter: React.FC = () => {
           return <MyJobs />;
         case 'proposals-offers':
           return <ProposalsOffers />;
+        case 'project-briefs':
+          return <ProjectBriefs />;
+        case 'resume-reviewer':
+          return resumeAiPolicy.enabled && resumeAiPolicy.reviewerEnabled
+            ? <ResumeReviewer />
+            : <ResumeModuleDisabled
+                title="Resume/CV Reviewer is disabled"
+                description="An administrator has temporarily disabled the resume reviewer. You can still browse the rest of your dashboard."
+              />;
         case 'contracts':
           return <EmployerContracts />;
+        case 'orders':
+          return <Orders viewerRole="employer" />;
         case 'wallet':
           return <WalletModule />;
         case 'membership':
@@ -241,6 +295,8 @@ export const DashboardRouter: React.FC = () => {
           return <GcoinPanel />;
         case 'messages':
           return <MessagesPanel />;
+        case 'marketplace':
+          return <MarketplacePage variant="dashboard" />;
         case 'support':
           return <SupportCenter />;
         case 'uploaded-files':

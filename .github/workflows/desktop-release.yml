@@ -1,0 +1,77 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "desktop-v*"
+
+jobs:
+  build-sign-publish:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}\gcp-desktop-release-key.json
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify signing secrets
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CSC_LINK) -and [string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
+            throw "Missing desktop signing certificate secret. Set CSC_LINK or WIN_CSC_LINK."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:CSC_KEY_PASSWORD) -and [string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw "Missing signing certificate password secret. Set CSC_KEY_PASSWORD or WIN_CSC_KEY_PASSWORD."
+          }
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build signed desktop release
+        run: npm run desktop:dist
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_DESKTOP_RELEASE_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: scrolith-500821
+
+      - name: Publish desktop artifacts
+        shell: pwsh
+        run: .\scripts\publish-desktop-release.ps1
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrolith-desktop-dist
+          path: |
+            desktop-dist/latest.yml
+            desktop-dist/*.exe
+            desktop-dist/*.blockmap
+
+      - name: Attach artifacts to GitHub release
+        if: startsWith(github.ref, 'refs/tags/desktop-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            desktop-dist/latest.yml
+            desktop-dist/*.exe
+            desktop-dist/*.blockmap

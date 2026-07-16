@@ -1,9 +1,12 @@
 // src/services/ai/ai.service.ts
 import apiClient from '../api';
+import { tokenStore } from '../tokenStore';
 import { getApiBaseUrl } from '../../utils/apiBase';
 import type { AITagInput, AIProjectBriefInput, AIProjectBriefResponse, AIReplyInput, AISkillMatchInput } from './ai.types';
 
 export type PostEnhanceMode = 'grammar' | 'rephrase' | 'professional' | 'shorten' | 'expand';
+
+const AI_REQUEST_TIMEOUT_MS = 95_000;
 
 const hasBackendEnv = Boolean(
   import.meta.env.VITE_BACKEND_URL ||
@@ -19,26 +22,45 @@ if (import.meta.env.PROD && !hasBackendEnv) {
 const getPublicApiUrl = () => getApiBaseUrl();
 const unwrap = (payload: any) => payload?.data?.data ?? payload?.data ?? payload;
 
-const publicApi = {
-  get: async (endpoint: string) => {
-    const res = await fetch(`${getPublicApiUrl()}${endpoint}`);
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
+const fetchJsonWithTimeout = async (endpoint: string, init?: RequestInit, timeoutMs = AI_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const token = await tokenStore.get();
+    const headers = new Headers(init?.headers || {});
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`);
     }
-    return res.json();
-  },
-  post: async (endpoint: string, data: any) => {
     const res = await fetch(`${getPublicApiUrl()}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
+      ...(init || {}),
+      headers,
+      signal: controller.signal
     });
     if (!res.ok) {
       const errorText = await res.text();
       throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
     }
     return res.json();
+  } catch (error: any) {
+    if (String(error?.name || '').trim() === 'AbortError') {
+      throw new Error(`Scrolitha AI timeout of ${timeoutMs}ms exceeded`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+};
+
+const publicApi = {
+  get: async (endpoint: string) => {
+    return fetchJsonWithTimeout(endpoint, { method: 'GET' });
+  },
+  post: async (endpoint: string, data: any) => {
+    return fetchJsonWithTimeout(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
   }
 };
 
@@ -130,8 +152,28 @@ export const AIService = {
     return data;
   },
 
+  answerQuestionWithScrolitha: async (payload: {
+    question: string;
+    context?: string;
+    audience?: string;
+    format?: string;
+  }) => {
+    const data = unwrap(await publicApi.post('/ai/scrolitha-answer', payload));
+    return data;
+  },
+
   generateGuide: async (payload: { topic: string; audience?: string; depth?: string; format?: string }) => {
     const data = unwrap(await publicApi.post('/ai/guide', payload));
+    return data;
+  },
+
+  generateGuideWithScrolitha: async (payload: {
+    topic: string;
+    audience?: string;
+    depth?: string;
+    format?: string;
+  }) => {
+    const data = unwrap(await publicApi.post('/ai/scrolitha-guide', payload));
     return data;
   },
 
@@ -169,7 +211,7 @@ export const AIService = {
     if (!prompt) throw new Error('Prompt is required');
 
     try {
-      const res = await apiClient.post('/briefs/generate', { prompt });
+      const res = await apiClient.post('/briefs/generate', { prompt }, { timeout: AI_REQUEST_TIMEOUT_MS });
       const data = unwrap(res);
       return normalizeProjectBrief(data, prompt);
     } catch (error: any) {
@@ -214,22 +256,36 @@ export const AIService = {
     }
   },
 
-  enhancePostDraft: async (payload: { text: string; mode: PostEnhanceMode }): Promise<{ enhancedText: string }> => {
+  enhancePostDraft: async (payload: { text: string; mode: PostEnhanceMode }): Promise<{
+    enhancedText: string;
+    fallbackUsed?: boolean;
+    usedFallback?: boolean;
+    warning?: string;
+    warningCode?: string | null;
+  }> => {
     const text = String(payload?.text || '').trim();
     if (!text) throw new Error('Text is required');
 
-    const res = await apiClient.post('/ai/post-enhance', {
-      text,
-      mode: payload.mode
-    });
+    const res = await apiClient.post(
+      '/ai/post-enhance',
+      {
+        text,
+        mode: payload.mode
+      },
+      { timeout: AI_REQUEST_TIMEOUT_MS }
+    );
     const data = unwrap(res);
     return {
-      enhancedText: String(data?.enhancedText || '').trim()
+      enhancedText: String(data?.enhancedText || '').trim(),
+      fallbackUsed: data?.fallbackUsed,
+      usedFallback: data?.usedFallback ?? data?.fallbackUsed,
+      warning: data?.warning,
+      warningCode: data?.warningCode ?? null
     };
   },
 
   generatePostInsight: async (payload: { postId?: string; text?: string; force?: boolean }): Promise<{ insightText?: string; aiInsightText?: string; generated?: boolean; reason?: string | null }> => {
-    const res = await apiClient.post('/ai/post-insight', payload || {});
+    const res = await apiClient.post('/ai/post-insight', payload || {}, { timeout: AI_REQUEST_TIMEOUT_MS });
     const data = unwrap(res);
     return {
       insightText: data?.insightText,

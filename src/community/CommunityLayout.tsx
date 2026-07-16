@@ -29,7 +29,7 @@ const CommunityLayout = () => {
     { label: 'Scroll', path: '/scroll', icon: Clapperboard },
     { label: 'Forum', path: '/community/forum', icon: MessageSquare },
     { label: 'Chat', path: '/community/chat', icon: Hash },
-    { label: 'Clubs', path: '/community/clubs', icon: Users },
+    { label: 'Groups', path: '/community/clubs', icon: Users },
     { label: 'Events', path: '/community/events', icon: Calendar },
     { label: 'Leaderboard', path: '/community/leaderboard', icon: Trophy }
   ];

@@ -14,6 +14,8 @@ import { useUser } from '../../context/UserContext';
 import CommunityAnalytics from './CommunityAnalytics';
 import { useCurrency } from '../../context/CurrencyContext';
 import FilePickerModal from '../shared/FilePickerModal';
+import { DEFAULT_AD_TARGET_COUNTRIES } from '../../constants/defaultAudienceOptions';
+import GroupsWorkspace from '../../community/components/GroupsWorkspace';
 
 type AdminTab =
     | 'overview'
@@ -24,6 +26,7 @@ type AdminTab =
     | 'gcoin'
     | 'ads'
     | 'business'
+    | 'groups'
     | 'social'
     | 'settings';
 
@@ -36,35 +39,26 @@ const defaultSettings: CommunitySettings = {
     autoModerateContent: false,
     sentimentAnalysis: true,
     enableClubs: true,
-    enableEvents: true
+    enableEvents: true,
+    groups: {
+        heroEyebrow: 'Scrolith Groups',
+        heroTitle: 'Build private and public professional communities.',
+        heroSubtitle:
+            'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+        createButtonLabel: 'Create group',
+        directoryTitle: 'Your group spaces',
+        directoryEmptyState: 'No groups yet. Create the first one from here.',
+        allowUserGroupCreation: true,
+        showDiscoveryStats: true,
+        defaultVisibility: 'public',
+        defaultJoinMode: 'open',
+        defaultPostPermission: 'members',
+        allowMemberInvitesByDefault: true,
+        showInviteInbox: true,
+        showMemberDirectory: true,
+        highlightPostComposer: true
+    }
 } as CommunitySettings;
-
-const DEFAULT_AD_TARGET_COUNTRIES = [
-    'United States',
-    'United Kingdom',
-    'Canada',
-    'Australia',
-    'New Zealand',
-    'Germany',
-    'France',
-    'Netherlands',
-    'Sweden',
-    'Norway',
-    'Denmark',
-    'Ireland',
-    'Spain',
-    'Italy',
-    'United Arab Emirates',
-    'Saudi Arabia',
-    'India',
-    'Nigeria',
-    'South Africa',
-    'Brazil',
-    'Mexico',
-    'Singapore',
-    'Malaysia',
-    'Philippines'
-];
 
 const GuideTip: React.FC<{ text: string }> = ({ text }) => (
     <details className="group relative shrink-0">
@@ -84,7 +78,127 @@ const LabelWithGuide: React.FC<{ label: string; help: string; className?: string
     </div>
 );
 
-const CommunityManagement = () => {
+const AD_PLACEMENT_LABELS: Record<string, string> = {
+    homepage: 'Homepage',
+    homepage_feed: 'Homepage Feed',
+    community_feed: 'Community Feed',
+    scroll_preroll: 'Scroll Pre-roll',
+    scroll_feed: 'Scroll Feed Overlay',
+    forum_listing: 'Forum Listing',
+    thread_detail: 'Thread Detail',
+    chat_sidebar: 'Chat Sidebar'
+};
+
+const normalizeAdPlacement = (value: any): string => {
+    const raw = String(value || '').trim().toLowerCase();
+    if (!raw) return 'community_feed';
+    if (raw === 'feed') return 'community_feed';
+    if (raw === 'chat') return 'chat_sidebar';
+    if (raw === 'scroll' || raw === 'scroll_video' || raw === 'scroll_overlay') return 'scroll_preroll';
+    if (raw === 'forum_top') return 'forum_listing';
+    return raw;
+};
+
+const getAdminAdPlacements = (ad: AdCampaign): string[] => {
+    const targeting = ad?.targeting && typeof ad.targeting === 'object' && !Array.isArray(ad.targeting)
+        ? ad.targeting as Record<string, any>
+        : {};
+    const source =
+        Array.isArray(ad.delivery?.placements) && ad.delivery.placements.length > 0
+            ? ad.delivery.placements
+            : Array.isArray(targeting.placements) && targeting.placements.length > 0
+                ? targeting.placements
+                : Array.isArray(ad.placements) && ad.placements.length > 0
+                    ? ad.placements
+                    : [ad.placement || 'community_feed'];
+
+    return Array.from(new Set(source.map((placement: any) => normalizeAdPlacement(placement)).filter(Boolean)));
+};
+
+const AdminAdDeliveryStrip: React.FC<{ ad: AdCampaign }> = ({ ad }) => {
+    const delivery = ad.delivery || null;
+    const checks = Array.isArray(delivery?.placementChecks) && delivery.placementChecks.length > 0
+        ? delivery.placementChecks.map((check) => ({
+            placement: normalizeAdPlacement(check.placement),
+            eligible: Boolean(check.eligible),
+            blockers: Array.isArray(check.blockers) ? check.blockers : []
+        }))
+        : getAdminAdPlacements(ad).map((placement) => ({
+            placement,
+            eligible: null as boolean | null,
+            blockers: [] as string[]
+        }));
+    const blockers = Array.isArray(delivery?.blockers) ? delivery.blockers : [];
+    const isServing = Boolean(delivery?.isServing);
+
+    return (
+        <div className={`mt-3 rounded-lg border p-3 ${isServing ? 'border-emerald-200 bg-emerald-50' : delivery ? 'border-amber-200 bg-amber-50' : 'border-gray-200 bg-gray-50'}`}>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Delivery diagnostics</p>
+                    <p className={`mt-1 text-xs font-semibold ${isServing ? 'text-emerald-800' : delivery ? 'text-amber-900' : 'text-gray-600'}`}>
+                        {delivery?.summary || 'Diagnostics pending from backend.'}
+                    </p>
+                </div>
+                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${isServing ? 'bg-emerald-100 text-emerald-700' : delivery ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}`}>
+                    {isServing ? 'Serving' : delivery ? 'Blocked' : 'Unknown'}
+                </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+                {checks.map((check) => (
+                    <span
+                        key={check.placement}
+                        title={check.blockers[0] || undefined}
+                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                            check.eligible === true
+                                ? 'bg-white text-emerald-700'
+                                : check.eligible === false
+                                    ? 'bg-white text-amber-800'
+                                    : 'bg-white text-gray-600'
+                        }`}
+                    >
+                        {AD_PLACEMENT_LABELS[check.placement] || check.placement}
+                    </span>
+                ))}
+            </div>
+            {blockers.length > 0 ? (
+                <p className="mt-2 text-[11px] leading-5 text-amber-900">{blockers[0]}</p>
+            ) : null}
+        </div>
+    );
+};
+
+const normalizeTargetCountryCatalog = (entries: unknown[]): string[] => {
+    const seen = new Set<string>();
+    return entries
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+        .filter((entry) => {
+            const normalized = entry.toLowerCase();
+            if (seen.has(normalized)) return false;
+            seen.add(normalized);
+            return true;
+        });
+};
+
+const DEFAULT_SCROLL_ADS_CONFIG = {
+    enabled: true,
+    fallbackToCommunityFeed: true,
+    videoSkipDelaySeconds: 10,
+    staticSkipDelaySeconds: 3,
+    firstAdAfterScrolls: 1,
+    repeatEveryScrolls: 5,
+    minSecondsBetweenAds: 90,
+    maxAdsPerSession: 6,
+    maxAdsPerViewerDay: 20,
+    perAdCooldownMinutes: 30,
+    placementPacing: {
+        scroll_preroll: 2,
+        scroll_feed: 1
+    }
+};
+
+const CommunityManagement = ({ initialTab }: { initialTab?: AdminTab } = {}) => {
     const [activeTab, setActiveTab] = useState<AdminTab>('overview');
     const [settings, setSettings] = useState<CommunitySettings | null>(null);
     const [logs, setLogs] = useState<ModerationLog[]>([]);
@@ -92,19 +206,21 @@ const CommunityManagement = () => {
     const { user } = useUser();
 
     useEffect(() => {
-        // Initialize active tab from URL query param (supports ?tab=settings)
+        // Initialize active sub-tab from URL query params.
         try {
             const params = new URLSearchParams(window.location.search);
-            const t = params.get('tab');
-            if (t && ['overview','homepage','threads','channels','moderation','gcoin','ads','business','social','settings'].includes(t)) {
+            const t = params.get('communityTab') || params.get('subtab') || params.get('tab');
+            if (t && ['overview','homepage','threads','channels','moderation','gcoin','ads','business','groups','social','settings'].includes(t)) {
                 setActiveTab(t as AdminTab);
+            } else if (initialTab) {
+                setActiveTab(initialTab);
             }
         } catch (e) {
             // ignore when running in non-browser or tests
         }
 
         loadData();
-    }, []);
+    }, [initialTab]);
 
     const s = (settings ?? {}) as Partial<Record<string, unknown>>;
 
@@ -196,6 +312,7 @@ const CommunityManagement = () => {
                 <TabButton id="business" label="Business Pages" icon={Building2} active={activeTab === 'business'} onClick={setActiveTab} />
                 <TabButton id="threads" label="Threads" icon={FileText} active={activeTab === 'threads'} onClick={setActiveTab} />
                 <TabButton id="channels" label="Channels" icon={Hash} active={activeTab === 'channels'} onClick={setActiveTab} />
+                <TabButton id="groups" label="Group System" icon={Users} active={activeTab === 'groups'} onClick={setActiveTab} />
                 <TabButton id="moderation" label="Moderation" icon={Gavel} active={activeTab === 'moderation'} onClick={setActiveTab} />
                 <TabButton id="social" label="Social Graph" icon={Share2} active={activeTab === 'social'} onClick={setActiveTab} />
                 <TabButton id="settings" label="Settings" icon={Settings} active={activeTab === 'settings'} onClick={setActiveTab} />
@@ -214,10 +331,463 @@ const CommunityManagement = () => {
                 {activeTab === 'business' && <BusinessPagesManager />}
                 {activeTab === 'threads' && <ThreadManager />}
                 {activeTab === 'channels' && <ChannelManager />}
+                {activeTab === 'groups' && settings && <GroupsAdminPanel settings={settings} setSettings={setSettings} />}
                 {activeTab === 'moderation' && <ModerationQueue logs={logs} refresh={() => CommunityService.getModerationLogs().then(setLogs)} />}
                 {activeTab === 'social' && <SocialGraphView />}
                 {activeTab === 'settings' && settings && <SettingsPanel settings={settings} toggleSetting={toggleSetting} />}
             </div>
+        </div>
+    );
+};
+
+const GroupsAdminPanel = ({
+    settings,
+    setSettings
+}: {
+    settings: CommunitySettings;
+    setSettings: React.Dispatch<React.SetStateAction<CommunitySettings | null>>;
+}) => {
+    const { showNotification } = useNotification();
+    const [groupInventory, setGroupInventory] = useState<any[]>([]);
+    const [inventoryLoading, setInventoryLoading] = useState(true);
+    const [inventorySearch, setInventorySearch] = useState('');
+    const [localConfig, setLocalConfig] = useState<any>(() => ({
+        heroEyebrow: settings?.groups?.heroEyebrow || 'Scrolith Groups',
+        heroTitle: settings?.groups?.heroTitle || 'Build private and public professional communities.',
+        heroSubtitle:
+            settings?.groups?.heroSubtitle ||
+            'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+        createButtonLabel: settings?.groups?.createButtonLabel || 'Create group',
+        directoryTitle: settings?.groups?.directoryTitle || 'Your group spaces',
+        directoryEmptyState: settings?.groups?.directoryEmptyState || 'No groups yet. Create the first one from here.',
+        allowUserGroupCreation: settings?.groups?.allowUserGroupCreation !== false,
+        showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false,
+        defaultVisibility: settings?.groups?.defaultVisibility || 'public',
+        defaultJoinMode: settings?.groups?.defaultJoinMode || 'open',
+        defaultPostPermission: settings?.groups?.defaultPostPermission || 'members',
+        allowMemberInvitesByDefault: settings?.groups?.allowMemberInvitesByDefault !== false,
+        showInviteInbox: settings?.groups?.showInviteInbox !== false,
+        showMemberDirectory: settings?.groups?.showMemberDirectory !== false,
+        highlightPostComposer: settings?.groups?.highlightPostComposer !== false
+    }));
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        setLocalConfig({
+            heroEyebrow: settings?.groups?.heroEyebrow || 'Scrolith Groups',
+            heroTitle: settings?.groups?.heroTitle || 'Build private and public professional communities.',
+            heroSubtitle:
+                settings?.groups?.heroSubtitle ||
+                'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+            createButtonLabel: settings?.groups?.createButtonLabel || 'Create group',
+            directoryTitle: settings?.groups?.directoryTitle || 'Your group spaces',
+            directoryEmptyState: settings?.groups?.directoryEmptyState || 'No groups yet. Create the first one from here.',
+            allowUserGroupCreation: settings?.groups?.allowUserGroupCreation !== false,
+            showDiscoveryStats: settings?.groups?.showDiscoveryStats !== false,
+            defaultVisibility: settings?.groups?.defaultVisibility || 'public',
+            defaultJoinMode: settings?.groups?.defaultJoinMode || 'open',
+            defaultPostPermission: settings?.groups?.defaultPostPermission || 'members',
+            allowMemberInvitesByDefault: settings?.groups?.allowMemberInvitesByDefault !== false,
+            showInviteInbox: settings?.groups?.showInviteInbox !== false,
+            showMemberDirectory: settings?.groups?.showMemberDirectory !== false,
+            highlightPostComposer: settings?.groups?.highlightPostComposer !== false
+        });
+    }, [settings]);
+
+    const loadGroupInventory = useCallback(async () => {
+        setInventoryLoading(true);
+        try {
+            const clubs = await CommunityService.getClubs({ limit: 200 });
+            setGroupInventory(clubs);
+        } catch (error: any) {
+            setGroupInventory([]);
+            showNotification('warning', 'Groups', error?.message || 'Unable to load live group inventory.');
+        } finally {
+            setInventoryLoading(false);
+        }
+    }, [showNotification]);
+
+    useEffect(() => {
+        void loadGroupInventory();
+    }, [loadGroupInventory]);
+
+    const normalizedInventorySearch = inventorySearch.trim().toLowerCase();
+    const filteredInventory = groupInventory.filter((group) => {
+        if (!normalizedInventorySearch) return true;
+        const haystack = [
+            group?.name,
+            group?.slug,
+            group?.summary,
+            group?.ownerName,
+            group?.category,
+            group?.location
+        ]
+            .map((value) => String(value || '').toLowerCase())
+            .join(' ');
+        return haystack.includes(normalizedInventorySearch);
+    });
+
+    const inventoryStats = filteredInventory.reduce(
+        (acc, group) => {
+            acc.total += 1;
+            if (String(group?.visibility || '').toLowerCase() === 'private') acc.privateCount += 1;
+            if (String(group?.joinMode || '').toLowerCase() === 'request') acc.requestCount += 1;
+            if (String(group?.joinMode || '').toLowerCase() === 'invite_only') acc.inviteOnlyCount += 1;
+            acc.pendingRequests += Number(group?.pendingRequestCount || 0);
+            acc.pendingInvites += Number(group?.pendingInviteCount || 0);
+            return acc;
+        },
+        {
+            total: 0,
+            privateCount: 0,
+            requestCount: 0,
+            inviteOnlyCount: 0,
+            pendingRequests: 0,
+            pendingInvites: 0
+        }
+    );
+
+    const save = async () => {
+        const groups = {
+            heroEyebrow: String(localConfig.heroEyebrow || '').trim() || 'Scrolith Groups',
+            heroTitle: String(localConfig.heroTitle || '').trim() || 'Build private and public professional communities.',
+            heroSubtitle:
+                String(localConfig.heroSubtitle || '').trim() ||
+                'Create Facebook-style groups with join governance, posting rules, FAQs, and rich media posts. Both freelancers and clients can run their own spaces without affecting existing community flows.',
+            createButtonLabel: String(localConfig.createButtonLabel || '').trim() || 'Create group',
+            directoryTitle: String(localConfig.directoryTitle || '').trim() || 'Your group spaces',
+            directoryEmptyState:
+                String(localConfig.directoryEmptyState || '').trim() || 'No groups yet. Create the first one from here.',
+            allowUserGroupCreation: Boolean(localConfig.allowUserGroupCreation),
+            showDiscoveryStats: Boolean(localConfig.showDiscoveryStats),
+            defaultVisibility: String(localConfig.defaultVisibility || 'public').trim().toLowerCase() === 'private' ? 'private' : 'public',
+            defaultJoinMode: ['open', 'request', 'invite_only'].includes(String(localConfig.defaultJoinMode || 'open').trim())
+                ? String(localConfig.defaultJoinMode || 'open').trim()
+                : 'open',
+            defaultPostPermission: ['admins', 'members', 'everyone'].includes(String(localConfig.defaultPostPermission || 'members').trim())
+                ? String(localConfig.defaultPostPermission || 'members').trim()
+                : 'members',
+            allowMemberInvitesByDefault: Boolean(localConfig.allowMemberInvitesByDefault),
+            showInviteInbox: Boolean(localConfig.showInviteInbox),
+            showMemberDirectory: Boolean(localConfig.showMemberDirectory),
+            highlightPostComposer: Boolean(localConfig.highlightPostComposer)
+        };
+
+        setSaving(true);
+        try {
+            const nextPayload = { ...(settings as any), groups };
+            const result = await CommunityService.updateAdminConfig(nextPayload);
+            setSettings(result);
+            try {
+                window.dispatchEvent(new CustomEvent('community:admin_config_updated', { detail: result }));
+            } catch (_error) {}
+            showNotification('success', 'Groups', 'Group system settings updated.');
+        } catch (error: any) {
+            showNotification('error', 'Groups', error?.message || 'Unable to save group system settings.');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-3xl">
+                        <h3 className="text-lg font-bold text-slate-900">Group System Control Center</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Manage the clubs landing experience and the live group directory from the admin dashboard.
+                        </p>
+                    </div>
+                    <button
+                        onClick={save}
+                        disabled={saving}
+                        className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                        <Save className="mr-2 h-4 w-4" />
+                        {saving ? 'Saving...' : 'Save Group Settings'}
+                    </button>
+                </div>
+
+                <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Hero Eyebrow</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.heroEyebrow}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, heroEyebrow: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Create Button Label</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.createButtonLabel}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, createButtonLabel: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2 lg:col-span-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Hero Title</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.heroTitle}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, heroTitle: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2 lg:col-span-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Hero Subtitle</span>
+                        <textarea
+                            rows={3}
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.heroSubtitle}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, heroSubtitle: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Directory Title</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.directoryTitle}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, directoryTitle: event.target.value }))}
+                        />
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Empty Directory Copy</span>
+                        <input
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.directoryEmptyState}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, directoryEmptyState: event.target.value }))}
+                        />
+                    </label>
+                </div>
+
+                <div className="mt-6 grid gap-3 md:grid-cols-2">
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Allow user-created groups</div>
+                            <div className="text-xs text-slate-500">Admins still retain full access even when creator access is disabled.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.allowUserGroupCreation)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, allowUserGroupCreation: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Show discovery counters</div>
+                            <div className="text-xs text-slate-500">Controls the visible/joined KPI cards in the clubs hero.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.showDiscoveryStats)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showDiscoveryStats: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Default member invites</div>
+                            <div className="text-xs text-slate-500">New groups start with member-to-member invites enabled unless the creator changes it.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.allowMemberInvitesByDefault)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, allowMemberInvitesByDefault: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Show invite inbox</div>
+                            <div className="text-xs text-slate-500">Expose live received and sent invitation inbox panels inside group workspaces.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.showInviteInbox)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showInviteInbox: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Show member directory</div>
+                            <div className="text-xs text-slate-500">Keep the member list visible inside the workspace for discovery and moderation.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.showMemberDirectory)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, showMemberDirectory: event.target.checked }))}
+                        />
+                    </label>
+                    <label className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 md:col-span-2">
+                        <div>
+                            <div className="text-sm font-semibold text-slate-900">Highlight post composer</div>
+                            <div className="text-xs text-slate-500">Apply the enhanced enterprise composer treatment to media posting cards inside groups.</div>
+                        </div>
+                        <input
+                            type="checkbox"
+                            checked={Boolean(localConfig.highlightPostComposer)}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, highlightPostComposer: event.target.checked }))}
+                        />
+                    </label>
+                </div>
+
+                <div className="mt-6 grid gap-4 lg:grid-cols-3">
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Default Visibility</span>
+                        <select
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.defaultVisibility}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, defaultVisibility: event.target.value }))}
+                        >
+                            <option value="public">Public by default</option>
+                            <option value="private">Private by default</option>
+                        </select>
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Default Join Mode</span>
+                        <select
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.defaultJoinMode}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, defaultJoinMode: event.target.value }))}
+                        >
+                            <option value="open">Open join</option>
+                            <option value="request">Request approval</option>
+                            <option value="invite_only">Invite only</option>
+                        </select>
+                    </label>
+                    <label className="space-y-2">
+                        <span className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">Default Post Permission</span>
+                        <select
+                            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            value={localConfig.defaultPostPermission}
+                            onChange={(event) => setLocalConfig((prev: any) => ({ ...prev, defaultPostPermission: event.target.value }))}
+                        >
+                            <option value="members">Members can post</option>
+                            <option value="admins">Only admins and moderators</option>
+                            <option value="everyone">Everyone who can view</option>
+                        </select>
+                    </label>
+                </div>
+            </section>
+
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                        <h3 className="text-lg font-bold text-slate-900">Live group operations</h3>
+                        <p className="mt-1 text-sm text-slate-500">
+                            Review total groups, approval pressure, and route directly into moderation or invite workflows without leaving the admin dashboard.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => void loadGroupInventory()}
+                        className="inline-flex items-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                    >
+                        <Activity className="mr-2 h-4 w-4" />
+                        Refresh inventory
+                    </button>
+                </div>
+
+                <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {[
+                        { label: 'Visible groups', value: inventoryStats.total, tone: 'text-slate-900' },
+                        { label: 'Private groups', value: inventoryStats.privateCount, tone: 'text-indigo-700' },
+                        { label: 'Approval groups', value: inventoryStats.requestCount, tone: 'text-amber-700' },
+                        { label: 'Invite-only groups', value: inventoryStats.inviteOnlyCount, tone: 'text-violet-700' },
+                        { label: 'Pending join requests', value: inventoryStats.pendingRequests, tone: 'text-rose-700' },
+                        { label: 'Pending invites', value: inventoryStats.pendingInvites, tone: 'text-emerald-700' }
+                    ].map((stat) => (
+                        <div key={stat.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                            <div className="text-[11px] font-bold uppercase tracking-[0.24em] text-slate-500">{stat.label}</div>
+                            <div className={`mt-2 text-3xl font-black ${stat.tone}`}>{stat.value}</div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="mt-6 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <label className="relative block w-full lg:max-w-md">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                            <input
+                                value={inventorySearch}
+                                onChange={(event) => setInventorySearch(event.target.value)}
+                                placeholder="Search groups, owner, category, or location"
+                                className="w-full rounded-2xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                            />
+                        </label>
+                        <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                            <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-slate-700">
+                                Showing {filteredInventory.length} of {groupInventory.length}
+                            </span>
+                            {inventoryLoading ? (
+                                <span className="rounded-full bg-blue-50 px-3 py-1.5 font-semibold text-blue-700">Refreshing…</span>
+                            ) : null}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                        {filteredInventory.length ? (
+                            filteredInventory.map((group) => {
+                                const hrefBase = `/admin/dashboard?tab=community&communityTab=groups&group=${encodeURIComponent(String(group?.slug || group?.id || ''))}`;
+                                return (
+                                    <div key={group.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <h4 className="truncate text-base font-bold text-slate-900">{group.name || 'Untitled group'}</h4>
+                                                    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${String(group.visibility || '').toLowerCase() === 'private' ? 'bg-violet-50 text-violet-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                                                        {String(group.visibility || 'public')}
+                                                    </span>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                                        {String(group.joinMode || 'open').replace('_', ' ')}
+                                                    </span>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+                                                        {group.memberCount || 0} members
+                                                    </span>
+                                                </div>
+                                                <p className="mt-2 line-clamp-2 text-sm text-slate-500">
+                                                    {group.summary || group.description || 'No summary added yet.'}
+                                                </p>
+                                                <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">Owner: {group.ownerName || 'Unknown'}</span>
+                                                    {group.category ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.category}</span> : null}
+                                                    {group.location ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.location}</span> : null}
+                                                </div>
+                                            </div>
+                                            <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[270px]">
+                                                <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-3">
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-700">Join requests</div>
+                                                    <div className="mt-1 text-2xl font-black text-amber-900">{Number(group.pendingRequestCount || 0)}</div>
+                                                </div>
+                                                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-3">
+                                                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-700">Invites</div>
+                                                    <div className="mt-1 text-2xl font-black text-emerald-900">{Number(group.pendingInviteCount || 0)}</div>
+                                                </div>
+                                                <a
+                                                    href={`${hrefBase}&panel=moderation`}
+                                                    className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                                                >
+                                                    Review requests
+                                                </a>
+                                                <a
+                                                    href={`${hrefBase}&panel=invites`}
+                                                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                                                >
+                                                    Open invite inbox
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center text-sm text-slate-500">
+                                {inventoryLoading ? 'Loading live groups…' : 'No groups match the current filters.'}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </section>
+
+            <GroupsWorkspace embedded />
         </div>
     );
 };
@@ -1561,12 +2131,8 @@ const AdManager = () => {
 
     const handleConfigSave = async () => {
         try {
-            const normalizedCountries = Array.from(
-                new Set(
-                    (Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : [])
-                        .map((entry: any) => String(entry || '').trim())
-                        .filter(Boolean)
-                )
+            const normalizedCountries = normalizeTargetCountryCatalog(
+                Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []
             );
             const payload = { ...adsConfig, targetCountries: normalizedCountries };
             const updated = await AdService.updateConfig({ data: payload });
@@ -1589,11 +2155,67 @@ const AdManager = () => {
         setCountryDraft('');
     };
 
+    const addAllTargetCountries = () => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            targetCountries: normalizeTargetCountryCatalog([
+                ...(Array.isArray(prev?.targetCountries) ? prev.targetCountries : []),
+                ...DEFAULT_AD_TARGET_COUNTRIES
+            ])
+        }));
+    };
+
+    const clearAllTargetCountries = () => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            targetCountries: []
+        }));
+    };
+
     const removeTargetCountry = (country: string) => {
         setAdsConfig((prev: any) => ({
             ...prev,
             targetCountries: (Array.isArray(prev?.targetCountries) ? prev.targetCountries : [])
                 .filter((entry: any) => String(entry) !== country)
+        }));
+    };
+
+    const scrollAdsConfig = {
+        ...DEFAULT_SCROLL_ADS_CONFIG,
+        ...(adsConfig?.scrollAds || {}),
+        placementPacing: {
+            ...DEFAULT_SCROLL_ADS_CONFIG.placementPacing,
+            ...(adsConfig?.scrollAds?.placementPacing || {})
+        }
+    };
+
+    const updateScrollAdsConfig = (patch: Record<string, any>) => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            scrollAds: {
+                ...DEFAULT_SCROLL_ADS_CONFIG,
+                ...(prev?.scrollAds || {}),
+                placementPacing: {
+                    ...DEFAULT_SCROLL_ADS_CONFIG.placementPacing,
+                    ...(prev?.scrollAds?.placementPacing || {})
+                },
+                ...patch
+            }
+        }));
+    };
+
+    const updateScrollAdPacing = (placement: 'scroll_preroll' | 'scroll_feed', value: number) => {
+        setAdsConfig((prev: any) => ({
+            ...prev,
+            scrollAds: {
+                ...DEFAULT_SCROLL_ADS_CONFIG,
+                ...(prev?.scrollAds || {}),
+                placementPacing: {
+                    ...DEFAULT_SCROLL_ADS_CONFIG.placementPacing,
+                    ...(prev?.scrollAds?.placementPacing || {}),
+                    [placement]: Number(value || 0)
+                }
+            }
         }));
     };
 
@@ -1608,6 +2230,11 @@ const AdManager = () => {
         setReviewQueue(prev => prev.filter(a => a.id !== id));
         showNotification('success', 'Rejected', 'Ad rejected.');
     };
+
+    const configuredTargetCountries = Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : [];
+    const missingDefaultTargetCountryCount = DEFAULT_AD_TARGET_COUNTRIES.filter(
+        (country) => !configuredTargetCountries.some((entry: any) => String(entry || '').toLowerCase() === country.toLowerCase())
+    ).length;
 
     return (
         <div className="space-y-6">
@@ -1627,7 +2254,7 @@ const AdManager = () => {
             {adsAnalytics && (
                 <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
                     <h4 className="font-bold text-gray-900 mb-2">Ads Analytics</h4>
-                    <div className="grid grid-cols-4 gap-4 text-sm">
+                    <div className="grid grid-cols-2 gap-4 text-sm lg:grid-cols-5">
                         <div>
                             <div className="text-gray-500">Impressions</div>
                             <div className="font-semibold">{adsAnalytics?._sum?.impressions ?? adsAnalytics?.impressions ?? 0}</div>
@@ -1644,7 +2271,60 @@ const AdManager = () => {
                             <div className="text-gray-500">Admin Revenue</div>
                             <div className="font-semibold">{adsAnalytics?.adminRevenue ?? 0}</div>
                         </div>
+                        <div>
+                            <div className="text-gray-500">CTR</div>
+                            <div className="font-semibold">{adsAnalytics?.ctr ?? 0}%</div>
+                        </div>
                     </div>
+                    {adsAnalytics?.scroll && (
+                        <div className="mt-4 rounded-xl border border-cyan-100 bg-cyan-50/60 p-3">
+                            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <h5 className="text-sm font-bold text-slate-900">/scroll Ad Analytics</h5>
+                                    <p className="text-xs text-slate-500">Pre-roll and feed-overlay delivery from Ads Manager campaigns.</p>
+                                </div>
+                                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-cyan-700">
+                                    {adsAnalytics.scroll.activeCampaigns || 0} active campaigns
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-5">
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll impressions</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.impressions || 0}</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll clicks</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.clicks || 0}</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll CTR</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.ctr || 0}%</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Scroll spend</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.spend || 0}</div>
+                                </div>
+                                <div className="rounded-lg bg-white p-3">
+                                    <div className="text-gray-500">Remaining budget</div>
+                                    <div className="mt-1 text-lg font-bold">{adsAnalytics.scroll.remainingBudget || 0}</div>
+                                </div>
+                            </div>
+                            {Array.isArray(adsAnalytics.scroll.placements) && adsAnalytics.scroll.placements.length > 0 && (
+                                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                    {adsAnalytics.scroll.placements.map((placement: any) => (
+                                        <div key={placement.placement} className="rounded-lg border border-cyan-100 bg-white p-3 text-xs">
+                                            <div className="mb-1 font-semibold text-slate-800">{placement.placement}</div>
+                                            <div className="grid grid-cols-3 gap-2 text-gray-600">
+                                                <span>{placement.impressions || 0} impressions</span>
+                                                <span>{placement.clicks || 0} clicks</span>
+                                                <span>{placement.ctr || 0}% CTR</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -1719,10 +2399,15 @@ const AdManager = () => {
                                     <input
                                         type="number"
                                         min={1}
-                                        max={3}
+                                        max={8}
                                         className="w-full border rounded p-2"
-                                        value={adsConfig?.maxPlacementsPerAd ?? 3}
-                                        onChange={(e) => setAdsConfig((prev: any) => ({ ...prev, maxPlacementsPerAd: Number(e.target.value || 1) }))}
+                                        value={adsConfig?.maxPlacementsPerAd ?? 8}
+                                        onChange={(e) =>
+                                            setAdsConfig((prev: any) => ({
+                                                ...prev,
+                                                maxPlacementsPerAd: Math.max(1, Math.min(8, Number(e.target.value || 1)))
+                                            }))
+                                        }
                                     />
                                 </div>
                                 <div>
@@ -1752,9 +2437,30 @@ const AdManager = () => {
                             <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Target Countries</p>
                             <LabelWithGuide
                                 label="Country Catalog"
-                                help="This list powers the target-country dropdown shown to users during ad creation. Add new countries or remove ones you do not support."
+                                help="This list powers the target-country dropdown shown to users during ad creation. Add new countries, add the full default catalog, or clear the catalog entirely before saving."
                                 className="mb-0"
                             />
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={addAllTargetCountries}
+                                    disabled={missingDefaultTargetCountryCount === 0}
+                                    className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Add all countries
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={clearAllTargetCountries}
+                                    disabled={configuredTargetCountries.length === 0}
+                                    className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[11px] font-semibold text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    Remove all countries
+                                </button>
+                                <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[11px] font-semibold text-gray-600">
+                                    {configuredTargetCountries.length} configured
+                                </span>
+                            </div>
                             <div className="flex gap-2">
                                 <input
                                     type="text"
@@ -1785,7 +2491,7 @@ const AdManager = () => {
                             </datalist>
                             <div className="max-h-36 overflow-y-auto rounded border border-gray-100 p-2">
                                 <div className="flex flex-wrap gap-2">
-                                    {(Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []).map((country: string) => (
+                                    {configuredTargetCountries.map((country: string) => (
                                         <span
                                             key={country}
                                             className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
@@ -1801,10 +2507,159 @@ const AdManager = () => {
                                         </span>
                                     ))}
                                 </div>
-                                {(Array.isArray(adsConfig?.targetCountries) ? adsConfig.targetCountries : []).length === 0 && (
+                                {configuredTargetCountries.length === 0 && (
                                     <p className="text-xs text-gray-500">No countries configured yet.</p>
                                 )}
                             </div>
+                        </div>
+                    </div>
+
+                    <div className="rounded-lg border border-cyan-200 bg-gradient-to-br from-cyan-50 to-white p-3 space-y-3">
+                        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-xs font-bold uppercase tracking-wide text-cyan-700">/scroll Video Ad Delivery</p>
+                                    <GuideTip text="Control how sponsored video and image ads appear inside /scroll without changing Scroll content, reactions, or video navigation." />
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Skip timers, frequency caps, and placement pacing are pushed to web and mobile clients in real time after saving.
+                                </p>
+                            </div>
+                            <label className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-white px-3 py-1.5 text-xs font-semibold text-cyan-700">
+                                <input
+                                    type="checkbox"
+                                    checked={scrollAdsConfig.enabled !== false}
+                                    onChange={(e) => updateScrollAdsConfig({ enabled: e.target.checked })}
+                                />
+                                Enable /scroll ads
+                            </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-2 lg:grid-cols-4">
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Video Skip Delay" help="Seconds before users can skip a video ad. Use 10 seconds for modern pre-roll behavior." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={60}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.videoSkipDelaySeconds}
+                                    onChange={(e) => updateScrollAdsConfig({ videoSkipDelaySeconds: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Static Skip Delay" help="Seconds before users can skip static/image ads." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={30}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.staticSkipDelaySeconds}
+                                    onChange={(e) => updateScrollAdsConfig({ staticSkipDelaySeconds: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="First Ad After" help="Show the first eligible ad after this many Scroll videos." />
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={50}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.firstAdAfterScrolls}
+                                    onChange={(e) => updateScrollAdsConfig({ firstAdAfterScrolls: Number(e.target.value || 1) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Repeat Every" help="After the first ad, serve another eligible ad every N Scroll videos." />
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.repeatEveryScrolls}
+                                    onChange={(e) => updateScrollAdsConfig({ repeatEveryScrolls: Number(e.target.value || 1) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Minimum Gap" help="Minimum seconds between ad displays for a viewer session." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={3600}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.minSecondsBetweenAds}
+                                    onChange={(e) => updateScrollAdsConfig({ minSecondsBetweenAds: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Session Cap" help="Maximum /scroll ads shown in one browser/app session. Set 0 for no session cap." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.maxAdsPerSession}
+                                    onChange={(e) => updateScrollAdsConfig({ maxAdsPerSession: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Daily Viewer Cap" help="Maximum /scroll ads shown to one device/viewer per day. Set 0 for no daily cap." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={500}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.maxAdsPerViewerDay}
+                                    onChange={(e) => updateScrollAdsConfig({ maxAdsPerViewerDay: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Same Ad Cooldown" help="Minutes before the same ad can be shown again to the same device/viewer." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={1440}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.perAdCooldownMinutes}
+                                    onChange={(e) => updateScrollAdsConfig({ perAdCooldownMinutes: Number(e.target.value || 0) })}
+                                />
+                            </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Pre-roll Weight" help="Relative pacing weight for Scroll pre-roll campaigns. Higher means more pre-roll ads in the rotation." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={10}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.placementPacing.scroll_preroll}
+                                    onChange={(e) => updateScrollAdPacing('scroll_preroll', Number(e.target.value || 0))}
+                                />
+                            </label>
+                            <label className="rounded-lg border border-cyan-100 bg-white p-3">
+                                <LabelWithGuide label="Feed Overlay Weight" help="Relative pacing weight for Scroll feed-overlay campaigns." />
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={10}
+                                    className="w-full rounded border p-2"
+                                    value={scrollAdsConfig.placementPacing.scroll_feed}
+                                    onChange={(e) => updateScrollAdPacing('scroll_feed', Number(e.target.value || 0))}
+                                />
+                            </label>
+                            <label className="flex min-h-[86px] items-center gap-3 rounded-lg border border-cyan-100 bg-white p-3">
+                                <input
+                                    type="checkbox"
+                                    checked={scrollAdsConfig.fallbackToCommunityFeed !== false}
+                                    onChange={(e) => updateScrollAdsConfig({ fallbackToCommunityFeed: e.target.checked })}
+                                />
+                                <span>
+                                    <span className="block font-semibold text-gray-700">Fallback to community ads</span>
+                                    <span className="text-gray-500">Use existing community feed campaigns when no /scroll campaigns are active.</span>
+                                </span>
+                            </label>
                         </div>
                     </div>
 
@@ -1818,6 +2673,8 @@ const AdManager = () => {
                                 { key: 'homepage', label: 'Homepage' },
                                 { key: 'homepage_feed', label: 'Homepage Feed' },
                                 { key: 'community_feed', label: 'Community Feed' },
+                                { key: 'scroll_preroll', label: 'Scroll Pre-roll' },
+                                { key: 'scroll_feed', label: 'Scroll Feed Overlay' },
                                 { key: 'forum_listing', label: 'Forum Listing' },
                                 { key: 'thread_detail', label: 'Thread Detail' },
                                 { key: 'chat_sidebar', label: 'Chat Side Bar' }
@@ -1878,9 +2735,14 @@ const AdManager = () => {
                 ) : (
                     <div className="space-y-3">
                         {reviewQueue.map((ad) => (
-                            <div key={ad.id} className="flex items-center justify-between border rounded p-3">
+                            <div key={ad.id} className="flex items-center justify-between gap-3 border rounded p-3">
                                 <div>
                                     <div className="font-medium">{ad.title}</div>
+                                    {ad.delivery?.summary ? (
+                                        <div className={`mt-1 text-xs font-semibold ${ad.delivery.isServing ? 'text-emerald-700' : 'text-amber-700'}`}>
+                                            Delivery: {ad.delivery.summary}
+                                        </div>
+                                    ) : null}
                                     <div className="text-xs text-gray-500">Placement: {ad.placement} • Budget: {ad.budget}</div>
                                 </div>
                                 <div className="flex items-center gap-2">
@@ -1918,6 +2780,7 @@ const AdManager = () => {
                                 <div><strong>{c.clicks ?? 0}</strong> clicks</div>
                                 <div><strong>{c.ctr ?? 0}%</strong> CTR</div>
                             </div>
+                            <AdminAdDeliveryStrip ad={c} />
                         </div>
                         <div className="flex flex-col gap-2 justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                             <button onClick={() => { setOriginalEditing(c); setIsEditing(c); }} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"><Edit2 className="w-4 h-4"/></button>
@@ -2033,6 +2896,8 @@ const AdManager = () => {
                                         <option value="homepage">Homepage</option>
                                         <option value="homepage_feed">Homepage Feed</option>
                                         <option value="community_feed">Community Feed</option>
+                                        <option value="scroll_preroll">Scroll Pre-roll</option>
+                                        <option value="scroll_feed">Scroll Feed Overlay</option>
                                         <option value="forum_listing">Forum listing</option>
                                         <option value="thread_detail">Thread detail</option>
                                         <option value="chat_sidebar">Chat sidebar</option>
@@ -2227,7 +3092,8 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
     const [severity, setSeverity] = useState('medium');
     const [flagPost, setFlagPost] = useState(true);
     const [removePost, setRemovePost] = useState(false);
-    const [sanctionAccount, setSanctionAccount] = useState(true);
+    const [warnAccount, setWarnAccount] = useState(true);
+    const [sanctionAccount, setSanctionAccount] = useState(false);
     const [banAccount, setBanAccount] = useState(false);
     const [restrictPostingHours, setRestrictPostingHours] = useState(0);
     const [restrictedFeaturesInput, setRestrictedFeaturesInput] = useState('');
@@ -2279,6 +3145,14 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
                 setDecisionReason(resolved.actionSummary || '');
                 setComplainantMessage(resolved.reporterReply || '');
                 setSeverity(resolved.severity || 'medium');
+                setWarnAccount(true);
+                setSanctionAccount(false);
+                setBanAccount(false);
+                setRestrictPostingHours(0);
+                setRestrictedFeaturesInput('');
+                setRestrictFeaturesHours(0);
+                setFlagPost(true);
+                setRemovePost(false);
             }
         } catch (error) {
             console.error('Failed to load post report detail:', error);
@@ -2347,6 +3221,7 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
                     ? {
                         flagPost,
                         removePost,
+                        warnAccount,
                         sanctionAccount,
                         banAccount,
                         restrictPostingHours: Math.max(0, Number(restrictPostingHours || 0)),
@@ -2540,7 +3415,8 @@ const ModerationQueue = ({ logs, refresh }: { logs: ModerationLog[], refresh: ()
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                         <label className="flex items-center gap-2"><input type="checkbox" checked={flagPost} onChange={(e) => setFlagPost(e.target.checked)} /> Flag Post</label>
                                         <label className="flex items-center gap-2"><input type="checkbox" checked={removePost} onChange={(e) => setRemovePost(e.target.checked)} /> Remove Post</label>
-                                        <label className="flex items-center gap-2"><input type="checkbox" checked={sanctionAccount} onChange={(e) => setSanctionAccount(e.target.checked)} /> Sanction Account</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={warnAccount} onChange={(e) => setWarnAccount(e.target.checked)} /> Warning</label>
+                                        <label className="flex items-center gap-2"><input type="checkbox" checked={sanctionAccount} onChange={(e) => setSanctionAccount(e.target.checked)} /> Strike Account</label>
                                         <label className="flex items-center gap-2"><input type="checkbox" checked={banAccount} onChange={(e) => setBanAccount(e.target.checked)} /> Ban Account</label>
                                     </div>
                                 ) : null}

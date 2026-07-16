@@ -62,10 +62,29 @@ const formatDate = (value?: string | Date | null) => {
   return date.toLocaleString();
 };
 
+const normalizeRuntimeAlert = (value: any) => {
+  const type = String(value?.type || 'runtime_alert').trim() || 'runtime_alert';
+  const message =
+    String(value?.message || value?.body || value?.title || 'Scrolitha runtime alert').trim() ||
+    'Scrolitha runtime alert';
+  const severity = String(value?.severity || 'info').trim().toLowerCase() || 'info';
+  const count = Number(value?.count || 0) || 0;
+  const routeKey = String(value?.routeKey || '').trim() || null;
+  const createdAt = String(value?.createdAt || value?.lastSeenAt || new Date().toISOString());
+  return {
+    type,
+    severity,
+    count,
+    routeKey,
+    message,
+    lastSeenAt: createdAt
+  };
+};
+
 const toScrolithaModelLabel = (value: any) => {
   const normalized = String(value || '').trim();
   if (!normalized) return '-';
-  return 'Scrolitha';
+  return 'Scrolitha Core';
 };
 
 const ScrolithaManagement: React.FC = () => {
@@ -199,6 +218,12 @@ const ScrolithaManagement: React.FC = () => {
     };
   }, [normalizedMetadata]);
 
+  const llmProvider = String(llmMetadata.provider || 'core');
+  const coreEndpointValue = String(llmMetadata.coreEndpoint || llmMetadata.ollamaHost || llmMetadata.host || '').trim();
+  const coreEndpointConfigured = Boolean(coreEndpointValue);
+  const coreEndpointLooksLocalhost = /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?/i.test(coreEndpointValue);
+  const localEngineModeEnabled = Boolean(llmMetadata.sidecarMode ?? llmMetadata.coreSidecarMode ?? coreEndpointLooksLocalhost);
+
   const updateLlmMetadata = (patch: Record<string, any>) => {
     setConfig((prev: any) => {
       const metadata = prev?.metadata && typeof prev.metadata === 'object' && !Array.isArray(prev.metadata)
@@ -323,17 +348,46 @@ const ScrolithaManagement: React.FC = () => {
       void loadLearningInsights();
       void loadChatRecords();
     };
+    const handleRuntimeAlert = (payload: any) => {
+      const alert = normalizeRuntimeAlert(payload);
+      setAnalytics((prev: any) => {
+        const current = prev && typeof prev === 'object' ? prev : {};
+        const runtime = current.runtime && typeof current.runtime === 'object' ? { ...current.runtime } : {};
+        const existing = Array.isArray(runtime.recentAlerts) ? runtime.recentAlerts : [];
+        const deduped = [
+          alert,
+          ...existing.filter(
+            (entry: any) =>
+              !(
+                String(entry?.type || '') === alert.type &&
+                String(entry?.message || '') === alert.message &&
+                String(entry?.lastSeenAt || '') === alert.lastSeenAt
+              )
+          )
+        ].slice(0, 10);
+        runtime.recentAlerts = deduped;
+        return { ...current, runtime };
+      });
+      showNotification(
+        alert.severity === 'warning' ? 'warning' : 'info',
+        'Scrolitha Runtime',
+        alert.message
+      );
+      void loadAudit(null);
+    };
     socket.on('scrolitha:config_updated', refresh);
     socket.on('scrolitha:skills_updated', refresh);
     socket.on('scrolitha:action_completed', refresh);
     socket.on('scrolitha:learning_updated', refresh);
     socket.on('scrolitha:post_ai_updated', refresh);
+    socket.on('scrolitha:runtime_alert', handleRuntimeAlert);
     return () => {
       socket.off('scrolitha:config_updated', refresh);
       socket.off('scrolitha:skills_updated', refresh);
       socket.off('scrolitha:action_completed', refresh);
       socket.off('scrolitha:learning_updated', refresh);
       socket.off('scrolitha:post_ai_updated', refresh);
+      socket.off('scrolitha:runtime_alert', handleRuntimeAlert);
     };
   }, [socket, configScope, chatRecordScope, chatRecordUserId]);
 
@@ -556,6 +610,7 @@ const ScrolithaManagement: React.FC = () => {
   };
 
   const totals = useMemo(() => analytics?.totals || {}, [analytics]);
+  const runtimeAnalytics = useMemo(() => analytics?.runtime || {}, [analytics]);
 
   return (
     <div className="space-y-4">
@@ -713,8 +768,10 @@ const ScrolithaManagement: React.FC = () => {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-slate-900">LLM Settings (Ollama)</div>
-                    <div className="text-xs text-slate-500">Stored in config metadata and applied instantly without redeploy.</div>
+                    <div className="text-sm font-semibold text-slate-900">Scrolitha Core Settings</div>
+                    <div className="text-xs text-slate-500">
+                      Manage the Scrolitha execution runtime and backup processing without redeploying the app.
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -725,7 +782,7 @@ const ScrolithaManagement: React.FC = () => {
                           setLoading(true);
                           await loadLlmHealth();
                         } catch (error: any) {
-                          showNotification('error', 'Scrolitha LLM', error?.message || 'Health check failed.');
+                          showNotification('error', 'Scrolitha Core', error?.message || 'Health check failed.');
                         } finally {
                           setLoading(false);
                         }
@@ -742,7 +799,7 @@ const ScrolithaManagement: React.FC = () => {
                           setLoading(true);
                           await loadLlmModels();
                         } catch (error: any) {
-                          showNotification('error', 'Scrolitha LLM', error?.message || 'Failed to load models.');
+                          showNotification('error', 'Scrolitha Core', error?.message || 'Failed to load models.');
                         } finally {
                           setLoading(false);
                         }
@@ -766,24 +823,33 @@ const ScrolithaManagement: React.FC = () => {
                   </label>
 
                   <label className="text-xs font-medium uppercase text-slate-500">
-                    Provider
+                    Scrolitha Engine
                     <select
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                      value={String(llmMetadata.provider || 'ollama')}
+                      value={llmProvider}
                       onChange={(event) => updateLlmMetadata({ provider: event.target.value })}
                     >
-                      <option value="ollama">ollama</option>
-                      <option value="disabled">disabled</option>
+                      <option value="core">Scrolitha Core Runtime (recommended)</option>
+                      <option value="ollama">Legacy imported runtime compatibility</option>
+                      <option value="disabled">Disabled</option>
                     </select>
                   </label>
 
                   <label className="text-xs font-medium uppercase text-slate-500">
-                    Ollama Host
+                    Scrolitha Core Endpoint
                     <input
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
                       placeholder="http://127.0.0.1:11434"
-                      value={String(llmMetadata.ollamaHost || llmMetadata.host || '')}
-                      onChange={(event) => updateLlmMetadata({ ollamaHost: event.target.value, host: event.target.value })}
+                      disabled={llmProvider === 'disabled'}
+                      value={coreEndpointValue}
+                      onChange={(event) =>
+                        updateLlmMetadata({
+                          coreEndpoint: event.target.value,
+                          ollamaHost: event.target.value,
+                          host: event.target.value,
+                          sidecarMode: /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?/i.test(String(event.target.value || '').trim())
+                        })
+                      }
                     />
                   </label>
 
@@ -791,19 +857,33 @@ const ScrolithaManagement: React.FC = () => {
                     Model
                     <input
                       className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                      placeholder="llama3.1"
-                      value={String(llmMetadata.ollamaModel || llmMetadata.model || '')}
-                      onChange={(event) => updateLlmMetadata({ ollamaModel: event.target.value, model: event.target.value })}
+                      placeholder="scrolitha-core"
+                      disabled={llmProvider === 'disabled'}
+                      value={String(llmMetadata.coreModel || llmMetadata.ollamaModel || llmMetadata.model || '')}
+                      onChange={(event) =>
+                        updateLlmMetadata({
+                          coreModel: event.target.value,
+                          ollamaModel: event.target.value,
+                          model: event.target.value
+                        })
+                      }
                     />
                     {llmModels.length ? (
                       <select
                         className="mt-2 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        value={String(llmMetadata.ollamaModel || llmMetadata.model || '')}
-                        onChange={(event) => updateLlmMetadata({ ollamaModel: event.target.value, model: event.target.value })}
+                        disabled={llmProvider === 'disabled'}
+                        value={String(llmMetadata.coreModel || llmMetadata.ollamaModel || llmMetadata.model || '')}
+                        onChange={(event) =>
+                          updateLlmMetadata({
+                            coreModel: event.target.value,
+                            ollamaModel: event.target.value,
+                            model: event.target.value
+                          })
+                        }
                       >
-                        <option value="">Select from server...</option>
-                        {llmModels.map((m) => (
-                          <option key={m} value={m}>{toScrolithaModelLabel(m)}</option>
+                        <option value="">Select configured runtime model...</option>
+                        {llmModels.map((m, index) => (
+                          <option key={m} value={m}>{`Scrolitha Core option ${index + 1}`}</option>
                         ))}
                       </select>
                     ) : null}
@@ -855,10 +935,20 @@ const ScrolithaManagement: React.FC = () => {
                     <input
                       type="checkbox"
                       className="mr-2"
+                      checked={localEngineModeEnabled}
+                      onChange={(event) => updateLlmMetadata({ sidecarMode: event.target.checked })}
+                    />
+                    Local Scrolitha runtime mode
+                  </label>
+
+                  <label className="text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
                       checked={Boolean(llmMetadata.allowGeminiFallback)}
                       onChange={(event) => updateLlmMetadata({ allowGeminiFallback: event.target.checked })}
                     />
-                    Allow legacy fallback (Gemini/OpenAI)
+                    Allow managed backup provider
                   </label>
 
                   <label className="text-sm text-slate-700">
@@ -872,14 +962,61 @@ const ScrolithaManagement: React.FC = () => {
                   </label>
                 </div>
 
+                <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  Scrolitha Core runs as your branded enterprise assistant. When you point it at a local runtime, the
+                  underlying Ollama engine stays fully hidden from user-facing Scrolitha experiences.
+                </div>
+
+                {llmProvider !== 'disabled' && !coreEndpointConfigured ? (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                    Scrolitha Core endpoint is not configured.
+                  </div>
+                ) : null}
+
                 {llmHealth ? (
                   <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
                     <div className="font-semibold">
-                      Status: <span className={llmHealth.ok ? 'text-green-700' : 'text-red-700'}>{llmHealth.ok ? 'OK' : 'ERROR'}</span>
+                      Scrolitha Core:{' '}
+                      <span
+                        className={
+                          llmHealth.availability === 'misconfigured' || llmHealth.status === 'disabled'
+                            ? 'text-red-700'
+                            : llmHealth.status === 'degraded' || llmHealth.availability === 'unavailable'
+                              ? 'text-amber-700'
+                              : 'text-green-700'
+                        }
+                      >
+                        {String(llmHealth.availability || llmHealth.status || (llmHealth.ok ? 'online' : 'unavailable')).toUpperCase()}
+                      </span>
                     </div>
-                    <div className="mt-1">Host: {llmHealth.host || '-'}</div>
+                    <div className="mt-1">Backup Engine: {String(llmHealth.backupEngineStatus || 'Available')}</div>
+                    <div>Last checked: {llmHealth.lastCheckedAt ? formatDate(llmHealth.lastCheckedAt) : '-'}</div>
+                    <div>
+                      Endpoint status:{' '}
+                      {llmProvider === 'disabled'
+                        ? 'Disabled'
+                        : coreEndpointConfigured
+                          ? coreEndpointLooksLocalhost
+                            ? localEngineModeEnabled
+                              ? 'Configured for local Scrolitha runtime'
+                              : 'Local endpoint configured without local runtime mode'
+                            : 'Configured'
+                          : 'Not configured'}
+                    </div>
                     <div>Model: {toScrolithaModelLabel(llmHealth.model)}</div>
+                    {llmHealth.note ? <div className="mt-1 text-slate-600">{String(llmHealth.note)}</div> : null}
+                    {llmHealth.warning ? <div className="mt-1 text-amber-700">Warning: {String(llmHealth.warning)}</div> : null}
                     {llmHealth.error ? <div className="mt-1 text-red-700">Error: {String(llmHealth.error)}</div> : null}
+                    {llmHealth.diagnostics ? (
+                      <details className="mt-2 rounded-md border border-slate-200 bg-slate-50 p-2 text-[11px] text-slate-600">
+                        <summary className="cursor-pointer font-semibold text-slate-700">Advanced diagnostics</summary>
+                        <div className="mt-2 space-y-1">
+                          <div>Runtime: {String(llmHealth.runtime || llmProvider || 'core')}</div>
+                          <div>Endpoint: {String(llmHealth.host || '-')}</div>
+                          <div>Configured model: {String(llmHealth.diagnostics?.configuredModel || llmHealth.model || '-')}</div>
+                        </div>
+                      </details>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -962,7 +1099,7 @@ const ScrolithaManagement: React.FC = () => {
                       </div>
                     </div>
                     <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-                      Scrolitha + Ollama
+                      Scrolitha Core
                     </span>
                   </div>
 
@@ -1449,6 +1586,55 @@ const ScrolithaManagement: React.FC = () => {
             <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Avg Rating: {Number(totals.avgRating || 0).toFixed(2)}</p>
             <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Feedback Count: {totals.feedbackCount || 0}</p>
             <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Estimated Minutes Saved: {totals.estimatedMinutesSaved || 0}</p>
+          </div>
+
+          <div className="mt-5 border-t border-slate-200 pt-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h4 className="text-xs font-semibold uppercase text-slate-500">Runtime Analytics</h4>
+              <p className="text-[11px] text-slate-500">Fallback, block, and latency visibility for Scrolitha generation paths.</p>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Requests: {Number(runtimeAnalytics.totalRequests || totals.runtimeRequests || 0)}</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Fallbacks: {Number(runtimeAnalytics.fallbackCount || totals.runtimeFallbacks || 0)}</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Prompt Blocks: {Number(runtimeAnalytics.blockedCount || totals.runtimePromptBlocks || 0)}</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Avg Latency: {Number(runtimeAnalytics.avgLatencyMs || totals.runtimeAvgLatencyMs || 0).toFixed(0)} ms</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">P95 Latency: {Number(runtimeAnalytics.p95LatencyMs || totals.runtimeP95LatencyMs || 0).toFixed(0)} ms</p>
+              <p className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">Fallback Rate: {Number(runtimeAnalytics.fallbackRate || 0).toFixed(3)}</p>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <div>
+                <h5 className="text-xs font-semibold uppercase text-slate-500">Recent Alerts</h5>
+                <div className="mt-2 space-y-2">
+                  {(runtimeAnalytics.recentAlerts || []).map((entry: any, index: number) => (
+                    <div key={`${entry.type}_${index}`} className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase text-slate-600">{String(entry.severity || 'info')}</span>
+                        <span className="text-[11px] text-slate-500">{formatDate(entry.lastSeenAt)}</span>
+                      </div>
+                      <p className="mt-1 text-sm text-slate-700">{String(entry.message || entry.type || 'Runtime alert')}</p>
+                    </div>
+                  ))}
+                  {!Array.isArray(runtimeAnalytics.recentAlerts) || runtimeAnalytics.recentAlerts.length === 0 ? (
+                    <p className="text-xs text-slate-500">No runtime alerts detected.</p>
+                  ) : null}
+                </div>
+              </div>
+
+              <div>
+                <h5 className="text-xs font-semibold uppercase text-slate-500">Top Runtime Routes</h5>
+                <div className="mt-2 space-y-1">
+                  {(runtimeAnalytics.routes || []).map((entry: any) => (
+                    <p key={entry.routeKey} className="text-sm text-slate-700">
+                      {entry.routeKey}: {Number(entry.count || 0)} requests, {Number(entry.fallbacks || 0)} fallbacks, {Number(entry.avgLatencyMs || 0).toFixed(0)} ms avg
+                    </p>
+                  ))}
+                  {!Array.isArray(runtimeAnalytics.routes) || runtimeAnalytics.routes.length === 0 ? (
+                    <p className="text-xs text-slate-500">No runtime route data yet.</p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="mt-4">

@@ -23,10 +23,25 @@ import type {
   EmailProviderConfig,
   AdminDashboardStats,
   ApiResponse,
-  MessengerVoiceConfig
+  MessengerVoiceConfig,
+  Currency,
+  FxSystemConfig,
+  FxProviderRecord,
+  FxSnapshotRecord,
+  FxManualOverrideRecord,
+  FxLockRecord,
+  FxHealth
 } from '../types';
+import type {
+  MarketplaceCategory,
+  MarketplaceListing,
+  MarketplaceReport,
+  MarketplaceSettings,
+  MarketplaceListingFormValues
+} from '../types/marketplace';
 
 const ADMIN_BASE = '/admin';
+const SYSTEM_BACKUP_TIMEOUT_MS = 30 * 60 * 1000;
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -292,6 +307,32 @@ const normalizeFraudLog = (log: any): FraudLog => {
 };
 
 export const AdminService = {
+  getSystemDemoAccountsOverview: async (): Promise<any> => {
+    return adminGet<any>('/system-demo-accounts/overview');
+  },
+
+  seedSystemDemoAccounts: async (count = 50): Promise<any> => {
+    return adminPost<any>('/system-demo-accounts/seed', { count });
+  },
+
+  updateSystemDemoAccountsConfig: async (payload: {
+    enabled?: boolean;
+    aiEnabled?: boolean;
+    cadenceMinutes?: number;
+    maxPostsPerRun?: number;
+    maxLikesPerRun?: number;
+  }): Promise<any> => {
+    return adminPut<any>('/system-demo-accounts/config', payload);
+  },
+
+  toggleSystemDemoAccountAutomation: async (accountId: string, enabled: boolean): Promise<any> => {
+    return adminPost<any>(`/system-demo-accounts/accounts/${encodeURIComponent(accountId)}/toggle`, { enabled });
+  },
+
+  runSystemDemoAccountsCycle: async (): Promise<any> => {
+    return adminPost<any>('/system-demo-accounts/run-once', {});
+  },
+
   getMessengerVoiceConfig: async (): Promise<MessengerVoiceConfig> => {
     const data = await adminGet<MessengerVoiceConfig>('/messenger/voice/config');
     return {
@@ -342,6 +383,30 @@ export const AdminService = {
     await adminPost(`/users/${userId}/status`, { status, adminId });
   },
 
+  getUserModerationStatus: async (userId: string): Promise<any> => {
+    return adminGet<any>(`/users/${encodeURIComponent(userId)}/moderation`);
+  },
+
+  applyUserModerationAction: async (
+    userId: string,
+    payload: {
+      action: 'warning' | 'strike' | 'restriction' | 'ban';
+      reason?: string;
+      userMessage?: string;
+      severity?: string;
+      restrictedFeatures?: string[];
+      restrictionHours?: number;
+      source?: string;
+      sourceId?: string;
+      sourceLabel?: string;
+      reportId?: string;
+      postId?: string;
+    },
+    adminId: string
+  ): Promise<any> => {
+    return adminPost<any>(`/users/${encodeURIComponent(userId)}/moderation`, { ...payload, adminId });
+  },
+
   updateUserPassword: async (userId: string, password: string, adminId: string): Promise<void> => {
     await adminPost(`/users/${userId}/password`, { password, adminId });
   },
@@ -381,6 +446,689 @@ export const AdminService = {
   getRbacPermissions: async (): Promise<{ permissions: any[]; groups: any[] }> => {
     const data = await adminGet<{ permissions: any[]; groups: any[] }>('/rbac/permissions');
     return data || { permissions: [], groups: [] };
+  },
+
+  getCurrentAdminAccess: async (): Promise<any> => {
+    return adminGet<any>('/rbac/me');
+  },
+
+  getPolicySummary: async (): Promise<any> => {
+    return adminGet<any>('/policies/summary');
+  },
+
+  getPolicyCatalog: async (): Promise<any> => {
+    return adminGet<any>('/policies/catalog');
+  },
+
+  getPolicyRules: async (params?: {
+    namespaceKey?: string;
+    resourceKey?: string;
+    permissionKey?: string;
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/policies/rules', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createPolicyRule: async (payload: {
+    namespaceKey: string;
+    resourceKey?: string | null;
+    key: string;
+    label: string;
+    description?: string | null;
+    permissionKey: string;
+    effect?: 'ALLOW' | 'DENY';
+    conditions?: any;
+    priority?: number;
+    isActive?: boolean;
+    isSystemRule?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/policies/rules', payload);
+  },
+
+  updatePolicyRule: async (
+    id: string,
+    payload: {
+      namespaceKey: string;
+      resourceKey?: string | null;
+      key: string;
+      label: string;
+      description?: string | null;
+      permissionKey: string;
+      effect?: 'ALLOW' | 'DENY';
+      conditions?: any;
+      priority?: number;
+      isActive?: boolean;
+      isSystemRule?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/policies/rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivatePolicyRule: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/policies/rules/${encodeURIComponent(id)}`);
+  },
+
+  getUserPermissionOverrides: async (identifier: string): Promise<any> => {
+    return adminGet<any>('/policies/overrides', { identifier });
+  },
+
+  createUserPermissionOverride: async (payload: {
+    identifier: string;
+    permissionKey: string;
+    resourceType?: string | null;
+    resourceId?: string | null;
+    effect?: 'ALLOW' | 'DENY';
+    reason?: string | null;
+    expiresAt?: string | null;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/policies/overrides', payload);
+  },
+
+  updateUserPermissionOverride: async (
+    id: string,
+    payload: {
+      identifier?: string;
+      permissionKey?: string;
+      resourceType?: string | null;
+      resourceId?: string | null;
+      effect?: 'ALLOW' | 'DENY';
+      reason?: string | null;
+      expiresAt?: string | null;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/policies/overrides/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateUserPermissionOverride: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/policies/overrides/${encodeURIComponent(id)}`);
+  },
+
+  getApprovalPolicySummary: async (): Promise<any> => {
+    return adminGet<any>('/approvals/summary');
+  },
+
+  getApprovalPolicies: async (): Promise<any[]> => {
+    const data = await adminGet<any[]>('/approvals/policies');
+    return Array.isArray(data) ? data : [];
+  },
+
+  createApprovalPolicy: async (payload: {
+    moduleKey: string;
+    actionKey: string;
+    entityType: string;
+    label: string;
+    description?: string | null;
+    mode?: 'AUDIT_ONLY' | 'ENFORCED' | 'DISABLED';
+    minApprovals?: number;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/approvals/policies', payload);
+  },
+
+  updateApprovalPolicy: async (id: string, payload: Record<string, any>): Promise<any> => {
+    return adminPut<any>(`/approvals/policies/${encodeURIComponent(id)}`, payload);
+  },
+
+  getApprovalRequests: async (params?: { status?: string; moduleKey?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/approvals/requests', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  observeApprovalRequest: async (payload: Record<string, any>): Promise<any> => {
+    return adminPost<any>('/approvals/requests/observe', payload);
+  },
+
+  approveApprovalRequest: async (id: string, reason?: string): Promise<any> => {
+    return adminPost<any>(`/approvals/requests/${encodeURIComponent(id)}/approve`, { reason });
+  },
+
+  rejectApprovalRequest: async (id: string, reason?: string): Promise<any> => {
+    return adminPost<any>(`/approvals/requests/${encodeURIComponent(id)}/reject`, { reason });
+  },
+
+  getAuditSummary: async (): Promise<any> => {
+    return adminGet<any>('/audit/summary');
+  },
+
+  getAuditEvents: async (params?: {
+    actor?: string;
+    entityType?: string;
+    moduleKey?: string;
+    severity?: string;
+    status?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/audit/events', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getSecurityAlertSummary: async (): Promise<any> => {
+    return adminGet<any>('/security-alerts/summary');
+  },
+
+  getSecurityAlerts: async (params?: { status?: string; severity?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/security-alerts', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  acknowledgeSecurityAlert: async (id: string): Promise<any> => {
+    return adminPost<any>(`/security-alerts/${encodeURIComponent(id)}/acknowledge`);
+  },
+
+  resolveSecurityAlert: async (id: string): Promise<any> => {
+    return adminPost<any>(`/security-alerts/${encodeURIComponent(id)}/resolve`);
+  },
+
+  dismissSecurityAlert: async (id: string): Promise<any> => {
+    return adminPost<any>(`/security-alerts/${encodeURIComponent(id)}/dismiss`);
+  },
+
+  getFeatureControlSummary: async (): Promise<any> => {
+    return adminGet<any>('/feature-control/summary');
+  },
+
+  getFeatureFlags: async (params?: {
+    query?: string;
+    category?: string;
+    activeOnly?: boolean;
+    killSwitch?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/feature-control/flags', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFeatureFlag: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    category?: string | null;
+    defaultValue?: boolean;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/feature-control/flags', payload);
+  },
+
+  updateFeatureFlag: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      category?: string | null;
+      defaultValue?: boolean;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/feature-control/flags/${encodeURIComponent(id)}`, payload);
+  },
+
+  toggleFeatureKillSwitch: async (id: string, enabled: boolean): Promise<any> => {
+    return adminPost<any>(`/feature-control/flags/${encodeURIComponent(id)}/kill-switch`, { enabled });
+  },
+
+  getFeatureAudiences: async (flagId: string): Promise<any[]> => {
+    const data = await adminGet<any[]>(`/feature-control/flags/${encodeURIComponent(flagId)}/audiences`);
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFeatureAudience: async (
+    flagId: string,
+    payload: {
+      key: string;
+      label: string;
+      roleScope?: string[] | string;
+      countryScope?: string[] | string;
+      platformScope?: string[] | string;
+      appVersions?: string[] | string;
+      metadata?: any;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPost<any>(`/feature-control/flags/${encodeURIComponent(flagId)}/audiences`, payload);
+  },
+
+  updateFeatureAudience: async (
+    id: string,
+    payload: {
+      flagId: string;
+      key: string;
+      label: string;
+      roleScope?: string[] | string;
+      countryScope?: string[] | string;
+      platformScope?: string[] | string;
+      appVersions?: string[] | string;
+      metadata?: any;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/feature-control/audiences/${encodeURIComponent(id)}`, payload);
+  },
+
+  getFeatureRules: async (flagId: string): Promise<any[]> => {
+    const data = await adminGet<any[]>(`/feature-control/flags/${encodeURIComponent(flagId)}/rules`);
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFeatureRule: async (
+    flagId: string,
+    payload: {
+      audienceId?: string | null;
+      rolloutPercent?: number;
+      value?: boolean;
+      startAt?: string | null;
+      endAt?: string | null;
+      priority?: number;
+      isActive?: boolean;
+      conditions?: any;
+    }
+  ): Promise<any> => {
+    return adminPost<any>(`/feature-control/flags/${encodeURIComponent(flagId)}/rules`, payload);
+  },
+
+  updateFeatureRule: async (
+    id: string,
+    payload: {
+      flagId: string;
+      audienceId?: string | null;
+      rolloutPercent?: number;
+      value?: boolean;
+      startAt?: string | null;
+      endAt?: string | null;
+      priority?: number;
+      isActive?: boolean;
+      conditions?: any;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/feature-control/rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateFeatureRule: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/feature-control/rules/${encodeURIComponent(id)}`);
+  },
+
+  getFeatureFlagAudit: async (params?: { flagId?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/feature-control/audit', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getFeatureExposures: async (params?: {
+    flagId?: string;
+    userId?: string;
+    sessionKey?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/feature-control/exposures', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  resolveFeatureFlag: async (payload: {
+    key: string;
+    userId?: string | null;
+    sessionKey?: string | null;
+    role?: string | null;
+    country?: string | null;
+    platform?: string | null;
+    appVersion?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/feature-control/resolve', payload);
+  },
+
+  getDiscoverySummary: async (): Promise<any> => {
+    return adminGet<any>('/discovery/summary');
+  },
+
+  getDiscoverySearchRules: async (params?: {
+    scope?: string;
+    targetType?: string;
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/discovery/search-rules', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createDiscoverySearchRule: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    scope?: string;
+    targetType?: string;
+    targetId?: string | null;
+    queryPattern?: string | null;
+    action?: string;
+    value?: number;
+    priority?: number;
+    metadata?: any;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/discovery/search-rules', payload);
+  },
+
+  updateDiscoverySearchRule: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      scope?: string;
+      targetType?: string;
+      targetId?: string | null;
+      queryPattern?: string | null;
+      action?: string;
+      value?: number;
+      priority?: number;
+      metadata?: any;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/discovery/search-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateDiscoverySearchRule: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/discovery/search-rules/${encodeURIComponent(id)}`);
+  },
+
+  getDiscoveryFeedRecipes: async (params?: { activeOnly?: boolean }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/discovery/feed-recipes', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createDiscoveryFeedRecipe: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    mode: string;
+    weights?: any;
+    queryTakeMultiplier?: number;
+    queryTakeCap?: number;
+    isActive?: boolean;
+    isSystemRecipe?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/discovery/feed-recipes', payload);
+  },
+
+  updateDiscoveryFeedRecipe: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      mode: string;
+      weights?: any;
+      queryTakeMultiplier?: number;
+      queryTakeCap?: number;
+      isActive?: boolean;
+      isSystemRecipe?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/discovery/feed-recipes/${encodeURIComponent(id)}`, payload);
+  },
+
+  getJourneySummary: async (): Promise<any> => {
+    return adminGet<any>('/journeys/summary');
+  },
+
+  getNotificationTemplates: async (params?: {
+    query?: string;
+    category?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/journeys/templates', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createNotificationTemplate: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    type?: string;
+    category?: string;
+    titleTemplate: string;
+    bodyTemplate: string;
+    pushTitleTemplate?: string | null;
+    pushBodyTemplate?: string | null;
+    emailSubjectTemplate?: string | null;
+    emailTextTemplate?: string | null;
+    actionUrlTemplate?: string | null;
+    defaultMeta?: any;
+    inAppEnabled?: boolean;
+    pushEnabled?: boolean;
+    emailEnabled?: boolean;
+    isSystemTemplate?: boolean;
+    isActive?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/journeys/templates', payload);
+  },
+
+  updateNotificationTemplate: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      type?: string;
+      category?: string;
+      titleTemplate: string;
+      bodyTemplate: string;
+      pushTitleTemplate?: string | null;
+      pushBodyTemplate?: string | null;
+      emailSubjectTemplate?: string | null;
+      emailTextTemplate?: string | null;
+      actionUrlTemplate?: string | null;
+      defaultMeta?: any;
+      inAppEnabled?: boolean;
+      pushEnabled?: boolean;
+      emailEnabled?: boolean;
+      isSystemTemplate?: boolean;
+      isActive?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/journeys/templates/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateNotificationTemplate: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/journeys/templates/${encodeURIComponent(id)}`);
+  },
+
+  getJourneyFlows: async (params?: {
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/journeys/flows', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createJourneyFlow: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    triggerType?: string;
+    audienceType?: string;
+    audienceConfig?: any;
+    metadata?: any;
+    isSystemFlow?: boolean;
+    isActive?: boolean;
+    steps: any[];
+  }): Promise<any> => {
+    return adminPost<any>('/journeys/flows', payload);
+  },
+
+  updateJourneyFlow: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      triggerType?: string;
+      audienceType?: string;
+      audienceConfig?: any;
+      metadata?: any;
+      isSystemFlow?: boolean;
+      isActive?: boolean;
+      steps: any[];
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/journeys/flows/${encodeURIComponent(id)}`, payload);
+  },
+
+  deactivateJourneyFlow: async (id: string): Promise<any> => {
+    return adminDelete<any>(`/journeys/flows/${encodeURIComponent(id)}`);
+  },
+
+  getJourneyRuns: async (params?: {
+    status?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/journeys/runs', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  triggerJourneyRun: async (payload: {
+    flowId?: string;
+    flowKey?: string;
+    identifier: string;
+    context?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/journeys/runs', payload);
+  },
+
+  getJourneyQuietHours: async (identifier: string): Promise<any> => {
+    return adminGet<any>('/journeys/quiet-hours', { identifier });
+  },
+
+  getModerationTrustSummary: async (): Promise<any> => {
+    return adminGet<any>('/moderation-policies/summary');
+  },
+
+  getContentPolicies: async (params?: {
+    contentType?: string;
+    query?: string;
+    activeOnly?: boolean;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/moderation-policies', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createContentPolicy: async (payload: {
+    key: string;
+    label: string;
+    description?: string | null;
+    contentType: string;
+    severity?: string;
+    action?: string;
+    thresholds?: any;
+    metadata?: any;
+    isActive?: boolean;
+    isSystemPolicy?: boolean;
+  }): Promise<any> => {
+    return adminPost<any>('/moderation-policies', payload);
+  },
+
+  updateContentPolicy: async (
+    id: string,
+    payload: {
+      key: string;
+      label: string;
+      description?: string | null;
+      contentType: string;
+      severity?: string;
+      action?: string;
+      thresholds?: any;
+      metadata?: any;
+      isActive?: boolean;
+      isSystemPolicy?: boolean;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/moderation-policies/${encodeURIComponent(id)}`, payload);
+  },
+
+  getModerationCases: async (params?: {
+    status?: string;
+    contentType?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/moderation-policies/cases', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getModerationAppeals: async (params?: {
+    status?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/moderation-policies/appeals', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  resolveModerationAppeal: async (
+    id: string,
+    payload: { status: 'APPROVED' | 'RESOLVED' | 'REJECTED'; resolutionNotes?: string | null }
+  ): Promise<any> => {
+    return adminPost<any>(`/moderation-policies/appeals/${encodeURIComponent(id)}/resolve`, payload);
+  },
+
+  getTrustProfiles: async (params?: {
+    riskLevel?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/trust/users', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getTrustProfileDetails: async (userId: string): Promise<any> => {
+    return adminGet<any>(`/trust/users/${encodeURIComponent(userId)}`);
+  },
+
+  recomputeTrustProfile: async (userId: string): Promise<any> => {
+    return adminPost<any>(`/trust/users/${encodeURIComponent(userId)}/recompute`, {});
+  },
+
+  getRiskSignals: async (params?: {
+    status?: string;
+    severity?: string;
+    query?: string;
+    userId?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/trust/signals', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createRiskSignal: async (payload: {
+    identifier: string;
+    signalType: string;
+    severity?: string;
+    source?: string;
+    status?: string;
+    reason: string;
+    metadata?: any;
+    expiresAt?: string | null;
+  }): Promise<any> => {
+    return adminPost<any>('/trust/signals', payload);
+  },
+
+  updateRiskSignal: async (
+    id: string,
+    payload: {
+      signalType?: string;
+      severity?: string;
+      source?: string;
+      status?: string;
+      reason?: string;
+      metadata?: any;
+      expiresAt?: string | null;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/trust/signals/${encodeURIComponent(id)}`, payload);
   },
 
   createRbacRole: async (payload: {
@@ -455,6 +1203,110 @@ export const AdminService = {
   async getGigsJobsStats(): Promise<AdminDashboardStats | null> {
     const data = await adminGet<AdminDashboardStats | null>('/gigs-jobs/dashboard/stats');
     return data || null;
+  },
+
+  async getMarketplaceSettings(): Promise<MarketplaceSettings | null> {
+    const data = await adminGet<MarketplaceSettings | null>('/marketplace/settings');
+    return data || null;
+  },
+
+  async saveMarketplaceSettings(payload: Partial<MarketplaceSettings>): Promise<boolean> {
+    const response = await adminRequest<any>('put', '/marketplace/settings', payload);
+    return Boolean(response?.success);
+  },
+
+  async getMarketplaceCategories(): Promise<MarketplaceCategory[]> {
+    const data = await adminGet<MarketplaceCategory[]>('/marketplace/categories');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async saveMarketplaceCategory(category: MarketplaceCategory): Promise<boolean> {
+    const response = await adminRequest<MarketplaceCategory>('post', '/marketplace/categories', category);
+    return Boolean(response?.success);
+  },
+
+  async updateMarketplaceCategory(id: string, category: Partial<MarketplaceCategory>): Promise<boolean> {
+    const response = await adminRequest<MarketplaceCategory>('put', `/marketplace/categories/${id}`, category);
+    return Boolean(response?.success);
+  },
+
+  async deleteMarketplaceCategory(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/marketplace/categories/${id}`);
+    return Boolean(response?.success);
+  },
+
+  async getMarketplaceListings(filters?: {
+    status?: string;
+    reviewStatus?: string;
+    categoryId?: string;
+    sellerId?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<MarketplaceListing[]> {
+    const data = await adminGet<MarketplaceListing[]>('/marketplace/listings', filters);
+    if (Array.isArray(data)) return data;
+    if (Array.isArray((data as any)?.items)) return (data as any).items;
+    if (Array.isArray((data as any)?.listings)) return (data as any).listings;
+    return [];
+  },
+
+  async getMarketplaceListing(id: string): Promise<MarketplaceListing | null> {
+    const data = await adminGet<MarketplaceListing>(`/marketplace/listings/${id}`);
+    return data || null;
+  },
+
+  async saveMarketplaceListing(payload: MarketplaceListingFormValues | Record<string, unknown>): Promise<boolean> {
+    const response = await adminRequest<MarketplaceListing>('post', '/marketplace/listings', payload);
+    return Boolean(response?.success);
+  },
+
+  async updateMarketplaceListing(id: string, payload: MarketplaceListingFormValues | Record<string, unknown>): Promise<boolean> {
+    const response = await adminRequest<MarketplaceListing>('put', `/marketplace/listings/${id}`, payload);
+    return Boolean(response?.success);
+  },
+
+  async deleteMarketplaceListing(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('delete', `/marketplace/listings/${id}`);
+    return Boolean(response?.success);
+  },
+
+  async approveMarketplaceListing(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/approve`);
+    return Boolean(response?.success);
+  },
+
+  async rejectMarketplaceListing(id: string, reason?: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/reject`, { reason });
+    return Boolean(response?.success);
+  },
+
+  async suspendMarketplaceListing(id: string, reason?: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/suspend`, { reason });
+    return Boolean(response?.success);
+  },
+
+  async restoreMarketplaceListing(id: string): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/restore`);
+    return Boolean(response?.success);
+  },
+
+  async featureMarketplaceListing(id: string, featured = true): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/listings/${id}/${featured ? 'feature' : 'unfeature'}`);
+    return Boolean(response?.success);
+  },
+
+  async getMarketplaceReports(): Promise<MarketplaceReport[]> {
+    const data = await adminGet<MarketplaceReport[]>('/marketplace/reports');
+    if (Array.isArray(data)) return data;
+    if (Array.isArray((data as any)?.items)) return (data as any).items;
+    if (Array.isArray((data as any)?.reports)) return (data as any).reports;
+    return [];
+  },
+
+  async resolveMarketplaceReport(id: string, payload?: Record<string, unknown>): Promise<boolean> {
+    const response = await adminRequest<{ id: string }>('post', `/marketplace/reports/${id}/resolve`, payload);
+    return Boolean(response?.success);
   },
 
   async approveListing(type: 'gig' | 'job', id: string, status: string, notes?: string): Promise<boolean> {
@@ -706,6 +1558,93 @@ export const AdminService = {
     return data ?? settings;
   },
 
+  getActiveCurrencies: async (): Promise<Currency[]> => {
+    const response = await api.get('/currencies/active');
+    const data = extractData<Currency[]>(response);
+    return Array.isArray(data) ? data : [];
+  },
+
+  getFxConfig: async (): Promise<FxSystemConfig> => {
+    return adminGet<FxSystemConfig>('/fx/config');
+  },
+
+  updateFxConfig: async (payload: Partial<FxSystemConfig>): Promise<FxSystemConfig> => {
+    return adminPut<FxSystemConfig>('/fx/config', payload);
+  },
+
+  getFxProviders: async (): Promise<FxProviderRecord[]> => {
+    const data = await adminGet<FxProviderRecord[]>('/fx/providers');
+    return Array.isArray(data) ? data : [];
+  },
+
+  updateFxProvider: async (
+    code: string,
+    payload: Partial<Pick<FxProviderRecord, 'enabled' | 'priority' | 'baseUrl' | 'settingsJson'>>
+  ): Promise<FxProviderRecord> => {
+    return adminPut<FxProviderRecord>(`/fx/providers/${encodeURIComponent(code)}`, payload);
+  },
+
+  getFxHealth: async (): Promise<FxHealth> => {
+    return adminGet<FxHealth>('/fx/health');
+  },
+
+  getFxLocks: async (params?: {
+    limit?: number;
+    entityType?: string;
+    entityId?: string;
+  }): Promise<FxLockRecord[]> => {
+    const data = await adminGet<FxLockRecord[]>('/fx/locks', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getFxSnapshots: async (params?: {
+    limit?: number;
+    providerCode?: string;
+    baseCurrency?: string;
+  }): Promise<FxSnapshotRecord[]> => {
+    const data = await adminGet<FxSnapshotRecord[]>('/fx/snapshots', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  runFxSync: async (payload?: {
+    providerCode?: string;
+    baseCurrency?: string;
+  }): Promise<any> => {
+    return adminPost<any>('/fx/sync', payload || {});
+  },
+
+  approveFxSnapshot: async (id: string, payload?: { freeze?: boolean }): Promise<FxSnapshotRecord> => {
+    return adminPost<FxSnapshotRecord>(`/fx/snapshots/${encodeURIComponent(id)}/approve`, payload || {});
+  },
+
+  setFxSnapshotFrozen: async (id: string, frozen = true): Promise<FxSnapshotRecord> => {
+    return adminPost<FxSnapshotRecord>(`/fx/snapshots/${encodeURIComponent(id)}/freeze`, { frozen });
+  },
+
+  getFxOverrides: async (params?: {
+    limit?: number;
+    status?: string;
+  }): Promise<FxManualOverrideRecord[]> => {
+    const data = await adminGet<FxManualOverrideRecord[]>('/fx/overrides', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createFxOverride: async (payload: {
+    fromCurrency: string;
+    toCurrency: string;
+    rate: number;
+    effectiveFrom?: string;
+    effectiveTo?: string | null;
+    reason: string;
+    status?: string;
+  }): Promise<FxManualOverrideRecord> => {
+    return adminPost<FxManualOverrideRecord>('/fx/overrides', payload);
+  },
+
+  approveFxOverride: async (id: string): Promise<FxManualOverrideRecord> => {
+    return adminPost<FxManualOverrideRecord>(`/fx/overrides/${encodeURIComponent(id)}/approve`, {});
+  },
+
   testEmailSettings: async (payload: { to: string; config?: EmailProviderConfig }): Promise<any> => {
     return adminPost<any>('/system/email/test', payload);
   },
@@ -729,6 +1668,148 @@ export const AdminService = {
 
   saveSettings: async (settings: PlatformSettings): Promise<boolean> => {
     return AdminService.savePlatformSettings(settings);
+  },
+
+  getConfigRollbackSummary: async (): Promise<any> => {
+    return adminGet<any>('/config/summary');
+  },
+
+  getConfigScopes: async (): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/scopes');
+    return Array.isArray(data) ? data : [];
+  },
+
+  getCurrentConfigPayload: async (scope: string): Promise<any> => {
+    return adminGet<any>('/config/current', { scope });
+  },
+
+  getConfigSnapshots: async (params?: { scope?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/snapshots', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createConfigSnapshot: async (payload: {
+    scope: string;
+    reason?: string | null;
+    label?: string | null;
+    source?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/config/snapshots', payload);
+  },
+
+  getConfigChanges: async (params?: { scope?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/changes', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getConfigRollbacks: async (params?: { scope?: string; limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/rollbacks', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  rollbackConfigScope: async (payload: {
+    scope: string;
+    targetVersion: number;
+    notes?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/config/rollback', payload);
+  },
+
+  getConfigReleaseRollouts: async (params?: { limit?: number }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/config/releases', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createConfigReleaseRollout: async (payload: {
+    scope: string;
+    releaseKey: string;
+    label: string;
+    notes?: string | null;
+    metadata?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/config/releases', payload);
+  },
+
+  getRealtimeOpsSummary: async (): Promise<any> => {
+    return adminGet<any>('/realtime/summary');
+  },
+
+  getRealtimeRuntime: async (): Promise<any> => {
+    return adminGet<any>('/realtime/runtime');
+  },
+
+  getRealtimeSocketSessions: async (params?: {
+    namespace?: string;
+    query?: string;
+    activeOnly?: boolean;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/socket-sessions', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getRealtimePresenceLeases: async (params?: {
+    namespace?: string;
+    query?: string;
+    activeOnly?: boolean;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/presence', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  getRealtimeDeliveries: async (params?: {
+    namespace?: string;
+    eventName?: string;
+    status?: string;
+    query?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/deliveries', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  replayRealtimeDelivery: async (deliveryId: string): Promise<any> => {
+    return adminPost<any>(`/realtime/deliveries/${encodeURIComponent(deliveryId)}/replay`, {});
+  },
+
+  getRealtimeIncidents: async (params?: {
+    status?: string;
+    severity?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/incidents', params || {});
+    return Array.isArray(data) ? data : [];
+  },
+
+  createRealtimeIncident: async (payload: {
+    code: string;
+    severity?: string;
+    source?: string;
+    message: string;
+    details?: any;
+  }): Promise<any> => {
+    return adminPost<any>('/realtime/incidents', payload);
+  },
+
+  resolveRealtimeIncident: async (
+    incidentId: string,
+    payload?: {
+      notes?: string | null;
+      status?: string;
+    }
+  ): Promise<any> => {
+    return adminPut<any>(`/realtime/incidents/${encodeURIComponent(incidentId)}/resolve`, payload || {});
+  },
+
+  getRealtimeReplayJobs: async (params?: {
+    status?: string;
+    limit?: number;
+  }): Promise<any[]> => {
+    const data = await adminGet<any[]>('/realtime/replays', params || {});
+    return Array.isArray(data) ? data : [];
   },
 
   getMonetizationSettings: async (): Promise<any> => {
@@ -1072,12 +2153,37 @@ export const AdminService = {
   },
 
   // ---- System Backup Module ----
-  async getSystemBackupMeta(): Promise<{ sections: string[] }> {
-    return adminGet<{ sections: string[] }>('/system-backups/meta');
+  async getSystemBackupMeta(): Promise<{
+    sections: string[];
+    runtime?: {
+      storageDriver?: string;
+      durable?: boolean;
+      importLimitBytes?: number;
+      maxSingleFileBytes?: number;
+      maxTotalFileSnapshotBytes?: number;
+      databaseChunkBytes?: number | null;
+    };
+  }> {
+    return adminGet<{
+      sections: string[];
+      runtime?: {
+        storageDriver?: string;
+        durable?: boolean;
+        importLimitBytes?: number;
+        maxSingleFileBytes?: number;
+        maxTotalFileSnapshotBytes?: number;
+        databaseChunkBytes?: number | null;
+      };
+    }>('/system-backups/meta');
   },
 
   async getSystemBackups(): Promise<any[]> {
     const data = await adminGet<any[]>('/system-backups');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getSystemBackupJobs(): Promise<any[]> {
+    const data = await adminGet<any[]>('/system-backups/jobs');
     return Array.isArray(data) ? data : [];
   },
 
@@ -1088,15 +2194,32 @@ export const AdminService = {
     includeFiles?: boolean;
     notes?: string;
   }): Promise<any> {
-    return adminPost<any>('/system-backups/create', payload);
+    const response = await api.post(`${ADMIN_BASE}/system-backups/create`, payload, {
+      headers: await getAuthHeaders(),
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
+    });
+    return extractData<any>(response);
   },
 
   async downloadSystemBackup(backupId: string): Promise<Blob> {
     const response = await api.get(`${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/download`, {
       headers: await getAuthHeaders(),
-      responseType: 'blob'
+      responseType: 'blob',
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
     });
     return response.data as Blob;
+  },
+
+  async verifySystemBackup(backupId: string): Promise<any> {
+    const response = await api.post(
+      `${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/verify`,
+      {},
+      {
+        headers: await getAuthHeaders(),
+        timeout: SYSTEM_BACKUP_TIMEOUT_MS
+      }
+    );
+    return extractData<any>(response);
   },
 
   async importSystemBackup(file: File, notes?: string): Promise<any> {
@@ -1108,7 +2231,8 @@ export const AdminService = {
       headers: {
         ...headers,
         'Content-Type': 'multipart/form-data'
-      }
+      },
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
     });
     return extractData<any>(response);
   },
@@ -1125,7 +2249,11 @@ export const AdminService = {
       includeFiles?: boolean;
     }
   ): Promise<any> {
-    return adminPost<any>(`/system-backups/${encodeURIComponent(backupId)}/restore`, payload);
+    const response = await api.post(`${ADMIN_BASE}/system-backups/${encodeURIComponent(backupId)}/restore`, payload, {
+      headers: await getAuthHeaders(),
+      timeout: SYSTEM_BACKUP_TIMEOUT_MS
+    });
+    return extractData<any>(response);
   },
 
   async deleteSystemBackup(backupId: string): Promise<{ deletedCount: number; deleted: any[] }> {
@@ -1134,6 +2262,309 @@ export const AdminService = {
 
   async deleteSystemBackups(backupIds: string[]): Promise<{ deletedCount: number; deleted: any[] }> {
     return adminPost<{ deletedCount: number; deleted: any[] }>('/system-backups/delete-batch', { backupIds });
+  },
+
+  async getProcurementSummary(): Promise<any> {
+    return adminGet<any>('/procurement/summary');
+  },
+
+  async getProcurementSettings(): Promise<any> {
+    return adminGet<any>('/procurement/settings');
+  },
+
+  async updateProcurementSettings(payload: any): Promise<any> {
+    return adminPut<any>('/procurement/settings', payload);
+  },
+
+  async getProcurementCostCenters(): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/cost-centers');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createProcurementCostCenter(payload: any): Promise<any> {
+    return adminPost<any>('/procurement/cost-centers', payload);
+  },
+
+  async updateProcurementCostCenter(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/procurement/cost-centers/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getBudgetRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/budget-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createBudgetRule(payload: any): Promise<any> {
+    return adminPost<any>('/procurement/budget-rules', payload);
+  },
+
+  async updateBudgetRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/procurement/budget-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getProcurementPurchaseRequests(params?: Record<string, any>): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/purchase-requests', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getProcurementApprovalQueue(): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/approvals/queue');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async decideProcurementRequest(id: string, decision: 'approve' | 'reject' | 'hold', payload?: any): Promise<any> {
+    return adminPost<any>(`/procurement/purchase-requests/${encodeURIComponent(id)}/${decision}`, payload || {});
+  },
+
+  async getProcurementInvoices(params?: Record<string, any>): Promise<any[]> {
+    const data = await adminGet<any[]>('/procurement/invoices', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createProcurementInvoice(payload: any): Promise<any> {
+    return adminPost<any>('/procurement/invoices', payload);
+  },
+
+  async approveProcurementInvoice(id: string): Promise<any> {
+    return adminPost<any>(`/procurement/invoices/${encodeURIComponent(id)}/approve`, {});
+  },
+
+  async reconcileProcurementInvoice(id: string): Promise<any> {
+    return adminPost<any>(`/procurement/invoices/${encodeURIComponent(id)}/reconcile`, {});
+  },
+
+  async createCreditNote(id: string, payload: any): Promise<any> {
+    return adminPost<any>(`/procurement/invoices/${encodeURIComponent(id)}/credit-notes`, payload);
+  },
+
+  async getComplianceSummary(): Promise<any> {
+    return adminGet<any>('/compliance/summary');
+  },
+
+  async getComplianceSettings(): Promise<any> {
+    return adminGet<any>('/compliance/settings');
+  },
+
+  async updateComplianceSettings(payload: any): Promise<any> {
+    return adminPut<any>('/compliance/settings', payload);
+  },
+
+  async getComplianceCases(params?: Record<string, any>): Promise<any[]> {
+    const data = await adminGet<any[]>('/compliance/cases', params);
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createComplianceCase(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/cases', payload);
+  },
+
+  async addComplianceEvidence(caseId: string, payload: any): Promise<any> {
+    return adminPost<any>(`/compliance/cases/${encodeURIComponent(caseId)}/evidence`, payload);
+  },
+
+  async addComplianceDecision(caseId: string, payload: any): Promise<any> {
+    return adminPost<any>(`/compliance/cases/${encodeURIComponent(caseId)}/decisions`, payload);
+  },
+
+  async getRiskRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/compliance/risk-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createRiskRule(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/risk-rules', payload);
+  },
+
+  async updateRiskRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/compliance/risk-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  async createRiskSnapshot(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/risk-snapshots', payload);
+  },
+
+  async createHoldAction(payload: any): Promise<any> {
+    return adminPost<any>('/compliance/holds', payload);
+  },
+
+  async releaseHoldAction(id: string, payload?: any): Promise<any> {
+    return adminPost<any>(`/compliance/holds/${encodeURIComponent(id)}/release`, payload || {});
+  },
+
+  async getComplianceAppeals(): Promise<any[]> {
+    const data = await adminGet<any[]>('/compliance/appeals');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async resolveComplianceAppeal(id: string, payload: any): Promise<any> {
+    return adminPost<any>(`/compliance/appeals/${encodeURIComponent(id)}/resolve`, payload);
+  },
+
+  async getTalentCloudSummary(): Promise<any> {
+    return adminGet<any>('/talent-cloud/summary');
+  },
+
+  async getTalentCloudSettings(): Promise<any> {
+    return adminGet<any>('/talent-cloud/settings');
+  },
+
+  async updateTalentCloudSettings(payload: any): Promise<any> {
+    return adminPut<any>('/talent-cloud/settings', payload);
+  },
+
+  async getTalentPools(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/pools');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async seedTalentCloudExamples(): Promise<any> {
+    return adminPost<any>('/talent-cloud/seed-examples', {});
+  },
+
+  async createTalentPool(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/pools', payload);
+  },
+
+  async updateTalentPool(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/pools/${encodeURIComponent(id)}`, payload);
+  },
+
+  async saveTalentPoolMember(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/pool-members', payload);
+  },
+
+  async savePrivateAccessRule(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/access-rules', payload);
+  },
+
+  async getPrivateAccessRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/access-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async updatePrivateAccessRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/access-rules/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getVendorRequirements(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/vendor-requirements');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createVendorRequirement(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/vendor-requirements', payload);
+  },
+
+  async updateVendorRequirement(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/vendor-requirements/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getIntegrationEndpoints(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/integrations');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async getInboundConnectors(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/connectors');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createIntegrationEndpoint(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/integrations', payload);
+  },
+
+  async createInboundConnector(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/connectors', payload);
+  },
+
+  async updateIntegrationEndpoint(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/integrations/${encodeURIComponent(id)}`, payload);
+  },
+
+  async updateInboundConnector(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/connectors/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getWebhookDeliveries(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/webhook-deliveries');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async retryWebhookDelivery(id: string): Promise<any> {
+    return adminPost<any>(`/talent-cloud/webhook-deliveries/${encodeURIComponent(id)}/retry`, {});
+  },
+
+  async getApiCredentials(): Promise<any[]> {
+    const data = await adminGet<any[]>('/talent-cloud/api-keys');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createApiCredential(payload: any): Promise<any> {
+    return adminPost<any>('/talent-cloud/api-keys', payload);
+  },
+
+  async updateApiCredential(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/talent-cloud/api-keys/${encodeURIComponent(id)}`, payload);
+  },
+
+  async getScrolithaManagedSummary(): Promise<any> {
+    return adminGet<any>('/scrolitha-managed/summary');
+  },
+
+  async getScrolithaManagedSettings(): Promise<any> {
+    return adminGet<any>('/scrolitha-managed/settings');
+  },
+
+  async updateScrolithaManagedSettings(payload: any): Promise<any> {
+    return adminPut<any>('/scrolitha-managed/settings', payload);
+  },
+
+  async getAiOutputs(): Promise<any[]> {
+    const data = await adminGet<any[]>('/scrolitha-managed/ai-outputs');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createAiOutput(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/ai-outputs', payload);
+  },
+
+  async reviewAiOutput(id: string, payload: any): Promise<any> {
+    return adminPost<any>(`/scrolitha-managed/ai-outputs/${encodeURIComponent(id)}/review`, payload);
+  },
+
+  async getManagedProjects(): Promise<any[]> {
+    const data = await adminGet<any[]>('/scrolitha-managed/projects');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createManagedProject(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/projects', payload);
+  },
+
+  async updateManagedProject(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/scrolitha-managed/projects/${encodeURIComponent(id)}`, payload);
+  },
+
+  async saveManagedMilestone(payload: any, id?: string): Promise<any> {
+    if (id) return adminPut<any>(`/scrolitha-managed/milestones/${encodeURIComponent(id)}`, payload);
+    return adminPost<any>('/scrolitha-managed/milestones', payload);
+  },
+
+  async saveManagedAssignment(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/assignments', payload);
+  },
+
+  async getManagedEscalationRules(): Promise<any[]> {
+    const data = await adminGet<any[]>('/scrolitha-managed/escalation-rules');
+    return Array.isArray(data) ? data : [];
+  },
+
+  async createManagedEscalationRule(payload: any): Promise<any> {
+    return adminPost<any>('/scrolitha-managed/escalation-rules', payload);
+  },
+
+  async updateManagedEscalationRule(id: string, payload: any): Promise<any> {
+    return adminPut<any>(`/scrolitha-managed/escalation-rules/${encodeURIComponent(id)}`, payload);
   },
 
   // ---- Form Builder ----

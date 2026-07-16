@@ -20,12 +20,24 @@ import {
 } from 'lucide-react';
 
 interface OrderWithActions extends Order {
+  counterpartyName: string;
   actions: React.ReactNode;
 }
 
-export const Orders: React.FC = () => {
+type OrdersProps = {
+  viewerRole?: 'freelancer' | 'employer';
+};
+
+export const Orders: React.FC<OrdersProps> = ({ viewerRole = 'freelancer' }) => {
   const { user } = useUser();
   const { showNotification } = useNotification();
+  const isFreelancerView = viewerRole === 'freelancer';
+  const roleParam = isFreelancerView ? 'freelancer' : 'employer';
+  const counterpartyLabel = isFreelancerView ? 'Client' : 'Freelancer';
+  const heading = isFreelancerView ? 'My Orders' : 'Project Orders';
+  const description = isFreelancerView
+    ? 'Manage your active and completed orders'
+    : 'Review project orders, delivery progress, and commercial status';
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +64,7 @@ export const Orders: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const params: any = { role: 'freelancer' };
+      const params: any = { role: roleParam };
       if (filter !== 'all') {
         params.status = filter;
       }
@@ -70,7 +82,7 @@ export const Orders: React.FC = () => {
 
   useEffect(() => {
     loadOrders();
-  }, [user, filter]);
+  }, [user, filter, roleParam]);
 
   const handleDeliverOrder = async (orderId: string, data: any) => {
     setModalLoading(true);
@@ -122,6 +134,9 @@ export const Orders: React.FC = () => {
   const ordersWithActions: OrderWithActions[] = useMemo(() =>
     orders.map(order => ({
       ...order,
+      counterpartyName: isFreelancerView
+        ? order.buyerName || 'Client'
+        : order.sellerName || 'Freelancer',
       actions: (
         <div className="flex items-center space-x-2">
           <button
@@ -135,7 +150,7 @@ export const Orders: React.FC = () => {
             <Eye className="w-4 h-4" />
           </button>
 
-          {order.status?.toLowerCase() === 'active' && (
+          {isFreelancerView && order.status?.toLowerCase() === 'active' && (
             <>
               <button
                 onClick={() => {
@@ -173,7 +188,7 @@ export const Orders: React.FC = () => {
           )}
         </div>
       )
-    })), [orders]
+    })), [orders, isFreelancerView]
   );
 
   const columns = [
@@ -188,8 +203,8 @@ export const Orders: React.FC = () => {
       ),
     },
     {
-      key: 'buyerName',
-      header: 'Client',
+      key: 'counterpartyName',
+      header: counterpartyLabel,
       render: (value: string) => (
         <div className="flex items-center space-x-2">
           <User className="w-4 h-4 text-gray-400" />
@@ -248,8 +263,8 @@ export const Orders: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">My Orders</h1>
-          <p className="mt-1 text-gray-600">Manage your active and completed orders</p>
+          <h1 className="text-2xl font-bold text-gray-900">{heading}</h1>
+          <p className="mt-1 text-gray-600">{description}</p>
         </div>
         <div className="mt-4 sm:mt-0">
           <button
@@ -297,7 +312,13 @@ export const Orders: React.FC = () => {
       ) : ordersWithActions.length === 0 ? (
         <EmptyState
           title="No orders found"
-          description={filter === 'all' ? "You haven't received any orders yet." : `No ${filter} orders found.`}
+          description={
+            filter === 'all'
+              ? isFreelancerView
+                ? "You haven't received any orders yet."
+                : "You don't have any project orders yet."
+              : `No ${filter} orders found.`
+          }
           icon={<Package className="w-12 h-12 text-gray-400" />}
         />
       ) : (

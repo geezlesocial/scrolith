@@ -5,10 +5,31 @@ import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon, Gauge } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
-import { AIConfig, ComplianceConfig, Currency, PlatformSettings, EmailProviderConfig, UploadedFile, SystemConfig, OptimizationConfig } from '../../types';
+import {
+    AIConfig,
+    ComplianceConfig,
+    Currency,
+    PlatformSettings,
+    EmailProviderConfig,
+    UploadedFile,
+    SystemConfig,
+    OptimizationConfig,
+    FxSystemConfig,
+    FxProviderRecord,
+    FxHealth,
+    FxSnapshotRecord,
+    FxManualOverrideRecord,
+    FxLockRecord
+} from '../../types';
 import { INITIAL_CURRENCIES } from '../../constants';
 import { CMSService } from '../../services/cms';
 import FilePickerModal from '../shared/FilePickerModal';
+import { normalizeVerificationSettings } from '../../utils/verification';
+import { normalizeTrustScoreSettings } from '../../utils/trustScore';
+import { normalizeDealFlowSettings } from '../../utils/dealFlow';
+import { normalizeStorefrontSettings } from '../../utils/storefront';
+import { normalizeContentOfferSettings } from '../../utils/contentOffers';
+import FxControlPlanePanel from './fx/FxControlPlanePanel';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
     <button 
@@ -35,24 +56,115 @@ const normalizeNumber = (value: any, fallback: number) => {
     return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const DEFAULT_RESUME_AI_POLICY = {
+    enabled: true,
+    builderEnabled: true,
+    reviewerEnabled: true,
+    adminAccessEnabled: true
+};
+
+const normalizeResumeAiPolicy = (raw: any) => {
+    const source = raw || {};
+    const enabled = normalizeBoolean(source.enabled ?? source.resume_enabled ?? source.isEnabled, DEFAULT_RESUME_AI_POLICY.enabled);
+    const builderEnabled = normalizeBoolean(
+        source.builderEnabled ?? source.builder_enabled ?? source.resumeBuilderEnabled ?? source.resume_builder_enabled,
+        DEFAULT_RESUME_AI_POLICY.builderEnabled
+    );
+    const reviewerEnabled = normalizeBoolean(
+        source.reviewerEnabled ?? source.reviewer_enabled ?? source.resumeReviewerEnabled ?? source.resume_reviewer_enabled,
+        DEFAULT_RESUME_AI_POLICY.reviewerEnabled
+    );
+    const adminAccessEnabled = normalizeBoolean(
+        source.adminAccessEnabled ?? source.admin_access_enabled ?? source.allowAdminAccess ?? source.allow_admin_access,
+        DEFAULT_RESUME_AI_POLICY.adminAccessEnabled
+    );
+
+    return {
+        enabled,
+        builderEnabled,
+        reviewerEnabled,
+        adminAccessEnabled,
+        resume_enabled: enabled,
+        builder_enabled: builderEnabled,
+        reviewer_enabled: reviewerEnabled,
+        admin_access_enabled: adminAccessEnabled
+    };
+};
+
 const EMAIL_PORT_DEFAULTS: Record<NonNullable<EmailProviderConfig['provider']>, number> = {
     smtp: 587,
     ses: 587,
     sendgrid: 587,
-    mailgun: 587
+    mailgun: 587,
+    brevo: 587
 };
 
 const normalizeEmailProvider = (value: any): NonNullable<EmailProviderConfig['provider']> => {
     const provider = String(value || 'smtp').toLowerCase();
-    if (provider === 'ses' || provider === 'sendgrid' || provider === 'mailgun') return provider;
+    if (provider === 'ses' || provider === 'sendgrid' || provider === 'mailgun' || provider === 'brevo') {
+        return provider;
+    }
     return 'smtp';
 };
 
 const getProviderDefaultHost = (provider: NonNullable<EmailProviderConfig['provider']>, region?: string) => {
     if (provider === 'sendgrid') return 'smtp.sendgrid.net';
     if (provider === 'mailgun') return 'smtp.mailgun.org';
+    if (provider === 'brevo') return 'smtp-relay.brevo.com';
     if (provider === 'ses') return `email-smtp.${(region || 'us-east-1').trim() || 'us-east-1'}.amazonaws.com`;
     return '';
+};
+
+const getProviderUsernameLabel = (provider: NonNullable<EmailProviderConfig['provider']>) => {
+    if (provider === 'brevo') return 'SMTP Login';
+    return 'Username';
+};
+
+const getProviderUsernamePlaceholder = (provider: NonNullable<EmailProviderConfig['provider']>) => {
+    if (provider === 'sendgrid') return 'apikey';
+    if (provider === 'brevo') return 'your-brevo-login@example.com';
+    return '';
+};
+
+const getProviderPasswordLabel = (provider: NonNullable<EmailProviderConfig['provider']>) => {
+    if (provider === 'brevo') return 'SMTP Key';
+    return 'Password';
+};
+
+const getProviderPasswordPlaceholder = (provider: NonNullable<EmailProviderConfig['provider']>) => {
+    if (provider === 'brevo') return 'xkeysib-...';
+    return '';
+};
+
+const getProviderSetupHint = (provider: NonNullable<EmailProviderConfig['provider']>, region?: string) => {
+    if (provider === 'brevo') {
+        return {
+            title: 'Brevo relay defaults',
+            body: 'Use smtp-relay.brevo.com with TLS on port 587 by default. Username is your Brevo SMTP login email and password is your Brevo SMTP key.'
+        };
+    }
+    if (provider === 'ses') {
+        return {
+            title: 'Amazon SES relay defaults',
+            body: `SES uses ${getProviderDefaultHost(provider, region)} with your SES SMTP username and password.`
+        };
+    }
+    if (provider === 'sendgrid') {
+        return {
+            title: 'SendGrid relay defaults',
+            body: 'SendGrid typically uses smtp.sendgrid.net on port 587. Username is usually apikey and password is your SendGrid API key.'
+        };
+    }
+    if (provider === 'mailgun') {
+        return {
+            title: 'Mailgun relay defaults',
+            body: 'Mailgun typically uses smtp.mailgun.org on port 587 with your Mailgun SMTP username and password or API key-backed SMTP secret.'
+        };
+    }
+    return {
+        title: 'Custom SMTP',
+        body: 'Use your provider\'s SMTP host, port, encryption, username, and password. Existing email delivery behavior remains unchanged until you save new values.'
+    };
 };
 
 const normalizeEmailConfig = (raw: any): EmailProviderConfig => {
@@ -61,6 +173,8 @@ const normalizeEmailConfig = (raw: any): EmailProviderConfig => {
     const region = source.region || source.ses_region || source.sesRegion || 'us-east-1';
     const apiKey = source.apiKey || source.api_key || source.sendgrid_api_key || source.mailgun_api_key || '';
     const domain = source.domain || source.mailgun_domain || source.mailgunDomain || '';
+    const username = source.username || source.user || source.brevoSmtpLogin || source.brevo_smtp_login || '';
+    const password = source.password || source.brevoSmtpKey || source.brevo_smtp_key || '';
     const encryption =
         (source.encryption || source.smtp_encryption || source.smtpEncryption || (source.port === 465 ? 'ssl' : 'tls'))
             .toString()
@@ -69,15 +183,15 @@ const normalizeEmailConfig = (raw: any): EmailProviderConfig => {
     const defaultPort = EMAIL_PORT_DEFAULTS[provider] || 587;
     const defaultUsername =
         provider === 'sendgrid'
-            ? (source.username || source.user || 'apikey')
-            : (source.username || source.user || '');
+            ? (username || 'apikey')
+            : username;
 
     return {
         provider,
         host: source.host || defaultHost,
         port: normalizeNumber(source.port, defaultPort),
         username: defaultUsername,
-        password: source.password || '',
+        password,
         secure: source.secure !== undefined ? normalizeBoolean(source.secure, false) : encryption === 'ssl',
         encryption,
         smtp_encryption: source.smtp_encryption || encryption,
@@ -89,6 +203,10 @@ const normalizeEmailConfig = (raw: any): EmailProviderConfig => {
         api_key: source.api_key || apiKey,
         domain,
         mailgun_domain: source.mailgun_domain || domain,
+        brevoSmtpLogin: source.brevoSmtpLogin || source.brevo_smtp_login || username,
+        brevo_smtp_login: source.brevo_smtp_login || source.brevoSmtpLogin || username,
+        brevoSmtpKey: source.brevoSmtpKey || source.brevo_smtp_key || password,
+        brevo_smtp_key: source.brevo_smtp_key || source.brevoSmtpKey || password,
         region,
         ses_region: source.ses_region || region,
         accessKeyId: source.accessKeyId || source.access_key_id || '',
@@ -113,6 +231,11 @@ const getEmailConfigValidationErrors = (raw: EmailProviderConfig): string[] => {
     if (provider === 'smtp' || provider === 'ses') {
         if (!config.username?.trim()) errors.push('Please provide SMTP username.');
         if (!config.password?.trim()) errors.push('Please provide SMTP password.');
+    }
+
+    if (provider === 'brevo') {
+        if (!config.username?.trim()) errors.push('Please provide Brevo SMTP login.');
+        if (!config.password?.trim()) errors.push('Please provide Brevo SMTP key.');
     }
 
     if (provider === 'sendgrid') {
@@ -173,9 +296,51 @@ const normalizeCurrencyConfig = (raw: any) => {
     return {
         autoExchangeRate: normalizeBoolean(source.autoExchangeRate ?? source.auto_exchange_rate, false),
         baseCurrency,
-        provider: (source.provider || 'openexchangerates') as 'openexchangerates' | 'fixer' | 'mock',
+        provider: String(source.provider || 'frankfurter_ecb'),
         apiKey: source.apiKey || source.api_key || ''
     };
+};
+
+const normalizeFxSystemConfig = (raw: any, baseCurrency = 'USD'): FxSystemConfig => {
+    const source = raw || {};
+    const safeBaseCurrency = (source.syncBaseCurrency || baseCurrency || 'USD').toString().toUpperCase();
+    return {
+        enabled: normalizeBoolean(source.enabled, true),
+        providerCode: String(source.providerCode || source.provider || 'frankfurter_ecb').trim() || 'frankfurter_ecb',
+        syncBaseCurrency: safeBaseCurrency,
+        autoApproveSnapshots: normalizeBoolean(source.autoApproveSnapshots, true),
+        refreshEnabled: normalizeBoolean(source.refreshEnabled, true),
+        refreshCron: String(source.refreshCron || '17 0 * * 1-5').trim() || '17 0 * * 1-5',
+        staleAfterSeconds: Math.max(60, Math.round(normalizeNumber(source.staleAfterSeconds, 172800))),
+        fallbackToStoredRates: normalizeBoolean(source.fallbackToStoredRates, true),
+        sourceBaseUrl: String(source.sourceBaseUrl || 'https://api.frankfurter.app').trim() || 'https://api.frankfurter.app',
+        sourceProvider: String(source.sourceProvider || 'ECB').trim().toUpperCase() || 'ECB',
+        timezone: String(source.timezone || 'UTC').trim() || 'UTC'
+    };
+};
+
+const overlayLiveCurrencyRates = (configuredCurrencies: Currency[], liveCurrencies: Currency[], baseCurrency: string) => {
+    const normalizedConfigured = normalizeCurrencies(configuredCurrencies, baseCurrency);
+    const liveByCode = new Map(
+        normalizeCurrencies(liveCurrencies, baseCurrency).map((entry) => [entry.code, entry] as const)
+    );
+
+    return normalizedConfigured.map((entry) => {
+        const live = liveByCode.get(entry.code);
+        if (!live) return entry;
+        return {
+            ...entry,
+            name: entry.name || live.name,
+            symbol: entry.symbol || live.symbol,
+            rate: live.rate,
+            rateSource: live.rateSource || entry.rateSource,
+            snapshotId: live.snapshotId ?? entry.snapshotId ?? null,
+            rateUpdatedAt: live.rateUpdatedAt ?? entry.rateUpdatedAt ?? null,
+            stale: live.stale ?? entry.stale ?? false,
+            isDefault: entry.isDefault || live.isDefault || entry.code === baseCurrency,
+            is_default: entry.isDefault || live.isDefault || entry.code === baseCurrency
+        } as Currency;
+    });
 };
 
 const normalizeCurrencies = (list: any[], baseCurrency: string) => {
@@ -512,6 +677,7 @@ const SystemSettings = () => {
 
     // AI Settings State
     const [aiConfig, setAiConfig] = useState<AIConfig>(AIConfigManager.getConfig());
+    const [resumeAiConfig, setResumeAiConfig] = useState(DEFAULT_RESUME_AI_POLICY);
 
     // Storage & Cache State
     const [storageConfig, setStorageConfig] = useState<any>(
@@ -533,9 +699,18 @@ const SystemSettings = () => {
     const [currencyConfig, setCurrencyConfig] = useState(normalizeCurrencyConfig({
         autoExchangeRate: false,
         baseCurrency: 'USD',
-        provider: 'openexchangerates',
+        provider: 'frankfurter_ecb',
         apiKey: ''
     }));
+    const [fxConfig, setFxConfig] = useState<FxSystemConfig>(
+        normalizeFxSystemConfig({ providerCode: 'frankfurter_ecb', syncBaseCurrency: 'USD' }, 'USD')
+    );
+    const [fxProviders, setFxProviders] = useState<FxProviderRecord[]>([]);
+    const [fxHealth, setFxHealth] = useState<FxHealth | null>(null);
+    const [fxSnapshots, setFxSnapshots] = useState<FxSnapshotRecord[]>([]);
+    const [fxOverrides, setFxOverrides] = useState<FxManualOverrideRecord[]>([]);
+    const [fxLocks, setFxLocks] = useState<FxLockRecord[]>([]);
+    const [fxBusyAction, setFxBusyAction] = useState<string | null>(null);
 
     // Email State
     const [emailConfig, setEmailConfig] = useState<EmailProviderConfig>(normalizeEmailConfig({ 
@@ -567,6 +742,19 @@ const SystemSettings = () => {
         loadSystemSettings();
     }, []);
 
+    useEffect(() => {
+        if (!availableCurrencies?.length) return;
+        setCurrencies((prev) => overlayLiveCurrencyRates(prev, availableCurrencies, currencyConfig.baseCurrency || 'USD'));
+    }, [availableCurrencies, currencyConfig.baseCurrency]);
+
+    useEffect(() => {
+        setFxConfig((prev) => ({
+            ...prev,
+            syncBaseCurrency: (currencyConfig.baseCurrency || 'USD').toString().toUpperCase(),
+            providerCode: String(currencyConfig.provider || prev.providerCode || 'frankfurter_ecb').trim() || 'frankfurter_ecb'
+        }));
+    }, [currencyConfig.baseCurrency, currencyConfig.provider]);
+
     // When global content settings update (via socket or external save), reflect them here
     useEffect(() => {
         if (!isSaving && settings) {
@@ -578,6 +766,12 @@ const SystemSettings = () => {
             setOptimizationConfig(normalizeOptimizationConfig(systemSource?.optimization || DEFAULT_OPTIMIZATION_CONFIG));
             if (systemSource?.email) setEmailConfig(normalizeEmailConfig(systemSource.email));
             if (systemSource?.currency) setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
+            setFxConfig(
+                normalizeFxSystemConfig(
+                    systemSource?.fx || {},
+                    systemSource?.currency?.baseCurrency || systemSource?.currency?.base_currency || 'USD'
+                )
+            );
 
             const incomingCurrencies =
                 systemSource?.currencies ??
@@ -588,7 +782,7 @@ const SystemSettings = () => {
             const currencySource = Array.isArray(incomingCurrencies) && incomingCurrencies.length
                 ? incomingCurrencies
                 : (currencies && currencies.length ? currencies : INITIAL_CURRENCIES);
-            const normalized = normalizeCurrencies(currencySource, baseCode);
+            const normalized = overlayLiveCurrencyRates(currencySource, availableCurrencies, baseCode);
             setCurrencies(normalized);
             const defaultCurrency = normalized.find((c) => c.isDefault) || normalized.find((c) => c.code === baseCode);
             if (defaultCurrency && defaultCurrency.code !== baseCode) {
@@ -605,6 +799,9 @@ const SystemSettings = () => {
             setAiConfig(normalizedAi);
             // Keep local storage aligned so other modules read the same config
             AIConfigManager.saveConfig(normalizedAi);
+            const resumeAiSource = systemSource?.resumeAi ?? systemSource?.resume_ai;
+            setResumeAiConfig(normalizeResumeAiPolicy(resumeAiSource || DEFAULT_RESUME_AI_POLICY));
+            void loadFxControlPlane(baseCode);
         }
     }, [settings, isSaving]);
 
@@ -638,6 +835,12 @@ const SystemSettings = () => {
                 if (systemSource?.currency) {
                     setCurrencyConfig(normalizeCurrencyConfig(systemSource.currency));
                 }
+                setFxConfig(
+                    normalizeFxSystemConfig(
+                        systemSource?.fx || {},
+                        systemSource?.currency?.baseCurrency || systemSource?.currency?.base_currency || 'USD'
+                    )
+                );
                 const incomingCurrencies =
                     systemSource?.currencies ??
                     systemSource?.currency_list ??
@@ -647,7 +850,7 @@ const SystemSettings = () => {
                 const currencySource = Array.isArray(incomingCurrencies) && incomingCurrencies.length
                     ? incomingCurrencies
                     : (currencies && currencies.length ? currencies : INITIAL_CURRENCIES);
-                const normalized = normalizeCurrencies(currencySource, baseCode);
+                const normalized = overlayLiveCurrencyRates(currencySource, availableCurrencies, baseCode);
                 setCurrencies(normalized);
                 const defaultCurrency = normalized.find((c) => c.isDefault) || normalized.find((c) => c.code === baseCode);
                 if (defaultCurrency && defaultCurrency.code !== baseCode) {
@@ -661,11 +864,19 @@ const SystemSettings = () => {
                 const normalizedAi = AIConfigManager.normalizeConfig(aiSource || AIConfigManager.getConfig());
                 setAiConfig(normalizedAi);
                 AIConfigManager.saveConfig(normalizedAi);
+                const resumeAiSource = systemSource?.resumeAi ?? systemSource?.resume_ai;
+                setResumeAiConfig(normalizeResumeAiPolicy(resumeAiSource || DEFAULT_RESUME_AI_POLICY));
+                await loadFxControlPlane(baseCode);
             } catch (error) {
                 console.warn('Failed to load system settings from API, using context/default state:', error);
                 // Fallback to context settings
                 if (settings) {
                     setLocalSettings(settings);
+                }
+                try {
+                    await loadFxControlPlane();
+                } catch (fxError) {
+                    console.warn('Failed to load FX control plane:', fxError);
                 }
             }
             
@@ -678,6 +889,26 @@ const SystemSettings = () => {
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const loadFxControlPlane = async (baseCurrencyOverride?: string) => {
+        const baseCurrency = (baseCurrencyOverride || currencyConfig.baseCurrency || 'USD').toString().toUpperCase();
+        const [health, providers, snapshots, overrides, locks, liveCurrencies] = await Promise.all([
+            AdminService.getFxHealth(),
+            AdminService.getFxProviders(),
+            AdminService.getFxSnapshots({ limit: 10, baseCurrency }),
+            AdminService.getFxOverrides({ limit: 10 }),
+            AdminService.getFxLocks({ limit: 10 }),
+            AdminService.getActiveCurrencies()
+        ]);
+
+        setFxHealth(health);
+        setFxProviders(providers);
+        setFxSnapshots(snapshots);
+        setFxOverrides(overrides);
+        setFxLocks(locks);
+        setFxConfig(normalizeFxSystemConfig(health?.config || {}, baseCurrency));
+        setCurrencies((prev) => overlayLiveCurrencyRates(prev, liveCurrencies, baseCurrency));
     };
 
     // 3. Handlers
@@ -705,6 +936,8 @@ const SystemSettings = () => {
             (safeEmail as any).from_email = (safeEmail as any).from_email || safeEmail.fromEmail || '';
             (safeEmail as any).api_key = (safeEmail as any).api_key || (safeEmail as any).apiKey || '';
             (safeEmail as any).mailgun_domain = (safeEmail as any).mailgun_domain || (safeEmail as any).domain || '';
+            (safeEmail as any).brevo_smtp_login =
+                (safeEmail as any).brevo_smtp_login || (safeEmail as any).brevoSmtpLogin || safeEmail.username || '';
             (safeEmail as any).ses_region = (safeEmail as any).ses_region || (safeEmail as any).region || '';
             (safeEmail as any).smtp_encryption =
                 (safeEmail as any).smtp_encryption || (safeEmail as any).encryption || 'tls';
@@ -712,6 +945,10 @@ const SystemSettings = () => {
                 (safeEmail as any).access_key_id || (safeEmail as any).accessKeyId || '';
             (safeEmail as any).secret_access_key =
                 (safeEmail as any).secret_access_key || (safeEmail as any).secretAccessKey || '';
+            if ((safeEmail as any).password) {
+                (safeEmail as any).brevo_smtp_key =
+                    (safeEmail as any).brevo_smtp_key || (safeEmail as any).brevoSmtpKey || (safeEmail as any).password;
+            }
 
             const safeStorage: any = { ...(storageConfig || {}) };
             if (safeStorage.driver && safeStorage.driver !== 'local') {
@@ -751,8 +988,17 @@ const SystemSettings = () => {
             const normalizedCurrencyConfig = { 
                 ...currencyConfig, 
                 baseCurrency,
+                provider: fxConfig.providerCode,
                 api_key: (currencyConfig as any).api_key || currencyConfig.apiKey || ''
             };
+            const normalizedFxConfig = {
+                ...fxConfig,
+                providerCode: String(fxConfig.providerCode || normalizedCurrencyConfig.provider || 'frankfurter_ecb').trim() || 'frankfurter_ecb',
+                syncBaseCurrency: baseCurrency,
+                refreshEnabled: normalizeBoolean(fxConfig.refreshEnabled, currencyConfig.autoExchangeRate),
+                enabled: normalizeBoolean(fxConfig.enabled, true)
+            };
+            const normalizedResumeAi = normalizeResumeAiPolicy(resumeAiConfig);
 
             const systemValues = (localSettings.system || {}) as Record<string, any>;
             const updatedSystem = {
@@ -779,8 +1025,16 @@ const SystemSettings = () => {
                 optimization: serializeOptimizationConfig(optimizationConfig),
                 email: safeEmail,
                 currency: normalizedCurrencyConfig,
+                fx: normalizedFxConfig,
                 currencies: persistedCurrencies,
-                aiConfig: normalizedAiConfig
+                aiConfig: normalizedAiConfig,
+                resumeAi: normalizedResumeAi,
+                resume_ai: {
+                    enabled: normalizedResumeAi.enabled,
+                    builder_enabled: normalizedResumeAi.builder_enabled,
+                    reviewer_enabled: normalizedResumeAi.reviewer_enabled,
+                    admin_access_enabled: normalizedResumeAi.admin_access_enabled
+                }
             };
 
             const updatedSettings = {
@@ -791,6 +1045,7 @@ const SystemSettings = () => {
             // Persist via ContentContext (which calls AdminService appropriately)
             try {
                 await updateSettings(updatedSettings);
+                await loadFxControlPlane(baseCurrency);
                 showNotification('success', 'Settings Saved', 'System configuration saved successfully.');
             } catch (err) {
                 console.warn('Failed to save to API, falling back to localStorage:', err);
@@ -824,6 +1079,83 @@ const SystemSettings = () => {
                 [section]: { ...((prev as unknown as Record<string, any>)[section]) || {}, [field]: value }
             }));
         }
+    };
+
+    const updateVerificationSetting = (updater: (current: ReturnType<typeof normalizeVerificationSettings>) => ReturnType<typeof normalizeVerificationSettings>) => {
+        setLocalSettings((prev) => {
+            const system = (prev as any)?.system || {};
+            const current = normalizeVerificationSettings(system.verification);
+            return {
+                ...prev,
+                system: {
+                    ...system,
+                    verification: updater(current)
+                }
+            };
+        });
+    };
+
+    const updateTrustScoreSetting = (updater: (current: ReturnType<typeof normalizeTrustScoreSettings>) => ReturnType<typeof normalizeTrustScoreSettings>) => {
+        setLocalSettings((prev) => {
+            const system = (prev as any)?.system || {};
+            const current = normalizeTrustScoreSettings(system.trustScore ?? system.trust_score);
+            return {
+                ...prev,
+                system: {
+                    ...system,
+                    trustScore: updater(current)
+                }
+            };
+        });
+    };
+
+    const updateDealFlowSetting = (updater: (current: ReturnType<typeof normalizeDealFlowSettings>) => ReturnType<typeof normalizeDealFlowSettings>) => {
+        setLocalSettings((prev) => {
+            const system = (prev as any)?.system || {};
+            const current = normalizeDealFlowSettings(system.dealFlow ?? system.deal_flow);
+            return {
+                ...prev,
+                system: {
+                    ...system,
+                    dealFlow: updater(current)
+                }
+            };
+        });
+    };
+
+    const updateStorefrontSetting = (updater: (current: ReturnType<typeof normalizeStorefrontSettings>) => ReturnType<typeof normalizeStorefrontSettings>) => {
+        setLocalSettings((prev) => {
+            const system = (prev as any)?.system || {};
+            const current = normalizeStorefrontSettings(system.storefront ?? system.storefront_settings);
+            return {
+                ...prev,
+                system: {
+                    ...system,
+                    storefront: updater(current)
+                }
+            };
+        });
+    };
+
+    const updateContentOfferSetting = (
+        updater: (current: ReturnType<typeof normalizeContentOfferSettings>) => ReturnType<typeof normalizeContentOfferSettings>
+    ) => {
+        setLocalSettings((prev) => {
+            const system = (prev as any)?.system || {};
+            const current = normalizeContentOfferSettings(
+                system.contentOffers ??
+                    system.content_offers ??
+                    system.contentOfferTags ??
+                    system.content_offer_tags
+            );
+            return {
+                ...prev,
+                system: {
+                    ...system,
+                    contentOffers: updater(current)
+                }
+            };
+        });
     };
 
     const applyMaintenanceMode = async (nextValue: boolean) => {
@@ -1027,24 +1359,124 @@ const SystemSettings = () => {
     };
 
     const handleAutoUpdateRates = async () => {
-        showNotification('info', 'Updating Rates...', 'Fetching latest exchange rates from provider...');
-        
+        setFxBusyAction('sync');
+        showNotification('info', 'FX Sync Started', 'Fetching the latest approved FX snapshot.');
         try {
-            // In a real app, this would call an API
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Mock update - ensure rates don't go negative
-            const updated = currencies.map(c => {
-                if (c.isDefault) return c;
-                const randomAdjustment = (Math.random() * 0.05 - 0.025);
-                const newRate = Math.max(0.0001, c.rate + randomAdjustment);
-                return { ...c, rate: parseFloat(newRate.toFixed(4)) };
+            await AdminService.runFxSync({
+                providerCode: fxConfig.providerCode,
+                baseCurrency: fxConfig.syncBaseCurrency
             });
-            
-            setCurrencies(updated);
-            showNotification('success', 'Rates Updated', 'Exchange rates synchronized successfully.');
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'FX Sync Completed', 'Exchange rates synchronized successfully.');
         } catch (error) {
-            showNotification('error', 'Update Failed', 'Failed to update exchange rates.');
+            console.error('FX sync failed:', error);
+            showNotification('error', 'FX Sync Failed', 'Failed to update exchange rates.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleRefreshFxControlPlane = async () => {
+        setFxBusyAction('refresh');
+        try {
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'FX Data Refreshed', 'The FX control plane data is up to date.');
+        } catch (error) {
+            console.error('Failed to refresh FX data:', error);
+            showNotification('error', 'Refresh Failed', 'Could not refresh FX data.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleUpdateFxProvider = async (
+        code: string,
+        payload: Partial<Pick<FxProviderRecord, 'enabled' | 'priority' | 'baseUrl' | 'settingsJson'>>
+    ) => {
+        setFxBusyAction(`provider:${code}`);
+        try {
+            await AdminService.updateFxProvider(code, payload);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'Provider Updated', `${code} has been updated.`);
+        } catch (error) {
+            console.error('Failed to update FX provider:', error);
+            showNotification('error', 'Provider Update Failed', `Could not update ${code}.`);
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleApproveFxSnapshot = async (snapshotId: string, freeze = false) => {
+        setFxBusyAction(`snapshot:${freeze ? 'freeze' : 'approve'}:${snapshotId}`);
+        try {
+            await AdminService.approveFxSnapshot(snapshotId, { freeze });
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification(
+                'success',
+                freeze ? 'Snapshot Approved & Frozen' : 'Snapshot Approved',
+                freeze
+                    ? 'The snapshot is now approved and frozen for production use.'
+                    : 'The snapshot is now approved for production use.'
+            );
+        } catch (error) {
+            console.error('Failed to approve FX snapshot:', error);
+            showNotification('error', 'Snapshot Approval Failed', 'Could not approve the FX snapshot.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleSetSnapshotFrozen = async (snapshotId: string, frozen: boolean) => {
+        setFxBusyAction(`snapshot:freeze:${snapshotId}`);
+        try {
+            await AdminService.setFxSnapshotFrozen(snapshotId, frozen);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification(
+                'success',
+                frozen ? 'Snapshot Frozen' : 'Snapshot Unfrozen',
+                frozen ? 'The snapshot has been pinned for runtime use.' : 'The snapshot is no longer pinned.'
+            );
+        } catch (error) {
+            console.error('Failed to update snapshot freeze state:', error);
+            showNotification('error', 'Freeze Update Failed', 'Could not update snapshot freeze state.');
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleCreateFxOverride = async (payload: {
+        fromCurrency: string;
+        toCurrency: string;
+        rate: number;
+        effectiveFrom?: string;
+        effectiveTo?: string | null;
+        reason: string;
+    }) => {
+        setFxBusyAction('override:create');
+        try {
+            await AdminService.createFxOverride(payload);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'Override Created', 'The FX override has been created.');
+        } catch (error) {
+            console.error('Failed to create FX override:', error);
+            showNotification('error', 'Override Failed', 'Could not create the FX override.');
+            throw error;
+        } finally {
+            setFxBusyAction(null);
+        }
+    };
+
+    const handleApproveFxOverride = async (overrideId: string) => {
+        setFxBusyAction(`override:approve:${overrideId}`);
+        try {
+            await AdminService.approveFxOverride(overrideId);
+            await loadFxControlPlane(fxConfig.syncBaseCurrency);
+            showNotification('success', 'Override Approved', 'The FX override is now active.');
+        } catch (error) {
+            console.error('Failed to approve FX override:', error);
+            showNotification('error', 'Approval Failed', 'Could not approve the FX override.');
+        } finally {
+            setFxBusyAction(null);
         }
     };
 
@@ -1180,7 +1612,18 @@ const SystemSettings = () => {
     );
     const kycEnabled = normalizeBoolean(systemSnapshot.kycEnforced ?? systemSnapshot.kyc_enforced, false);
     const admin2FAEnabled = normalizeBoolean(systemSnapshot.admin2FA ?? systemSnapshot.admin_2fa, false);
+    const verificationConfig = normalizeVerificationSettings(systemSnapshot.verification);
+    const trustScoreConfig = normalizeTrustScoreSettings(systemSnapshot.trustScore ?? systemSnapshot.trust_score);
+    const dealFlowConfig = normalizeDealFlowSettings(systemSnapshot.dealFlow ?? systemSnapshot.deal_flow);
+    const storefrontConfig = normalizeStorefrontSettings(systemSnapshot.storefront ?? systemSnapshot.storefront_settings);
+    const contentOfferConfig = normalizeContentOfferSettings(
+        systemSnapshot.contentOffers ??
+            systemSnapshot.content_offers ??
+            systemSnapshot.contentOfferTags ??
+            systemSnapshot.content_offer_tags
+    );
     const selectedEmailProvider = normalizeEmailProvider(emailConfig.provider);
+    const providerSetupHint = getProviderSetupHint(selectedEmailProvider, emailConfig.region);
 
     if (isLoading) {
         return (
@@ -1335,6 +1778,1050 @@ const SystemSettings = () => {
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Verification Badge Policy</h4>
+                                <p className="text-xs text-gray-500">
+                                    Control whether verification badges appear publicly and which account roles can display each badge class.
+                                </p>
+                            </div>
+
+                            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <div>
+                                    <span className="text-sm font-medium text-gray-800">Enable verification badges</span>
+                                    <p className="text-xs text-gray-500">Hide all public verification badges platform-wide without disturbing account data.</p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={verificationConfig.enabled}
+                                    onChange={(e) =>
+                                        updateVerificationSetting((current) => ({
+                                            ...current,
+                                            enabled: e.target.checked
+                                        }))
+                                    }
+                                    className="rounded text-blue-600"
+                                />
+                            </div>
+
+                            <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <div>
+                                    <span className="text-sm font-medium text-gray-800">Show badge tooltip and mobile sheet</span>
+                                    <p className="text-xs text-gray-500">Control whether users can open the verification explainer from public badges.</p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={verificationConfig.showTooltips}
+                                    onChange={(e) =>
+                                        updateVerificationSetting((current) => ({
+                                            ...current,
+                                            showTooltips: e.target.checked
+                                        }))
+                                    }
+                                    className="rounded text-blue-600"
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                {[
+                                    ['standard', 'Standard'],
+                                    ['pro', 'Pro'],
+                                    ['business', 'Business'],
+                                    ['government', 'Government']
+                                ].map(([key, label]) => (
+                                    <label key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                        <span>{label}</span>
+                                        <input
+                                            type="checkbox"
+                                            checked={(verificationConfig.levels as any)[key]}
+                                            onChange={(e) =>
+                                                updateVerificationSetting((current) => ({
+                                                    ...current,
+                                                    levels: {
+                                                        ...current.levels,
+                                                        [key]: e.target.checked
+                                                    }
+                                                }))
+                                            }
+                                            className="rounded text-blue-600"
+                                        />
+                                    </label>
+                                ))}
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Visible Roles</h5>
+                                    <p className="text-xs text-gray-500">Choose which account roles are allowed to show badges on public surfaces.</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {[
+                                        ['guest', 'Guest'],
+                                        ['user', 'User'],
+                                        ['freelancer', 'Freelancer'],
+                                        ['employer', 'Employer'],
+                                        ['business', 'Business'],
+                                        ['admin', 'Admin']
+                                    ].map(([key, label]) => (
+                                        <label key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                            <span>{label}</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={(verificationConfig.roles as any)[key]}
+                                                onChange={(e) =>
+                                                    updateVerificationSetting((current) => ({
+                                                        ...current,
+                                                        roles: {
+                                                            ...current.roles,
+                                                            [key]: e.target.checked
+                                                        }
+                                                    }))
+                                                }
+                                                className="rounded text-blue-600"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Delivery & Reliability Score</h4>
+                                <p className="text-xs text-gray-500">
+                                    Govern the public trust score shown on profiles and commerce cards using platform behavior instead of static labels.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {[
+                                    ['enabled', 'Enable trust score', 'Allow public trust scoring to render on supported surfaces.'],
+                                    ['showOnProfiles', 'Show on profiles', 'Display the score and breakdown on public profile pages.'],
+                                    ['showOnListings', 'Show on listing cards', 'Expose compact trust chips on gig and commerce cards.'],
+                                    ['showRiskIndicators', 'Show risk indicators', 'Let public users see risk flags when thresholds are missed.']
+                                ].map(([key, label, description]) => (
+                                    <div key={key} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                        <div className="pr-3">
+                                            <span className="text-sm font-medium text-gray-800">{label}</span>
+                                            <p className="text-xs text-gray-500">{description}</p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean((trustScoreConfig as any)[key])}
+                                            onChange={(e) =>
+                                                updateTrustScoreSetting((current) => ({
+                                                    ...current,
+                                                    [key]: e.target.checked
+                                                }))
+                                            }
+                                            className="rounded text-blue-600"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Score Weights</h5>
+                                    <p className="text-xs text-gray-500">Each factor accepts a value between 0 and 1. The backend normalizes the final mix automatically.</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {[
+                                        ['completionRate', 'Completion rate'],
+                                        ['responseRate', 'Response rate'],
+                                        ['responseTime', 'Response time'],
+                                        ['reviewRating', 'Review rating'],
+                                        ['reviewVolume', 'Review volume'],
+                                        ['disputeRate', 'Dispute rate'],
+                                        ['cancellationRate', 'Cancellation rate']
+                                    ].map(([key, label]) => (
+                                        <label key={key} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                            <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</span>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={1}
+                                                step={0.01}
+                                                value={Number(((trustScoreConfig.weights as any)?.[key] ?? 0).toFixed(2))}
+                                                onChange={(e) =>
+                                                    updateTrustScoreSetting((current) => ({
+                                                        ...current,
+                                                        weights: {
+                                                            ...current.weights,
+                                                            [key]: Number.parseFloat(e.target.value || '0')
+                                                        }
+                                                    }))
+                                                }
+                                                className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Tier Thresholds</h5>
+                                    <p className="text-xs text-gray-500">Set the minimum score for each public trust label.</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    {[
+                                        ['elite', 'Elite'],
+                                        ['established', 'Established']
+                                    ].map(([key, label]) => (
+                                        <label key={key} className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                            <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</span>
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                step={1}
+                                                value={Number((trustScoreConfig.thresholds as any)?.[key] ?? 0)}
+                                                onChange={(e) =>
+                                                    updateTrustScoreSetting((current) => ({
+                                                        ...current,
+                                                        thresholds: {
+                                                            ...current.thresholds,
+                                                            [key]: Number.parseInt(e.target.value || '0', 10)
+                                                        }
+                                                    }))
+                                                }
+                                                className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Message to Brief to Contract Flow</h4>
+                                <p className="text-xs text-gray-500">
+                                    Govern the chat-native commerce flow so conversations can move into briefs, proposals, and contracts without leaving messaging.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {[
+                                    ['enabled', 'Enable deal flow', 'Show commerce conversion actions inside supported conversations.'],
+                                    ['allowCreateBriefFromChat', 'Allow chat to brief', 'Let employers convert a conversation into a structured brief draft.'],
+                                    ['allowBriefToProposal', 'Allow brief to proposal', 'Allow freelancers to create proposals from linked conversation briefs.'],
+                                    ['autoCreatePrivateJobs', 'Auto-create private job bridge', 'Create a hidden private job behind each saved conversation brief so existing proposals can attach cleanly.']
+                                ].map(([key, label, description]) => (
+                                    <div key={key} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                        <div className="pr-3">
+                                            <span className="text-sm font-medium text-gray-800">{label}</span>
+                                            <p className="text-xs text-gray-500">{description}</p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean((dealFlowConfig as any)[key])}
+                                            onChange={(e) =>
+                                                updateDealFlowSetting((current) => ({
+                                                    ...current,
+                                                    [key]: e.target.checked
+                                                }))
+                                            }
+                                            className="rounded text-blue-600"
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Allowed Brief Categories</h5>
+                                    <p className="text-xs text-gray-500">Comma-separated categories shown in the chat brief editor and used for validation.</p>
+                                </div>
+                                <textarea
+                                    value={(dealFlowConfig.allowedCategories || []).join(', ')}
+                                    onChange={(e) =>
+                                        updateDealFlowSetting((current) => ({
+                                            ...current,
+                                            allowedCategories: e.target.value
+                                                .split(',')
+                                                .map((entry) => entry.trim())
+                                                .filter(Boolean)
+                                        }))
+                                    }
+                                    className="w-full rounded-md border-gray-300 p-2 text-sm"
+                                    rows={2}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Default Category</span>
+                                    <input
+                                        type="text"
+                                        value={String(dealFlowConfig.defaultCategory || '')}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                defaultCategory: e.target.value
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Default Proposal Timeline (days)</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={365}
+                                        value={Number(dealFlowConfig.proposalDefaults?.timelineDays ?? 14)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                proposalDefaults: {
+                                                    ...(current.proposalDefaults || {}),
+                                                    timelineDays: Number.parseInt(e.target.value || '14', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Conversation Timeline Visibility</h5>
+                                    <p className="text-xs text-gray-500">Choose which relationship events render as timeline cards inside messaging.</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                    {[
+                                        ['briefs', 'Brief events'],
+                                        ['proposals', 'Proposal events'],
+                                        ['contracts', 'Contract events']
+                                    ].map(([key, label]) => (
+                                        <label key={key} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                            <span>{label}</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean((dealFlowConfig.timeline as any)?.[key])}
+                                                onChange={(e) =>
+                                                    updateDealFlowSetting((current) => ({
+                                                        ...current,
+                                                        timeline: {
+                                                            ...(current.timeline || {}),
+                                                            [key]: e.target.checked
+                                                        }
+                                                    }))
+                                                }
+                                                className="rounded text-blue-600"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Brief Templates</h5>
+                                        <p className="text-xs text-gray-500">The first template acts as the default when a user converts a conversation into a brief.</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                templates: [
+                                                    ...(current.templates || []),
+                                                    {
+                                                        id: `template_${Date.now().toString(36)}`,
+                                                        label: 'New Template',
+                                                        category: String(current.defaultCategory || 'General'),
+                                                        summary: ''
+                                                    }
+                                                ]
+                                            }))
+                                        }
+                                        className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    >
+                                        Add Template
+                                    </button>
+                                </div>
+                                <div className="space-y-3">
+                                    {(dealFlowConfig.templates || []).map((template, index) => (
+                                        <div key={`${template.id}-${index}`} className="rounded-lg border border-gray-200 p-3 space-y-2">
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                <input
+                                                    type="text"
+                                                    value={template.id}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            templates: (current.templates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, id: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="template id"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={template.label}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            templates: (current.templates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, label: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="template label"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={template.category}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            templates: (current.templates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, category: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="template category"
+                                                />
+                                            </div>
+                                            <div className="flex gap-3">
+                                                <input
+                                                    type="text"
+                                                    value={template.summary || ''}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            templates: (current.templates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, summary: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="flex-1 rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="what this template helps structure"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            templates: (current.templates || []).filter((_, entryIndex) => entryIndex !== index)
+                                                        }))
+                                                    }
+                                                    className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Contract Templates</h5>
+                                        <p className="text-xs text-gray-500">Preset contract modes shown when a client accepts a proposal.</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                contractTemplates: [
+                                                    ...(current.contractTemplates || []),
+                                                    {
+                                                        id: `contract_${Date.now().toString(36)}`,
+                                                        label: 'New Contract Template',
+                                                        contractType: 'FIXED',
+                                                        paymentCycle: 'MONTHLY',
+                                                        milestoneCount: Number(current.contractDefaults?.fixedMilestoneCount ?? 3),
+                                                        summary: ''
+                                                    }
+                                                ]
+                                            }))
+                                        }
+                                        className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    >
+                                        Add Contract Template
+                                    </button>
+                                </div>
+                                <div className="space-y-3">
+                                    {(dealFlowConfig.contractTemplates || []).map((template, index) => (
+                                        <div key={`${template.id}-${index}`} className="rounded-lg border border-gray-200 p-3 space-y-3">
+                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                                <input
+                                                    type="text"
+                                                    value={String(template.id || '')}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, id: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="template id"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={String(template.label || '')}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, label: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="template label"
+                                                />
+                                                <select
+                                                    value={String(template.contractType || 'FIXED')}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, contractType: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                >
+                                                    <option value="FIXED">Fixed</option>
+                                                    <option value="HOURLY">Hourly</option>
+                                                </select>
+                                                <select
+                                                    value={String(template.paymentCycle || 'MONTHLY')}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, paymentCycle: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="rounded-md border-gray-300 p-2 text-sm"
+                                                >
+                                                    <option value="WEEKLY">Weekly</option>
+                                                    <option value="BIWEEKLY">Bi-weekly</option>
+                                                    <option value="MONTHLY">Monthly</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex gap-3">
+                                                <input
+                                                    type="number"
+                                                    min={0}
+                                                    max={12}
+                                                    value={Number(template.milestoneCount ?? 0)}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index
+                                                                    ? { ...entry, milestoneCount: Number.parseInt(e.target.value || '0', 10) }
+                                                                    : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="w-40 rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="milestones"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={String(template.summary || '')}
+                                                    onChange={(e) =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).map((entry, entryIndex) =>
+                                                                entryIndex === index ? { ...entry, summary: e.target.value } : entry
+                                                            )
+                                                        }))
+                                                    }
+                                                    className="flex-1 rounded-md border-gray-300 p-2 text-sm"
+                                                    placeholder="what this template should prefill"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() =>
+                                                        updateDealFlowSetting((current) => ({
+                                                            ...current,
+                                                            contractTemplates: (current.contractTemplates || []).filter((_, entryIndex) => entryIndex !== index)
+                                                        }))
+                                                    }
+                                                    className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+                                                >
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Contract Start Lead (days)</span>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={30}
+                                        value={Number(dealFlowConfig.contractDefaults?.startLeadDays ?? 2)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                contractDefaults: {
+                                                    ...(current.contractDefaults || {}),
+                                                    startLeadDays: Number.parseInt(e.target.value || '2', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Default Fixed Milestones</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={12}
+                                        value={Number(dealFlowConfig.contractDefaults?.fixedMilestoneCount ?? 3)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                contractDefaults: {
+                                                    ...(current.contractDefaults || {}),
+                                                    fixedMilestoneCount: Number.parseInt(e.target.value || '3', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Default Hourly Weekly Cap</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={168}
+                                        value={Number(dealFlowConfig.contractDefaults?.hourlyWeeklyCap ?? 40)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                contractDefaults: {
+                                                    ...(current.contractDefaults || {}),
+                                                    hourlyWeeklyCap: Number.parseInt(e.target.value || '40', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Default Upfront Percent</span>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={Number(dealFlowConfig.contractDefaults?.upfrontPercent ?? 30)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                contractDefaults: {
+                                                    ...(current.contractDefaults || {}),
+                                                    upfrontPercent: Number.parseInt(e.target.value || '30', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {[
+                                    ['allowFixedContracts', 'Allow fixed contracts', 'Let clients convert proposals into fixed-scope contracts.'],
+                                    ['allowHourlyContracts', 'Allow hourly contracts', 'Let clients convert proposals into hourly retainers or tracked engagements.'],
+                                    ['requireMilestonesForFixed', 'Require milestones for fixed', 'Seed and enforce delivery checkpoints on fixed-price contracts.']
+                                ].map(([key, label, description]) => (
+                                    <div key={key} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                        <div className="pr-3">
+                                            <span className="text-sm font-medium text-gray-800">{label}</span>
+                                            <p className="text-xs text-gray-500">{description}</p>
+                                        </div>
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean((dealFlowConfig.contractRules as any)?.[key])}
+                                            onChange={(e) =>
+                                                updateDealFlowSetting((current) => ({
+                                                    ...current,
+                                                    contractRules: {
+                                                        ...(current.contractRules || {}),
+                                                        [key]: e.target.checked
+                                                    }
+                                                }))
+                                            }
+                                            className="rounded text-blue-600"
+                                        />
+                                    </div>
+                                ))}
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Max Milestones</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={20}
+                                        value={Number(dealFlowConfig.contractRules?.maxMilestones ?? 8)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                contractRules: {
+                                                    ...(current.contractRules || {}),
+                                                    maxMilestones: Number.parseInt(e.target.value || '8', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Client Fee Percent</span>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={Number(dealFlowConfig.feePolicy?.clientFeePercent ?? 0)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                feePolicy: {
+                                                    ...(current.feePolicy || {}),
+                                                    clientFeePercent: Number.parseInt(e.target.value || '0', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Contractor Fee Percent</span>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={100}
+                                        value={Number(dealFlowConfig.feePolicy?.contractorFeePercent ?? 0)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                feePolicy: {
+                                                    ...(current.feePolicy || {}),
+                                                    contractorFeePercent: Number.parseInt(e.target.value || '0', 10)
+                                                }
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <div className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                    <div className="pr-3">
+                                        <span className="text-sm font-medium text-gray-800">Allow deposits</span>
+                                        <p className="text-xs text-gray-500">Let the contract plan show deposit-friendly terms in fixed-price deals.</p>
+                                    </div>
+                                    <input
+                                        type="checkbox"
+                                        checked={Boolean(dealFlowConfig.feePolicy?.allowDeposits)}
+                                        onChange={(e) =>
+                                            updateDealFlowSetting((current) => ({
+                                                ...current,
+                                                feePolicy: {
+                                                    ...(current.feePolicy || {}),
+                                                    allowDeposits: e.target.checked
+                                                }
+                                            }))
+                                        }
+                                        className="rounded text-blue-600"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Profile Storefronts</h4>
+                                <p className="text-xs text-gray-500">
+                                    Enable commerce-ready storefront tabs on user and business profiles, control role access, and limit how much catalog inventory appears publicly.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {[
+                                    ['enabled', 'Enable storefronts', 'Turn on the storefront system across supported profile surfaces.'],
+                                    ['userProfilesEnabled', 'User profile storefronts', 'Show storefront tabs on eligible member profiles.'],
+                                    ['businessPagesEnabled', 'Business page storefronts', 'Show storefront tabs on business profile pages.'],
+                                    ['merchantSummary', 'Merchant summary block', 'Render the storefront summary block with pricing, social proof, and catalog counts.'],
+                                    ['userGigs', 'User service catalog', 'Use approved active gigs as the storefront inventory on member profiles.'],
+                                    ['businessPackages', 'Business packaged offers', 'Use business page packaged offers as the storefront inventory for company pages.']
+                                ].map(([key, label, description]) => {
+                                    const checked =
+                                        key === 'merchantSummary' || key === 'userGigs' || key === 'businessPackages'
+                                            ? Boolean((storefrontConfig.modules as any)?.[key])
+                                            : Boolean((storefrontConfig as any)[key]);
+                                    return (
+                                        <div key={key} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                            <div className="pr-3">
+                                                <span className="text-sm font-medium text-gray-800">{label}</span>
+                                                <p className="text-xs text-gray-500">{description}</p>
+                                            </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(e) =>
+                                                    updateStorefrontSetting((current) => ({
+                                                        ...current,
+                                                        ...(key === 'merchantSummary' || key === 'userGigs' || key === 'businessPackages'
+                                                            ? {
+                                                                  modules: {
+                                                                      ...(current.modules || {}),
+                                                                      [key]: e.target.checked
+                                                                  }
+                                                              }
+                                                            : {
+                                                                  [key]: e.target.checked
+                                                              })
+                                                    }))
+                                                }
+                                                className="rounded text-blue-600"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Eligible Roles</h5>
+                                    <p className="text-xs text-gray-500">Choose which account roles can expose a storefront tab on public profiles.</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                    {['user', 'freelancer', 'employer', 'business', 'admin'].map((roleKey) => (
+                                        <label key={roleKey} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                            <span className="capitalize">{roleKey}</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean((storefrontConfig.roles as any)?.[roleKey])}
+                                                onChange={(e) =>
+                                                    updateStorefrontSetting((current) => ({
+                                                        ...current,
+                                                        roles: {
+                                                            ...(current.roles || {}),
+                                                            [roleKey]: e.target.checked
+                                                        }
+                                                    }))
+                                                }
+                                                className="rounded text-blue-600"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Max Featured Items</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={12}
+                                        value={Number(storefrontConfig.maxFeaturedItems ?? 4)}
+                                        onChange={(e) =>
+                                            updateStorefrontSetting((current) => ({
+                                                ...current,
+                                                maxFeaturedItems: Number.parseInt(e.target.value || '4', 10)
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Max Catalog Items</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={60}
+                                        value={Number(storefrontConfig.maxCatalogItems ?? 12)}
+                                        onChange={(e) =>
+                                            updateStorefrontSetting((current) => ({
+                                                ...current,
+                                                maxCatalogItems: Number.parseInt(e.target.value || '12', 10)
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
+                            <div>
+                                <h4 className="text-sm font-bold text-gray-900">Content Offer Tagging</h4>
+                                <p className="text-xs text-gray-500">
+                                    Control whether posts, Scroll, and LIVE can tag storefront inventory and which commerce CTAs remain available on tagged content.
+                                </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {[
+                                    ['enabled', 'Enable content offer tagging', 'Allow supported content surfaces to attach storefront offers.'],
+                                    ['postsEnabled', 'Posts', 'Show offer-tag authoring and display on post cards.'],
+                                    ['scrollEnabled', 'Scroll', 'Allow tagged offers on Scroll creation and viewer surfaces.'],
+                                    ['liveEnabled', 'LIVE', 'Allow tagged offers on live session setup and viewer surfaces.'],
+                                    ['userGigs', 'User gig inventory', 'Use approved user gigs as taggable content offers.'],
+                                    ['businessPackages', 'Business packaged offers', 'Use business page packages as taggable content offers.'],
+                                    ['storefrontCta', 'Storefront CTA', 'Show one-tap storefront navigation from tagged content.'],
+                                    ['messageCta', 'Message CTA', 'Let viewers open a DM directly from tagged content.'],
+                                    ['briefCta', 'Brief CTA', 'Let viewers start a brief flow from tagged content.']
+                                ].map(([key, label, description]) => {
+                                    const checked =
+                                        key === 'userGigs' ||
+                                        key === 'businessPackages' ||
+                                        key === 'storefrontCta' ||
+                                        key === 'messageCta' ||
+                                        key === 'briefCta'
+                                            ? Boolean((contentOfferConfig.modules as any)?.[key])
+                                            : Boolean((contentOfferConfig as any)[key]);
+                                    return (
+                                        <div key={key} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                            <div className="pr-3">
+                                                <span className="text-sm font-medium text-gray-800">{label}</span>
+                                                <p className="text-xs text-gray-500">{description}</p>
+                                            </div>
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                onChange={(e) =>
+                                                    updateContentOfferSetting((current) => ({
+                                                        ...current,
+                                                        ...(key === 'userGigs' ||
+                                                        key === 'businessPackages' ||
+                                                        key === 'storefrontCta' ||
+                                                        key === 'messageCta' ||
+                                                        key === 'briefCta'
+                                                            ? {
+                                                                  modules: {
+                                                                      ...(current.modules || {}),
+                                                                      [key]: e.target.checked
+                                                                  }
+                                                              }
+                                                            : {
+                                                                  [key]: e.target.checked
+                                                              })
+                                                    }))
+                                                }
+                                                className="rounded text-blue-600"
+                                            />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="space-y-2">
+                                <div>
+                                    <h5 className="text-xs font-bold uppercase tracking-wide text-gray-500">Eligible Roles</h5>
+                                    <p className="text-xs text-gray-500">Choose which roles can attach offers to supported content surfaces.</p>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                                    {['user', 'freelancer', 'employer', 'business', 'admin'].map((roleKey) => (
+                                        <label key={roleKey} className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                            <span className="capitalize">{roleKey}</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean((contentOfferConfig.roles as any)?.[roleKey])}
+                                                onChange={(e) =>
+                                                    updateContentOfferSetting((current) => ({
+                                                        ...current,
+                                                        roles: {
+                                                            ...(current.roles || {}),
+                                                            [roleKey]: e.target.checked
+                                                        }
+                                                    }))
+                                                }
+                                                className="rounded text-blue-600"
+                                            />
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Max tags per content item</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        max={6}
+                                        value={Number(contentOfferConfig.maxTagsPerContent ?? 3)}
+                                        onChange={(e) =>
+                                            updateContentOfferSetting((current) => ({
+                                                ...current,
+                                                maxTagsPerContent: Number.parseInt(e.target.value || '3', 10)
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    />
+                                </label>
+                                <label className="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                    <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Moderation mode</span>
+                                    <select
+                                        value={String(contentOfferConfig.moderationMode || 'off')}
+                                        onChange={(e) =>
+                                            updateContentOfferSetting((current) => ({
+                                                ...current,
+                                                moderationMode: e.target.value as 'off' | 'review' | 'strict'
+                                            }))
+                                        }
+                                        className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    >
+                                        <option value="off">Off</option>
+                                        <option value="review">Review</option>
+                                        <option value="strict">Strict</option>
+                                    </select>
+                                </label>
+                            </div>
+
+                            <label className="block rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700">
+                                <span className="block text-xs font-semibold uppercase tracking-wide text-gray-500">Restricted categories</span>
+                                <input
+                                    type="text"
+                                    value={(contentOfferConfig.restrictedCategories || []).join(', ')}
+                                    onChange={(e) =>
+                                        updateContentOfferSetting((current) => ({
+                                            ...current,
+                                            restrictedCategories: e.target.value
+                                                .split(',')
+                                                .map((entry) => entry.trim())
+                                                .filter(Boolean)
+                                        }))
+                                    }
+                                    className="mt-2 w-full rounded-md border-gray-300 p-2 text-sm"
+                                    placeholder="adult services, regulated products"
+                                />
+                                <p className="mt-2 text-xs text-gray-500">Comma-separated categories blocked from tagging on content surfaces.</p>
+                            </label>
                         </div>
                         
                         <div className="space-y-4 pt-4 border-t border-gray-200">
@@ -1982,10 +3469,14 @@ const SystemSettings = () => {
                                 <input 
                                     type="checkbox" 
                                     checked={currencyConfig.autoExchangeRate} 
-                                    onChange={e => setCurrencyConfig({...currencyConfig, autoExchangeRate: e.target.checked})} 
+                                    onChange={e => {
+                                        const checked = e.target.checked;
+                                        setCurrencyConfig({...currencyConfig, autoExchangeRate: checked});
+                                        setFxConfig(prev => ({ ...prev, refreshEnabled: checked, enabled: true }));
+                                    }} 
                                     className="rounded text-blue-600 mr-2" 
                                 />
-                                <span className="text-sm font-medium text-gray-700">Auto Exchange Rate</span>
+                                <span className="text-sm font-medium text-gray-700">Auto FX Sync</span>
                             </label>
                             
                             <div className="flex items-center gap-2">
@@ -2005,31 +3496,49 @@ const SystemSettings = () => {
                             </div>
 
                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-gray-700">Provider:</span>
+                                <span className="text-sm font-medium text-gray-700">Authority:</span>
                                 <select 
                                     className="border-gray-300 rounded-md text-sm p-1"
                                     value={currencyConfig.provider}
-                                    onChange={e => setCurrencyConfig({...currencyConfig, provider: e.target.value as unknown as typeof currencyConfig.provider})}
+                                    onChange={e => {
+                                        const providerCode = e.target.value;
+                                        setCurrencyConfig({...currencyConfig, provider: providerCode});
+                                        setFxConfig(prev => ({ ...prev, providerCode }));
+                                    }}
                                 >
-                                    <option value="openexchangerates">Open Exchange Rates</option>
-                                    <option value="fixer">Fixer.io</option>
-                                    <option value="mock">Mock (Demo)</option>
+                                    {fxProviders.map(provider => (
+                                        <option key={`fx-provider-${provider.code}`} value={provider.code}>
+                                            {provider.name}
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
-                            
-                            {currencyConfig.provider !== 'mock' && (
-                                <div className="flex-1">
-                                    <label className="block text-xs font-medium text-gray-500 mb-1">API Key</label>
-                                    <input 
-                                        type="password"
-                                        className="w-full border-gray-300 rounded-md p-1.5 text-sm"
-                                        value={currencyConfig.apiKey || (currencyConfig as any).api_key || ''}
-                                        onChange={e => setCurrencyConfig({...currencyConfig, apiKey: e.target.value})}
-                                        placeholder="Enter API key"
-                                    />
-                                </div>
-                            )}
+
+                            <div className="min-w-[16rem] text-xs text-gray-500">
+                                Live rates come from approved FX snapshots. Manual rate edits below are fallback values and local defaults only.
+                            </div>
                         </div>
+
+                        <FxControlPlanePanel
+                            currencies={currencies}
+                            fxConfig={fxConfig}
+                            onFxConfigChange={(updater) =>
+                                setFxConfig((prev) => (typeof updater === 'function' ? updater(prev) : updater))
+                            }
+                            providers={fxProviders}
+                            health={fxHealth}
+                            snapshots={fxSnapshots}
+                            overrides={fxOverrides}
+                            locks={fxLocks}
+                            busyAction={fxBusyAction}
+                            onRefresh={handleRefreshFxControlPlane}
+                            onRunSync={handleAutoUpdateRates}
+                            onUpdateProvider={handleUpdateFxProvider}
+                            onApproveSnapshot={handleApproveFxSnapshot}
+                            onSetSnapshotFrozen={handleSetSnapshotFrozen}
+                            onCreateOverride={handleCreateFxOverride}
+                            onApproveOverride={handleApproveFxOverride}
+                        />
 
                         {/* Currency Table */}
                         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -2040,6 +3549,7 @@ const SystemSettings = () => {
                                         <th className="px-6 py-3">Name</th>
                                         <th className="px-6 py-3">Symbol</th>
                                         <th className="px-6 py-3">Rate (vs Base)</th>
+                                        <th className="px-6 py-3">Rate Source</th>
                                         <th className="px-6 py-3">Status</th>
                                         <th className="px-6 py-3">Default</th>
                                         <th className="px-6 py-3 text-right">Actions</th>
@@ -2061,6 +3571,25 @@ const SystemSettings = () => {
                                                     value={curr.rate || 0}
                                                     onChange={e => updateCurrencyRate(curr.code, parseFloat(e.target.value) || 0)}
                                                 />
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex flex-col gap-1">
+                                                    <span className={`inline-flex w-fit rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                                                        curr.rateSource === 'override'
+                                                            ? 'bg-amber-100 text-amber-700'
+                                                            : curr.rateSource === 'snapshot'
+                                                                ? 'bg-blue-100 text-blue-700'
+                                                                : curr.rateSource === 'base'
+                                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                                    : 'bg-slate-100 text-slate-700'
+                                                    }`}>
+                                                        {curr.rateSource || 'manual'}
+                                                    </span>
+                                                    <span className="text-[11px] text-gray-400">
+                                                        {curr.rateUpdatedAt ? new Date(curr.rateUpdatedAt).toLocaleString() : 'No runtime snapshot'}
+                                                    </span>
+                                                    {curr.stale && <span className="text-[11px] font-semibold text-amber-600">Stale</span>}
+                                                </div>
                                             </td>
                                             <td className="px-6 py-4">
                                                 <button 
@@ -2163,7 +3692,12 @@ const SystemSettings = () => {
                                         <option value="ses">Amazon SES</option>
                                         <option value="sendgrid">SendGrid</option>
                                         <option value="mailgun">Mailgun</option>
+                                        <option value="brevo">Brevo</option>
                                     </select>
+                                </div>
+                                <div className="col-span-2 rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+                                    <div className="font-semibold">{providerSetupHint.title}</div>
+                                    <div className="mt-1 text-blue-800">{providerSetupHint.body}</div>
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Host</label>
@@ -2208,21 +3742,22 @@ const SystemSettings = () => {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Username</label>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{getProviderUsernameLabel(selectedEmailProvider)}</label>
                                     <input 
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.username || ''} 
                                         onChange={e => setEmailConfig({...emailConfig, username: e.target.value})} 
-                                        placeholder={selectedEmailProvider === 'sendgrid' ? 'apikey' : ''}
+                                        placeholder={getProviderUsernamePlaceholder(selectedEmailProvider)}
                                     />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Password</label>
+                                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">{getProviderPasswordLabel(selectedEmailProvider)}</label>
                                     <input 
                                         type="password" 
                                         className="w-full border-gray-300 rounded-lg p-2" 
                                         value={emailConfig.password || ''} 
-                                        onChange={e => setEmailConfig({...emailConfig, password: e.target.value})} 
+                                        onChange={e => setEmailConfig({...emailConfig, password: e.target.value})}
+                                        placeholder={getProviderPasswordPlaceholder(selectedEmailProvider)}
                                     />
                                 </div>
                                 {selectedEmailProvider === 'ses' && (
@@ -2502,6 +4037,52 @@ const SystemSettings = () => {
                                         max="2"
                                     />
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white border border-gray-200 rounded-xl p-6">
+                            <div className="flex items-start justify-between gap-4 mb-4">
+                                <div>
+                                    <h4 className="font-bold text-gray-900">Resume / CV AI Controls</h4>
+                                    <p className="text-xs text-gray-500">
+                                        Manage resume builder and analyzer availability for freelancer and client dashboards.
+                                    </p>
+                                </div>
+                                <input
+                                    type="checkbox"
+                                    checked={resumeAiConfig.enabled}
+                                    onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, enabled: e.target.checked }))}
+                                    className="rounded text-blue-600"
+                                />
+                            </div>
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <label className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <span className="text-sm font-medium text-gray-700">Enable Resume/CV Builder</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={resumeAiConfig.builderEnabled}
+                                        onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, builderEnabled: e.target.checked }))}
+                                        className="rounded text-blue-600"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                                    <span className="text-sm font-medium text-gray-700">Enable Resume/CV Reviewer</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={resumeAiConfig.reviewerEnabled}
+                                        onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, reviewerEnabled: e.target.checked }))}
+                                        className="rounded text-blue-600"
+                                    />
+                                </label>
+                                <label className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 md:col-span-2">
+                                    <span className="text-sm font-medium text-gray-700">Allow admin access even when the module is limited</span>
+                                    <input
+                                        type="checkbox"
+                                        checked={resumeAiConfig.adminAccessEnabled}
+                                        onChange={(e) => setResumeAiConfig((prev) => normalizeResumeAiPolicy({ ...prev, adminAccessEnabled: e.target.checked }))}
+                                        className="rounded text-blue-600"
+                                    />
+                                </label>
                             </div>
                         </div>
                     </div>

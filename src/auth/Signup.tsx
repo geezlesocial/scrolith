@@ -31,8 +31,8 @@ const Signup = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const defaultSignupContent = {
-    headline: t('auth.signup.headline', 'Join Our Community'),
-    subheadline: '',
+    headline: t('auth.signup.headline', 'Create your Scrolith account'),
+    subheadline: t('auth.signup.subheadline', 'Join as talent or as a business and start using marketplace, community, messaging, and payments tools.'),
     submit_label: t('auth.signup.submit_label', 'Create Account'),
     terms_url: '/p/terms',
     privacy_url: '/p/privacy',
@@ -43,7 +43,7 @@ const Signup = () => {
 
   const defaultBranding = {
     show_logo: true,
-    logo_url: '',
+    logo_url: '/logo.png',
     logo_link_url: '/'
   };
 
@@ -65,9 +65,15 @@ const Signup = () => {
     };
   }, []);
 
-  const signupContent = authConfig?.signup ?? defaultSignupContent;
-  const branding = authConfig?.branding ?? defaultBranding;
-  const socialConfig = authConfig?.social_auth;
+  const signupContent = { ...defaultSignupContent, ...(authConfig?.signup ?? {}) };
+  const brandingSource = (authConfig?.branding ?? {}) as Partial<AuthPagesConfig['branding']>;
+  const branding = {
+    ...defaultBranding,
+    ...brandingSource,
+    logo_url: brandingSource.logo_url || defaultBranding.logo_url,
+    logo_link_url: brandingSource.logo_link_url || defaultBranding.logo_link_url
+  };
+  const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -134,10 +140,7 @@ const Signup = () => {
       const success = await register(formData.email, fullName, formData.password, role, recaptchaToken);
 
       if (success) {
-        // Redirect based on role after successful registration
-        if (role === UserRole.ADMIN) navigate('/admin');
-        else if (role === UserRole.EMPLOYER) navigate('/client/dashboard');
-        else navigate('/freelancer/dashboard');
+        navigate('/', { replace: true });
       } else {
         setErrors({ submit: t('auth.signup.failed', 'Signup failed. Please try again.') });
       }
@@ -149,12 +152,43 @@ const Signup = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+    <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_90px_rgba(15,23,42,0.12)] lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="relative hidden overflow-hidden bg-slate-950 p-10 text-white lg:flex lg:flex-col lg:justify-between">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_16%,rgba(59,130,246,0.28),transparent_32%),radial-gradient(circle_at_78%_8%,rgba(14,165,233,0.2),transparent_28%)]" />
+          <div className="relative">
+            <Link to="/" className="inline-flex items-center gap-3">
+              {branding.show_logo && branding.logo_url ? (
+                <img src={branding.logo_url} alt="Scrolith" className="h-10 w-10 rounded-xl object-contain" />
+              ) : null}
+              <span className="text-2xl font-bold tracking-tight">Scrolith</span>
+            </Link>
+            <div className="mt-16 max-w-md">
+              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-sky-200">Join Scrolith</p>
+              <h1 className="mt-4 text-4xl font-black leading-tight tracking-tight">Build your profile, hire talent, and grow in one account.</h1>
+              <p className="mt-5 text-base leading-8 text-slate-300">
+                Choose your role during signup. You can use marketplace, jobs, messaging, and community tools after onboarding.
+              </p>
+            </div>
+          </div>
+          <div className="relative grid gap-3 text-sm text-slate-300">
+            <div className="flex items-center gap-3">
+              <UserPlus className="h-5 w-5 text-sky-300" />
+              <span>Freelancer and Employer paths are available from the same Scrolith account.</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Briefcase className="h-5 w-5 text-sky-300" />
+              <span>Start with jobs, gigs, community, messaging, and wallet-ready workflows.</span>
+            </div>
+          </div>
+        </section>
+
+        <section className="px-5 py-10 sm:px-10">
+      <div className="sm:mx-auto sm:w-full sm:max-w-lg">
         <div className="flex justify-center">
           {branding.show_logo && branding.logo_url ? (
             <a href={branding.logo_link_url || '/'} className="inline-flex">
-              <img src={branding.logo_url} alt="Logo" className="h-12" />
+              <img src={branding.logo_url} alt="Scrolith" className="h-12 w-12 rounded-xl object-contain" />
             </a>
           ) : (
             <div className="w-14 h-14 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center font-bold text-2xl text-white shadow-lg">
@@ -176,7 +210,7 @@ const Signup = () => {
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-lg">
         <div className="bg-white py-8 px-6 shadow-xl rounded-2xl sm:px-10 border border-gray-100">
           {errors.submit && (
             <div className="mb-6 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center text-red-700 text-sm">
@@ -426,7 +460,9 @@ const Signup = () => {
           </form>
         </div>
       </div>
-    </div>
+        </section>
+      </div>
+    </main>
   );
 };
 

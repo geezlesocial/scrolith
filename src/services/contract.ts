@@ -1,5 +1,5 @@
 import api from './api';
-import { Contract, TimeEntry, ContractStatus } from '../types';
+import { Contract, TimeEntry, ContractStatus, ContractMilestone } from '../types';
 
 export interface ActiveTrackingSession {
   sessionId: string;
@@ -48,6 +48,16 @@ export const ContractService = {
 
   updateStatus: async (id: string, status: ContractStatus): Promise<void> => {
     await api.patch(`/contracts/${id}/status`, { status });
+  },
+
+  updateMilestoneStatus: async (
+    contractId: string,
+    milestoneId: string,
+    status: ContractMilestone['status']
+  ): Promise<ContractMilestone[]> => {
+    const response = await api.patch(`/contracts/${contractId}/milestones/${milestoneId}`, { status });
+    const data = extractData<{ milestones?: ContractMilestone[] }>(response);
+    return Array.isArray(data?.milestones) ? data.milestones : [];
   },
 
   startTracking: async (contractId: string): Promise<ActiveTrackingSession> => {

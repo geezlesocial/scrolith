@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ShieldIcon as Shield,
   UserMinusIcon as UserMinus,
@@ -6,6 +7,7 @@ import {
 } from '../../../components/icons/ShellIcons';
 import { CommunityService } from '../../../services/community';
 import { useUser } from '../../../context/UserContext';
+import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 type Tab = 'following' | 'followers';
 
@@ -83,14 +85,14 @@ export default function MobileNetworkScreen() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">Loading {header}...</div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-md px-3 py-4">
+    <div className={MOBILE_PAGE_SECTION_CLASS}>
       <div className="mb-3 flex gap-2">
         <button
           type="button"
@@ -138,7 +140,7 @@ export default function MobileNetworkScreen() {
 
           return (
             <div key={followId || u.id} className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-              <a href={`/u/${encodeURIComponent(u.username || u.id)}`} className="flex min-w-0 items-center gap-3">
+              <Link to={`/u/${encodeURIComponent(u.username || u.id)}`} className="flex min-w-0 items-center gap-3 touch-manipulation">
                 <div className="h-12 w-12 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
                   {u.avatar ? <img src={u.avatar} alt={u.name} className="h-full w-full object-cover" /> : null}
                 </div>
@@ -146,7 +148,7 @@ export default function MobileNetworkScreen() {
                   <div className="truncate text-sm font-semibold text-slate-900">{u.name}</div>
                   {u.username ? <div className="truncate text-xs text-slate-500">@{u.username}</div> : null}
                 </div>
-              </a>
+              </Link>
 
               <div className="flex items-center gap-2">
                 {canUnfollow ? (

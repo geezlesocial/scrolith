@@ -41,6 +41,16 @@ const roleScopeTextFromValue = (value: any) => {
   return 'all';
 };
 
+const parseContentTypesText = (raw: string) =>
+  Array.from(
+    new Set(
+      String(raw || '')
+        .split(',')
+        .map((entry) => entry.trim().toLowerCase())
+        .filter(Boolean)
+    )
+  );
+
 const thisWeekKey = () => {
   const now = new Date();
   const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -51,6 +61,29 @@ const thisWeekKey = () => {
   return `${utc.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 };
 
+const toLocalInputValue = (value: Date | string | null | undefined) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+  const offsetMs = date.getTimezoneOffset() * 60000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+};
+
+const currentWeekWindowInputs = () => {
+  const now = new Date();
+  const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const day = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 1 - day);
+  utc.setUTCHours(0, 0, 0, 0);
+  const start = new Date(utc);
+  const end = new Date(utc);
+  end.setUTCDate(end.getUTCDate() + 6);
+  end.setUTCHours(23, 59, 0, 0);
+  return {
+    startAt: toLocalInputValue(start),
+    endAt: toLocalInputValue(end)
+  };
+};
+
 const InsightsGrowth: React.FC = () => {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(true);
@@ -58,13 +91,41 @@ const InsightsGrowth: React.FC = () => {
   const [recomputeBusy, setRecomputeBusy] = useState(false);
   const [rebuildBusy, setRebuildBusy] = useState(false);
   const [achievementBusy, setAchievementBusy] = useState(false);
+  const [challengeBusy, setChallengeBusy] = useState(false);
   const [questBusy, setQuestBusy] = useState(false);
   const [config, setConfig] = useState<any>(null);
   const [achievements, setAchievements] = useState<any[]>([]);
+  const [challenges, setChallenges] = useState<any[]>([]);
   const [quests, setQuests] = useState<any[]>([]);
+  const [challengeWeekKey, setChallengeWeekKey] = useState(thisWeekKey());
   const [leaderboardScope, setLeaderboardScope] = useState<'global' | 'freelancer' | 'employer'>('global');
   const [leaderboardWeekKey, setLeaderboardWeekKey] = useState(thisWeekKey());
   const [leaderboard, setLeaderboard] = useState<any>(null);
+  const defaultChallengeWindow = currentWeekWindowInputs();
+  const [newChallenge, setNewChallenge] = useState({
+    key: '',
+    title: '',
+    description: '',
+    category: 'creator',
+    contentTypesText: 'scroll_video',
+    entryLimitPerUser: 1,
+    maxWinners: 3,
+    startAt: defaultChallengeWindow.startAt,
+    endAt: defaultChallengeWindow.endAt,
+    rewardText: '{\n  "winnerAchievementKey": "WEEKLY_SPOTLIGHT_WINNER"\n}'
+  });
+  const [editingChallengeId, setEditingChallengeId] = useState<string | null>(null);
+  const [editingChallengeDraft, setEditingChallengeDraft] = useState({
+    title: '',
+    description: '',
+    category: 'creator',
+    contentTypesText: 'scroll_video',
+    entryLimitPerUser: 1,
+    maxWinners: 3,
+    startAt: '',
+    endAt: '',
+    rewardText: '{\n  "winnerAchievementKey": "WEEKLY_SPOTLIGHT_WINNER"\n}'
+  });
   const [newAchievement, setNewAchievement] = useState({
     key: '',
     title: '',
@@ -105,18 +166,29 @@ const InsightsGrowth: React.FC = () => {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [cfg, achievementRows, questRows] = await Promise.all([
+      const [cfg, achievementRows, challengeRows, questRows] = await Promise.all([
         InsightsService.getAdminConfig(),
         InsightsService.getAdminAchievements(),
+        InsightsService.getAdminCreatorChallenges(challengeWeekKey),
         InsightsService.getAdminQuests()
       ]);
       setConfig(cfg || null);
       setAchievements(Array.isArray(achievementRows) ? achievementRows : []);
+      setChallenges(Array.isArray(challengeRows) ? challengeRows : []);
       setQuests(Array.isArray(questRows) ? questRows : []);
     } catch (error: any) {
       showNotification('error', 'Insights', error?.message || 'Failed to load Insights configuration.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadChallenges = async (weekKey = challengeWeekKey) => {
+    try {
+      const rows = await InsightsService.getAdminCreatorChallenges(weekKey);
+      setChallenges(Array.isArray(rows) ? rows : []);
+    } catch (error: any) {
+      showNotification('error', 'Creator Challenges', error?.message || 'Failed to load creator challenges.');
     }
   };
 
@@ -132,6 +204,10 @@ const InsightsGrowth: React.FC = () => {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    void loadChallenges(challengeWeekKey);
+  }, [challengeWeekKey]);
 
   useEffect(() => {
     void loadLeaderboard();
@@ -311,6 +387,131 @@ const InsightsGrowth: React.FC = () => {
       showNotification('error', 'Achievements', error?.message || 'Failed to update achievement.');
     } finally {
       setAchievementBusy(false);
+    }
+  };
+
+  const createChallenge = async () => {
+    const key = String(newChallenge.key || '').trim().toUpperCase();
+    const title = String(newChallenge.title || '').trim();
+    if (!key || !title) {
+      showNotification('warning', 'Creator Challenges', 'Key and title are required.');
+      return;
+    }
+    setChallengeBusy(true);
+    try {
+      await InsightsService.createAdminCreatorChallenge({
+        key,
+        weekKey: challengeWeekKey,
+        title,
+        description: newChallenge.description || null,
+        category: newChallenge.category || 'creator',
+        contentTypes: parseContentTypesText(newChallenge.contentTypesText),
+        entryLimitPerUser: Math.max(1, Math.floor(numberValue(newChallenge.entryLimitPerUser, 1))),
+        maxWinners: Math.max(1, Math.floor(numberValue(newChallenge.maxWinners, 3))),
+        startAt: newChallenge.startAt,
+        endAt: newChallenge.endAt,
+        reward: parseRulesInput(newChallenge.rewardText)
+      });
+      const nextWindow = currentWeekWindowInputs();
+      setNewChallenge({
+        key: '',
+        title: '',
+        description: '',
+        category: 'creator',
+        contentTypesText: 'scroll_video',
+        entryLimitPerUser: 1,
+        maxWinners: 3,
+        startAt: nextWindow.startAt,
+        endAt: nextWindow.endAt,
+        rewardText: '{\n  "winnerAchievementKey": "WEEKLY_SPOTLIGHT_WINNER"\n}'
+      });
+      await loadChallenges(challengeWeekKey);
+      showNotification('success', 'Creator Challenges', 'Challenge created.');
+    } catch (error: any) {
+      showNotification('error', 'Creator Challenges', error?.message || 'Failed to create challenge.');
+    } finally {
+      setChallengeBusy(false);
+    }
+  };
+
+  const toggleChallenge = async (id: string) => {
+    try {
+      await InsightsService.toggleAdminCreatorChallenge(id);
+      await loadChallenges(challengeWeekKey);
+    } catch (error: any) {
+      showNotification('error', 'Creator Challenges', error?.message || 'Failed to toggle challenge.');
+    }
+  };
+
+  const finalizeChallenge = async (id: string) => {
+    setChallengeBusy(true);
+    try {
+      await InsightsService.finalizeAdminCreatorChallenge(id);
+      await loadChallenges(challengeWeekKey);
+      showNotification('success', 'Creator Challenges', 'Challenge finalized.');
+    } catch (error: any) {
+      showNotification('error', 'Creator Challenges', error?.message || 'Failed to finalize challenge.');
+    } finally {
+      setChallengeBusy(false);
+    }
+  };
+
+  const startEditChallenge = (item: any) => {
+    setEditingChallengeId(String(item.id));
+    setEditingChallengeDraft({
+      title: String(item.title || ''),
+      description: String(item.description || ''),
+      category: String(item.category || 'creator'),
+      contentTypesText: Array.isArray(item.contentTypes) ? item.contentTypes.join(', ') : 'scroll_video',
+      entryLimitPerUser: Math.max(1, Math.floor(numberValue(item.entryLimitPerUser, 1))),
+      maxWinners: Math.max(1, Math.floor(numberValue(item.maxWinners, 3))),
+      startAt: toLocalInputValue(item.startAt),
+      endAt: toLocalInputValue(item.endAt),
+      rewardText: prettyRules(item.reward || {})
+    });
+  };
+
+  const cancelEditChallenge = () => {
+    setEditingChallengeId(null);
+    setEditingChallengeDraft({
+      title: '',
+      description: '',
+      category: 'creator',
+      contentTypesText: 'scroll_video',
+      entryLimitPerUser: 1,
+      maxWinners: 3,
+      startAt: '',
+      endAt: '',
+      rewardText: '{\n  "winnerAchievementKey": "WEEKLY_SPOTLIGHT_WINNER"\n}'
+    });
+  };
+
+  const saveEditChallenge = async (id: string) => {
+    const title = String(editingChallengeDraft.title || '').trim();
+    if (!title) {
+      showNotification('warning', 'Creator Challenges', 'Title is required.');
+      return;
+    }
+    setChallengeBusy(true);
+    try {
+      await InsightsService.updateAdminCreatorChallenge(id, {
+        title,
+        description: editingChallengeDraft.description || null,
+        category: editingChallengeDraft.category || 'creator',
+        contentTypes: parseContentTypesText(editingChallengeDraft.contentTypesText),
+        entryLimitPerUser: Math.max(1, Math.floor(numberValue(editingChallengeDraft.entryLimitPerUser, 1))),
+        maxWinners: Math.max(1, Math.floor(numberValue(editingChallengeDraft.maxWinners, 3))),
+        startAt: editingChallengeDraft.startAt,
+        endAt: editingChallengeDraft.endAt,
+        reward: parseRulesInput(editingChallengeDraft.rewardText)
+      });
+      await loadChallenges(challengeWeekKey);
+      cancelEditChallenge();
+      showNotification('success', 'Creator Challenges', 'Challenge updated.');
+    } catch (error: any) {
+      showNotification('error', 'Creator Challenges', error?.message || 'Failed to update challenge.');
+    } finally {
+      setChallengeBusy(false);
     }
   };
 
@@ -676,6 +877,264 @@ const InsightsGrowth: React.FC = () => {
             </div>
           ))}
           {achievements.length === 0 ? <p className="text-xs text-gray-500">No achievements yet.</p> : null}
+        </div>
+      </section>
+      <section className="rounded-xl border border-gray-200 bg-white p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900">Weekly Creator Challenges</h3>
+            <p className="text-xs text-gray-500">Submit, vote, win loops managed from the same insights surface as quests and achievements.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+              value={challengeWeekKey}
+              onChange={(e) => setChallengeWeekKey(e.target.value)}
+              placeholder="YYYY-Wnn"
+            />
+            <button
+              type="button"
+              onClick={() => void loadChallenges(challengeWeekKey)}
+              className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Load
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-2 md:grid-cols-4">
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newChallenge.key}
+            onChange={(e) => setNewChallenge((prev) => ({ ...prev, key: e.target.value }))}
+            placeholder="WEEKLY_SCROLL_SPOTLIGHT"
+          />
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newChallenge.title}
+            onChange={(e) => setNewChallenge((prev) => ({ ...prev, title: e.target.value }))}
+            placeholder="Challenge title"
+          />
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newChallenge.category}
+            onChange={(e) => setNewChallenge((prev) => ({ ...prev, category: e.target.value }))}
+            placeholder="Category"
+          />
+          <button
+            type="button"
+            onClick={() => void createChallenge()}
+            disabled={challengeBusy}
+            className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+          >
+            {challengeBusy ? 'Adding...' : 'Add Challenge'}
+          </button>
+        </div>
+        <textarea
+          className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+          value={newChallenge.description}
+          onChange={(e) => setNewChallenge((prev) => ({ ...prev, description: e.target.value }))}
+          placeholder="Description"
+          rows={2}
+        />
+        <div className="mt-2 grid gap-2 md:grid-cols-4">
+          <input
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={newChallenge.contentTypesText}
+            onChange={(e) => setNewChallenge((prev) => ({ ...prev, contentTypesText: e.target.value }))}
+            placeholder="scroll_video, community_post"
+          />
+          <input
+            type="number"
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={Math.floor(numberValue(newChallenge.entryLimitPerUser, 1))}
+            onChange={(e) => setNewChallenge((prev) => ({ ...prev, entryLimitPerUser: Math.max(1, Math.floor(numberValue(e.target.value, 1))) }))}
+            placeholder="Entries per user"
+          />
+          <input
+            type="number"
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+            value={Math.floor(numberValue(newChallenge.maxWinners, 3))}
+            onChange={(e) => setNewChallenge((prev) => ({ ...prev, maxWinners: Math.max(1, Math.floor(numberValue(e.target.value, 3))) }))}
+            placeholder="Max winners"
+          />
+          <div className="text-xs text-gray-500">
+            Content types should use the platform keys: <code>scroll_video</code>, <code>community_post</code>.
+          </div>
+        </div>
+        <div className="mt-2 grid gap-2 md:grid-cols-2">
+          <label className="text-xs font-medium uppercase text-gray-500">
+            Start At
+            <input
+              type="datetime-local"
+              className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800"
+              value={newChallenge.startAt}
+              onChange={(e) => setNewChallenge((prev) => ({ ...prev, startAt: e.target.value }))}
+            />
+          </label>
+          <label className="text-xs font-medium uppercase text-gray-500">
+            End At
+            <input
+              type="datetime-local"
+              className="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800"
+              value={newChallenge.endAt}
+              onChange={(e) => setNewChallenge((prev) => ({ ...prev, endAt: e.target.value }))}
+            />
+          </label>
+        </div>
+        <textarea
+          className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+          value={newChallenge.rewardText}
+          onChange={(e) => setNewChallenge((prev) => ({ ...prev, rewardText: e.target.value }))}
+          placeholder="Reward JSON"
+          rows={4}
+        />
+
+        <div className="mt-3 space-y-2">
+          {challenges.map((item) => (
+            <div key={item.id} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-gray-800">{item.title}</p>
+                  <p className="truncate text-xs text-gray-500">
+                    {item.key} | {item.category} | {Array.isArray(item.contentTypes) ? item.contentTypes.join(', ') : 'creator'} |{' '}
+                    {item.status} | {item.isActive ? 'active' : 'inactive'}
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    {Number(item.stats?.totalEntries || 0)} entries | {Number(item.stats?.totalVotes || 0)} votes | winners {Number(item.maxWinners || 3)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => startEditChallenge(item)}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleChallenge(item.id)}
+                    className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700"
+                  >
+                    {item.isActive ? 'Disable' : 'Enable'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void finalizeChallenge(item.id)}
+                    disabled={challengeBusy || String(item.status || '').toLowerCase() === 'finalized'}
+                    className="rounded-md bg-amber-600 px-2 py-1 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
+                  >
+                    Finalize
+                  </button>
+                </div>
+              </div>
+
+              {editingChallengeId === item.id ? (
+                <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/40 p-3">
+                  <div className="grid gap-2 md:grid-cols-4">
+                    <input
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingChallengeDraft.title}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, title: e.target.value }))}
+                      placeholder="Title"
+                    />
+                    <input
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingChallengeDraft.category}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, category: e.target.value }))}
+                      placeholder="Category"
+                    />
+                    <input
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingChallengeDraft.contentTypesText}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, contentTypesText: e.target.value }))}
+                      placeholder="scroll_video, community_post"
+                    />
+                    <input
+                      type="number"
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={Math.floor(numberValue(editingChallengeDraft.maxWinners, 3))}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, maxWinners: Math.max(1, Math.floor(numberValue(e.target.value, 3))) }))}
+                      placeholder="Winners"
+                    />
+                  </div>
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                    value={editingChallengeDraft.description}
+                    onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, description: e.target.value }))}
+                    placeholder="Description"
+                    rows={2}
+                  />
+                  <div className="mt-2 grid gap-2 md:grid-cols-3">
+                    <input
+                      type="number"
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={Math.floor(numberValue(editingChallengeDraft.entryLimitPerUser, 1))}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, entryLimitPerUser: Math.max(1, Math.floor(numberValue(e.target.value, 1))) }))}
+                      placeholder="Entries per user"
+                    />
+                    <input
+                      type="datetime-local"
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingChallengeDraft.startAt}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, startAt: e.target.value }))}
+                    />
+                    <input
+                      type="datetime-local"
+                      className="rounded-md border border-gray-300 px-2 py-1.5 text-sm"
+                      value={editingChallengeDraft.endAt}
+                      onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, endAt: e.target.value }))}
+                    />
+                  </div>
+                  <textarea
+                    className="mt-2 w-full rounded-md border border-gray-300 px-2 py-1.5 font-mono text-xs"
+                    value={editingChallengeDraft.rewardText}
+                    onChange={(e) => setEditingChallengeDraft((prev) => ({ ...prev, rewardText: e.target.value }))}
+                    placeholder="Reward JSON"
+                    rows={4}
+                  />
+                  <div className="mt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => cancelEditChallenge()}
+                      className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void saveEditChallenge(item.id)}
+                      disabled={challengeBusy}
+                      className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {Array.isArray(item.topEntries) && item.topEntries.length ? (
+                <div className="mt-3 space-y-2">
+                  {item.topEntries.map((entry: any) => (
+                    <div key={entry.id} className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate font-semibold text-gray-800">{entry.title}</p>
+                        <span>
+                          {Number(entry.voteCount || 0)} votes{entry.isWinner ? ' | winner' : ''}
+                        </span>
+                      </div>
+                      <p className="mt-1 truncate">
+                        {entry.author?.name}
+                        {entry.author?.username ? ` (@${entry.author.username})` : ''}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+          {challenges.length === 0 ? <p className="text-xs text-gray-500">No challenges for this week yet.</p> : null}
         </div>
       </section>
       <section className="rounded-xl border border-gray-200 bg-white p-5">

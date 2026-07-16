@@ -101,12 +101,24 @@ export type HomepageSectionType =
   | 'guest_trending_preview'
   | 'guest_community_preview'
   | 'guest_final_cta';
-export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code';
+export type ContentBlockType = 'text' | 'heading' | 'image' | 'video' | 'quote' | 'code' | 'callout' | 'cta' | 'ad';
 export type MediaType = 'image' | 'video' | 'document';
 export type FileCategory = 'portfolio' | 'document' | 'verification' | 'chat';
 export type NotificationType = 'info' | 'success' | 'warning' | 'alert' | 'error';
 export type GcoinTransactionType = 'reward' | 'transfer' | 'conversion' | 'admin_adjustment';
-export type AdPlacement = 'feed' | 'sidebar' | 'forum_top' | 'forum_listing' | 'thread_detail' | 'chat';
+export type AdPlacement =
+  | 'feed'
+  | 'sidebar'
+  | 'homepage'
+  | 'homepage_feed'
+  | 'community_feed'
+  | 'scroll_preroll'
+  | 'scroll_feed'
+  | 'forum_top'
+  | 'forum_listing'
+  | 'thread_detail'
+  | 'chat'
+  | 'chat_sidebar';
 
 // Uploaded file type for Uploaded Files SSOT
 export interface UploadedFileSummary {
@@ -129,6 +141,8 @@ export interface User {
   avatar?: string;
   isActive?: boolean; // Replaces status
   status?: UserStatus; // Keep for compatibility if needed, but map from isActive
+  isVerified?: boolean;
+  is_verified?: boolean;
   kycStatus?: KYCStatus; // Renamed from kyc_status
   kyc_status?: KYCStatus;
   isProFreelancer?: boolean;
@@ -167,6 +181,10 @@ export interface User {
   employer_plan_purchased_at?: string | null;
   employerPlanExpiresAt?: string | null;
   employer_plan_expires_at?: string | null;
+  followOnboardingRequired?: boolean;
+  follow_onboarding_required?: boolean;
+  followOnboardingCompletedAt?: string | null;
+  follow_onboarding_completed_at?: string | null;
   gcoinBalance?: number; // Renamed from gcoin_balance
   joinDate?: string; // Renamed from join_date
   country?: string;
@@ -193,7 +211,43 @@ export interface User {
   };
 }
 
-export interface UserProfile {
+export interface FollowOnboardingStatus {
+  required: boolean;
+  completedAt?: string | null;
+  followedCount: number;
+  minimumRequired: number;
+  maximumSelectable: number;
+  canContinue: boolean;
+  redirectPath: string;
+}
+
+export interface StructuredLocationFields {
+  location?: string;
+  formatted_address?: string | null;
+  formattedAddress?: string | null;
+  country?: string | null;
+  country_code?: string | null;
+  countryCode?: string | null;
+  state?: string | null;
+  city?: string | null;
+  region?: string | null;
+  postal_code?: string | null;
+  postalCode?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  place_id?: string | null;
+  placeId?: string | null;
+  location_source?: string | null;
+  locationSource?: string | null;
+}
+
+export interface LocationSuggestion extends StructuredLocationFields {
+  id: string;
+  label: string;
+  subtitle?: string | null;
+}
+
+export interface UserProfile extends StructuredLocationFields {
   user_id: string;
   userId?: string;
   title: string;
@@ -226,6 +280,60 @@ export interface UserProfile {
   profilePhotoFileId?: string;
   avatar_url?: string;
   avatarUrl?: string;
+  professional_identity?: ProfessionalIdentitySummary | null;
+  professionalIdentity?: ProfessionalIdentitySummary | null;
+}
+
+export interface ProfessionalIdentityClub {
+  id: string;
+  name: string;
+  visibility: ChannelVisibility;
+  member_count?: number;
+  memberCount?: number;
+  cover_image?: string;
+  coverImage?: string;
+  joined_at?: string | null;
+  joinedAt?: string | null;
+}
+
+export interface ProfessionalIdentitySummary {
+  is_verified?: boolean;
+  isVerified?: boolean;
+  kyc_status?: string;
+  kycStatus?: string;
+  verification_status?: string;
+  verificationStatus?: string;
+  is_pro_freelancer?: boolean;
+  isProFreelancer?: boolean;
+  is_pro_employer?: boolean;
+  isProEmployer?: boolean;
+  trust_tier?: string;
+  trustTier?: string;
+  review_count?: number;
+  reviewCount?: number;
+  average_rating?: number;
+  averageRating?: number;
+  completed_jobs?: number;
+  completedJobs?: number;
+  response_rate?: number;
+  responseRate?: number;
+  response_time_hours?: number | null;
+  responseTimeHours?: number | null;
+  certification_count?: number;
+  certificationCount?: number;
+  verified_certification_count?: number;
+  verifiedCertificationCount?: number;
+  portfolio_proof_count?: number;
+  portfolioProofCount?: number;
+  verified_portfolio_proof_count?: number;
+  verifiedPortfolioProofCount?: number;
+  club_count?: number;
+  clubCount?: number;
+  featured_clubs?: ProfessionalIdentityClub[];
+  featuredClubs?: ProfessionalIdentityClub[];
+  top_skills?: string[];
+  topSkills?: string[];
+  badges?: string[];
 }
 
 export interface UserSettings {
@@ -368,6 +476,14 @@ export interface Gig {
   freelancerIsVerified?: boolean;
   freelancer_is_verified?: boolean;
   freelancerVerified?: boolean;
+  freelancerTrustScore?: number;
+  freelancer_trust_score?: number;
+  freelancerTrustTier?: string;
+  freelancer_trust_tier?: string;
+  freelancerCompletedJobs?: number;
+  freelancer_completed_jobs?: number;
+  freelancerResponseTimeHours?: number | null;
+  freelancer_response_time_hours?: number | null;
   price: number;
   rating: number;
   reviews: number;
@@ -484,16 +600,51 @@ export interface Contract {
   type: 'fixed' | 'hourly';
   hourly_rate?: number;
   hourlyRate?: number;
+  contract_value?: number | null;
+  contractValue?: number | null;
   payment_cycle: PaymentCycle;
+  paymentCycle?: PaymentCycle;
   status: ContractStatus;
   total_hours_logged: number;
   total_paid: number;
   start_date: string;
+  startDate?: string;
   description: string;
+  delivery_days?: number | null;
+  deliveryDays?: number | null;
+  payment_schedule?: ContractPaymentSchedule | null;
+  paymentSchedule?: ContractPaymentSchedule | null;
+  milestones?: ContractMilestone[];
   hours_today?: number;
   hours_this_week?: number;
   earnings_pending?: number;
   active_session_id?: string;
+}
+
+export interface ContractMilestone {
+  id: string;
+  title: string;
+  description?: string;
+  amount: number;
+  dueDate: string;
+  order: number;
+  status: 'pending' | 'submitted' | 'approved' | 'paid';
+  submittedAt?: string;
+  approvedAt?: string;
+  paidAt?: string;
+}
+
+export interface ContractPaymentSchedule {
+  model: 'fixed' | 'hourly';
+  paymentCycle: PaymentCycle;
+  contractValue?: number;
+  hourlyRate?: number;
+  weeklyHourCap?: number;
+  depositPercent?: number;
+  milestoneCount?: number;
+  clientFeePercent?: number;
+  contractorFeePercent?: number;
+  allowDeposits?: boolean;
 }
 
 export interface TimeEntry {
@@ -859,11 +1010,109 @@ export interface Currency {
   name: string;
   symbol: string;
   rate: number;
+  rateSource?: 'base' | 'snapshot' | 'override' | 'manual';
+  snapshotId?: string | null;
+  rateUpdatedAt?: string | null;
+  stale?: boolean;
   is_active?: boolean;
   // camelCase aliases
   isActive?: boolean;
   isDefault?: boolean;
   is_default?: boolean;
+}
+
+export interface FxSystemConfig {
+  enabled: boolean;
+  providerCode: string;
+  syncBaseCurrency: string;
+  autoApproveSnapshots: boolean;
+  refreshEnabled: boolean;
+  refreshCron: string;
+  staleAfterSeconds: number;
+  fallbackToStoredRates: boolean;
+  sourceBaseUrl: string;
+  sourceProvider: string;
+  timezone: string;
+}
+
+export interface FxProviderRecord {
+  code: string;
+  name: string;
+  kind: string;
+  baseUrl?: string | null;
+  enabled: boolean;
+  priority: number;
+  settingsJson?: Record<string, any> | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FxSnapshotRecord {
+  id: string;
+  providerCode: string;
+  baseCurrency: string;
+  status: string;
+  sourceTimestamp: string;
+  fetchedAt: string;
+  approvedAt?: string | null;
+  approvedById?: string | null;
+  isFrozen: boolean;
+  sourceMeta?: Record<string, any> | null;
+  provider?: FxProviderRecord | null;
+  _count?: { rates?: number; syncJobs?: number };
+}
+
+export interface FxManualOverrideRecord {
+  id: string;
+  fromCurrency: string;
+  toCurrency: string;
+  rate: number;
+  effectiveFrom: string;
+  effectiveTo?: string | null;
+  reason: string;
+  status: string;
+  createdById?: string | null;
+  approvedById?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FxLockRecord {
+  id: string;
+  entityType: string;
+  entityId: string;
+  fromCurrency: string;
+  toCurrency: string;
+  sourceAmount: number;
+  convertedAmount: number;
+  rate: number;
+  baseCurrency: string;
+  rateSource: string;
+  snapshotId?: string | null;
+  overrideId?: string | null;
+  stale: boolean;
+  isFrozenSnapshot: boolean;
+  markupBps: number;
+  metadata?: Record<string, any> | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface FxHealth {
+  config: FxSystemConfig;
+  snapshot?: {
+    id: string;
+    providerCode: string;
+    fetchedAt: string;
+    approvedAt?: string | null;
+    stale: boolean;
+    isFrozen: boolean;
+  } | null;
+  latestSync?: any;
+  providers: FxProviderRecord[];
+  currencyCount: number;
+  recentLocks?: FxLockRecord[];
+  lockCount?: number;
 }
 
 // ==================== AFFILIATE & MARKETING ====================
@@ -1065,9 +1314,47 @@ export interface AdCampaign {
   likes?: number;
   messagesStarted?: number;
   adminReviewNotes?: string | null;
+  delivery?: {
+    isServing: boolean;
+    summary: string;
+    status?: string;
+    placements?: string[];
+    eligiblePlacements?: string[];
+    placementChecks?: Array<{ placement: string; eligible: boolean; blockers?: string[] }>;
+    blockers?: string[];
+    warnings?: string[];
+    remainingBudget?: number;
+    mediaAssetCount?: number;
+    hasSettledPayment?: boolean;
+    hasVideoCreative?: boolean;
+    scrollPolicy?: Record<string, any>;
+    checkedAt?: string;
+  };
   createdAt?: string;
   startAt?: string;
   endAt?: string;
+}
+
+export interface ScrollAdsRuntimePolicy {
+  enabled: boolean;
+  fallbackToCommunityFeed: boolean;
+  videoSkipDelaySeconds: number;
+  staticSkipDelaySeconds: number;
+  firstAdAfterScrolls: number;
+  repeatEveryScrolls: number;
+  minSecondsBetweenAds: number;
+  maxAdsPerSession: number;
+  maxAdsPerViewerDay: number;
+  perAdCooldownMinutes: number;
+  placementPacing: {
+    scroll_preroll: number;
+    scroll_feed: number;
+  };
+}
+
+export interface AdsRuntimeConfig {
+  allowedPlacements?: string[];
+  scrollAds: ScrollAdsRuntimePolicy;
 }
 
 // Additional exported convenience types expected by frontend
@@ -1304,6 +1591,17 @@ export interface SystemIntegrationsSettings {
   recaptchaSecretKey?: string;
 }
 
+export interface ResumeAiSettings {
+  enabled?: boolean;
+  builderEnabled?: boolean;
+  reviewerEnabled?: boolean;
+  adminAccessEnabled?: boolean;
+  resume_enabled?: boolean;
+  builder_enabled?: boolean;
+  reviewer_enabled?: boolean;
+  admin_access_enabled?: boolean;
+}
+
 export interface PlatformSettings {
   site_name: string;
   tagline: string;
@@ -1364,6 +1662,293 @@ export interface PlatformSettings {
     max_jobs_per_user: number;
     max_portfolio_items: number;
   };
+}
+
+export interface VerificationPolicySettings {
+  enabled?: boolean;
+  showTooltips?: boolean;
+  levels?: {
+    standard?: boolean;
+    pro?: boolean;
+    business?: boolean;
+    government?: boolean;
+  };
+  roles?: {
+    guest?: boolean;
+    user?: boolean;
+    freelancer?: boolean;
+    employer?: boolean;
+    business?: boolean;
+    admin?: boolean;
+  };
+}
+
+export interface TrustScorePolicySettings {
+  enabled?: boolean;
+  showOnProfiles?: boolean;
+  show_on_profiles?: boolean;
+  showOnListings?: boolean;
+  show_on_listings?: boolean;
+  showRiskIndicators?: boolean;
+  show_risk_indicators?: boolean;
+  weights?: {
+    completionRate?: number;
+    completion_rate?: number;
+    responseRate?: number;
+    response_rate?: number;
+    responseTime?: number;
+    response_time?: number;
+    reviewRating?: number;
+    review_rating?: number;
+    reviewVolume?: number;
+    review_volume?: number;
+    disputeRate?: number;
+    dispute_rate?: number;
+    cancellationRate?: number;
+    cancellation_rate?: number;
+  };
+  thresholds?: {
+    elite?: number;
+    established?: number;
+  };
+}
+
+export interface DealFlowTemplate {
+  id: string;
+  label: string;
+  category: string;
+  summary?: string;
+}
+
+export interface DealFlowContractTemplate {
+  id: string;
+  label: string;
+  contractType: 'FIXED' | 'HOURLY' | string;
+  contract_type?: 'FIXED' | 'HOURLY' | string;
+  paymentCycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+  payment_cycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+  milestoneCount?: number;
+  milestone_count?: number;
+  summary?: string;
+}
+
+export interface DealFlowSettings {
+  enabled?: boolean;
+  allowCreateBriefFromChat?: boolean;
+  allow_create_brief_from_chat?: boolean;
+  allowBriefToProposal?: boolean;
+  allow_brief_to_proposal?: boolean;
+  autoCreatePrivateJobs?: boolean;
+  auto_create_private_jobs?: boolean;
+  defaultCategory?: string;
+  default_category?: string;
+  allowedCategories?: string[];
+  allowed_categories?: string[];
+  templates?: DealFlowTemplate[];
+  timeline?: {
+    briefs?: boolean;
+    proposals?: boolean;
+    contracts?: boolean;
+  };
+  proposalDefaults?: {
+    timelineDays?: number;
+    timeline_days?: number;
+    paymentCycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+    payment_cycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+    coverLetterIntro?: string;
+    cover_letter_intro?: string;
+  };
+  proposal_defaults?: {
+    timelineDays?: number;
+    timeline_days?: number;
+    paymentCycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+    payment_cycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+    coverLetterIntro?: string;
+    cover_letter_intro?: string;
+  };
+  contractTemplates?: DealFlowContractTemplate[];
+  contract_templates?: DealFlowContractTemplate[];
+  contractDefaults?: {
+    startLeadDays?: number;
+    start_lead_days?: number;
+    fixedMilestoneCount?: number;
+    fixed_milestone_count?: number;
+    hourlyWeeklyCap?: number;
+    hourly_weekly_cap?: number;
+    upfrontPercent?: number;
+    upfront_percent?: number;
+  };
+  contract_defaults?: {
+    startLeadDays?: number;
+    start_lead_days?: number;
+    fixedMilestoneCount?: number;
+    fixed_milestone_count?: number;
+    hourlyWeeklyCap?: number;
+    hourly_weekly_cap?: number;
+    upfrontPercent?: number;
+    upfront_percent?: number;
+  };
+  contractRules?: {
+    allowFixedContracts?: boolean;
+    allow_fixed_contracts?: boolean;
+    allowHourlyContracts?: boolean;
+    allow_hourly_contracts?: boolean;
+    requireMilestonesForFixed?: boolean;
+    require_milestones_for_fixed?: boolean;
+    maxMilestones?: number;
+    max_milestones?: number;
+  };
+  contract_rules?: {
+    allowFixedContracts?: boolean;
+    allow_fixed_contracts?: boolean;
+    allowHourlyContracts?: boolean;
+    allow_hourly_contracts?: boolean;
+    requireMilestonesForFixed?: boolean;
+    require_milestones_for_fixed?: boolean;
+    maxMilestones?: number;
+    max_milestones?: number;
+  };
+  feePolicy?: {
+    clientFeePercent?: number;
+    client_fee_percent?: number;
+    contractorFeePercent?: number;
+    contractor_fee_percent?: number;
+    allowDeposits?: boolean;
+    allow_deposits?: boolean;
+  };
+  fee_policy?: {
+    clientFeePercent?: number;
+    client_fee_percent?: number;
+    contractorFeePercent?: number;
+    contractor_fee_percent?: number;
+    allowDeposits?: boolean;
+    allow_deposits?: boolean;
+  };
+}
+
+export interface StorefrontSettings {
+  enabled?: boolean;
+  userProfilesEnabled?: boolean;
+  user_profiles_enabled?: boolean;
+  businessPagesEnabled?: boolean;
+  business_pages_enabled?: boolean;
+  roles?: {
+    user?: boolean;
+    freelancer?: boolean;
+    employer?: boolean;
+    business?: boolean;
+    admin?: boolean;
+  };
+  modules?: {
+    merchantSummary?: boolean;
+    merchant_summary?: boolean;
+    userGigs?: boolean;
+    user_gigs?: boolean;
+    businessPackages?: boolean;
+    business_packages?: boolean;
+  };
+  maxFeaturedItems?: number;
+  max_featured_items?: number;
+  maxCatalogItems?: number;
+  max_catalog_items?: number;
+}
+
+export interface ContentOfferSettings {
+  enabled?: boolean;
+  postsEnabled?: boolean;
+  posts_enabled?: boolean;
+  scrollEnabled?: boolean;
+  scroll_enabled?: boolean;
+  liveEnabled?: boolean;
+  live_enabled?: boolean;
+  roles?: {
+    user?: boolean;
+    freelancer?: boolean;
+    employer?: boolean;
+    business?: boolean;
+    admin?: boolean;
+  };
+  modules?: {
+    userGigs?: boolean;
+    user_gigs?: boolean;
+    businessPackages?: boolean;
+    business_packages?: boolean;
+    storefrontCta?: boolean;
+    storefront_cta?: boolean;
+    messageCta?: boolean;
+    message_cta?: boolean;
+    briefCta?: boolean;
+    brief_cta?: boolean;
+  };
+  maxTagsPerContent?: number;
+  max_tags_per_content?: number;
+  moderationMode?: 'off' | 'review' | 'strict' | string;
+  moderation_mode?: 'off' | 'review' | 'strict' | string;
+  restrictedCategories?: string[];
+  restricted_categories?: string[];
+}
+
+export interface ContentOfferTag {
+  id: string;
+  offerType: 'user_gig' | 'business_package' | string;
+  offerId: string;
+  ownerType?: 'user' | 'business' | string;
+  ownerId?: string;
+  ownerUserId?: string | null;
+  owner_user_id?: string | null;
+  pageId?: string | null;
+  page_id?: string | null;
+  pageSlug?: string | null;
+  page_slug?: string | null;
+  ownerName?: string | null;
+  owner_name?: string | null;
+  profileUsername?: string | null;
+  profile_username?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  price?: number | null;
+  currency?: string | null;
+  category?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  storefrontUrl?: string | null;
+  storefront_url?: string | null;
+  messageUserId?: string | null;
+  message_user_id?: string | null;
+  ctas?: {
+    storefront?: boolean;
+    message?: boolean;
+    brief?: boolean;
+  };
+}
+
+export interface StorefrontMerchantSummary {
+  title?: string;
+  subtitle?: string;
+  location?: string | null;
+  category?: string | null;
+  currency?: string | null;
+  priceFrom?: number | null;
+  price_from?: number | null;
+  serviceCount?: number;
+  service_count?: number;
+  featuredCount?: number;
+  featured_count?: number;
+  rating?: number;
+  completedJobs?: number;
+  completed_jobs?: number;
+  responseRate?: number;
+  response_rate?: number;
+  responseTimeHours?: number | null;
+  response_time_hours?: number | null;
+  trustScore?: number | null;
+  trust_score?: number | null;
+  trustTier?: string | null;
+  trust_tier?: string | null;
+  followerCount?: number;
+  follower_count?: number;
+  postCount?: number;
+  post_count?: number;
 }
 
 export interface PlatformSettingsExtended extends PlatformSettings {
@@ -1430,13 +2015,25 @@ export interface SystemConfig {
   registrations_enabled: boolean;
   kyc_enforced: boolean;
   admin_2fa: boolean;
+  resumeAi?: ResumeAiSettings;
+  resume_ai?: ResumeAiSettings;
+  verification?: VerificationPolicySettings;
+  trustScore?: TrustScorePolicySettings;
+  trust_score?: TrustScorePolicySettings;
+  dealFlow?: DealFlowSettings;
+  deal_flow?: DealFlowSettings;
+  storefront?: StorefrontSettings;
+  storefront_settings?: StorefrontSettings;
+  contentOffers?: ContentOfferSettings;
+  content_offers?: ContentOfferSettings;
   integrations?: SystemIntegrationsSettings;
   currency?: {
     auto_exchange_rate: boolean;
     base_currency: string;
-    provider: 'openexchangerates' | 'fixer' | 'mock';
+    provider: string;
     api_key?: string;
   };
+  fx?: FxSystemConfig;
   storage?: {
     driver: string;
     s3: { access_key_id: string; secret_access_key: string; region: string; bucket: string };
@@ -1464,7 +2061,7 @@ export interface ComplianceConfig {
 }
 
 export interface EmailProviderConfig {
-  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
+  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun' | 'brevo';
   host?: string;
   port?: number;
   username?: string;
@@ -1480,6 +2077,10 @@ export interface EmailProviderConfig {
   apiKey?: string;
   domain?: string;
   mailgun_domain?: string;
+  brevoSmtpLogin?: string;
+  brevo_smtp_login?: string;
+  brevoSmtpKey?: string;
+  brevo_smtp_key?: string;
   region?: string;
   ses_region?: string;
   access_key_id?: string;
@@ -1850,16 +2451,88 @@ export interface ProjectBriefContent {
 export interface ProjectBrief {
   id: string;
   user_id: string;
+  userId?: string;
   prompt: string;
   title: string;
   category: string;
   budget_range: string;
+  budgetRange?: string;
   timeline: string;
   description: string;
   required_skills: string[];
+  requiredSkills?: string[];
   screening_questions: string[];
+  screeningQuestions?: string[];
   created_at: string;
   updated_at: string;
+  conversation_id?: string;
+  conversationId?: string;
+  template_id?: string;
+  templateId?: string;
+  participant_summary?: Array<{ id: string; name?: string; role?: string }>;
+  participantSummary?: Array<{ id: string; name?: string; role?: string }>;
+  source_messages?: Array<{
+    id: string;
+    sender_id?: string;
+    sender_name?: string;
+    snippet: string;
+    timestamp: string;
+  }>;
+  sourceMessages?: Array<{
+    id: string;
+    sender_id?: string;
+    sender_name?: string;
+    snippet: string;
+    timestamp: string;
+  }>;
+  linked_job_id?: string | null;
+  linkedJobId?: string | null;
+  linked_proposals?: Array<{
+    proposal_id: string;
+    freelancer_id?: string;
+    freelancer_name?: string;
+    status?: string;
+    proposed_amount?: number;
+    proposed_timeline?: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  linkedProposals?: Array<{
+    proposal_id: string;
+    freelancer_id?: string;
+    freelancer_name?: string;
+    status?: string;
+    proposed_amount?: number;
+    proposed_timeline?: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+  linked_contract?: {
+    contract_id: string;
+    status?: string;
+    payment_cycle?: string;
+    start_date?: string | null;
+    title?: string;
+    created_at: string;
+  } | null;
+  linkedContract?: {
+    contract_id: string;
+    status?: string;
+    payment_cycle?: string;
+    start_date?: string | null;
+    title?: string;
+    created_at: string;
+  } | null;
+  history?: Array<{
+    id: string;
+    type: string;
+    actor_user_id?: string;
+    proposal_id?: string;
+    contract_id?: string;
+    timestamp: string;
+    summary?: string;
+    metadata?: Record<string, any> | null;
+  }>;
 }
 
 export interface TopProServicesContent {
@@ -1965,6 +2638,29 @@ export interface FooterCtaStripContent {
   textColor?: string;
 }
 
+export interface GuestHeroScrolithaEmbedContent {
+  enabled?: boolean;
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+  description?: string;
+  primaryPrompt?: string;
+  primaryLabel?: string;
+  secondaryLabel?: string;
+  secondaryUrl?: string;
+  promptChips?: string[];
+}
+
+export interface GuestHeroAuthPopupContent {
+  enabled?: boolean;
+  delaySeconds?: number;
+  headline?: string;
+  subheadline?: string;
+  defaultTab?: 'login' | 'signup' | string;
+  dismissLabel?: string;
+  trustNote?: string;
+}
+
 export interface GuestHeroAuthContent {
   headline?: string;
   subheadline?: string;
@@ -1999,6 +2695,8 @@ export interface GuestHeroAuthContent {
     image?: string;
     url?: string;
   }[];
+  scrolitha?: GuestHeroScrolithaEmbedContent;
+  authPopup?: GuestHeroAuthPopupContent;
 }
 
 export interface GuestWhatIsScrolithContent {
@@ -2405,6 +3103,24 @@ export interface TrustScore {
   reliability?: number;
   fairness?: number;
   professionalism?: number;
+  trust_tier?: string;
+  trustTier?: string;
+  completion_rate?: number;
+  completionRate?: number;
+  cancellation_rate?: number;
+  cancellationRate?: number;
+  dispute_rate?: number;
+  disputeRate?: number;
+  response_rate?: number;
+  responseRate?: number;
+  response_time_hours?: number | null;
+  responseTimeHours?: number | null;
+  completed_jobs?: number;
+  completedJobs?: number;
+  review_count?: number;
+  reviewCount?: number;
+  average_rating?: number;
+  averageRating?: number;
   trend?: 'up' | 'down' | 'stable';
   risk_indicators?: string[];
   riskIndicators?: string[];
@@ -2827,10 +3543,14 @@ export interface TrendingSearch {
 
 export interface SearchResult {
   id: string;
-  type: 'gig' | 'job' | 'blog';
+  type: 'gig' | 'job' | 'blog' | 'gigs' | 'jobs' | 'post' | 'posts' | 'people' | 'pages';
   title: string;
   description: string;
   image?: string;
+  avatarUrl?: string;
+  name?: string;
+  username?: string;
+  subtitle?: string;
   url: string;
   relevance_score?: number;
   meta?: any;
@@ -2845,8 +3565,17 @@ export interface SearchConfig {
 
 export interface SearchSuggestion {
   text: string;
-  type: 'keyword' | 'category' | 'history';
+  type: 'keyword' | 'category' | 'history' | 'result';
   category?: string;
+  url?: string;
+  description?: string;
+  score?: number;
+  title?: string;
+  username?: string;
+  image?: string;
+  avatarUrl?: string;
+  thumbnailUrl?: string;
+  group?: string;
 }
 
 export interface SearchHistory {
@@ -2971,7 +3700,10 @@ export interface CommunityClub {
   member_count: number;
   cover_image: string;
   owner_id: string;
+  owner_name?: string;
+  owner_avatar?: string;
   is_joined?: boolean;
+  joined_at?: string | null;
   created_at?: string;
 }
 
@@ -2979,9 +3711,110 @@ export interface CommunityClub {
 export interface CommunityClub {
   memberCount?: number;
   coverImage?: string;
+  slug?: string;
+  summary?: string;
+  avatarImage?: string;
+  category?: string;
+  location?: string;
+  joinMode?: 'open' | 'request' | 'invite_only';
+  postPermission?: 'admins' | 'members' | 'everyone';
+  membersCanInvite?: boolean;
+  faqs?: GroupFaqItem[];
+  postingGuidelines?: string;
+  status?: string;
   ownerId?: string;
+  ownerName?: string;
+  ownerAvatar?: string;
   isJoined?: boolean;
+  membershipRole?: 'owner' | 'moderator' | 'member' | null;
+  pendingRequest?: GroupJoinRequestSummary | null;
+  pendingInvite?: GroupInviteSummary | null;
+  members?: GroupMemberSummary[];
+  pendingRequestCount?: number;
+  pendingInviteCount?: number;
+  joinedAt?: string | null;
   createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface GroupFaqItem {
+  question: string;
+  answer: string;
+}
+
+export interface GroupMemberSummary {
+  userId: string;
+  user_id?: string;
+  role: 'owner' | 'moderator' | 'member';
+  status: string;
+  joinedAt?: string;
+  joined_at?: string;
+  user?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+}
+
+export interface GroupJoinRequestSummary {
+  id: string;
+  status: string;
+  requestedAt?: string;
+  requested_at?: string;
+  note?: string;
+  reviewNote?: string;
+  answers?: string[];
+  userId?: string;
+  user_id?: string;
+  user?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+  reviewedBy?: {
+    id: string;
+    name: string;
+    username?: string;
+  } | null;
+}
+
+export interface GroupInviteSummary {
+  id: string;
+  status: string;
+  role?: 'owner' | 'moderator' | 'member' | string;
+  note?: string;
+  reviewNote?: string;
+  invitedAt?: string;
+  invited_at?: string;
+  respondedAt?: string | null;
+  responded_at?: string | null;
+  inviteeId?: string;
+  invitee_id?: string;
+  invitedById?: string;
+  invited_by_id?: string;
+  invitee?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+  invitedBy?: {
+    id: string;
+    name: string;
+    username?: string;
+    avatar?: string;
+  } | null;
+  club?: {
+    id: string;
+    slug?: string;
+    name: string;
+    summary?: string;
+    visibility?: 'public' | 'private' | string;
+    coverImage?: string;
+    avatarImage?: string;
+  } | null;
 }
 
 export interface CommunityEvent {
@@ -3152,6 +3985,7 @@ export interface CommunitySettings {
   sentimentAnalysis?: boolean;
   enableClubs?: boolean;
   enableEvents?: boolean;
+  groups?: CommunityGroupsConfig;
 
   // Payment settings
   payment_currency: string;
@@ -3182,6 +4016,24 @@ export interface CommunitySettings {
 
   created_at: string;
   updated_at: string;
+}
+
+export interface CommunityGroupsConfig {
+  heroEyebrow: string;
+  heroTitle: string;
+  heroSubtitle: string;
+  createButtonLabel: string;
+  directoryTitle: string;
+  directoryEmptyState: string;
+  allowUserGroupCreation: boolean;
+  showDiscoveryStats: boolean;
+  defaultVisibility?: 'public' | 'private';
+  defaultJoinMode?: 'open' | 'request' | 'invite_only';
+  defaultPostPermission?: 'admins' | 'members' | 'everyone';
+  allowMemberInvitesByDefault?: boolean;
+  showInviteInbox?: boolean;
+  showMemberDirectory?: boolean;
+  highlightPostComposer?: boolean;
 }
 
 export interface LegacyCommunitySettings {

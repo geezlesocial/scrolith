@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Notification } from '../types';
+import { getRecoverableActionMessage, isOfflineLikeError } from '../mobile/runtime/requestRecovery';
+import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
 import { NotificationService, notificationsApi } from '../services/notifications';
@@ -28,15 +30,22 @@ interface NotificationContextType {
   clearNotifications: () => void;
   refreshNotifications: (options?: { force?: boolean }) => Promise<void>;
   showNotification: (type: 'success' | 'error' | 'warning' | 'info' | 'alert', title: string, message: string, actionUrl?: string, durationMs?: number) => void;
+  syncState: 'idle' | 'loading' | 'ready' | 'offline' | 'error' | 'retrying';
+  error: string | null;
+  lastSyncedAt: number | null;
 }
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAuthenticated } = useUser();
-  const { socket } = useSocket();
+  const { socket, isConnected, connectionHealth } = useSocket();
+  const { isOnline, recoveryTick } = useNetworkStatus();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [toasts, setToasts] = useState<NotificationItem[]>([]);
+  const [syncState, setSyncState] = useState<NotificationContextType['syncState']>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const pollRef = useRef<number | null>(null);
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const lastRefreshAtRef = useRef(0);
@@ -140,6 +149,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const refreshNotifications = useCallback(async (options?: { force?: boolean }) => {
     if (!isAuthenticated) return;
+    if (!isOnline && !options?.force) {
+      setError('Notifications are paused while you are offline.');
+      setSyncState('offline');
+      return;
+    }
     if (!options?.force && Date.now() - lastRefreshAtRef.current < REFRESH_MIN_INTERVAL_MS) {
       return;
     }
@@ -149,6 +163,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     const request = (async () => {
       try {
+        setError(null);
+        setSyncState(options?.force ? 'retrying' : 'loading');
         const raw = await NotificationService.getAll({ limit: 80 });
         const serverList = Array.isArray(raw) ? raw.map((n: any) => normalizeNotification(n)) : [];
         setNotifications(prev => {
@@ -159,10 +175,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             if (!seen.has(n.id)) merged.push(n);
           });
           return merged.slice(0, 100);
-        });
-        lastRefreshAtRef.current = Date.now();
-      } catch {
-        // ignore
+          });
+        const refreshedAt = Date.now();
+        lastRefreshAtRef.current = refreshedAt;
+        setLastSyncedAt(refreshedAt);
+        setSyncState('ready');
+      } catch (error) {
+        setError(getRecoverableActionMessage('Notification sync', error));
+        setSyncState(isOfflineLikeError(error) ? 'offline' : 'error');
       }
     })();
 
@@ -171,7 +191,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
 
     return inFlightRefreshRef.current;
-  }, [isAuthenticated, normalizeNotification]);
+  }, [isAuthenticated, isOnline, normalizeNotification]);
 
   const showNotification = useCallback((
     type: 'success' | 'error' | 'warning' | 'info' | 'alert',
@@ -222,6 +242,50 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
   }, [addNotification, getRoleBasePath, user?.role]);
 
+  const showForegroundPushNotification = useCallback((payload: any) => {
+    const data = payload?.data && typeof payload.data === 'object' ? payload.data : {};
+    const normalizedType = String(
+      payload?.type ??
+      data?.type ??
+      payload?.notificationType ??
+      'info'
+    ).trim().toLowerCase();
+
+    if (normalizedType === 'message' || normalizedType === 'new_message') {
+      showMessageReceiptNotification(payload, { persist: true });
+      return;
+    }
+
+    const notificationId =
+      payload?.id ||
+      data?.notificationId ||
+      data?.id ||
+      (data?.campaignId ? `local-campaign-${data.campaignId}` : undefined) ||
+      (data?.postId ? `local-post-${normalizedType}-${data.postId}` : undefined);
+    const actionUrl =
+      payload?.actionUrl ||
+      payload?.action_url ||
+      payload?.link ||
+      data?.actionUrl ||
+      data?.action_url ||
+      data?.link ||
+      data?.deepLink ||
+      data?.deeplink ||
+      data?.url;
+
+    addNotification({
+      id: notificationId,
+      type: normalizedType || 'info',
+      title: payload?.title || data?.title || 'Scrolith',
+      message: payload?.message || payload?.body || data?.body || data?.message || 'You have a new notification.',
+      actionUrl,
+      metadata: data,
+      toast: true,
+      persist: true,
+      localOnly: true
+    });
+  }, [addNotification, showMessageReceiptNotification]);
+
   useEffect(() => {
     if (!isAuthenticated || !user?.id) {
       if (pollRef.current) {
@@ -229,6 +293,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         pollRef.current = null;
       }
       setNotifications([]);
+      setError(null);
+      setSyncState('idle');
+      setLastSyncedAt(null);
       return;
     }
     void refreshNotifications({ force: true });
@@ -236,39 +303,44 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     if (!isAuthenticated || !user?.id) return;
-    if (!socket) {
-      if (pollRef.current) return;
-      pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
+    if (!isOnline || recoveryTick <= 0) return;
+    void refreshNotifications({ force: true });
+  }, [isAuthenticated, user?.id, isOnline, recoveryTick, refreshNotifications]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user?.id) return;
+    if (!isOnline || connectionHealth === 'offline') {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       return;
     }
 
-    const handleConnect = () => {
+    // Healthy socket: no notification polling.
+    if (isConnected || connectionHealth === 'connected') {
       if (pollRef.current) {
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
-      void refreshNotifications({ force: true });
-    };
+      return;
+    }
 
-    const handleDisconnect = () => {
-      if (pollRef.current) return;
-      pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
-    };
+    // Brief reconnect: do not start polling immediately.
+    if (connectionHealth === 'connecting' || connectionHealth === 'reconnecting') {
+      return;
+    }
 
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-
-    if (socket.connected) handleConnect();
+    if (pollRef.current) return;
+    pollRef.current = window.setInterval(() => refreshNotifications(), 45000);
 
     return () => {
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
       if (pollRef.current) {
         window.clearInterval(pollRef.current);
         pollRef.current = null;
       }
     };
-  }, [socket, isAuthenticated, user?.id, refreshNotifications]);
+  }, [socket, isConnected, connectionHealth, isAuthenticated, user?.id, refreshNotifications, isOnline]);
 
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) return;
@@ -303,12 +375,13 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const onOrdersUpdated = (payload: any) => {
       const orderId = payload?.orderId || payload?.order_id || '';
       const status = payload?.status || payload?.newStatus || payload?.state || 'updated';
+      const query = orderId ? `?tab=orders&order_id=${encodeURIComponent(String(orderId))}` : '?tab=orders';
       addNotification({
         id: orderId ? `local-order-${orderId}-${status}` : undefined,
         type: 'info',
         title: 'Order update',
         message: orderId ? `Order ${orderId} is ${status}.` : 'An order was updated.',
-        actionUrl: isAdmin ? `${basePath}?tab=overview` : `${basePath}?tab=orders`,
+        actionUrl: isAdmin ? `${basePath}?tab=overview` : `${basePath}${query}`,
         toast: true,
         persist: true,
         localOnly: true
@@ -417,15 +490,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         payload?.notificationType ??
         ''
       ).trim().toLowerCase();
-      if (type !== 'message' && type !== 'new_message') return;
-      showMessageReceiptNotification(payload);
+      if (!type) return;
+      showForegroundPushNotification(payload);
     };
 
     window.addEventListener('mobile:push-notification-received', onMobilePushReceived as EventListener);
     return () => {
       window.removeEventListener('mobile:push-notification-received', onMobilePushReceived as EventListener);
     };
-  }, [isAuthenticated, user?.id, showMessageReceiptNotification]);
+  }, [isAuthenticated, user?.id, showForegroundPushNotification]);
 
   const contextValue = useMemo(() => ({
     notifications,
@@ -435,8 +508,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     markAsRead,
     clearNotifications,
     refreshNotifications,
-    showNotification
-  }), [notifications, toasts, addNotification, removeNotification, markAsRead, clearNotifications, refreshNotifications, showNotification]);
+    showNotification,
+    syncState,
+    error,
+    lastSyncedAt
+  }), [
+    notifications,
+    toasts,
+    addNotification,
+    removeNotification,
+    markAsRead,
+    clearNotifications,
+    refreshNotifications,
+    showNotification,
+    syncState,
+    error,
+    lastSyncedAt
+  ]);
 
   return (
     <NotificationContext.Provider value={contextValue}>

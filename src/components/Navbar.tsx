@@ -16,13 +16,15 @@ import {
   LogOutIcon as LogOut,
   MailIcon as Mail,
   MessageSquareIcon as MessageSquare,
+  PlusIcon as Plus,
   SearchIcon as Search,
   SettingsIcon as Settings,
   ShieldIcon as Shield,
   ShoppingCartIcon as ShoppingCart,
   StarIcon as Star,
   UserIcon as User,
-  UserPlusIcon as UserPlus
+  UserPlusIcon as UserPlus,
+  UsersIcon as Users
 } from "./icons/ShellIcons";
 import { useUser } from "../context/UserContext";
 import { useContent } from "../context/ContentContext";
@@ -31,13 +33,39 @@ import { useCurrency } from "../context/CurrencyContext";
 import { useSocket } from "../context/SocketContext";
 import { useFavorites } from "../context/FavoritesContext";
 import { useCart } from "../context/CartContext";
+import { useMessages } from "../context/MessageContext";
 import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
-import { getNotificationActionUrl, getNotificationBucket } from "../utils/notificationRouting";
-import { resolveResponsiveAssetUrl } from "../utils/assetUrl";
+import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
+import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
+import { HeaderMessagesPopover } from "./messaging";
+import { formatMessagingBadgeCount } from "../services/messagingSurfaces";
+import { HeaderPrimaryNavItem, HeaderUnreadBadge } from "./header";
+import "./header/enterpriseHeader.css";
 
 type LucideIconComponent = React.ComponentType<{ size?: number; className?: string; strokeWidth?: number }>;
+
+const HEADER_SEARCH_PLACEHOLDER =
+  "Search people, jobs, gigs, posts, pages, communities, or marketplace";
+
+const formatBadgeCount = (count: number) => formatMessagingBadgeCount(count);
+
+const resolveNavIconKey = (item: { label?: string; url?: string; icon?: string }) => {
+  const iconHint = String(item?.icon || "").toLowerCase().trim();
+  if (iconHint) return iconHint;
+  const label = String(item?.label || "").toLowerCase();
+  const url = String(item?.url || "").toLowerCase();
+  if (label.includes("home") || url === "/" || url === "") return "home";
+  if (label.includes("job") || url.includes("job") || url.includes("browse-jobs")) return "briefcase";
+  if (label.includes("community") || url.includes("community") || label.includes("network")) return "users";
+  if (label.includes("message") || url.includes("message") || label.includes("messaging")) return "messages";
+  if (label.includes("notification") || url.includes("notification")) return "notifications";
+  if (label.includes("profile") || url.includes("profile") || label === "me") return "profile";
+  if (label.includes("gig") || label.includes("talent") || url.includes("browse")) return "briefcase";
+  if (label.includes("market") || url.includes("market")) return "star";
+  return "star";
+};
 
 const toPascalCase = (value: string) =>
   value
@@ -61,12 +89,14 @@ const NAVBAR_ICON_REGISTRY: Record<string, LucideIconComponent> = {
   LogOut,
   Mail,
   MessageSquare,
+  Plus,
   Search,
   Settings,
   Shield,
   Star,
   User,
-  UserPlus
+  UserPlus,
+  Users
 };
 
 const NAVBAR_ICON_ALIAS: Record<string, string> = {
@@ -88,7 +118,14 @@ const NAVBAR_ICON_ALIAS: Record<string, string> = {
   currency: "Globe",
   settings: "Settings",
   signout: "LogOut",
-  "sign-out": "LogOut"
+  "sign-out": "LogOut",
+  users: "Users",
+  community: "Users",
+  network: "Users",
+  home: "Home",
+  jobs: "Briefcase",
+  briefcase: "Briefcase",
+  briefcaseicon: "Briefcase"
 };
 
 const normalizeBoolean = (value: any, fallback: boolean) => {
@@ -137,6 +174,7 @@ const Navbar = () => {
   const { socket } = useSocket();
   const { favorites } = useFavorites();
   const { cart } = useCart();
+  const { unreadCount: messagesUnreadCount } = useMessages();
 
   const [headerConfig, setHeaderConfig] = useState<HeaderConfig | null>(null);
   const [activityConfig, setActivityConfig] = useState<ActivityConfig | null>(null);
@@ -148,10 +186,20 @@ const Navbar = () => {
   const [showHelpDropdown, setShowHelpDropdown] = useState(false);
   const [showCurrencyDropdown, setShowCurrencyDropdown] = useState(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
   const [showGuestPrimaryDropdown, setShowGuestPrimaryDropdown] = useState(false);
   const [showGuestExploreDropdown, setShowGuestExploreDropdown] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isDesktopNav, setIsDesktopNav] = useState(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    try {
+      return window.matchMedia("(min-width: 1024px)").matches;
+    } catch {
+      return false;
+    }
+  });
 
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const notificationListRef = useRef<HTMLDivElement>(null);
@@ -159,6 +207,7 @@ const Navbar = () => {
   const helpRef = useRef<HTMLDivElement>(null);
   const currencyRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+  const createRef = useRef<HTMLDivElement>(null);
   const guestPrimaryRef = useRef<HTMLDivElement>(null);
   const guestExploreRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(true);
@@ -314,27 +363,105 @@ const Navbar = () => {
     return () => window.clearInterval(id);
   }, [socket, refreshConfigs]);
 
+  const closeAllHeaderPopovers = useCallback(() => {
+    setShowNotifications(false);
+    setShowMessagesDropdown(false);
+    setShowHelpDropdown(false);
+    setShowCurrencyDropdown(false);
+    setShowProfileDropdown(false);
+    setShowCreateMenu(false);
+    setShowGuestPrimaryDropdown(false);
+    setShowGuestExploreDropdown(false);
+  }, []);
+
   // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(event.target as Node)) setShowNotifications(false);
-      if (msgRef.current && !msgRef.current.contains(event.target as Node)) setShowMessagesDropdown(false);
-      if (helpRef.current && !helpRef.current.contains(event.target as Node)) setShowHelpDropdown(false);
-      if (currencyRef.current && !currencyRef.current.contains(event.target as Node)) setShowCurrencyDropdown(false);
-      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setShowProfileDropdown(false);
-      if (guestPrimaryRef.current && !guestPrimaryRef.current.contains(event.target as Node)) setShowGuestPrimaryDropdown(false);
-      if (guestExploreRef.current && !guestExploreRef.current.contains(event.target as Node)) setShowGuestExploreDropdown(false);
+      const target = event.target as Node;
+      if (notifRef.current && !notifRef.current.contains(target)) setShowNotifications(false);
+      if (msgRef.current && !msgRef.current.contains(target)) setShowMessagesDropdown(false);
+      if (helpRef.current && !helpRef.current.contains(target)) setShowHelpDropdown(false);
+      if (currencyRef.current && !currencyRef.current.contains(target)) setShowCurrencyDropdown(false);
+      if (profileRef.current && !profileRef.current.contains(target)) setShowProfileDropdown(false);
+      if (createRef.current && !createRef.current.contains(target)) setShowCreateMenu(false);
+      if (guestPrimaryRef.current && !guestPrimaryRef.current.contains(target)) setShowGuestPrimaryDropdown(false);
+      if (guestExploreRef.current && !guestExploreRef.current.contains(target)) setShowGuestExploreDropdown(false);
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
-    try {
-      logout();
-    } finally {
-      navigate('/');
+  // Escape closes the topmost open header popover first.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (showCreateMenu) {
+        event.preventDefault();
+        setShowCreateMenu(false);
+        return;
+      }
+      if (showProfileDropdown) {
+        event.preventDefault();
+        setShowProfileDropdown(false);
+        return;
+      }
+      if (showHelpDropdown) {
+        event.preventDefault();
+        setShowHelpDropdown(false);
+        return;
+      }
+      if (showMessagesDropdown) {
+        event.preventDefault();
+        setShowMessagesDropdown(false);
+        return;
+      }
+      if (showNotifications) {
+        event.preventDefault();
+        setShowNotifications(false);
+        return;
+      }
+      if (showCurrencyDropdown) {
+        event.preventDefault();
+        setShowCurrencyDropdown(false);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [
+    showCreateMenu,
+    showProfileDropdown,
+    showHelpDropdown,
+    showMessagesDropdown,
+    showNotifications,
+    showCurrencyDropdown
+  ]);
+
+  // Desktop sticky header: subtle shadow after scroll (no layout jump)
+  useEffect(() => {
+    const onScroll = () => {
+      setIsScrolled(window.scrollY > 2);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Single mount for desktop vs compact bars so dropdown refs stay unique
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsDesktopNav(Boolean(media.matches));
+    sync();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", sync);
+      return () => media.removeEventListener("change", sync);
     }
+    media.addListener(sync);
+    return () => media.removeListener(sync);
+  }, []);
+
+  const handleLogout = () => {
+    logout();
   };
 
   const resolveNotificationActorProfileUrl = (notification: any): string | undefined => {
@@ -354,6 +481,10 @@ const Navbar = () => {
     markAsRead(id);
     setShowNotifications(false);
     if (actionUrl) {
+      if (isExternalNotificationUrl(actionUrl)) {
+        window.location.href = actionUrl;
+        return;
+      }
       navigate(actionUrl);
     }
   };
@@ -489,13 +620,42 @@ const Navbar = () => {
     const url = resolveUrl(item);
     if (!item || !item.label || !url) return null;
     if (!isVisibleToRole(item)) return null;
+    const active = isPathActive(url);
     return renderLink(
       item,
-      `px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-        location.pathname === url
-          ? "text-blue-600 bg-blue-50"
+      `px-3 py-2 rounded-md text-sm font-medium motion-safe:transition-colors ${
+        active
+          ? "text-blue-600 bg-blue-50 font-semibold"
           : "text-gray-700 hover:text-blue-600 hover:bg-gray-50"
       }`
+    );
+  };
+
+  const renderCountBadge = (count: number, color?: string, className = "") => (
+    <HeaderUnreadBadge count={count} color={color || acBadgeColor || "#EF4444"} className={className} />
+  );
+
+  const renderDesktopNavLink = (item: any) => {
+    const url = resolveUrl(item);
+    if (!item || !item.label || !url || !isVisibleToRole(item)) return null;
+    const isExternal = url.startsWith("http");
+    const active = !isExternal && isPathActive(url);
+    // Prefer CMS-provided icon; fall back to label/url heuristics only when icon is absent.
+    const iconKey = resolveNavIconKey({ label: item.label, url, icon: item.icon });
+    const iconEl = getDynamicIcon(iconKey, 20, active ? "filled" : acIconStyle);
+
+    return (
+      <HeaderPrimaryNavItem
+        key={item.id || url}
+        label={String(item.label)}
+        icon={iconEl}
+        href={url}
+        external={isExternal}
+        active={active}
+        as="link"
+        ariaCurrent={active ? "page" : undefined}
+        title={String(item.label)}
+      />
     );
   };
 
@@ -550,14 +710,17 @@ const Navbar = () => {
                   );
                 }
                 return (
-                  <Link
+                  <button
                     key={item.id || url}
-                    to={url}
-                    onClick={() => setOpen(false)}
-                    className="block px-4 py-2 hover:bg-gray-50 hover:text-blue-600"
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      navigate(url);
+                    }}
+                    className="block w-full px-4 py-2 text-left hover:bg-gray-50 hover:text-blue-600"
                   >
                     {content}
-                  </Link>
+                  </button>
                 );
               })}
             </div>
@@ -570,15 +733,15 @@ const Navbar = () => {
   const getCtaClass = (cta: any) => {
     const variant = String(cta?.variant || cta?.style || "").toLowerCase();
     if (variant === "primary") {
-      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700";
+      return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 sm:px-4";
     }
     if (variant === "ghost") {
-      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 hover:bg-gray-100";
+      return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100 sm:px-4";
     }
     if (variant === "outline") {
-      return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50";
+      return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 sm:px-4";
     }
-    return "inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50";
+    return "inline-flex items-center justify-center rounded-full px-3 py-2 text-sm font-semibold text-gray-700 border border-gray-200 hover:bg-gray-50 sm:px-4";
   };
 
   const renderProfileItem = (item: any) => {
@@ -658,9 +821,17 @@ const Navbar = () => {
     }
 
     return (
-      <Link key={item.id || url} to={url} className={baseClass} onClick={() => setShowProfileDropdown(false)}>
+      <button
+        key={item.id || url}
+        type="button"
+        className={`${baseClass} w-full text-left`}
+        onClick={() => {
+          setShowProfileDropdown(false);
+          navigate(url);
+        }}
+      >
         {content}
-      </Link>
+      </button>
     );
   };
 
@@ -693,7 +864,9 @@ const Navbar = () => {
     true
   );
 
-  const searchPlaceholder = String(pick(hsc, 'searchPlaceholder', 'search_placeholder') ?? '');
+  const searchPlaceholder =
+    String(pick(hsc, 'searchPlaceholder', 'search_placeholder') ?? '').trim() ||
+    HEADER_SEARCH_PLACEHOLDER;
   const searchButtonLabel = String(pick(hsc, 'searchButtonLabel', 'search_button_label') ?? '');
   const searchButtonAriaLabel = String(pick(hsc, 'searchButtonAriaLabel', 'search_button_aria_label') ?? '') || String(searchButtonLabel || searchPlaceholder);
   const searchResultsUrl = String(pick(hsc, 'searchResultsUrl', 'search_results_url') ?? '');
@@ -706,11 +879,47 @@ const Navbar = () => {
     | "large"
     | "xl";
 
-  const headerWrapperClass = `${isHome ? "relative" : "sticky top-0"} z-40 bg-white border-b border-gray-200`;
-  const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? '');
-  const brandLogoSrc = resolveResponsiveAssetUrl(
-    String((headerConfig as any)?.logoUrl || (headerConfig as any)?.logo_url || settings?.logoUrl || ''),
-    { width: 320, height: 64 }
+  const headerWrapperClass = [
+    "scrolith-enterprise-header",
+    isHome ? "relative" : "sticky top-0",
+    isScrolled && !isHome ? "is-scrolled" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const filteredNavigation = useMemo(() => {
+    const rawNav = Array.isArray((headerConfig as any)?.navigation)
+      ? (headerConfig as any).navigation
+      : [];
+    return rawNav.filter((item: any) => {
+      const label = String(item?.label || "").toLowerCase();
+      const url = resolveUrl(item);
+      if (label === "dashboard") return false;
+      if (
+        url &&
+        (url.startsWith("/freelancer/dashboard") ||
+          url.startsWith("/client/dashboard") ||
+          url === "/dashboard")
+      ) {
+        return false;
+      }
+      return Boolean(item?.label && url && isVisibleToRole(item));
+    });
+  }, [headerConfig, normalizedUserRole, location.pathname]);
+
+  const brandName = String(pick(hc, 'title') ?? settings?.siteName ?? 'Scrolith');
+  const rawBrandLogo = String(
+    (headerConfig as any)?.logoUrl ||
+    (headerConfig as any)?.logo_url ||
+    settings?.logoUrl ||
+    settings?.logo_url ||
+    '/logo.png'
+  );
+  const brandLogoSrc = resolveOptimizedStaticImageUrl(
+    resolveResponsiveAssetUrl(
+      rawBrandLogo,
+      { width: 320, height: 64 }
+    )
   );
   const avatarName = String(pick(uobj, 'name', 'username', 'email') ?? '');
   const avatarUrl = resolveResponsiveAssetUrl(
@@ -723,6 +932,55 @@ const Navbar = () => {
 
   const headerActions = (pick(hc, 'actions') as Record<string, unknown>) || {};
   const headerSearchMode = String(pick(hc, 'searchMode', 'search_mode') ?? 'keyword');
+
+  const visibleActivityIcons = useMemo(() => {
+    if (!isAuthenticated || !activityConfig || !Array.isArray(ac?.icons)) return [];
+    return (ac.icons as any[])
+      .filter((icon: any) => {
+        if (!icon.isEnabled) return false;
+        const roles = normalizeRoleList(icon.roles);
+        if (roles.length === 0) return true;
+        if (roles.includes("all") || roles.includes("*")) return true;
+        return roles.includes(normalizedUserRole);
+      })
+      .filter((icon: any) => isActionEnabled(icon.actionType || icon.type))
+      .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0));
+  }, [isAuthenticated, activityConfig, ac, normalizedUserRole, headerActions]);
+
+  const centerActivityTypes = useMemo(
+    () => new Set(["messages", "notifications", "profile"]),
+    []
+  );
+
+  const desktopCenterActivityIcons = useMemo(
+    () =>
+      visibleActivityIcons.filter((icon: any) =>
+        centerActivityTypes.has(String(icon.actionType || icon.type || "").toLowerCase())
+      ),
+    [visibleActivityIcons, centerActivityTypes]
+  );
+
+  const desktopRightActivityIcons = useMemo(
+    () =>
+      visibleActivityIcons.filter((icon: any) => {
+        const actionType = String(icon.actionType || icon.type || "").toLowerCase();
+        // Favorites has a dedicated right control; profile is the avatar menu
+        if (actionType === "favorites" || actionType === "profile") return false;
+        if (centerActivityTypes.has(actionType)) return false;
+        return true;
+      }),
+    [visibleActivityIcons, centerActivityTypes]
+  );
+
+  const mobileActivityIcons = useMemo(
+    () =>
+      visibleActivityIcons.filter((icon: any) => {
+        const actionType = String(icon.actionType || icon.type || "").toLowerCase();
+        // Favorites/cart are dedicated links; avoid duplicates on compact bars
+        return actionType !== "favorites";
+      }),
+    [visibleActivityIcons]
+  );
 
   const roleSwitchConfig = (pick(hc, 'roleSwitch') as Record<string, unknown>) ?? (pick(hc, 'role_switch') as Record<string, unknown>) ?? {};
   const roleSwitchVisibility = normalizeRoleList(roleSwitchConfig.visibility);
@@ -893,23 +1151,564 @@ const Navbar = () => {
     }
   }
 
+  const homeUrl = (headerConfig as any)?.homeUrl || (headerConfig as any)?.home_url || "/";
+  const messagesActive = isPathActive("/messages");
+  const notificationsActive = isPathActive("/notifications");
+  const profilePathActive = isPathActive("/profile") || isPathActive("/freelancer/dashboard") || isPathActive("/client/dashboard");
+
+  const renderNotificationsDropdown = () =>
+    showNotifications ? (
+      <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
+        <div className="px-4 py-3 border-b border-gray-50 bg-gray-50">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
+            <span className="text-xs text-gray-500">
+              {visibleUnreadCount} new {notificationTabLabel}
+            </span>
+          </div>
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setNotificationTab("home");
+              }}
+              className={[
+                "rounded-full px-3 py-1 text-[11px] font-semibold",
+                notificationTab === "home"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-700 border border-slate-200"
+              ].join(" ")}
+            >
+              Home{unreadNotificationCounts.home ? ` (${unreadNotificationCounts.home})` : ""}
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setNotificationTab("community");
+              }}
+              className={[
+                "rounded-full px-3 py-1 text-[11px] font-semibold",
+                notificationTab === "community"
+                  ? "bg-slate-900 text-white"
+                  : "bg-white text-slate-700 border border-slate-200"
+              ].join(" ")}
+            >
+              Community
+              {unreadNotificationCounts.community ? ` (${unreadNotificationCounts.community})` : ""}
+            </button>
+          </div>
+        </div>
+        <div
+          ref={notificationListRef}
+          className="max-h-96 overflow-y-auto"
+          onScroll={(event) => setNotificationScrollTop(event.currentTarget.scrollTop)}
+        >
+          {visibleNotifications.length === 0 ? (
+            <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
+          ) : (
+            <>
+              {notificationWindow.top > 0 ? (
+                <div aria-hidden className="pointer-events-none" style={{ height: notificationWindow.top }} />
+              ) : null}
+              {virtualNotifications.map((notif) => {
+                const actorName =
+                  (pick(notif as any, "actorName", "actor_name") as string | undefined) ||
+                  ((pick(notif as any, "metadata") as any)?.actorName as string | undefined);
+                const actorAvatar =
+                  (pick(notif as any, "actorAvatar", "actor_avatar") as string | undefined) ||
+                  ((pick(notif as any, "metadata") as any)?.actorAvatar as string | undefined);
+                const actorProfileUrl = resolveNotificationActorProfileUrl(notif);
+                return (
+                  <div
+                    key={notif.id}
+                    onClick={() => handleNotificationClick(notif.id, getNotificationActionUrl(notif))}
+                    className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
+                      !notif.isRead ? "bg-blue-50/30" : ""
+                    }`}
+                  >
+                    {actorName && (
+                      <button
+                        type="button"
+                        onClick={(event) => handleNotificationActorClick(event, notif.id, actorProfileUrl)}
+                        className="mb-2 flex items-center gap-2 hover:opacity-90"
+                      >
+                        <div className="h-6 w-6 overflow-hidden rounded-full bg-gray-100">
+                          {actorAvatar ? (
+                            <img src={actorAvatar} alt={actorName} className="h-full w-full object-cover" />
+                          ) : null}
+                        </div>
+                        <span className="text-xs font-semibold text-gray-600">{actorName}</span>
+                      </button>
+                    )}
+                    <div className="flex justify-between items-start mb-1">
+                      <h4
+                        className={`text-sm ${
+                          !notif.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"
+                        }`}
+                      >
+                        {notif.title}
+                      </h4>
+                      <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
+                        {new Date(
+                          (pick(notif as any, "timestamp") as string) ?? Date.now()
+                        ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 line-clamp-2">
+                      {(pick(notif as any, "message") as string) ?? ""}
+                    </p>
+                    {!notif.isRead && (
+                      <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500" />
+                    )}
+                  </div>
+                );
+              })}
+              {notificationWindow.bottom > 0 ? (
+                <div
+                  aria-hidden
+                  className="pointer-events-none"
+                  style={{ height: notificationWindow.bottom }}
+                />
+              ) : null}
+            </>
+          )}
+        </div>
+      </div>
+    ) : null;
+
+  const messagesPopoverId = "scrolith-header-messages-popover";
+
+  const renderMessagesDropdown = () => {
+    // Compact non-desktop: keep a lightweight sheet that routes to /messages
+    if (!isDesktopNav) {
+      return showMessagesDropdown ? (
+        <div className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
+          <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50 px-4 py-3">
+            <h3 className="text-sm font-bold text-gray-700">Messages</h3>
+            {messagesUnreadCount > 0 ? (
+              <span className="text-xs font-semibold text-blue-600">
+                {formatBadgeCount(messagesUnreadCount)} unread
+              </span>
+            ) : null}
+          </div>
+          <div className="p-4 text-sm text-gray-600">
+            <p className="mb-3">Open your inbox to view conversations.</p>
+            <Link
+              to="/messages"
+              className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              onClick={() => setShowMessagesDropdown(false)}
+            >
+              Go to Messages
+            </Link>
+          </div>
+        </div>
+      ) : null;
+    }
+
+    return (
+      <HeaderMessagesPopover
+        open={showMessagesDropdown}
+        onClose={() => setShowMessagesDropdown(false)}
+        triggerRef={msgRef}
+        id={messagesPopoverId}
+      />
+    );
+  };
+
+  const handleActivityIconClick = (icon: any) => {
+    const actionType = icon.actionType || icon.type;
+    // One intentional top-level header surface at a time.
+    if (actionType === "notifications") {
+      const next = !showNotifications;
+      closeAllHeaderPopovers();
+      setShowNotifications(next);
+      return;
+    }
+    if (actionType === "messages") {
+      const next = !showMessagesDropdown;
+      closeAllHeaderPopovers();
+      setShowMessagesDropdown(next);
+      return;
+    }
+    if (actionType === "profile") {
+      if (profileEnabled) {
+        const next = !showProfileDropdown;
+        closeAllHeaderPopovers();
+        setShowProfileDropdown(next);
+      } else {
+        navigate("/profile/edit");
+      }
+      return;
+    }
+    if (actionType === "help") {
+      const next = !showHelpDropdown;
+      closeAllHeaderPopovers();
+      setShowHelpDropdown(next);
+      return;
+    }
+    if (actionType === "favorites") {
+      const favUrl = icon.url ?? icon.link ?? icon.href ?? "";
+      if (favUrl) {
+        if (favUrl.startsWith("http")) {
+          window.location.href = favUrl;
+        } else {
+          navigate(favUrl);
+        }
+      }
+    }
+  };
+
+  const getActivityBadgeCount = (actionType: string) => {
+    if (actionType === "notifications") return unreadNotificationCounts.total;
+    if (actionType === "messages") return messagesUnreadCount || 0;
+    return 0;
+  };
+
+  const isActivityActive = (actionType: string) => {
+    if (actionType === "messages") return messagesActive;
+    if (actionType === "notifications") return notificationsActive;
+    if (actionType === "profile") return profilePathActive || showProfileDropdown;
+    return false;
+  };
+
+  const renderActivityIconControl = (
+    icon: any,
+    opts: { desktopStyle?: boolean; showDesktopLabel?: boolean } = {}
+  ) => {
+    const actionType = String(icon.actionType || icon.type || "").toLowerCase();
+    const desktopStyle = Boolean(opts.desktopStyle);
+    const showDesktopLabel = Boolean(opts.showDesktopLabel);
+    const badgeCount = getActivityBadgeCount(actionType);
+    const active = isActivityActive(actionType);
+    const ref =
+      actionType === "notifications"
+        ? notifRef
+        : actionType === "messages"
+          ? msgRef
+          : actionType === "help"
+            ? helpRef
+            : undefined;
+
+    // CMS-provided label/icon remain authoritative for desktop primary shell.
+    const cmsLabel = String(icon.label || actionType);
+    const ariaCountLabel =
+      actionType === "messages" && messagesUnreadCount > 0
+        ? `${cmsLabel}, ${messagesUnreadCount} unread`
+        : actionType === "notifications" && badgeCount > 0
+          ? `${cmsLabel}, ${badgeCount} unread`
+          : cmsLabel;
+
+    const expanded =
+      actionType === "notifications"
+        ? showNotifications
+        : actionType === "messages"
+          ? showMessagesDropdown
+          : actionType === "help"
+            ? showHelpDropdown
+            : actionType === "profile"
+              ? showProfileDropdown
+              : undefined;
+
+    const hasPopup = ["notifications", "messages", "help", "profile"].includes(actionType);
+    const iconKey = icon.displayType || icon.type || icon.actionType || icon.icon;
+
+    if (desktopStyle) {
+      return (
+        <div
+          key={icon.id || actionType}
+          className="relative flex-shrink-0"
+          ref={ref}
+          data-header-activity={actionType}
+        >
+          <HeaderPrimaryNavItem
+            as="button"
+            label={cmsLabel}
+            icon={getDynamicIcon(iconKey, 20, active ? "filled" : acIconStyle)}
+            active={active || Boolean(expanded)}
+            badgeCount={badgeCount}
+            badgeColor={acBadgeColor}
+            showBadge={Boolean(acShowBadges)}
+            onClick={() => handleActivityIconClick(icon)}
+            title={cmsLabel}
+            ariaLabel={ariaCountLabel}
+            ariaExpanded={expanded}
+            ariaControls={
+              actionType === "messages" && showMessagesDropdown && isDesktopNav
+                ? messagesPopoverId
+                : undefined
+            }
+            ariaHaspopup={hasPopup ? "dialog" : undefined}
+          />
+
+          {actionType === "notifications" ? renderNotificationsDropdown() : null}
+          {actionType === "messages" ? renderMessagesDropdown() : null}
+
+          {actionType === "help" && showHelpDropdown ? (
+            <div className="absolute right-0 z-[70] mt-2 w-64 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
+              <div className="py-2">
+                {ensureArray<any>((activityConfig as any)?.helpMenu).map((link: any) => {
+                  if (!link?.label || !resolveUrl(link) || link.isEnabled === false) return null;
+                  return renderLink(
+                    link,
+                    "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
+                    () => setShowHelpDropdown(false)
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    // Mobile / non-desktop activity controls (structure preserved).
+    const buttonClass = [
+      "relative flex min-h-10 min-w-10 items-center justify-center rounded-full p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-900",
+      "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40",
+      "motion-safe:transition-colors",
+      icon.showLabel ? "flex-col space-y-1" : ""
+    ].join(" ");
+
+    return (
+      <div key={icon.id || actionType} className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => handleActivityIconClick(icon)}
+          className={buttonClass}
+          title={cmsLabel}
+          aria-label={ariaCountLabel}
+          aria-expanded={expanded}
+          aria-controls={
+            actionType === "messages" && showMessagesDropdown && isDesktopNav
+              ? messagesPopoverId
+              : undefined
+          }
+          aria-haspopup={hasPopup ? "dialog" : undefined}
+        >
+          <span className="relative flex h-7 w-7 items-center justify-center">
+            {getDynamicIcon(iconKey, acIconSize, active ? "filled" : acIconStyle)}
+            {acShowBadges ? renderCountBadge(badgeCount, acBadgeColor, "top-0 right-0") : null}
+          </span>
+          {showDesktopLabel || icon.showLabel ? (
+            <span className="hidden text-[10px] font-medium lg:block">{cmsLabel}</span>
+          ) : null}
+        </button>
+
+        {actionType === "notifications" ? renderNotificationsDropdown() : null}
+        {actionType === "messages" ? renderMessagesDropdown() : null}
+
+        {actionType === "help" && showHelpDropdown ? (
+          <div className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
+            <div className="py-2">
+              {ensureArray<any>((activityConfig as any)?.helpMenu).map((link: any) => {
+                if (!link?.label || !resolveUrl(link) || link.isEnabled === false) return null;
+                return renderLink(
+                  link,
+                  "block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-blue-600",
+                  () => setShowHelpDropdown(false)
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderFavoritesControl = (compact = false) => (
+    <Link
+      to="/favorites"
+      className={["scrolith-header-utility relative", compact ? "is-compact" : ""].filter(Boolean).join(" ")}
+      aria-label={`Favorites${favoritesCount ? `, ${favoritesCount} saved` : ""}`}
+      title="Favorites"
+    >
+      <span className="relative inline-flex h-5 w-5 items-center justify-center">
+        <Heart
+          className={`h-4 w-4 ${favoritesCount ? "fill-current text-red-500" : "text-slate-500"}`}
+        />
+        {renderCountBadge(favoritesCount, "#EF4444", "top-[-6px] right-[-8px]")}
+      </span>
+      {!compact ? <span className="hidden 2xl:inline">Favorites</span> : null}
+    </Link>
+  );
+
+  const renderCartControl = (compact = false) => (
+    <Link
+      to="/cart"
+      className={["scrolith-header-utility relative", compact ? "is-compact" : ""].filter(Boolean).join(" ")}
+      aria-label={`Cart${cartCount ? `, ${cartCount} items` : ""}`}
+      title="Cart"
+    >
+      <span className="relative inline-flex h-5 w-5 items-center justify-center">
+        <ShoppingCart className={`h-4 w-4 ${cartCount ? "text-blue-600" : "text-slate-500"}`} />
+        {renderCountBadge(cartCount, "#2563EB", "top-[-6px] right-[-8px]")}
+      </span>
+      {!compact ? <span className="hidden 2xl:inline">Cart</span> : null}
+    </Link>
+  );
+
+  const createMenuItems = useMemo(() => {
+    // Only surface create actions already available on the platform via existing routes.
+    const items: Array<{ id: string; label: string; url: string; roles?: string[] }> = [
+      { id: "create-post", label: "Post", url: "/member-home" },
+      { id: "create-job", label: "Job", url: "/create-job", roles: ["employer", "admin"] },
+      { id: "create-gig", label: "Gig", url: "/create-gig", roles: ["freelancer", "admin"] },
+      { id: "create-marketplace", label: "Marketplace listing", url: "/marketplace/create" }
+    ];
+    return items.filter((item) => {
+      if (!item.roles || item.roles.length === 0) return true;
+      return item.roles.includes(normalizedUserRole) || normalizedUserRole === "admin";
+    });
+  }, [normalizedUserRole]);
+
+  const renderCreateControl = () => {
+    if (!isAuthenticated || createMenuItems.length === 0) return null;
+    return (
+      <div className="relative" ref={createRef}>
+        <button
+          type="button"
+          className="scrolith-header-utility !border-blue-200 !bg-blue-600 !text-white hover:!bg-blue-700 hover:!text-white"
+          aria-label="Create"
+          aria-expanded={showCreateMenu}
+          aria-haspopup="menu"
+          title="Create"
+          onClick={() => {
+            const next = !showCreateMenu;
+            closeAllHeaderPopovers();
+            setShowCreateMenu(next);
+          }}
+        >
+          <Plus className="h-4 w-4" />
+          <span className="hidden 2xl:inline">Create</span>
+        </button>
+        {showCreateMenu ? (
+          <div
+            role="menu"
+            aria-label="Create content"
+            className="absolute right-0 z-[70] mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+          >
+            {createMenuItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="menuitem"
+                className="block w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-blue-700 focus:outline-none focus-visible:bg-blue-50"
+                onClick={() => {
+                  setShowCreateMenu(false);
+                  navigate(item.url);
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const renderProfileMenu = () =>
+    showProfileDropdown ? (
+      <div
+        role="menu"
+        aria-label="Account menu"
+        className="absolute right-0 z-[70] mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl ring-1 ring-black/5"
+      >
+        <div className="border-b border-slate-100 bg-gradient-to-b from-slate-50 to-white px-4 py-3">
+          <p className="truncate text-sm font-semibold text-slate-900">{avatarName || "Account"}</p>
+          <p className="truncate text-xs capitalize text-slate-500">{normalizedUserRole}</p>
+        </div>
+        <div className="py-2">
+          {(["primary", "business_tools", "utilities"] as const).map((groupKey, index) => {
+            const items = groupedProfileItems[groupKey] || [];
+            if (items.length === 0) return null;
+            const groupLabel = profileMenuGroupLabels[groupKey];
+            return (
+              <div
+                key={groupKey}
+                className={index === 0 ? "pb-1" : "border-t border-slate-100 pt-2 pb-1"}
+              >
+                {groupLabel ? (
+                  <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                    {groupLabel}
+                  </div>
+                ) : null}
+                {items.map((item: any) => renderProfileItem(item))}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    ) : null;
+
+  const renderAvatarControl = () =>
+    isAuthenticated && user && profileEnabled ? (
+      <div className="relative ml-1 lg:ml-1.5" ref={profileRef}>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !showProfileDropdown;
+            closeAllHeaderPopovers();
+            setShowProfileDropdown(next);
+          }}
+          className="scrolith-header-profile"
+          aria-label="Open account menu"
+          aria-expanded={showProfileDropdown}
+          aria-haspopup="menu"
+        >
+          {avatarUrl ? (
+            <img
+              className="scrolith-header-profile__avatar"
+              src={avatarUrl}
+              alt=""
+              width={36}
+              height={36}
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <div
+              className="scrolith-header-profile__avatar flex items-center justify-center bg-slate-200 text-xs font-bold text-slate-600"
+              aria-hidden="true"
+            >
+              {(avatarName || "U").slice(0, 1).toUpperCase()}
+            </div>
+          )}
+          <span className="hidden max-w-[7.5rem] truncate text-sm font-semibold text-slate-800 2xl:block">
+            {avatarName || "Account"}
+          </span>
+          <ChevronDown
+            className={`h-4 w-4 text-slate-400 motion-safe:transition-transform ${
+              showProfileDropdown ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+        {renderProfileMenu()}
+      </div>
+    ) : null;
+
   if (loading) {
     return (
-      <nav className={headerWrapperClass}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            <div className="flex items-center">
-              <div className="w-8 h-8 bg-gray-200 rounded animate-pulse"></div>
-              <div className="ml-3 w-24 h-6 bg-gray-200 rounded animate-pulse"></div>
+      <nav className={headerWrapperClass} aria-busy="true" aria-label="Main navigation loading">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="scrolith-enterprise-header__inner justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-8 w-8 animate-pulse rounded-lg bg-slate-200" />
+              <div className="hidden h-10 w-72 animate-pulse rounded-full bg-slate-200 lg:block" />
             </div>
-            <div className="hidden md:flex items-center space-x-4">
-              {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-8 w-20 bg-gray-200 rounded animate-pulse"></div>
+            <div className="hidden items-center gap-2 lg:flex">
+              {[1, 2, 3, 4, 5, 6].map((i) => (
+                <div key={i} className="h-11 w-14 animate-pulse rounded-xl bg-slate-200" />
               ))}
             </div>
-            <div className="flex items-center space-x-2">
-              <div className="h-8 w-16 bg-gray-200 rounded animate-pulse"></div>
-              <div className="h-8 w-20 bg-gray-200 rounded animate-pulse"></div>
+            <div className="flex items-center gap-2">
+              <div className="h-10 w-10 animate-pulse rounded-full bg-slate-200" />
+              <div className="h-10 w-10 animate-pulse rounded-full bg-slate-200" />
+              <div className="h-10 w-28 animate-pulse rounded-full bg-slate-200" />
             </div>
           </div>
         </div>
@@ -918,359 +1717,232 @@ const Navbar = () => {
   }
 
   return (
-    <div className={headerWrapperClass}>
-      {/* TOP NAV */}
-      <nav className="bg-white transition-colors">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16 items-center">
-            {/* Left: Logo */}
-            <div className="flex items-center">
+    <div className={`${headerWrapperClass} overflow-x-clip`} data-testid="scrolith-enterprise-header">
+      <nav className="bg-transparent" aria-label="Primary">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          {isDesktopNav ? (
+            /* ===== Desktop enterprise header (lg+) ===== */
+            <div
+              className="scrolith-enterprise-header__inner"
+              data-header-layout="three-zone-grid"
+            >
+              {/* LEFT: Brand + Search — may shrink; search compresses first */}
+              <div className="scrolith-header-zone scrolith-header-zone--left" data-header-zone="left">
                 <Link
-                  to={(headerConfig as any)?.homeUrl || (headerConfig as any)?.home_url || "/"}
-                  className="flex-shrink-0 flex items-center mr-8"
+                  to={homeUrl}
+                  className="flex min-w-0 shrink-0 items-center gap-2.5 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                  aria-label={brandName ? `${brandName} home` : "Scrolith home"}
                 >
-                {brandLogoSrc ? (
-                  <img
-                    src={brandLogoSrc}
-                    alt={brandName || ""}
-                    width={160}
-                    height={32}
-                    decoding="async"
-                    className="h-8 w-auto object-contain"
-                  />
-                ) : (
-                  <div className="w-8 h-8 bg-gray-200 rounded-lg" aria-hidden="true" />
-                )}
-                {brandName ? (
-                  <span className="ml-2 text-xl font-bold text-gray-900 hidden sm:block">{brandName}</span>
-                ) : null}
-              </Link>
-            </div>
-
-            {/* Center: Navigation Links */}
-            <div className="hidden md:flex md:items-center md:space-x-6">
-              {!isAuthenticated ? (
-                <>
-                  {renderDropdown(guestPrimaryDropdown, showGuestPrimaryDropdown, setShowGuestPrimaryDropdown, guestPrimaryRef)}
-                  {renderDropdown(guestExploreDropdown, showGuestExploreDropdown, setShowGuestExploreDropdown, guestExploreRef)}
-                </>
-              ) : null}
-              {(() => {
-                const rawNav = Array.isArray((headerConfig as any)?.navigation) ? (headerConfig as any).navigation : [];
-                const navCopy = Array.from(rawNav);
-                const filteredNav = navCopy.filter((item: any) => {
-                  const label = String(item?.label || '').toLowerCase();
-                  const url = resolveUrl(item);
-                  if (label === 'dashboard') return false;
-                  if (url && (url.startsWith('/freelancer/dashboard') || url.startsWith('/client/dashboard') || url === '/dashboard')) {
-                    return false;
-                  }
-                  return true;
-                });
-                // Do not inject "My Ads" into the global header — it's available in dashboards only
-                return filteredNav.map(renderNavItem);
-              })()}
-            </div>
-
-            {/* Right: Actions */}
-            <div className="flex items-center space-x-2 md:space-x-4">
-              {/* Dynamic Activity Icons */}
-              {isAuthenticated && activityConfig ? (
-                <div className="flex items-center space-x-1 sm:space-x-2">
-                  {Array.isArray(ac?.icons) &&
-                      (ac?.icons as any[])
-                        .filter((icon: any) => {
-                          if (!icon.isEnabled) return false;
-                          const roles = normalizeRoleList(icon.roles);
-                          if (roles.length === 0) return true;
-                          if (roles.includes("all") || roles.includes("*")) return true;
-                          return roles.includes(normalizedUserRole);
-                        })
-                        .filter((icon: any) => isActionEnabled(icon.actionType || icon.type))
-                        .sort((a: any, b: any) => (a.sortOrder || 0) - (b.sortOrder || 0))
-                        .map((icon: any) => (
-                        <div
-                          key={icon.id}
-                          ref={(icon.actionType || icon.type) === "notifications" ? notifRef : (icon.actionType || icon.type) === "messages" ? msgRef : helpRef}
-                        >
-                          <button
-                            onClick={() => {
-                              const actionType = icon.actionType || icon.type;
-                              if (actionType === "notifications") setShowNotifications(!showNotifications);
-                              if (actionType === "messages") setShowMessagesDropdown(!showMessagesDropdown);
-                              if (actionType === "profile") {
-                                if (profileEnabled) {
-                                  setShowProfileDropdown(!showProfileDropdown);
-                                } else {
-                                  window.location.href = "/profile/edit";
-                                }
-                              }
-                              if (actionType === "help") setShowHelpDropdown(!showHelpDropdown);
-                              if (actionType === "favorites") {
-                                const favUrl = icon.url ?? icon.link ?? icon.href ?? "";
-                                if (favUrl) {
-                                  window.location.href = favUrl;
-                                }
-                              }
-                            }}
-                            className={`text-gray-500 hover:text-gray-900 p-2 rounded-full hover:bg-gray-100 relative flex items-center ${
-                              icon.showLabel ? "flex-col items-center space-y-1" : ""
-                            }`}
-                            title={icon.label}
-                          >
-                            {getDynamicIcon(icon.displayType || icon.type || icon.actionType, acIconSize, acIconStyle)}
-                            {acShowBadges &&
-                              (icon.actionType || icon.type) === "notifications" &&
-                              unreadNotificationCounts.total > 0 && (
-                                <span
-                                  className="absolute top-1 right-1 h-4 min-w-[16px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold"
-                                  style={{ backgroundColor: acBadgeColor }}
-                                >
-                                  {unreadNotificationCounts.total}
-                                </span>
-                              )}
-                            {icon.showLabel && <span className="text-[10px] font-medium hidden lg:block">{icon.label}</span>}
-                          </button>
-
-                          {/* Notifications Dropdown */}
-                          {(icon.actionType || icon.type) === "notifications" && showNotifications && (
-                            <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
-                              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50">
-                                <div className="flex justify-between items-center">
-                                  <h3 className="font-bold text-sm text-gray-700">Notifications</h3>
-                                  <span className="text-xs text-gray-500">{visibleUnreadCount} new {notificationTabLabel}</span>
-                                </div>
-                                <div className="mt-2 flex gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setNotificationTab('home');
-                                    }}
-                                    className={[
-                                      'rounded-full px-3 py-1 text-[11px] font-semibold',
-                                      notificationTab === 'home' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 border border-slate-200'
-                                    ].join(' ')}
-                                  >
-                                    Home{unreadNotificationCounts.home ? ` (${unreadNotificationCounts.home})` : ''}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      e.stopPropagation();
-                                      setNotificationTab('community');
-                                    }}
-                                    className={[
-                                      'rounded-full px-3 py-1 text-[11px] font-semibold',
-                                      notificationTab === 'community'
-                                        ? 'bg-slate-900 text-white'
-                                        : 'bg-white text-slate-700 border border-slate-200'
-                                    ].join(' ')}
-                                  >
-                                    Community{unreadNotificationCounts.community ? ` (${unreadNotificationCounts.community})` : ''}
-                                  </button>
-                                </div>
-                              </div>
-                              <div
-                                ref={notificationListRef}
-                                className="max-h-96 overflow-y-auto"
-                                onScroll={(event) => setNotificationScrollTop(event.currentTarget.scrollTop)}
-                              >
-                                {visibleNotifications.length === 0 ? (
-                                  <div className="p-6 text-center text-gray-400 text-sm">No new notifications</div>
-                                ) : (
-                                  <>
-                                  {notificationWindow.top > 0 ? (
-                                    <div aria-hidden className="pointer-events-none" style={{ height: notificationWindow.top }} />
-                                  ) : null}
-                                  {virtualNotifications.map((notif) => {
-                                    const actorName =
-                                      (pick(notif as any, 'actorName', 'actor_name') as string | undefined) ||
-                                      ((pick(notif as any, 'metadata') as any)?.actorName as string | undefined);
-                                    const actorAvatar =
-                                      (pick(notif as any, 'actorAvatar', 'actor_avatar') as string | undefined) ||
-                                      ((pick(notif as any, 'metadata') as any)?.actorAvatar as string | undefined);
-                                    const actorProfileUrl = resolveNotificationActorProfileUrl(notif);
-                                    return (
-                                    <div
-                                      key={notif.id}
-                                      onClick={() => handleNotificationClick(notif.id, getNotificationActionUrl(notif))}
-                                      className={`p-4 border-b border-gray-50 hover:bg-gray-50 cursor-pointer transition-colors relative ${
-                                        !notif.isRead ? "bg-blue-50/30" : ""
-                                      }`}
-                                    >
-                                      {actorName && (
-                                        <button
-                                          type="button"
-                                          onClick={(event) => handleNotificationActorClick(event, notif.id, actorProfileUrl)}
-                                          className="mb-2 flex items-center gap-2 hover:opacity-90"
-                                        >
-                                          <div className="h-6 w-6 overflow-hidden rounded-full bg-gray-100">
-                                            {actorAvatar ? (
-                                              <img src={actorAvatar} alt={actorName} className="h-full w-full object-cover" />
-                                            ) : null}
-                                          </div>
-                                          <span className="text-xs font-semibold text-gray-600">{actorName}</span>
-                                        </button>
-                                      )}
-                                      <div className="flex justify-between items-start mb-1">
-                                        <h4 className={`text-sm ${!notif.isRead ? "font-bold text-gray-900" : "font-medium text-gray-700"}`}>
-                                          {notif.title}
-                                        </h4>
-                                        <span className="text-[10px] text-gray-400 whitespace-nowrap ml-2">
-                                          {new Date((pick(notif as any, 'timestamp') as string) ?? Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </span>
-                                      </div>
-                                      <p className="text-xs text-gray-500 line-clamp-2">{(pick(notif as any, 'message') as string) ?? ''}</p>
-                                      {!notif.isRead && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500"></span>}
-                                    </div>
-                                  );
-                                  })}
-                                  {notificationWindow.bottom > 0 ? (
-                                    <div aria-hidden className="pointer-events-none" style={{ height: notificationWindow.bottom }} />
-                                  ) : null}
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Messages Dropdown */}
-                          {(icon.actionType || icon.type) === "messages" && showMessagesDropdown && (
-                            <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-50 animate-fade-in-up">
-                              <div className="px-4 py-3 border-b border-gray-50 bg-gray-50 flex justify-between items-center">
-                                <h3 className="font-bold text-sm text-gray-700">Messages</h3>
-                              </div>
-                              <div className="p-4 text-sm text-gray-600">
-                                <p className="mb-3">Open your inbox to view conversations.</p>
-                                <Link
-                                  to="/messages"
-                                  className="inline-flex items-center px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold"
-                                  onClick={() => setShowMessagesDropdown(false)}
-                                >
-                                  Go to Messages
-                                </Link>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                </div>
-              ) : null}
-
-              {isAuthenticated && (
-                <div className="flex items-center gap-2">
-                  <Link
-                    to="/favorites"
-                    className="relative inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    <Heart className={`w-4 h-4 ${favoritesCount ? 'text-red-500 fill-current' : 'text-gray-500'}`} />
-                    <span className="hidden sm:inline">Favorites</span>
-                    {favoritesCount > 0 && (
-                      <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold bg-red-500">
-                        {favoritesCount}
-                      </span>
-                    )}
-                  </Link>
-                  <Link
-                    to="/cart"
-                    className="relative inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-                  >
-                    <ShoppingCart className={`w-4 h-4 ${cartCount ? 'text-blue-600' : 'text-gray-500'}`} />
-                    <span className="hidden sm:inline">Cart</span>
-                    {cartCount > 0 && (
-                      <span className="absolute -top-1 -right-1 h-5 min-w-[20px] px-1 rounded-full text-white text-[10px] flex items-center justify-center font-bold bg-blue-600">
-                        {cartCount}
-                      </span>
-                    )}
-                  </Link>
-                </div>
-              )}
-
-              {isAuthenticated && showRoleSwitch
-                ? renderLink(
-                    { id: "role-switch-nav", label: roleSwitchLabel, url: roleSwitchUrl },
-                    "hidden lg:inline-flex items-center px-3 py-2 text-sm font-semibold text-gray-700 border border-gray-200 rounded-full hover:bg-gray-50"
-                  )
-                : null}
-
-              {/* Direct Dashboard links removed to avoid duplicate header entries */}
-
-              {/* Profile Dropdown */}
-              {isAuthenticated && user ? (
-                profileEnabled ? (
-                  <div className="relative ml-3" ref={profileRef}>
-                    <button
-                      onClick={() => setShowProfileDropdown(!showProfileDropdown)}
-                      className="flex items-center space-x-2 focus:outline-none"
+                  {brandLogoSrc ? (
+                    <img
+                      src={brandLogoSrc}
+                      alt=""
+                      width={160}
+                      height={32}
+                      decoding="async"
+                      className="h-8 w-auto max-w-[7.5rem] object-contain xl:max-w-[9.5rem]"
+                    />
+                  ) : (
+                    <div
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-bold text-white"
+                      aria-hidden="true"
                     >
-                      {avatarUrl ? (
-                        <img
-                          className="h-8 w-8 rounded-full object-cover border border-indigo-200"
-                          src={avatarUrl}
-                          alt={avatarName || ""}
-                        />
-                      ) : (
-                        <div className="h-8 w-8 rounded-full bg-gray-200" aria-hidden="true" />
-                      )}
-                      {avatarName ? (
-                        <span className="hidden lg:block text-sm font-medium text-gray-700">{avatarName}</span>
-                      ) : null}
-                      <ChevronDown className="h-4 w-4 text-gray-400" />
-                    </button>
+                      S
+                    </div>
+                  )}
+                  {brandName ? (
+                    <span className="hidden truncate text-[1.05rem] font-bold tracking-tight text-slate-900 xl:block">
+                      {brandName}
+                    </span>
+                  ) : null}
+                </Link>
 
-                    {showProfileDropdown && (
-                      <div className="origin-top-right absolute right-0 mt-2 w-72 rounded-xl shadow-lg bg-white ring-1 ring-black ring-opacity-5 z-50 animate-fade-in-up">
-                        <div className="py-2">
-                          {(["primary", "business_tools", "utilities"] as const).map((groupKey, index) => {
-                            const items = groupedProfileItems[groupKey] || [];
-                            if (items.length === 0) return null;
-                            const groupLabel = profileMenuGroupLabels[groupKey];
-                            return (
-                              <div
-                                key={groupKey}
-                                className={index === 0 ? "pb-1" : "border-t border-gray-100 pt-2 pb-1"}
-                              >
-                                {groupLabel ? (
-                                  <div className="px-4 pb-1 text-[10px] uppercase tracking-wide text-gray-400 font-semibold">
-                                    {groupLabel}
-                                  </div>
-                                ) : null}
-                                {items.map((item: any) => renderProfileItem(item))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
+                {showHeaderSearch ? (
+                  <div className="scrolith-header-search-shell">
+                    <SearchInput
+                      placeholder={searchPlaceholder}
+                      size="header"
+                      showButton={false}
+                      searchMode={headerSearchMode}
+                      searchPath={searchResultsUrl || undefined}
+                      buttonAriaLabel={searchButtonAriaLabel || searchPlaceholder}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              {/* CENTER: CMS navigation + Messages/Notifications activity (admin-owned) */}
+              <div
+                className="scrolith-header-zone scrolith-header-zone--center"
+                data-header-zone="center"
+              >
+                <div
+                  className="scrolith-header-nav-track"
+                  role="navigation"
+                  aria-label="Main sections"
+                  data-testid="scrolith-header-primary-nav"
+                >
+                  {!isAuthenticated ? (
+                    <div className="flex items-center gap-2 px-2">
+                      {renderDropdown(
+                        guestPrimaryDropdown,
+                        showGuestPrimaryDropdown,
+                        setShowGuestPrimaryDropdown,
+                        guestPrimaryRef
+                      )}
+                      {renderDropdown(
+                        guestExploreDropdown,
+                        showGuestExploreDropdown,
+                        setShowGuestExploreDropdown,
+                        guestExploreRef
+                      )}
+                    </div>
+                  ) : null}
+                  {filteredNavigation.map((item: any) => renderDesktopNavLink(item))}
+                  {isAuthenticated
+                    ? desktopCenterActivityIcons.map((icon: any) =>
+                        renderActivityIconControl(icon, {
+                          desktopStyle: true,
+                          showDesktopLabel: true
+                        })
+                      )
+                    : null}
+                </div>
+              </div>
+
+              {/* RIGHT: Fixed utilities + account — never underlaps center nav */}
+              <div
+                className="scrolith-header-zone scrolith-header-zone--right"
+                data-header-zone="right"
+              >
+                {isAuthenticated
+                  ? desktopRightActivityIcons.map((icon: any) =>
+                      renderActivityIconControl(icon, { desktopStyle: false })
+                    )
+                  : null}
+
+                {isAuthenticated ? (
+                  <div className="scrolith-header-utility-cluster" data-testid="scrolith-header-utility-cluster">
+                    {renderFavoritesControl(false)}
+                    {renderCartControl(false)}
+                    {renderCreateControl()}
+                  </div>
+                ) : null}
+
+                {isAuthenticated && showRoleSwitch
+                  ? renderLink(
+                      { id: "role-switch-nav", label: roleSwitchLabel, url: roleSwitchUrl },
+                      "scrolith-header-utility hidden xl:inline-flex !px-3 !py-1.5 text-xs"
+                    )
+                  : null}
+
+                {isAuthenticated && user ? (
+                  renderAvatarControl()
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {resolvedGuestCtas.map((cta: any) =>
+                      renderLink(
+                        cta,
+                        getCtaClass(cta),
+                        () => {
+                          setShowGuestPrimaryDropdown(false);
+                          setShowGuestExploreDropdown(false);
+                        }
+                      )
                     )}
                   </div>
-                ) : null
-              ) : (
-                <div className="flex items-center space-x-2">
-                  {resolvedGuestCtas.map((cta: any) =>
-                    renderLink(
-                      cta,
-                      getCtaClass(cta),
-                      () => {
-                        setShowGuestPrimaryDropdown(false);
-                        setShowGuestExploreDropdown(false);
-                      }
-                    )
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* ===== Mobile + tablet bar (structure preserved) ===== */
+            <div className="flex h-16 items-center justify-between gap-3 sm:gap-4">
+              <div className="flex min-w-0 flex-1 items-center">
+                <Link
+                  to={homeUrl}
+                  className="flex min-w-0 items-center gap-2 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 sm:mr-4"
+                >
+                  {brandLogoSrc ? (
+                    <img
+                      src={brandLogoSrc}
+                      alt={brandName || ""}
+                      width={160}
+                      height={32}
+                      decoding="async"
+                      className="h-7 w-auto max-w-[7.5rem] object-contain sm:h-8 sm:max-w-[10rem]"
+                    />
+                  ) : (
+                    <div className="h-8 w-8 flex-shrink-0 rounded-lg bg-gray-200" aria-hidden="true" />
+                  )}
+                  {brandName ? (
+                    <span className="hidden truncate text-xl font-bold text-gray-900 sm:block">
+                      {brandName}
+                    </span>
+                  ) : null}
+                </Link>
+              </div>
+
+              <div className="hidden items-center gap-3 md:flex">
+                {!isAuthenticated ? (
+                  <>
+                    {renderDropdown(
+                      guestPrimaryDropdown,
+                      showGuestPrimaryDropdown,
+                      setShowGuestPrimaryDropdown,
+                      guestPrimaryRef
+                    )}
+                    {renderDropdown(
+                      guestExploreDropdown,
+                      showGuestExploreDropdown,
+                      setShowGuestExploreDropdown,
+                      guestExploreRef
+                    )}
+                  </>
+                ) : null}
+                {filteredNavigation.map((item: any) => renderNavItem(item))}
+              </div>
+
+              <div className="ml-auto flex flex-shrink-0 items-center gap-1.5 sm:gap-2 md:gap-3">
+                {isAuthenticated ? (
+                  <div className="flex items-center gap-0.5 sm:gap-1">
+                    {mobileActivityIcons.map((icon: any) => renderActivityIconControl(icon))}
+                  </div>
+                ) : null}
+
+                {isAuthenticated ? (
+                  <div className="flex items-center gap-1.5">
+                    {renderFavoritesControl(true)}
+                    {renderCartControl(true)}
+                  </div>
+                ) : null}
+
+                {isAuthenticated && user ? (
+                  renderAvatarControl()
+                ) : (
+                  <div className="flex items-center space-x-2">
+                    {resolvedGuestCtas.map((cta: any) =>
+                      renderLink(
+                        cta,
+                        getCtaClass(cta),
+                        () => {
+                          setShowGuestPrimaryDropdown(false);
+                          setShowGuestExploreDropdown(false);
+                        }
+                      )
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </nav>
 
-      {/* HEADER SEARCH (non-home only) */}
-      {showHeaderSearch ? (
-        <div className="bg-white border-t border-gray-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="max-w-3xl mx-auto">
+      {/* Search below bar: mobile/tablet only (desktop search is inline) */}
+      {showHeaderSearch && !isDesktopNav ? (
+        <div className="overflow-x-clip border-t border-gray-100 bg-white">
+          <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 sm:py-4">
+            <div className="mx-auto max-w-3xl">
               <SearchInput
                 placeholder={searchPlaceholder}
                 size={searchSize}
@@ -1284,7 +1956,6 @@ const Navbar = () => {
           </div>
         </div>
       ) : null}
-
     </div>
   );
 };

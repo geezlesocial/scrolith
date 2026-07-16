@@ -1,0 +1,17 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.scrolith.scrolith",
+      "sha256_cert_fingerprints": [
+        "47:50:06:A0:EB:AF:12:70:2A:C8:9D:65:72:14:7A:B0:5F:59:2D:F8:A5:50:C7:8E:1C:A6:3D:48:8C:B2:8C:9E",
+        "5A:4B:E5:A1:01:9D:1A:BC:5B:FC:71:FC:97:18:65:70:E3:24:D7:63:D0:82:29:09:97:9C:B8:DC:96:B3:14:CE",
+        "02:73:93:85:EC:F2:6B:0D:4E:49:07:1E:07:83:B7:1A:94:14:B6:FF:D0:20:A4:7F:05:53:55:9B:09:CA:89:07"
+      ]
+    }
+  }
+]

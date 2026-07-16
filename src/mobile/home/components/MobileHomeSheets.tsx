@@ -9,12 +9,14 @@ import {
   LayoutDashboardIcon as LayoutDashboard,
   LogOutIcon as LogOut,
   PlusIcon as Plus,
+  ShoppingCartIcon as ShoppingCart,
   Repeat2Icon as Repeat2,
   SettingsIcon as Settings,
   StarIcon as Star,
   TagIcon as Tag,
   UsersIcon as Users
 } from '../../../components/icons/ShellIcons';
+import { MOBILE_SHEET_CARD_CLASS } from '../mobileShellLayout';
 
 type AccountMenuConfig = {
   dashboard?: boolean;
@@ -34,6 +36,8 @@ type QuickMenuConfig = {
   browseJobs?: boolean;
   browseGigs?: boolean;
   community?: boolean;
+  marketplace?: boolean;
+  groups?: boolean;
   projectBrief?: boolean;
   gigCreation?: boolean;
   settings?: boolean;
@@ -65,6 +69,7 @@ type MobileHomeSheetsProps = {
   onRefreshMessages: () => void;
   onOpenConversation: (conversationId: string) => void;
   onOpenAllMessages: () => void;
+  onOpenNotifications: () => void;
   normalizedRole: string;
   isFreelancerMode: boolean;
   onDashboard: () => void;
@@ -81,6 +86,8 @@ type MobileHomeSheetsProps = {
   onBrowseJobs: () => void;
   onBrowseGigs: () => void;
   onCommunity: () => void;
+  onMarketplace: () => void;
+  onGroups: () => void;
   onProjectBriefs: () => void;
   onGigCreation: () => void;
 };
@@ -130,25 +137,42 @@ const Sheet = ({
   onClose: () => void;
   children: React.ReactNode;
 }) => {
+  const titleId = React.useId();
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1000] flex items-end justify-center bg-slate-950/55 p-3">
-      <div className="w-full max-w-md overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
-        <div className="flex justify-center pt-3">
-          <div className="h-1.5 w-14 rounded-full bg-slate-200" />
-        </div>
-        <div className="flex max-h-[88vh] flex-col">
-          <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-2">
-            <div className="text-sm font-semibold text-slate-900">{title}</div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-            >
-              Close
-            </button>
+    <div className="fixed inset-0 z-[1000]">
+      <button
+        type="button"
+        aria-label={`Close ${title}`}
+        onClick={onClose}
+        className="absolute inset-0 bg-slate-950/55"
+      />
+      <div className="absolute inset-x-0 bottom-0 flex justify-center p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] sm:inset-0 sm:items-center sm:p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className={MOBILE_SHEET_CARD_CLASS}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="flex justify-center pt-3">
+            <div className="h-1.5 w-14 rounded-full bg-slate-200" />
           </div>
-          <div className="overflow-y-auto px-4 pb-4">{children}</div>
+          <div className="flex max-h-[82dvh] flex-col">
+            <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-2 sm:px-5">
+              <div id={titleId} className="text-sm font-semibold text-slate-900">
+                {title}
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Close
+              </button>
+            </div>
+            <div className="overflow-y-auto px-4 pb-4 sm:px-5">{children}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -158,17 +182,42 @@ const Sheet = ({
 const SummaryChip = ({
   label,
   value,
-  tone = 'slate'
+  tone = 'slate',
+  onClick,
+  ariaLabel
 }: {
   label: string;
   value: string;
   tone?: MenuItemTone;
-}) => (
-  <div className={['rounded-2xl border border-transparent px-3 py-2', toneClassMap[tone]].join(' ')}>
-    <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
-    <p className="mt-1 text-sm font-semibold">{value}</p>
-  </div>
-);
+  onClick?: () => void;
+  ariaLabel?: string;
+}) => {
+  const className = [
+    'rounded-2xl border border-transparent px-3 py-2 text-left',
+    toneClassMap[tone],
+    onClick ? 'w-full touch-manipulation transition active:scale-[0.99]' : ''
+  ].join(' ');
+  const content = (
+    <>
+      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
+      <p className="mt-1 text-sm font-semibold">{value}</p>
+    </>
+  );
+
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} aria-label={ariaLabel || label} className={className}>
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div className={className}>
+      {content}
+    </div>
+  );
+};
 
 const SectionTitle = ({
   title,
@@ -183,26 +232,42 @@ const SectionTitle = ({
   </div>
 );
 
-const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }: SheetMenuItem) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="flex w-full items-start justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
-  >
-    <div className="flex min-w-0 gap-3">
-      <div className={['rounded-2xl p-2.5', toneClassMap[tone]].join(' ')}>{icon}</div>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-slate-900">{label}</p>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+const SheetItem = ({ icon, label, description, badge, tone = 'slate', onClick }: SheetMenuItem) => {
+  const lastTapRef = React.useRef(0);
+
+  const triggerAction = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 260) return;
+    lastTapRef.current = now;
+    onClick();
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        triggerAction();
+      }}
+      className="flex w-full touch-manipulation items-start justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50 active:scale-[0.995]"
+      style={{ WebkitTapHighlightColor: 'transparent' }}
+    >
+      <div className="flex min-w-0 gap-3">
+        <div className={['rounded-2xl p-2.5', toneClassMap[tone]].join(' ')}>{icon}</div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-slate-900">{label}</p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+        </div>
       </div>
-    </div>
-    {badge ? (
-      <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-        {badge}
-      </span>
-    ) : null}
-  </button>
-);
+      {badge ? (
+        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
+          {badge}
+        </span>
+      ) : null}
+    </button>
+  );
+};
 
 const renderMenuSection = (
   title: string,
@@ -213,7 +278,7 @@ const renderMenuSection = (
   return (
     <section className="rounded-3xl border border-slate-200 bg-slate-50/70 p-3">
       <SectionTitle title={title} description={description} />
-      <div className="space-y-2">{items.map((item) => <SheetItem key={item.id} {...item} />)}</div>
+      <div className="grid gap-2 sm:grid-cols-2">{items.map((item) => <SheetItem key={item.id} {...item} />)}</div>
     </section>
   );
 };
@@ -244,6 +309,7 @@ export default function MobileHomeSheets({
   onRefreshMessages,
   onOpenConversation,
   onOpenAllMessages,
+  onOpenNotifications,
   normalizedRole,
   isFreelancerMode,
   onDashboard,
@@ -260,6 +326,8 @@ export default function MobileHomeSheets({
   onBrowseJobs,
   onBrowseGigs,
   onCommunity,
+  onMarketplace,
+  onGroups,
   onProjectBriefs,
   onGigCreation
 }: MobileHomeSheetsProps) {
@@ -445,6 +513,26 @@ export default function MobileHomeSheets({
           onClick: onCommunity
         }
       : null,
+    quickMenu.marketplace !== false
+      ? {
+          id: 'quick-marketplace',
+          icon: <ShoppingCart className="h-4 w-4" />,
+          label: 'Marketplace',
+          description: 'Browse listings, saved items, and seller storefronts.',
+          tone: 'green',
+          onClick: onMarketplace
+        }
+      : null,
+    quickMenu.groups !== false
+      ? {
+          id: 'quick-groups',
+          icon: <Users className="h-4 w-4" />,
+          label: 'Groups',
+          description: 'Open clubs, requests, and community spaces.',
+          tone: 'amber',
+          onClick: onGroups
+        }
+      : null,
     quickMenu.settings !== false
       ? {
           id: 'quick-settings',
@@ -477,8 +565,20 @@ export default function MobileHomeSheets({
             <div className="mt-4 grid grid-cols-2 gap-2">
               <SummaryChip label="Connection" value={socketConnected ? 'Live' : 'Sync'} tone={socketConnected ? 'green' : 'amber'} />
               <SummaryChip label="Currency" value={currencyCode || 'USD'} tone="indigo" />
-              <SummaryChip label="Messages" value={messagesUnread > 0 ? (messagesUnread > 99 ? '99+' : String(messagesUnread)) : 'Clear'} tone="slate" />
-              <SummaryChip label="Alerts" value={notificationsUnread > 0 ? (notificationsUnread > 99 ? '99+' : String(notificationsUnread)) : 'Clear'} tone="slate" />
+              <SummaryChip
+                label="Messages"
+                value={messagesUnread > 0 ? (messagesUnread > 99 ? '99+' : String(messagesUnread)) : 'Clear'}
+                tone="slate"
+                onClick={onOpenAllMessages}
+                ariaLabel="Open messages"
+              />
+              <SummaryChip
+                label="Alerts"
+                value={notificationsUnread > 0 ? (notificationsUnread > 99 ? '99+' : String(notificationsUnread)) : 'Clear'}
+                tone="slate"
+                onClick={onOpenNotifications}
+                ariaLabel="Open notifications"
+              />
             </div>
           </section>
 

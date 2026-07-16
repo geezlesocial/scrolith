@@ -49,6 +49,78 @@ const normalizeDraft = (payload: any) => {
   };
 };
 
+const parseContentObject = (raw: string | undefined, fallback: any = {}) => {
+  try {
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const setNestedValue = (source: any, path: string[], value: any): any => {
+  if (!path.length) return source;
+  const [head, ...rest] = path;
+  const base = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  if (!rest.length) {
+    return { ...base, [head]: value };
+  }
+  return {
+    ...base,
+    [head]: setNestedValue(base[head], rest, value)
+  };
+};
+
+const linesToArray = (value: string) =>
+  String(value || '')
+    .split('\n')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const arrayToLines = (value: any) => (Array.isArray(value) ? value.join('\n') : '');
+
+const getGuestSectionInitialContent = (type: GuestSectionType) => {
+  if (type === 'guest_hero_auth') {
+    return {
+      headline: 'The All-in-One Platform for Work, Talent, and Community',
+      subheadline: 'Scrolith combines professional networking, freelance marketplace, messaging, payments, and AI workflows.',
+      description: 'Join millions building careers, growing businesses, and collaborating in real time.',
+      primaryCtaLabel: 'Create account',
+      primaryCtaUrl: '/auth/signup',
+      secondaryCtaLabel: 'Log in',
+      secondaryCtaUrl: '/auth/login',
+      authPanelTitle: 'Welcome to Scrolith',
+      authPanelSubtitle: 'Sign in or create an account to start working and growing.',
+      defaultTab: 'signup',
+      enableSocialLogin: true,
+      loginCtaLabel: 'Login',
+      signupCtaLabel: 'Sign up',
+      scrolitha: {
+        enabled: true,
+        eyebrow: 'Scrolitha Live Assistant',
+        title: 'Talk to Scrolitha before you create your account',
+        subtitle: 'Launch guided AI onboarding directly from the guest homepage.',
+        description: 'Visitors can preview gig creation, hiring, briefs, and marketplace workflows before signing in.',
+        primaryPrompt: 'Create a gig draft',
+        primaryLabel: 'Open Scrolitha',
+        secondaryLabel: 'Join with popup',
+        secondaryUrl: '/auth/signup',
+        promptChips: ['Create a gig draft', 'Generate a project brief', 'How do I start on Scrolith?']
+      },
+      authPopup: {
+        enabled: true,
+        delaySeconds: 120,
+        headline: 'Stay on Scrolith and continue your account setup',
+        subheadline: 'Sign in or join directly from the guest homepage with the same enterprise auth controls.',
+        defaultTab: 'signup',
+        dismissLabel: 'Maybe later',
+        trustNote: 'This popup is additive to your existing auth pages and can be dismissed anytime.'
+      }
+    };
+  }
+  return {};
+};
+
 const GuestHomepageBuilder: React.FC = () => {
   const { showNotification } = useNotification();
   const { socket } = useSocket();
@@ -124,6 +196,49 @@ const GuestHomepageBuilder: React.FC = () => {
     setContentDrafts((prev) => ({ ...prev, [sectionId]: value }));
   };
 
+  const hasInvalidContentDraft = useCallback(
+    (sectionId: string) => {
+      try {
+        JSON.parse(contentDrafts[sectionId] || '{}');
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    [contentDrafts]
+  );
+
+  const getSectionContentDraft = useCallback(
+    (section: any) => parseContentObject(contentDrafts[section.id], section?.content && typeof section.content === 'object' ? section.content : {}),
+    [contentDrafts]
+  );
+
+  const updateSectionContentObject = useCallback((section: any, updater: (current: any) => any) => {
+    setContentDrafts((prev) => {
+      const fallback = section?.content && typeof section.content === 'object' ? section.content : {};
+      const current = parseContentObject(prev[section.id], fallback);
+      const next = updater(current || {});
+      return {
+        ...prev,
+        [section.id]: JSON.stringify(next || {}, null, 2)
+      };
+    });
+  }, []);
+
+  const updateSectionContentField = useCallback(
+    (section: any, field: string, value: any) => {
+      updateSectionContentObject(section, (current) => ({ ...current, [field]: value }));
+    },
+    [updateSectionContentObject]
+  );
+
+  const updateSectionNestedField = useCallback(
+    (section: any, path: string[], value: any) => {
+      updateSectionContentObject(section, (current) => setNestedValue(current, path, value));
+    },
+    [updateSectionContentObject]
+  );
+
   const saveSection = async (section: any) => {
     setSaving(true);
     try {
@@ -157,7 +272,7 @@ const GuestHomepageBuilder: React.FC = () => {
       name: `New ${newType}`,
       isActive: true,
       position: orderedSections.length + 1,
-      content: {}
+      content: getGuestSectionInitialContent(newType)
     };
     await saveSection(section);
   };
@@ -310,7 +425,13 @@ const GuestHomepageBuilder: React.FC = () => {
         </div>
 
         <div className="space-y-4">
-          {orderedSections.map((section, index) => (
+          {orderedSections.map((section, index) => {
+            const content = getSectionContentDraft(section);
+            const invalidContentDraft = hasInvalidContentDraft(section.id);
+            const scrolitha = content?.scrolitha || {};
+            const authPopup = content?.authPopup || {};
+
+            return (
             <div key={section.id} className="rounded-xl border border-gray-200 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
@@ -383,6 +504,254 @@ const GuestHomepageBuilder: React.FC = () => {
                 </select>
               </div>
 
+              {section.type === 'guest_hero_auth' ? (
+                <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
+                  <div className="mb-4">
+                    <h4 className="text-sm font-semibold text-slate-900">Guest Hero Experience Controls</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Manage the embedded auth panel, Scrolitha guest conversion card, and the timed sign-in popup.
+                    </p>
+                  </div>
+                  {invalidContentDraft ? (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      Fix the section JSON below to continue using the visual editor for this section.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-gray-600">Headline</label>
+                          <input
+                            value={content.headline || ''}
+                            onChange={(event) => updateSectionContentField(section, 'headline', event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-gray-600">Subheadline</label>
+                          <input
+                            value={content.subheadline || ''}
+                            onChange={(event) => updateSectionContentField(section, 'subheadline', event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div className="md:col-span-2">
+                          <label className="mb-1 block text-xs font-semibold text-gray-600">Description</label>
+                          <textarea
+                            value={content.description || ''}
+                            onChange={(event) => updateSectionContentField(section, 'description', event.target.value)}
+                            className="h-20 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-gray-600">Auth panel title</label>
+                          <input
+                            value={content.authPanelTitle || ''}
+                            onChange={(event) => updateSectionContentField(section, 'authPanelTitle', event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-gray-600">Auth panel subtitle</label>
+                          <input
+                            value={content.authPanelSubtitle || ''}
+                            onChange={(event) => updateSectionContentField(section, 'authPanelSubtitle', event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-semibold text-gray-600">Default auth tab</label>
+                          <select
+                            value={content.defaultTab || 'signup'}
+                            onChange={(event) => updateSectionContentField(section, 'defaultTab', event.target.value)}
+                            className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                          >
+                            <option value="signup">Signup</option>
+                            <option value="login">Login</option>
+                          </select>
+                        </div>
+                        <div className="flex items-center rounded-lg border border-gray-200 bg-white px-3 py-2">
+                          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={content.enableSocialLogin !== false}
+                              onChange={(event) => updateSectionContentField(section, 'enableSocialLogin', event.target.checked)}
+                            />
+                            Enable social login
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-sm font-semibold text-slate-900">Scrolitha embed</h5>
+                            <p className="mt-1 text-xs text-slate-500">Controls the homepage AI card and guest quick prompts.</p>
+                          </div>
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={scrolitha.enabled !== false}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'enabled'], event.target.checked)}
+                            />
+                            Enabled
+                          </label>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Eyebrow</label>
+                            <input
+                              value={scrolitha.eyebrow || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'eyebrow'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Primary prompt</label>
+                            <input
+                              value={scrolitha.primaryPrompt || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'primaryPrompt'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Title</label>
+                            <input
+                              value={scrolitha.title || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'title'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Primary button label</label>
+                            <input
+                              value={scrolitha.primaryLabel || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'primaryLabel'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Subtitle</label>
+                            <textarea
+                              value={scrolitha.subtitle || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'subtitle'], event.target.value)}
+                              className="h-20 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Description</label>
+                            <textarea
+                              value={scrolitha.description || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'description'], event.target.value)}
+                              className="h-20 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Secondary button label</label>
+                            <input
+                              value={scrolitha.secondaryLabel || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'secondaryLabel'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Secondary action URL</label>
+                            <input
+                              value={scrolitha.secondaryUrl || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'secondaryUrl'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Prompt chips (one per line)</label>
+                            <textarea
+                              value={arrayToLines(scrolitha.promptChips)}
+                              onChange={(event) => updateSectionNestedField(section, ['scrolitha', 'promptChips'], linesToArray(event.target.value))}
+                              className="h-24 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-sm font-semibold text-slate-900">Timed sign-in popup</h5>
+                            <p className="mt-1 text-xs text-slate-500">Shows after the configured guest dwell time on the homepage.</p>
+                          </div>
+                          <label className="inline-flex items-center gap-2 text-xs font-semibold text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={authPopup.enabled !== false}
+                              onChange={(event) => updateSectionNestedField(section, ['authPopup', 'enabled'], event.target.checked)}
+                            />
+                            Enabled
+                          </label>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Popup delay (seconds)</label>
+                            <input
+                              type="number"
+                              min={15}
+                              max={900}
+                              value={authPopup.delaySeconds ?? 120}
+                              onChange={(event) =>
+                                updateSectionNestedField(section, ['authPopup', 'delaySeconds'], Number(event.target.value || 120))
+                              }
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Popup default tab</label>
+                            <select
+                              value={authPopup.defaultTab || 'signup'}
+                              onChange={(event) => updateSectionNestedField(section, ['authPopup', 'defaultTab'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            >
+                              <option value="signup">Signup</option>
+                              <option value="login">Login</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Popup headline</label>
+                            <input
+                              value={authPopup.headline || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['authPopup', 'headline'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Dismiss button label</label>
+                            <input
+                              value={authPopup.dismissLabel || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['authPopup', 'dismissLabel'], event.target.value)}
+                              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Popup subheadline</label>
+                            <textarea
+                              value={authPopup.subheadline || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['authPopup', 'subheadline'], event.target.value)}
+                              className="h-20 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1 block text-xs font-semibold text-gray-600">Popup trust note</label>
+                            <textarea
+                              value={authPopup.trustNote || ''}
+                              onChange={(event) => updateSectionNestedField(section, ['authPopup', 'trustNote'], event.target.value)}
+                              className="h-20 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+
               <div className="mt-3">
                 <label className="mb-1 block text-xs font-semibold text-gray-600">Section content JSON</label>
                 <textarea
@@ -403,7 +772,8 @@ const GuestHomepageBuilder: React.FC = () => {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

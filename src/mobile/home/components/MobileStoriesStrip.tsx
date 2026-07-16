@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   AlignCenterIcon as AlignCenter,
   AlignLeftIcon as AlignLeft,
@@ -18,25 +19,55 @@ import { ChevronLeft, ChevronRight, Coins, Download, MessageCircle, Radio, Repea
 import { useNavigate } from 'react-router-dom';
 
 import { useUser } from '../../../context/UserContext';
+import { useLiveFeature } from '../../../context/LiveFeatureContext';
 import { useNotification } from '../../../context/NotificationContext';
 import { CommunityService } from '../../../services/community';
 import { FileService } from '../../../services/files';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../../../services/scroll';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../../../community/storyStyles';
+import FollowButton from '../../../community/components/FollowButton';
 import { UploadedFile } from '../../../types';
 import ScrollCreateModal from '../../../features/scroll/ScrollCreateModal';
-import { resolveAssetUrl } from '../../../utils/assetUrl';
+import EnterpriseStoryViewer from '../../../features/stories/components/StoryViewer';
+import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
+import StaticPreviewText from '../../../components/common/StaticPreviewText';
+import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
+import OptimizedImage from '../../../components/media/OptimizedImage';
+import { resolveInlineMedia } from '../../../utils/inlineMedia';
 import { downloadToDevice } from '../../../utils/deviceDownload';
+import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
+import { hydrateStoryAuthorAvatars } from '../../../utils/storyAuthorAvatarHydration';
 import ReactionBar from '../../../community/components/ReactionBar';
+import OverlayActionRailButton from '../../../components/media/OverlayActionRailButton';
+import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 import RepostModal from '../../../community/components/RepostModal';
 import PostShareModal from '../../../community/components/PostShareModal';
 import SendGcoinModal from '../../../components/SendGcoinModal';
 import { LiveService, type LiveSession } from '../../../services/live';
+import { buildPublicAppUrl } from '../../../utils/siteUrl';
+import StoryUploadStatusCard from '../../../components/stories/StoryUploadStatusCard';
+import StoryReplySheet from '../../../components/stories/StoryReplySheet';
+import StoryAuthorAvatar from '../../../components/stories/StoryAuthorAvatar';
+import {
+  MOBILE_MODAL_CARD_CLASS,
+  MOBILE_PAGE_CONTAINER_CLASS,
+  MOBILE_STORY_VIEWER_CLASS
+} from '../mobileShellLayout';
 
 type StoryKind = 'text' | 'image' | 'video';
 type StoryVisibility = 'public' | 'private';
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+const STORY_CONTROL_HIDE_DELAY_MS = 20000;
+const STORY_AUTO_ADVANCE_MS = 5500;
+const STORY_VIDEO_FALLBACK_ADVANCE_MS = 9000;
+const STORY_AUTO_ADVANCE_MAX_MS = 30000;
+const RAIL_TAP_MAX_TRAVEL = 72;
+const RAIL_ACTION_DEDUPE_MS = 260;
+const STORY_RAIL_CARD_CLASS =
+  'relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl sm:h-[176px] sm:w-[108px] md:h-[188px] md:w-[120px]';
+const STORY_RAIL_MEDIA_SIZES = '(max-width: 640px) 92px, (max-width: 768px) 108px, 120px';
 
 const normalizeVisibility = (value: any): StoryVisibility => {
   const raw = String(value || '').trim().toLowerCase();
@@ -44,9 +75,12 @@ const normalizeVisibility = (value: any): StoryVisibility => {
 };
 
 const resolveStoryType = (story: any): StoryKind => {
-  const raw = String(story?.type || '').trim().toLowerCase();
+  const raw = String(story?.type || story?.storyType || story?.media?.type || '').trim().toLowerCase();
   if (raw === 'video') return 'video';
   if (raw === 'image') return 'image';
+  const media = resolveInlineMedia(story, { typeHint: raw || story?.type });
+  if (media.kind === 'video') return 'video';
+  if (media.kind === 'image') return 'image';
   return 'text';
 };
 
@@ -63,24 +97,184 @@ const isStoryActive = (story: any) => {
 };
 
 const resolveStoryMediaUrl = (story: any) => {
-  const media = story?.media || story?.mediaFile || story?.file || null;
-  const url = media?.url || media?.downloadUrl || media?.download_url || null;
-  const thumb = media?.thumbnailUrl || media?.thumbnail_url || null;
-  const type = String(story?.type || media?.type || '').toLowerCase();
-  const mime = String(media?.mimeType || media?.mime_type || '').toLowerCase();
-  const isVideo = type === 'video' || mime.startsWith('video/');
-  if (isVideo) return { isVideo: true, url: url || thumb || null, thumbnailUrl: thumb || url || null };
-  return { isVideo: false, url: url || thumb || null, thumbnailUrl: null };
+  const media = resolveInlineMedia(story, { typeHint: story?.type });
+  return {
+    isVideo: media.kind === 'video',
+    url: media.src || null,
+    thumbnailUrl: media.poster || null
+  };
+};
+
+const resolveStoryAutoAdvanceDelay = (story: any) => {
+  if (resolveStoryType(story) !== 'video') return STORY_AUTO_ADVANCE_MS;
+  const durationSeconds = Number(story?.media?.duration ?? story?.duration ?? story?.mediaDuration ?? 0);
+  if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+    return Math.max(4000, Math.min(STORY_AUTO_ADVANCE_MAX_MS, Math.round(durationSeconds * 1000 + 350)));
+  }
+  return STORY_VIDEO_FALLBACK_ADVANCE_MS;
 };
 
 const resolveStoryAuthorName = (story: any, fallback = 'Story') => {
-  const normalized = String(story?.authorName || story?.author?.name || '').trim();
+  const normalized = String(
+    story?.authorName ||
+      story?.author?.displayName ||
+      story?.author?.name ||
+      story?.author?.username ||
+      story?.userName ||
+      story?.user_name ||
+      story?.user?.displayName ||
+      story?.user?.name ||
+      story?.user?.username ||
+      ''
+  ).trim();
   return normalized || fallback;
 };
 
-const resolveStoryAuthorAvatar = (story: any) => {
-  const normalized = String(story?.authorAvatar || story?.author?.avatar || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
+  if (!story || !viewer) return '';
+  const normalizeOwnerToken = (value: unknown) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
+  const storyOwnerTokens = [
+    story?.authorId,
+    story?.userId,
+    story?.user_id,
+    story?.author?.id,
+    story?.authorUsername,
+    story?.author?.username,
+    story?.userName,
+    story?.user_name,
+    story?.user?.username,
+    story?.authorName,
+    story?.author?.displayName,
+    story?.author?.name,
+    story?.user?.displayName,
+    story?.user?.name
+  ].map(normalizeOwnerToken).filter(Boolean);
+  const viewerTokens = [
+    viewer?.id,
+    viewer?.user_id,
+    viewer?.username,
+    viewer?.user_name,
+    viewer?.name,
+    viewer?.email
+  ].map(normalizeOwnerToken).filter(Boolean);
+  if (!storyOwnerTokens.some((token) => viewerTokens.includes(token))) return '';
+
+  const viewerAvatar = resolveUserAvatarUrl(viewer);
+  if (viewerAvatar) return viewerAvatar;
+
+  const viewerProfilePhotoFileId = String(
+    viewer?.profilePhotoFileId || viewer?.profile_photo_file_id || viewer?.avatarFileId || viewer?.avatar_file_id || ''
+  ).trim();
+  if (viewerProfilePhotoFileId) return resolvePostAttachmentMediaUrl({ fileId: viewerProfilePhotoFileId });
+
+  return '';
+};
+
+const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
+  const directAvatar = String(
+    story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.author?.avatar ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo ||
+      ''
+  ).trim();
+  if (
+    directAvatar &&
+    (/^(https?:|data:|blob:|\/|uploads\/)/i.test(directAvatar) ||
+      directAvatar.includes('/uploads/') ||
+      /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(directAvatar))
+  ) {
+    return resolvePostAttachmentMediaUrl({ url: directAvatar });
+  }
+
+  const profilePhotoFileId = String(
+    story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.profile_photo_file_id ||
+      story?.avatarFileId ||
+      story?.avatar_file_id ||
+      story?.author?.profilePhotoFileId ||
+      story?.author?.profile_photo_file_id ||
+      story?.author?.avatarFileId ||
+      story?.author?.avatar_file_id ||
+      story?.user?.profilePhotoFileId ||
+      story?.user?.profile_photo_file_id ||
+      story?.user?.avatarFileId ||
+      story?.user?.avatar_file_id ||
+      ''
+  ).trim();
+  if (profilePhotoFileId) {
+    return resolvePostAttachmentMediaUrl({ fileId: profilePhotoFileId });
+  }
+
+  return resolveUserAvatarUrl({
+    ...story,
+    ...(story?.author || {}),
+    avatarUrl:
+      story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl,
+    avatar:
+      story?.avatar ||
+      story?.author?.avatar ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo,
+    profilePhotoFileId:
+      story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.author?.profilePhotoFileId ||
+      story?.user?.profilePhotoFileId,
+    profile_photo_file_id:
+      story?.profile_photo_file_id ||
+      story?.author?.profile_photo_file_id ||
+      story?.user?.profile_photo_file_id,
+    avatarFileId: story?.avatarFileId || story?.author?.avatarFileId || story?.user?.avatarFileId,
+    avatar_file_id: story?.avatar_file_id || story?.author?.avatar_file_id || story?.user?.avatar_file_id
+  }) || resolveViewerProfileAvatar(story, viewer);
+};
+
+const resolveStoryAuthorProfileUrl = (story: any) => {
+  const companySlug = String(
+    story?.author?.businessSlug ||
+      story?.author?.companySlug ||
+      story?.author?.pageSlug ||
+      story?.page?.slug ||
+      story?.businessPage?.slug ||
+      ''
+  ).trim();
+  if (companySlug) return `/company/${encodeURIComponent(companySlug)}`;
+
+  const username = String(
+    story?.authorUsername ||
+      story?.author?.username ||
+      story?.userName ||
+      story?.user_name ||
+      story?.user?.username ||
+      ''
+  )
+    .trim()
+    .replace(/^@+/, '');
+  if (username) return `/u/${encodeURIComponent(username)}`;
+
+  const authorId = resolveStoryOwnerId(story);
+  if (authorId) return `/profile/${encodeURIComponent(authorId)}`;
+  return null;
 };
 
 const resolveStoryAuthorInitial = (story: any) => {
@@ -96,21 +290,55 @@ const formatCompactCount = (value: unknown) => {
   return String(Math.trunc(numeric));
 };
 
-const resolveScrollMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+const resolveScrollMedia = (scroll: ScrollVideo) => {
+  const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
+  return {
+    url: media.src || '',
+    poster: media.poster || undefined
+  };
+};
 
 const resolveScrollAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
-  const normalized = String(scroll?.author?.name || '').trim();
+  const normalized = String(
+    scroll?.author?.displayName || scroll?.author?.name || scroll?.author?.username || ''
+  ).trim();
   return normalized || fallback;
 };
 
 const resolveScrollAuthorAvatar = (scroll: ScrollVideo) => {
-  const normalized = String(scroll?.author?.avatar || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+  return resolvePostAttachmentMediaUrl({
+    url:
+      scroll?.author?.avatarUrl ||
+      scroll?.author?.avatar ||
+      scroll?.author?.photo ||
+      '',
+    fileId:
+      scroll?.author?.avatarFileId ||
+      scroll?.author?.avatar_file_id ||
+      ''
+  });
 };
 
 const resolveScrollAuthorInitial = (scroll: ScrollVideo) => {
   const first = resolveScrollAuthorName(scroll, 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase();
   return first || 'S';
+};
+
+const resolveScrollAuthorProfileUrl = (scroll: ScrollVideo) => {
+  const companySlug = String(
+    scroll?.author?.businessSlug ||
+      scroll?.author?.companySlug ||
+      scroll?.author?.pageSlug ||
+      ''
+  ).trim();
+  if (companySlug) return `/company/${encodeURIComponent(companySlug)}`;
+
+  const username = String(scroll?.author?.username || '').trim().replace(/^@+/, '');
+  if (username) return `/u/${encodeURIComponent(username)}`;
+
+  const authorId = String(scroll?.author?.id || '').trim();
+  if (authorId) return `/profile/${encodeURIComponent(authorId)}`;
+  return null;
 };
 
 const canManageStory = (story: any, user: any) => {
@@ -134,9 +362,8 @@ const removeStoryFromList = (prev: any[], storyId: string) => {
   return list.filter((s) => String(s?.id) !== String(storyId));
 };
 
-const STORIES_CACHE_VERSION = 'v1';
-const STORIES_CACHE_TTL_MS = 4 * 60 * 1000;
-const SCROLL_CACHE_TTL_MS = 6 * 60 * 1000;
+const STORIES_CACHE_VERSION = 'v7';
+const LIVE_CACHE_TTL_MS = 90 * 1000;
 const withFastFail = async <T,>(promise: Promise<T>, timeoutMs: number, fallbackMessage: string): Promise<T> => {
   let timer: number | null = null;
   try {
@@ -172,7 +399,7 @@ const Sheet = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
+      <div className={MOBILE_MODAL_CARD_CLASS}>
         <div className="mb-3 flex items-center justify-between">
           <div className="text-sm font-semibold text-slate-900">{title}</div>
           <button
@@ -215,17 +442,28 @@ const SheetItem = ({
   </button>
 );
 
-export default function MobileStoriesStrip({ settings }: { settings?: any }) {
+export default function MobileStoriesStrip({
+  settings,
+  onOpenScroll
+}: {
+  settings?: any;
+  onOpenScroll?: (scroll: ScrollVideo) => void;
+}) {
   const navigate = useNavigate();
   const { user } = useUser();
+  const { status: liveFeatureStatus } = useLiveFeature();
   const { showNotification } = useNotification();
+  const { profile } = usePerformanceProfile();
   const currentUserId = String(user?.id || 'guest').trim() || 'guest';
   const storiesCacheKey = useMemo(() => `mobile_stories:${STORIES_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
   const scrollCacheKey = useMemo(() => `mobile_scrolls:${STORIES_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
+  const liveCacheKey = useMemo(() => `mobile_live:${STORIES_CACHE_VERSION}:${currentUserId}`, [currentUserId]);
 
   const enabled = settings?.stories?.enabled !== false;
   const maxItems = clamp(Number(settings?.stories?.maxItems ?? 12) || 12, 4, 40);
   const maxScrollItems = clamp(Number(settings?.stories?.maxReels ?? settings?.stories?.maxItems ?? 12) || 12, 4, 40);
+  const lightweightRailMode = profile.lowBandwidth || profile.dataSaver;
+  const previewAutoplayEnabled = profile.autoplayEnabled && !lightweightRailMode;
 
   const [stories, setStories] = useState<any[]>([]);
   const [scrolls, setScrolls] = useState<ScrollVideo[]>([]);
@@ -240,9 +478,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [storiesReloadTick, setStoriesReloadTick] = useState(0);
   const [scrollReloadTick, setScrollReloadTick] = useState(0);
   const [liveReloadTick, setLiveReloadTick] = useState(0);
+  const [scrollRailPrimed, setScrollRailPrimed] = useState(false);
+  const [liveRailPrimed, setLiveRailPrimed] = useState(false);
   const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [storyPreviewMediaErrors, setStoryPreviewMediaErrors] = useState<Record<string, boolean>>({});
+  const [storyAvatarErrors, setStoryAvatarErrors] = useState<Record<string, boolean>>({});
+  const [scrollAvatarErrors, setScrollAvatarErrors] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setStoryAvatarErrors({});
+  }, [currentUserId, storiesReloadTick]);
 
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerStep, setComposerStep] = useState<'choose' | 'compose'>('choose');
@@ -256,20 +503,194 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const [publishing, setPublishing] = useState(false);
   const [mediaUploadBusy, setMediaUploadBusy] = useState(false);
   const [mediaUploadLabel, setMediaUploadLabel] = useState('');
+  const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
   const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
   const [storyCommentOpen, setStoryCommentOpen] = useState(false);
-  const [storyCommentDraft, setStoryCommentDraft] = useState('');
   const [storyRepostOpen, setStoryRepostOpen] = useState(false);
   const [storySendOpen, setStorySendOpen] = useState(false);
   const [storyDashOpen, setStoryDashOpen] = useState(false);
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
+  const railGestureStartRef = useRef<{ key: string; x: number; y: number } | null>(null);
+  const recentRailActionRef = useRef<{ key: string; at: number } | null>(null);
+  const storiesRef = useRef<any[]>([]);
+  const scrollsRef = useRef<ScrollVideo[]>([]);
 
   const visibleStories = useMemo(() => {
     const list = Array.isArray(stories) ? stories : [];
     return list.filter(isStoryActive).slice(0, maxItems);
   }, [stories, maxItems]);
+
+  useEffect(() => {
+    storiesRef.current = stories;
+  }, [stories]);
+
+  useEffect(() => {
+    scrollsRef.current = scrolls;
+  }, [scrolls]);
+
+  const runRailAction = useCallback((key: string, action: () => void) => {
+    const normalizedKey = String(key || '').trim();
+    if (!normalizedKey) {
+      action();
+      return;
+    }
+    const now = Date.now();
+    const previous = recentRailActionRef.current;
+    if (previous?.key === normalizedKey && now - previous.at < RAIL_ACTION_DEDUPE_MS) return;
+    recentRailActionRef.current = { key: normalizedKey, at: now };
+    action();
+  }, []);
+
+  const beginRailGesture = useCallback((key: string, event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    railGestureStartRef.current = {
+      key: String(key || '').trim(),
+      x: event.clientX,
+      y: event.clientY
+    };
+    if (event.pointerType === 'touch') {
+      try {
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      } catch {
+        // Ignore unsupported pointer capture environments.
+      }
+    }
+  }, []);
+
+  const cancelRailGesture = useCallback((event?: React.PointerEvent<HTMLElement>) => {
+    railGestureStartRef.current = null;
+    if (event?.pointerType === 'touch') {
+      try {
+        if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+          event.currentTarget.releasePointerCapture?.(event.pointerId);
+        }
+      } catch {
+        // Ignore unsupported pointer capture environments.
+      }
+    }
+  }, []);
+
+  const commitRailGesture = useCallback(
+    (key: string, event: React.PointerEvent<HTMLElement>, action: () => void) => {
+      const normalizedKey = String(key || '').trim();
+      const start = railGestureStartRef.current;
+      railGestureStartRef.current = null;
+      if (event.pointerType === 'touch') {
+        try {
+          if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+            event.currentTarget.releasePointerCapture?.(event.pointerId);
+          }
+        } catch {
+          // Ignore unsupported pointer capture environments.
+        }
+      }
+      if (!start || start.key !== normalizedKey) return;
+      const deltaX = Math.abs(event.clientX - start.x);
+      const deltaY = Math.abs(event.clientY - start.y);
+      if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
+      event.preventDefault();
+      event.stopPropagation();
+      runRailAction(normalizedKey, action);
+    },
+    [runRailAction]
+  );
+
+  const beginRailTouchGesture = useCallback((key: string, event: React.TouchEvent<HTMLElement>) => {
+    const touch = event.changedTouches?.[0] || event.touches?.[0];
+    if (!touch) return;
+    railGestureStartRef.current = {
+      key: String(key || '').trim(),
+      x: touch.clientX,
+      y: touch.clientY
+    };
+  }, []);
+
+  const cancelRailTouchGesture = useCallback(() => {
+    railGestureStartRef.current = null;
+  }, []);
+
+  const commitRailTouchGesture = useCallback(
+    (key: string, event: React.TouchEvent<HTMLElement>, action: () => void) => {
+      const normalizedKey = String(key || '').trim();
+      const start = railGestureStartRef.current;
+      const touch = event.changedTouches?.[0] || event.touches?.[0];
+      railGestureStartRef.current = null;
+      if (!start || start.key !== normalizedKey || !touch) return;
+      const deltaX = Math.abs(touch.clientX - start.x);
+      const deltaY = Math.abs(touch.clientY - start.y);
+      if (Math.max(deltaX, deltaY) > RAIL_TAP_MAX_TRAVEL) return;
+      event.preventDefault();
+      event.stopPropagation();
+      runRailAction(normalizedKey, action);
+    },
+    [runRailAction]
+  );
+
+  const openStoryFromRail = useCallback(
+    (story: any) => {
+      const storyId = String(story?.id || '').trim();
+      flushSync(() => {
+        setActiveStory(story);
+      });
+      if (storyId) {
+        CommunityService.viewStory(storyId).catch(() => {});
+      }
+    },
+    []
+  );
+
+  const openScrollFromRail = useCallback(
+    (scroll: ScrollVideo) => {
+      const normalizedId = String(scroll?.id || '').trim();
+      if (!normalizedId) return;
+      if (onOpenScroll) {
+        onOpenScroll(scroll);
+        return;
+      }
+      navigate(`/scroll?scroll=${encodeURIComponent(normalizedId)}`, {
+        state: { fromMobileHome: true }
+      });
+    },
+    [navigate, onOpenScroll]
+  );
+
+  const handleStoryRailClick = useCallback(
+    (story: any) => {
+      const storyId = String(story?.id || '').trim();
+      runRailAction(`story:${storyId || 'unknown'}`, () => {
+        openStoryFromRail(story);
+      });
+    },
+    [openStoryFromRail, runRailAction]
+  );
+
+  const handleScrollRailClick = useCallback(
+    (scroll: ScrollVideo) => {
+      const normalizedId = String(scroll?.id || '').trim();
+      if (!normalizedId) return;
+      runRailAction(`scroll:${normalizedId}`, () => {
+        openScrollFromRail(scroll);
+      });
+    },
+    [openScrollFromRail, runRailAction]
+  );
+
+  useEffect(() => {
+    if (storyRailTab === 'scroll') setScrollRailPrimed(true);
+    if (storyRailTab === 'live') setLiveRailPrimed(true);
+  }, [storyRailTab]);
+
+  useEffect(() => {
+    if (!enabled || lightweightRailMode) return;
+    const scrollTimer = window.setTimeout(() => setScrollRailPrimed(true), 1800);
+    const liveTimer = window.setTimeout(() => setLiveRailPrimed(true), 3200);
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(liveTimer);
+    };
+  }, [enabled, lightweightRailMode]);
 
   const resetDraft = () => {
     setComposerMode('create');
@@ -280,6 +701,9 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     setDraftMediaFile(null);
     setDraftTextStyle(getDefaultStoryTextDraft());
     setComposerStep('choose');
+    setMediaUploadBusy(false);
+    setMediaUploadLabel('');
+    setMediaUploadProgress(0);
   };
 
   const openCreate = () => {
@@ -293,6 +717,9 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
 
   const openEdit = (story: any) => {
     if (!story?.id || !canManageStory(story, user)) return;
+    setMediaUploadBusy(false);
+    setMediaUploadLabel('');
+    setMediaUploadProgress(0);
     setComposerMode('edit');
     setEditingStory(story);
     const type = resolveStoryType(story);
@@ -332,8 +759,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   };
 
   const buildStoryUrl = (storyId: string) => {
-    if (typeof window === 'undefined') return `https://scrolith.com/community/stories/${encodeURIComponent(storyId)}`;
-    return `${window.location.origin}/community/stories/${encodeURIComponent(storyId)}`;
+    return buildPublicAppUrl(`/community/stories/${encodeURIComponent(storyId)}`);
   };
 
   const patchStoryInState = (storyId: string, patch: Record<string, any>) => {
@@ -345,6 +771,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       })
     );
     setActiveStory((current) => (String(current?.id) === String(storyId) ? { ...current, ...patch } : current));
+    setStoryActionTarget((current) =>
+      String(current?.id) === String(storyId)
+        ? {
+            ...current,
+            ...patch,
+            interactions: {
+              ...(current?.interactions || {}),
+              ...(patch?.interactions || {})
+            }
+          }
+        : current
+    );
   };
 
   const engageStoryAndSync = async (story: any, type: 'comment' | 'repost' | 'dash' | 'send') => {
@@ -355,10 +793,12 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       const response = await CommunityService.engageStory(storyId, type);
       const nextStory = response?.story || response?.data?.story || null;
       const interactions = response?.interactions || response?.data?.interactions || null;
+      let storyPatch: Record<string, any> | null = null;
       if (nextStory && typeof nextStory === 'object') {
+        storyPatch = nextStory;
         patchStoryInState(storyId, nextStory);
       } else if (interactions && typeof interactions === 'object') {
-        patchStoryInState(storyId, {
+        storyPatch = {
           commentsCount: interactions.comments,
           repostsCount: interactions.reposts,
           dashesCount: interactions.dashes,
@@ -369,18 +809,25 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
             dashes: interactions.dashes,
             sends: interactions.sends
           }
-        });
+        };
+        patchStoryInState(storyId, storyPatch);
       } else {
         const increments: Record<string, number> = {};
         if (type === 'comment') increments.commentsCount = Number(story?.commentsCount || story?.interactions?.comments || 0) + 1;
         if (type === 'repost') increments.repostsCount = Number(story?.repostsCount || story?.interactions?.reposts || 0) + 1;
         if (type === 'dash') increments.dashesCount = Number(story?.dashesCount || story?.interactions?.dashes || 0) + 1;
         if (type === 'send') increments.sendsCount = Number(story?.sendsCount || story?.interactions?.sends || 0) + 1;
+        storyPatch = increments;
         patchStoryInState(storyId, increments);
       }
       window.dispatchEvent(
         new CustomEvent('community:story_engaged', {
-          detail: { storyId, type }
+          detail: {
+            storyId,
+            type,
+            interactions,
+            story: storyPatch ? { id: storyId, ...storyPatch } : undefined
+          }
         })
       );
     } finally {
@@ -409,11 +856,26 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
         payload?.likesCount ??
         payload?.likes ??
         Math.max(0, Number(story?.likesCount ?? story?._count?.likes ?? 0) + (liked ? 1 : -1));
-      patchStoryInState(storyId, {
+      const storyPatch = {
         likesCount,
         viewerLiked: liked,
         _count: { ...(story?._count || {}), likes: likesCount }
-      });
+      };
+      patchStoryInState(storyId, storyPatch);
+      window.dispatchEvent(
+        new CustomEvent('community:story_liked', {
+          detail: {
+            storyId,
+            userId: user.id,
+            liked,
+            likesCount,
+            story: {
+              id: storyId,
+              ...storyPatch
+            }
+          }
+        })
+      );
     } catch (error) {
       console.error('Failed to like story', error);
     } finally {
@@ -428,7 +890,6 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   const handleStoryCommentAction = (story: any) => {
     if (!story?.id) return;
     setStoryActionTarget(story);
-    setStoryCommentDraft('');
     setStoryCommentOpen(true);
   };
 
@@ -448,28 +909,6 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     if (!story?.id) return;
     setStoryActionTarget(story);
     setStoryDashOpen(true);
-  };
-
-  const submitStoryComment = async () => {
-    const story = storyActionTarget;
-    const storyId = String(story?.id || '').trim();
-    if (!storyId) return;
-    const content = String(storyCommentDraft || '').trim();
-    if (!content) {
-      showNotification('warning', 'Stories', 'Comment cannot be empty.');
-      return;
-    }
-    try {
-      await CommunityService.createPost({
-        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
-      });
-      await engageStoryAndSync(story, 'comment');
-      setStoryCommentOpen(false);
-      setStoryCommentDraft('');
-      showNotification('success', 'Stories', 'Comment shared to your feed.');
-    } catch (e: any) {
-      showNotification('error', 'Stories', e?.response?.data?.error || e?.message || 'Unable to comment on story.');
-    }
   };
 
   const repostStory = async (comment?: string) => {
@@ -493,17 +932,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
   };
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     let mounted = true;
     let hasCachedStories = false;
     try {
       const raw = localStorage.getItem(storiesCacheKey);
       if (raw) {
         const parsed = JSON.parse(raw) as { ts?: number; items?: any[] };
-        const ts = Number(parsed?.ts || 0);
-        const age = Date.now() - ts;
         const cachedStories = Array.isArray(parsed?.items) ? parsed.items.filter(isStoryActive).slice(0, maxItems) : [];
-        if (cachedStories.length && age <= STORIES_CACHE_TTL_MS) {
+        if (cachedStories.length) {
           hasCachedStories = true;
           setStories(cachedStories);
           setError(null);
@@ -514,11 +954,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     }
     setLoading(!hasCachedStories);
     setError(null);
-    withFastFail(CommunityService.getStoriesFeed(), 8000, 'Stories request timed out. Tap retry.')
-      .then((items) => {
+    withFastFail(CommunityService.getStoriesFeed(), 25000, 'Stories request timed out. Tap retry.')
+      .then(async (items) => {
         if (!mounted) return;
-        const nextStories = Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : [];
+        const filteredStories = Array.isArray(items) ? items.filter(isStoryActive).slice(0, maxItems) : [];
+        const nextStories = await hydrateStoryAuthorAvatars(filteredStories, user);
+        if (!mounted) return;
+        if (nextStories.length === 0 && storiesRef.current.length > 0) {
+          setError('Showing saved stories while we reconnect.');
+          return;
+        }
         setStories(nextStories);
+        setError(null);
         try {
           localStorage.setItem(
             storiesCacheKey,
@@ -533,8 +980,12 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       })
       .catch((e: any) => {
         if (!mounted) return;
-        setError(e?.response?.data?.error || e?.message || 'Failed to load stories');
-        if (!hasCachedStories) setStories([]);
+        if (hasCachedStories || storiesRef.current.length > 0) {
+          setError('Showing saved stories while we reconnect.');
+        } else {
+          setError(e?.response?.data?.error || e?.message || 'Failed to load stories');
+          setStories([]);
+        }
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -542,7 +993,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, maxItems, storiesCacheKey, storiesReloadTick]);
+  }, [enabled, maxItems, storiesCacheKey, storiesReloadTick, user]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -552,10 +1003,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       const raw = localStorage.getItem(scrollCacheKey);
       if (raw) {
         const parsed = JSON.parse(raw) as { ts?: number; items?: ScrollVideo[]; config?: ScrollConfig | null };
-        const ts = Number(parsed?.ts || 0);
-        const age = Date.now() - ts;
         const cachedScrolls = Array.isArray(parsed?.items) ? parsed.items.slice(0, maxScrollItems) : [];
-        if (cachedScrolls.length && age <= SCROLL_CACHE_TTL_MS) {
+        if (cachedScrolls.length) {
           hasCachedScrolls = true;
           setScrolls(cachedScrolls);
           setScrollConfig(parsed?.config || null);
@@ -567,14 +1016,20 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     }
     setScrollsLoading(!hasCachedScrolls);
     setScrollError(null);
-    withFastFail(ScrollService.getFeed({ limit: maxScrollItems }), 8500, 'Scroll request timed out. Tap retry.')
+    withFastFail(ScrollService.getFeed({ limit: maxScrollItems }), 25000, 'Scroll request timed out. Tap retry.')
       .then((feed) => {
         if (!mounted) return;
         const items = Array.isArray(feed?.items)
           ? feed.items.filter((item) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, maxScrollItems)
           : [];
+        if (items.length === 0 && scrollsRef.current.length > 0) {
+          setScrollConfig(feed?.config || null);
+          setScrollError('Showing saved Scroll videos while we reconnect.');
+          return;
+        }
         setScrolls(items);
         setScrollConfig(feed?.config || null);
+        setScrollError(null);
         try {
           localStorage.setItem(
             scrollCacheKey,
@@ -590,8 +1045,10 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       })
       .catch((e: any) => {
         if (!mounted) return;
-        setScrollError(e?.response?.data?.error || e?.message || 'Failed to load Scroll videos');
-        if (!hasCachedScrolls) {
+        if (hasCachedScrolls || scrollsRef.current.length > 0) {
+          setScrollError('Showing saved Scroll videos while we reconnect.');
+        } else {
+          setScrollError(e?.response?.data?.error || e?.message || 'Failed to load Scroll videos');
           setScrolls([]);
           setScrollConfig(null);
         }
@@ -602,23 +1059,61 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, maxScrollItems, scrollCacheKey, scrollReloadTick]);
+  }, [enabled, maxScrollItems, scrollCacheKey, scrollRailPrimed, scrollReloadTick]);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !liveFeatureStatus.enabled || !liveRailPrimed) {
+      setLiveSessions([]);
+      setLiveError(null);
+      setLiveLoading(false);
+      return;
+    }
     let mounted = true;
-    setLiveLoading(true);
+    let hasCachedLive = false;
+    try {
+      const raw = localStorage.getItem(liveCacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ts?: number; items?: LiveSession[] };
+        const ts = Number(parsed?.ts || 0);
+        const age = Date.now() - ts;
+        const cachedSessions = Array.isArray(parsed?.items) ? parsed.items : [];
+        if (cachedSessions.length && age <= LIVE_CACHE_TTL_MS) {
+          hasCachedLive = true;
+          setLiveSessions(cachedSessions);
+          setLiveError(null);
+        }
+      }
+    } catch {
+      // Ignore cache parse errors.
+    }
+    setLiveLoading(!hasCachedLive);
     setLiveError(null);
-    withFastFail(LiveService.getActiveSessions(20), 8500, 'Live streams request timed out. Tap retry.')
+    withFastFail(LiveService.getActiveSessions(20), 16000, 'Live streams request timed out. Tap retry.')
       .then((result) => {
         if (!mounted) return;
         const next = Array.isArray(result?.items) ? result.items : [];
         setLiveSessions(next);
+        setLiveError(null);
+        try {
+          localStorage.setItem(
+            liveCacheKey,
+            JSON.stringify({
+              ts: Date.now(),
+              items: next
+            })
+          );
+        } catch {
+          // Ignore cache write errors.
+        }
       })
       .catch((error: any) => {
         if (!mounted) return;
-        setLiveError(error?.response?.data?.error || error?.message || 'Failed to load active live streams');
-        setLiveSessions([]);
+        if (hasCachedLive) {
+          setLiveError('Showing saved live sessions while we reconnect.');
+        } else {
+          setLiveError(error?.response?.data?.error || error?.message || 'Failed to load active live streams');
+          setLiveSessions([]);
+        }
       })
       .finally(() => {
         if (mounted) setLiveLoading(false);
@@ -626,7 +1121,12 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
     return () => {
       mounted = false;
     };
-  }, [enabled, liveReloadTick]);
+  }, [enabled, liveCacheKey, liveFeatureStatus.enabled, liveRailPrimed, liveReloadTick]);
+
+  useEffect(() => {
+    if (liveFeatureStatus.enabled || storyRailTab !== 'live') return;
+    setStoryRailTab('stories');
+  }, [liveFeatureStatus.enabled, storyRailTab]);
 
   // Realtime: socket layer forwards socket events as window CustomEvents.
   useEffect(() => {
@@ -655,23 +1155,55 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       const detail = (event as CustomEvent).detail || {};
       const storyId = String(detail?.storyId || detail?.id || '').trim();
       const story = detail?.story || null;
+      const interactions = detail?.interactions || {};
       if (!storyId && !story?.id) return;
       const normalizedId = storyId || String(story.id);
       if (story && typeof story === 'object') {
         patchStoryInState(normalizedId, story);
+        return;
       }
+      if (interactions && typeof interactions === 'object') {
+        patchStoryInState(normalizedId, {
+          commentsCount: interactions.comments,
+          repostsCount: interactions.reposts,
+          dashesCount: interactions.dashes,
+          sendsCount: interactions.sends,
+          interactions: {
+            comments: interactions.comments,
+            reposts: interactions.reposts,
+            dashes: interactions.dashes,
+            sends: interactions.sends
+          }
+        });
+      }
+    };
+    const onLiked = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const storyId = String(detail?.storyId || detail?.id || '').trim();
+      if (!storyId) return;
+      const likesCount = detail?.likesCount;
+      const likedByViewer = user?.id ? String(detail?.userId) === String(user.id) && Boolean(detail?.liked) : undefined;
+      patchStoryInState(storyId, {
+        likesCount,
+        viewerLiked: likedByViewer,
+        _count: {
+          likes: likesCount
+        }
+      });
     };
     window.addEventListener('community:story_created', onCreated as EventListener);
     window.addEventListener('community:story_updated', onUpdated as EventListener);
     window.addEventListener('community:story_deleted', onDeleted as EventListener);
     window.addEventListener('community:story_engaged', onEngaged as EventListener);
+    window.addEventListener('community:story_liked', onLiked as EventListener);
     return () => {
       window.removeEventListener('community:story_created', onCreated as EventListener);
       window.removeEventListener('community:story_updated', onUpdated as EventListener);
       window.removeEventListener('community:story_deleted', onDeleted as EventListener);
       window.removeEventListener('community:story_engaged', onEngaged as EventListener);
+      window.removeEventListener('community:story_liked', onLiked as EventListener);
     };
-  }, [enabled, maxItems]);
+  }, [enabled, maxItems, user?.id]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -729,22 +1261,30 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       return;
     }
     setMediaUploadBusy(true);
+    setMediaUploadProgress(0);
     setMediaUploadLabel(`Uploading ${file.name}`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community' as any, {
         role: user.role,
         visibility: draftVisibility === 'private' ? 'private' : 'public',
-        userId: user.id
+        userId: user.id,
+        onProgress: (percent) => {
+          setMediaUploadProgress(percent || 0);
+          setMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+        }
       });
       setDraftType(type);
       setDraftMediaFile(uploaded);
       setComposerStep('compose');
       setComposerOpen(true);
+      setMediaUploadProgress(100);
+      setMediaUploadLabel(`${file.name} is ready to publish.`);
     } catch (error: any) {
       showNotification('error', 'Story', error?.response?.data?.error || error?.message || 'Unable to upload story media.');
+      setMediaUploadLabel('');
+      setMediaUploadProgress(0);
     } finally {
       setMediaUploadBusy(false);
-      setMediaUploadLabel('');
     }
   };
 
@@ -799,6 +1339,9 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
         showNotification('success', 'Story', 'Your story is live.');
       } else {
         if (!draftMediaFile?.id) throw new Error('Select a media file first.');
+        setMediaUploadBusy(true);
+        setMediaUploadProgress(100);
+        setMediaUploadLabel('Preparing your story for publish...');
         const created = await CommunityService.createStory({
           type: draftType,
           mediaFileId: draftMediaFile.id,
@@ -815,8 +1358,16 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       resetDraft();
     } catch (e: any) {
       showNotification('error', 'Story failed', e?.response?.data?.error || e?.message || 'Unable to publish story.');
+      if (draftType === 'image' || draftType === 'video') {
+        setMediaUploadBusy(false);
+        setMediaUploadProgress(draftMediaFile?.id ? 100 : 0);
+        setMediaUploadLabel(draftMediaFile?.id ? 'Media is ready. Review and publish when ready.' : '');
+      }
     } finally {
       setPublishing(false);
+      if (draftType === 'image' || draftType === 'video') {
+        setMediaUploadBusy(false);
+      }
     }
   };
 
@@ -838,7 +1389,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
 
   return (
     <>
-      <div className="mx-auto max-w-md px-3 pt-3">
+      <div className={`${MOBILE_PAGE_CONTAINER_CLASS} pt-3`}>
         <div className="mb-2 flex items-center justify-between gap-2">
           <div className="inline-flex items-center rounded-full border border-slate-200 bg-white p-1">
             <button
@@ -861,24 +1412,28 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
             >
               Scroll
             </button>
+            {liveFeatureStatus.enabled ? (
+              <button
+                type="button"
+                onClick={() => setStoryRailTab('live')}
+                className={[
+                  'rounded-full px-3 py-1 text-xs font-semibold transition',
+                  storyRailTab === 'live' ? 'bg-slate-900 text-white' : 'text-slate-600'
+                ].join(' ')}
+              >
+                Live
+              </button>
+            ) : null}
+          </div>
+          {liveFeatureStatus.enabled ? (
             <button
               type="button"
-              onClick={() => setStoryRailTab('live')}
-              className={[
-                'rounded-full px-3 py-1 text-xs font-semibold transition',
-                storyRailTab === 'live' ? 'bg-slate-900 text-white' : 'text-slate-600'
-              ].join(' ')}
+              onClick={() => navigate('/live/studio')}
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
             >
-              Live
+              Go Live
             </button>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate('/live/studio')}
-            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700"
-          >
-            Go Live
-          </button>
+          ) : null}
         </div>
 
         <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
@@ -887,7 +1442,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               <button
                 type="button"
                 onClick={openCreate}
-                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white"
+                className={`${STORY_RAIL_CARD_CLASS} border border-dashed border-slate-300 bg-white`}
                 aria-label="Create story"
               >
                 <div className="absolute inset-0 bg-gradient-to-b from-blue-500/10 via-indigo-500/10 to-cyan-500/15" />
@@ -919,53 +1474,128 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                 visibleStories.map((story) => {
                   const id = String(story?.id || '').trim();
                   const name = resolveStoryAuthorName(story, 'Story');
-                  const avatar = resolveStoryAuthorAvatar(story);
+                  const storyType = resolveStoryType(story);
+                  const storyText = resolveStoryContent(story);
+                  const avatar = resolveStoryAuthorAvatar(story, user);
+                  const avatarFailed = Boolean(storyAvatarErrors[id]);
                   const media = resolveStoryMediaUrl(story);
+                  const imagePreviewFailed = Boolean(storyPreviewMediaErrors[id]);
                   const fallbackLetter = resolveStoryAuthorInitial(story);
                   return (
                     <button
                       key={id}
                       type="button"
+                      onTouchStart={(event) => beginRailTouchGesture(`story:${id}`, event)}
+                      onTouchEnd={(event) =>
+                        commitRailTouchGesture(`story:${id}`, event, () => {
+                          openStoryFromRail(story);
+                        })
+                      }
+                      onTouchCancel={cancelRailTouchGesture}
+                      onPointerDown={(event) => beginRailGesture(`story:${id}`, event)}
+                      onPointerUp={(event) =>
+                        commitRailGesture(`story:${id}`, event, () => {
+                          openStoryFromRail(story);
+                        })
+                      }
+                      onPointerCancel={(event) => cancelRailGesture(event)}
                       onClick={() => {
-                        setActiveStory(story);
-                        if (id) CommunityService.viewStory(id).catch(() => {});
+                        handleStoryRailClick(story);
                       }}
-                      className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      className={`${STORY_RAIL_CARD_CLASS} border border-slate-200 bg-slate-900`}
+                      style={{ touchAction: 'manipulation' }}
                       aria-label={`Open story by ${name}`}
                     >
-                      {media.url ? (
+                      {storyType === 'text' && storyText ? (
+                        (() => {
+                          const style = getStoryTextStyle(story);
+                          return (
+                            <div
+                              className="flex h-full w-full items-center justify-center px-2.5 text-center text-[11px] font-semibold"
+                              style={{
+                                background: style.background,
+                                color: style.color,
+                                fontFamily: style.fontFamily,
+                                textAlign: style.textAlign as any
+                              }}
+                            >
+                              <StaticPreviewText
+                                text={storyText}
+                                className="line-clamp-5"
+                                textClassName="whitespace-pre-wrap break-words"
+                                moreClassName="opacity-90"
+                              />
+                            </div>
+                          );
+                        })()
+                      ) : media.url && !(imagePreviewFailed && !media.isVideo) ? (
                         media.isVideo ? (
-                          <video
+                          <InlineAutoplayVideo
                             src={media.url}
-                            className="h-full w-full object-cover"
-                            autoPlay
-                            muted
-                            playsInline
+                            poster={media.thumbnailUrl}
+                            className="pointer-events-none h-full w-full object-cover"
+                            containerClassName="pointer-events-none h-full w-full"
+                            controls={false}
                             loop
                             preload="metadata"
+                            autoplayEnabled={previewAutoplayEnabled}
+                            showMuteToggle={false}
                           />
                         ) : (
-                          <img src={media.url} alt="Story" className="h-full w-full object-cover" />
+                          <OptimizedImage
+                            src={media.thumbnailUrl || media.url}
+                            fallbackSrc={media.url}
+                            alt=""
+                            width={240}
+                            height={376}
+                            sizes={STORY_RAIL_MEDIA_SIZES}
+                            className="pointer-events-none h-full w-full object-cover"
+                            onError={() =>
+                              setStoryPreviewMediaErrors((prev) =>
+                                prev[id] ? prev : { ...prev, [id]: true }
+                              )
+                            }
+                          />
                         )
-                      ) : avatar ? (
-                        <img src={avatar} alt={name} className="h-full w-full object-cover" />
+                      ) : avatar && !avatarFailed ? (
+                        <OptimizedImage
+                          src={avatar}
+                          alt={name}
+                          width={240}
+                          height={376}
+                          sizes={STORY_RAIL_MEDIA_SIZES}
+                          className="pointer-events-none h-full w-full object-cover"
+                          onError={() =>
+                            setStoryAvatarErrors((prev) =>
+                              prev[id] ? prev : { ...prev, [id]: true }
+                            )
+                          }
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white">
                           {fallbackLetter}
                         </div>
                       )}
-                      <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                        {avatar ? (
-                          <img src={avatar} alt={name} className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{fallbackLetter}</span>
-                        )}
+                        <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                          <StoryAuthorAvatar
+                            src={avatar}
+                            name={name}
+                            initial={fallbackLetter}
+                            className="inline-flex h-full w-full items-center justify-center bg-slate-700 text-[11px] font-semibold text-white"
+                            imageClassName="h-full w-full object-cover"
+                            width={56}
+                            height={56}
+                            sizes="28px"
+                            loading="eager"
+                          />
                       </div>
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                         <p className="line-clamp-1 text-[10px] font-semibold text-white">{name}</p>
-                        <p className="line-clamp-1 text-[10px] text-white/80">
-                          {resolveStoryContent(story) || (media.isVideo ? 'Video story' : 'Photo story')}
-                        </p>
+                        {storyType !== 'text' ? (
+                          <p className="line-clamp-1 text-[10px] text-white/80">
+                            {storyText || (media.isVideo ? 'Video story' : 'Photo story')}
+                          </p>
+                        ) : null}
                       </div>
                     </button>
                   );
@@ -977,7 +1607,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   onClick={() => setStoriesReloadTick((prev) => prev + 1)}
                   className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
                 >
-                  Network issue. Retry stories
+                  Showing saved stories. Retry
                 </button>
               ) : null}
             </>
@@ -986,7 +1616,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               <button
                 type="button"
                 onClick={() => setScrollCreateOpen(true)}
-                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-white"
+                className={`${STORY_RAIL_CARD_CLASS} border border-dashed border-slate-300 bg-white`}
                 aria-label="Create Scroll"
               >
                 <div className="absolute inset-0 bg-gradient-to-b from-fuchsia-500/15 via-indigo-500/10 to-cyan-500/15" />
@@ -1017,39 +1647,71 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               ) : (
                 scrolls.map((scroll) => {
                   const id = String(scroll?.id || '').trim();
-                  const mediaUrl = resolveScrollMediaUrl(scroll);
+                  const media = resolveScrollMedia(scroll);
                   const authorName = resolveScrollAuthorName(scroll, 'Scrolith');
                   const authorAvatar = resolveScrollAuthorAvatar(scroll);
+                  const authorAvatarFailed = Boolean(scrollAvatarErrors[id]);
                   const authorInitial = resolveScrollAuthorInitial(scroll);
                   return (
                     <button
                       key={id}
                       type="button"
-                      onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(id)}`)}
-                      className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-slate-900"
+                      onTouchStart={(event) => beginRailTouchGesture(`scroll:${id}`, event)}
+                      onTouchEnd={(event) =>
+                        commitRailTouchGesture(`scroll:${id}`, event, () => {
+                          openScrollFromRail(scroll);
+                        })
+                      }
+                      onTouchCancel={cancelRailTouchGesture}
+                      onPointerDown={(event) => beginRailGesture(`scroll:${id}`, event)}
+                      onPointerUp={(event) =>
+                        commitRailGesture(`scroll:${id}`, event, () => {
+                          openScrollFromRail(scroll);
+                        })
+                      }
+                      onPointerCancel={(event) => cancelRailGesture(event)}
+                      onClick={() => {
+                        handleScrollRailClick(scroll);
+                      }}
+                      className={`${STORY_RAIL_CARD_CLASS} border border-slate-200 bg-slate-900`}
+                      style={{ touchAction: 'manipulation' }}
                       aria-label={`Open Scroll by ${authorName}`}
                     >
-                      {mediaUrl ? (
-                        <video
-                          src={mediaUrl}
-                          className="h-full w-full object-cover"
-                          autoPlay
-                          muted
-                          playsInline
+                      {media.url ? (
+                        <InlineAutoplayVideo
+                          src={media.url}
+                          poster={media.poster}
+                          className="pointer-events-none h-full w-full object-cover"
+                          containerClassName="pointer-events-none h-full w-full"
+                          controls={false}
                           loop
                           preload="metadata"
+                          autoplayEnabled={previewAutoplayEnabled}
+                          showMuteToggle={false}
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-xs text-white/80">Scroll</div>
                       )}
-                      <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                        {authorAvatar ? (
-                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                      <div className="pointer-events-none absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
+                        {authorAvatar && !authorAvatarFailed ? (
+                          <OptimizedImage
+                            src={authorAvatar}
+                            alt={authorName}
+                            width={56}
+                            height={56}
+                            sizes="28px"
+                            className="h-full w-full object-cover"
+                            onError={() =>
+                              setScrollAvatarErrors((prev) =>
+                                prev[id] ? prev : { ...prev, [id]: true }
+                              )
+                            }
+                          />
                         ) : (
                           <span>{authorInitial}</span>
                         )}
                       </div>
-                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
+                      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 text-left">
                         <p className="line-clamp-1 text-[10px] font-semibold text-white">{authorName}</p>
                         <p className="line-clamp-1 text-[10px] text-white/80">{scroll.title || scroll.description || 'Scroll'}</p>
                       </div>
@@ -1063,26 +1725,28 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   onClick={() => setScrollReloadTick((prev) => prev + 1)}
                   className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
                 >
-                  Network issue. Retry Scroll
+                  Showing saved Scrolls. Retry
                 </button>
               ) : null}
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={() => navigate('/live/studio')}
-                className="relative h-[154px] w-[92px] shrink-0 overflow-hidden rounded-2xl border border-dashed border-rose-300 bg-white"
-                aria-label="Create Live Stream"
-              >
-                <div className="absolute inset-0 bg-gradient-to-b from-rose-500/20 via-fuchsia-500/10 to-indigo-500/15" />
-                <div className="relative z-10 flex h-full flex-col items-center justify-center gap-2 text-slate-700">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-full border border-rose-300 bg-white">
-                    <Radio className="h-5 w-5 text-rose-600" />
+              {liveFeatureStatus.enabled ? (
+                <button
+                  type="button"
+                  onClick={() => navigate('/live/studio')}
+                  className={`${STORY_RAIL_CARD_CLASS} border border-dashed border-rose-300 bg-white`}
+                  aria-label="Create Live Stream"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-b from-rose-500/20 via-fuchsia-500/10 to-indigo-500/15" />
+                  <div className="relative z-10 flex h-full flex-col items-center justify-center gap-2 text-slate-700">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full border border-rose-300 bg-white">
+                      <Radio className="h-5 w-5 text-rose-600" />
+                    </div>
+                    <div className="px-2 text-center text-[12px] font-semibold">Go Live</div>
                   </div>
-                  <div className="px-2 text-center text-[12px] font-semibold">Go Live</div>
-                </div>
-              </button>
+                </button>
+              ) : null}
 
               {liveLoading && liveSessions.length === 0 ? (
                 <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600">
@@ -1130,7 +1794,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                   onClick={() => setLiveReloadTick((prev) => prev + 1)}
                   className="shrink-0 rounded-full border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-semibold text-amber-800"
                 >
-                  Network issue. Retry Live
+                  Showing saved Live. Retry
                 </button>
               ) : null}
             </>
@@ -1139,7 +1803,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       </div>
 
       {activeStory ? (
-        <StoryViewer
+        <EnterpriseStoryViewer
           story={activeStory}
           stories={visibleStories}
           viewer={user}
@@ -1151,12 +1815,8 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
           }}
           onEdit={() => openEdit(activeStory)}
           onDelete={() => void deleteStory(activeStory)}
-          onComment={() => handleStoryCommentAction(activeStory)}
-          onRepost={() => handleStoryRepostAction(activeStory)}
-          onDash={() => handleStoryDashAction(activeStory)}
-          onSend={() => handleStorySendAction(activeStory)}
-          onLike={() => void likeStoryAndSync(activeStory)}
-          storyBusy={Boolean(storyActionBusy[String(activeStory?.id || '')])}
+          canManage={canManageStory(activeStory, user)}
+          autoplayEnabled={profile.autoplayEnabled}
         />
       ) : null}
 
@@ -1170,7 +1830,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
         }}
       >
         {composerStep === 'choose' ? (
-          <div className="space-y-2">
+          <div className="space-y-3">
             <SheetItem
               icon={<Type className="h-4 w-4" />}
               label="Text story"
@@ -1192,6 +1852,18 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
               label="Capture with camera"
               onClick={() => storyCameraInputRef.current?.click()}
             />
+            {mediaUploadLabel ? (
+              <StoryUploadStatusCard
+                busy={mediaUploadBusy}
+                label={mediaUploadLabel}
+                progress={mediaUploadProgress}
+                hint={
+                  mediaUploadBusy
+                    ? 'Scrolith is uploading your story media and preparing the preview.'
+                    : 'Your media is uploaded and ready for the story composer.'
+                }
+              />
+            ) : null}
           </div>
         ) : (
           <div className="space-y-3">
@@ -1359,11 +2031,17 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
                       Change media
                     </button>
                   </div>
-                  {mediaUploadBusy ? (
-                    <div className="flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      <span>{mediaUploadLabel || 'Uploading media...'}</span>
-                    </div>
+                  {mediaUploadLabel ? (
+                    <StoryUploadStatusCard
+                      busy={mediaUploadBusy}
+                      label={mediaUploadLabel || 'Uploading media...'}
+                      progress={mediaUploadProgress}
+                      hint={
+                        mediaUploadBusy
+                          ? 'Keep this sheet open while Scrolith uploads and prepares your story media.'
+                          : 'Your media is uploaded. Add a caption if you want, then publish when ready.'
+                      }
+                    />
                   ) : null}
                   <textarea
                     value={draftContent}
@@ -1413,46 +2091,29 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
         onChange={handleStoryMediaInputChange}
       />
 
-      {storyCommentOpen ? (
-        <div className="fixed inset-0 z-[1100] flex items-end justify-center p-3">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => {
-              const storyId = String(storyActionTarget?.id || '');
-              if (storyActionBusy[storyId]) return;
-              setStoryCommentOpen(false);
-            }}
-          />
-          <div className="relative w-full max-w-md rounded-3xl bg-white p-4 shadow-2xl">
-            <h3 className="text-sm font-semibold text-slate-900">Comment on story</h3>
-            <textarea
-              value={storyCommentDraft}
-              onChange={(event) => setStoryCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-3 w-full resize-none rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
-            />
-            <div className="mt-3 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStoryCommentOpen(false)}
-                className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitStoryComment()}
-                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"
-                disabled={storyActionBusy[String(storyActionTarget?.id || '')]}
-              >
-                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <StoryReplySheet
+        open={storyCommentOpen}
+        story={storyActionTarget}
+        onClose={() => setStoryCommentOpen(false)}
+        onStoryUpdate={(patch) => {
+          if (!patch?.id) return;
+          setStories((prev) => prev.map((entry) => (String(entry?.id || '') === String(patch.id) ? { ...entry, ...patch } : entry)));
+          setActiveStory((current) =>
+            String(current?.id || '') === String(patch.id)
+              ? {
+                  ...current,
+                  ...patch,
+                  interactions: {
+                    ...(current?.interactions || {}),
+                    ...(patch?.interactions || {})
+                  }
+                }
+              : current
+          );
+        }}
+        presentation="sheet"
+        zIndexClassName="z-[1100]"
+      />
 
       <RepostModal
         isOpen={storyRepostOpen}
@@ -1465,7 +2126,7 @@ export default function MobileStoriesStrip({ settings }: { settings?: any }) {
       <PostShareModal
         isOpen={storySendOpen}
         onClose={() => setStorySendOpen(false)}
-        postUrl={storyActionTarget?.id ? buildStoryUrl(String(storyActionTarget.id)) : 'https://scrolith.com/community'}
+        postUrl={storyActionTarget?.id ? buildStoryUrl(String(storyActionTarget.id)) : buildPublicAppUrl('/community')}
         entityLabel="story"
         shareText={
           storyActionTarget?.id
@@ -1510,7 +2171,8 @@ function StoryViewer({
   onDash,
   onSend,
   onLike,
-  storyBusy
+  storyBusy,
+  autoplayEnabled
 }: {
   story: any;
   stories: any[];
@@ -1525,23 +2187,78 @@ function StoryViewer({
   onSend: () => void;
   onLike: () => void;
   storyBusy: boolean;
+  autoplayEnabled: boolean;
 }) {
+  const navigate = useNavigate();
   const { showNotification } = useNotification();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [muted, setMuted] = useState(true);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const [touchOverlayMode, setTouchOverlayMode] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(true);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const overlayHideTimerRef = useRef<number | null>(null);
+  const autoAdvanceTimerRef = useRef<number | null>(null);
   const lastTapAtRef = useRef(0);
 
   const name = resolveStoryAuthorName(story, 'Story');
-  const avatar = resolveStoryAuthorAvatar(story);
+  const avatar = resolveStoryAuthorAvatar(story, viewer);
+  const authorProfileUrl = resolveStoryAuthorProfileUrl(story);
   const type = resolveStoryType(story);
   const media = resolveStoryMediaUrl(story);
   const content = resolveStoryContent(story);
   const canManage = canManageStory(story, viewer);
   const style = getStoryTextStyle(story);
+  const ownerId = resolveStoryOwnerId(story);
+  const initialIsFollowing =
+    typeof story?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(story.viewer.isFollowingAuthor) : undefined;
   const activeIndex = story?.id ? stories.findIndex((entry) => String(entry?.id) === String(story.id)) : -1;
   const hasPrev = activeIndex > 0;
   const hasNext = activeIndex >= 0 && activeIndex < stories.length - 1;
+  const overlayShouldShow = !touchOverlayMode || overlayVisible;
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [story?.id, media.url]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(hover: none), (pointer: coarse)');
+    const sync = () => setTouchOverlayMode(query.matches);
+    sync();
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', sync);
+      return () => query.removeEventListener('change', sync);
+    }
+    query.addListener(sync);
+    return () => query.removeListener(sync);
+  }, []);
+
+  useEffect(() => {
+    setOverlayVisible(!touchOverlayMode);
+  }, [story?.id, touchOverlayMode]);
+
+  useEffect(() => {
+    if (overlayHideTimerRef.current) {
+      window.clearTimeout(overlayHideTimerRef.current);
+      overlayHideTimerRef.current = null;
+    }
+    if (!story?.id || !touchOverlayMode || !overlayVisible) return;
+    overlayHideTimerRef.current = window.setTimeout(() => {
+      setOverlayVisible(false);
+    }, STORY_CONTROL_HIDE_DELAY_MS);
+    return () => {
+      if (overlayHideTimerRef.current) {
+        window.clearTimeout(overlayHideTimerRef.current);
+        overlayHideTimerRef.current = null;
+      }
+    };
+  }, [story?.id, overlayVisible, touchOverlayMode]);
+
+  const revealOverlay = () => {
+    if (!touchOverlayMode) return;
+    setOverlayVisible(true);
+  };
 
   const goToOffset = (offset: number) => {
     if (activeIndex < 0) return;
@@ -1549,6 +2266,32 @@ function StoryViewer({
     if (!next) return;
     onNavigate(next);
   };
+
+  const advanceStory = useCallback(() => {
+    if (hasNext) {
+      goToOffset(1);
+      return;
+    }
+    onClose();
+  }, [goToOffset, hasNext, onClose]);
+
+  useEffect(() => {
+    if (autoAdvanceTimerRef.current) {
+      window.clearTimeout(autoAdvanceTimerRef.current);
+      autoAdvanceTimerRef.current = null;
+    }
+    if (!story?.id) return;
+    const delay = resolveStoryAutoAdvanceDelay(story);
+    autoAdvanceTimerRef.current = window.setTimeout(() => {
+      advanceStory();
+    }, delay);
+    return () => {
+      if (autoAdvanceTimerRef.current) {
+        window.clearTimeout(autoAdvanceTimerRef.current);
+        autoAdvanceTimerRef.current = null;
+      }
+    };
+  }, [advanceStory, story?.commentsCount, story?.createdAt, story?.id, story?.media?.duration]);
 
   const handleDownload = async () => {
     if (!media.url) {
@@ -1571,70 +2314,121 @@ function StoryViewer({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[950] bg-black">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="h-9 w-9 overflow-hidden rounded-full border border-white/20 bg-white/10">
-            {avatar ? (
-              <img src={avatar} alt={name} className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs font-semibold">
-                {(name[0] || 'S').toUpperCase()}
-              </div>
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold">{name}</div>
-            <div className="truncate text-[11px] text-white/70">
-              {type === 'text' ? 'Text story' : type === 'video' ? 'Video story' : 'Photo story'}
-            </div>
-          </div>
-        </div>
+  const openAuthorProfile = () => {
+    if (!authorProfileUrl) return;
+    navigate(authorProfileUrl, { state: { fromMobileHome: true } });
+  };
 
-        <div className="flex items-center gap-2">
-          {media.url ? (
+  return (
+    <div
+      className="fixed inset-0 z-[950] bg-black"
+      onPointerDownCapture={(event) => {
+        if (event.pointerType === 'touch') revealOverlay();
+      }}
+    >
+      <div
+        className={`overflow-hidden transition-all duration-300 ease-out ${
+          overlayShouldShow ? 'max-h-40 opacity-100' : 'pointer-events-none max-h-0 opacity-0'
+        }`}
+      >
+          <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+            <div className="flex min-w-0 items-center gap-3">
+              {authorProfileUrl ? (
+                <button type="button" onClick={openAuthorProfile} className="flex min-w-0 items-center gap-3 text-left">
+                  <StoryAuthorAvatar
+                    src={avatar}
+                    name={name}
+                    initial={name[0] || 'S'}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white"
+                    width={72}
+                    height={72}
+                    sizes="36px"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{name}</div>
+                    <div className="truncate text-[11px] text-white/70">Open profile</div>
+                  </div>
+                </button>
+              ) : (
+                <>
+                  <StoryAuthorAvatar
+                    src={avatar}
+                    name={name}
+                    initial={name[0] || 'S'}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-white/10 text-xs font-semibold text-white"
+                    width={72}
+                    height={72}
+                    sizes="36px"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{name}</div>
+                  </div>
+                </>
+              )}
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                {ownerId && String(ownerId) !== String(viewer?.id || '') ? (
+                  <FollowButton
+                    targetUserId={ownerId}
+                    currentUserId={viewer?.id}
+                    initialIsFollowing={initialIsFollowing}
+                    onRequireLogin={() => navigate('/auth/login')}
+                    className="h-7 border-white/30 bg-white/10 px-3 text-[11px] text-white hover:border-white/50 hover:bg-white/15"
+                  />
+                ) : null}
+                <div className="truncate text-[11px] text-white/70">
+                  {type === 'text' ? 'Text story' : type === 'video' ? 'Video story' : 'Photo story'}
+                </div>
+              </div>
+            </div>
+
+          <div className="flex items-center gap-2">
+            {type !== 'text' && media.url ? (
+              <button
+                type="button"
+                onClick={() => void handleDownload()}
+                className="rounded-full border border-white/20 bg-white/10 p-2"
+                aria-label="Download story"
+              >
+                <Download className="h-5 w-5" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => void handleDownload()}
+              onClick={() => setMuted((prev) => !prev)}
               className="rounded-full border border-white/20 bg-white/10 p-2"
-              aria-label="Download story"
+              aria-label={muted ? 'Unmute story' : 'Mute story'}
             >
-              <Download className="h-5 w-5" />
+              {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setMuted((prev) => !prev)}
-            className="rounded-full border border-white/20 bg-white/10 p-2"
-            aria-label={muted ? 'Unmute story' : 'Mute story'}
-          >
-            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-          </button>
-          {canManage ? (
+            {canManage ? (
+              <button
+                type="button"
+                onClick={() => setActionsOpen(true)}
+                className="rounded-full border border-white/20 bg-white/10 p-2"
+                aria-label="Story actions"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={() => setActionsOpen(true)}
+              onClick={onClose}
               className="rounded-full border border-white/20 bg-white/10 p-2"
-              aria-label="Story actions"
+              aria-label="Close story"
             >
-              <MoreVertical className="h-5 w-5" />
+              <X className="h-5 w-5" />
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-white/20 bg-white/10 p-2"
-            aria-label="Close story"
-          >
-            <X className="h-5 w-5" />
-          </button>
+          </div>
         </div>
       </div>
 
-      <div className="relative flex h-[calc(100%-56px)] items-center justify-center px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+      <div
+        className={`relative flex items-center justify-center px-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] transition-[height] duration-300 ${
+          overlayShouldShow ? 'h-[calc(100%-56px)]' : 'h-full'
+        }`}
+      >
         <div
-          className="relative h-full w-full max-w-md overflow-hidden rounded-3xl bg-slate-900"
+          className={MOBILE_STORY_VIEWER_CLASS}
           style={{ touchAction: 'pan-y' }}
           onTouchStart={(event) => {
             const target = event.target as HTMLElement | null;
@@ -1642,6 +2436,7 @@ function StoryViewer({
               touchStartRef.current = null;
               return;
             }
+            revealOverlay();
             const touch = event.changedTouches?.[0];
             if (!touch) {
               touchStartRef.current = null;
@@ -1688,6 +2483,7 @@ function StoryViewer({
               touchStartRef.current = null;
               return;
             }
+            revealOverlay();
             touchStartRef.current = { x: event.clientX, y: event.clientY };
           }}
           onPointerUp={(event) => {
@@ -1715,20 +2511,48 @@ function StoryViewer({
                 textAlign: style.textAlign as any
               }}
             >
-              <span className="whitespace-pre-wrap">{content || 'Story'}</span>
+              <ExpandablePreviewText
+                text={content || 'Story'}
+                className="max-w-full"
+                textClassName="text-base font-semibold"
+                buttonClassName="text-white"
+              />
             </div>
-          ) : media.url ? (
+          ) : media.url && !(imageLoadFailed && !(type === 'video' || media.isVideo)) ? (
             type === 'video' || media.isVideo ? (
-              <video src={media.url} className="h-full w-full object-cover" autoPlay muted={muted} playsInline loop preload="metadata" />
+              <InlineAutoplayVideo
+                key={String(story?.id || media.url || '')}
+                src={media.url}
+                poster={media.thumbnailUrl}
+                className="h-full w-full object-cover"
+                containerClassName="h-full w-full"
+                controls={false}
+                loop={false}
+                preload="metadata"
+                autoplayEnabled={autoplayEnabled}
+                muted={muted}
+                onMutedChange={setMuted}
+                onEnded={advanceStory}
+                showMuteToggle={false}
+              />
             ) : (
-              <img src={media.url} alt="Story" className="h-full w-full object-cover" />
+              <img
+                src={media.url}
+                alt=""
+                className="h-full w-full object-cover"
+                onError={() => setImageLoadFailed(true)}
+              />
             )
           ) : (
             <div className="flex h-full w-full items-center justify-center text-sm text-white/80">Story media not available.</div>
           )}
           <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/10 to-black/45" />
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
+          <div
+            className={`pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2 transition-opacity duration-300 ${
+              overlayShouldShow ? 'opacity-100' : 'opacity-0'
+            }`}
+          >
             <button
               type="button"
               className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
@@ -1753,7 +2577,11 @@ function StoryViewer({
             </button>
           </div>
 
-          <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
+          <div
+            className={`pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white transition-all duration-300 ${
+              overlayShouldShow ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
+            }`}
+          >
             <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <span>{formatCompactCount(story?.likesCount ?? story?._count?.likes ?? 0)} likes</span>
@@ -1763,44 +2591,24 @@ function StoryViewer({
             </div>
           </div>
 
-          <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
-            <ReactionBar targetType="STORY" targetId={String(story?.id || '')} layout="rail" compact className="w-[54px]" />
-            <button
-              type="button"
-              onClick={onComment}
-              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-              disabled={storyBusy}
-            >
-              <MessageCircle className="h-3.5 w-3.5" />
-              <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.commentsCount ?? story?.interactions?.comments)}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onRepost}
-              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-              disabled={storyBusy}
-            >
-              <Repeat2 className="h-3.5 w-3.5" />
-              <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.repostsCount ?? story?.interactions?.reposts)}</span>
-            </button>
-            <button
-              type="button"
-              onClick={onDash}
-              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-              disabled={storyBusy}
-            >
-              <Coins className="h-3.5 w-3.5" />
-              <span className="mt-1 text-[10px] font-semibold">Dash</span>
-            </button>
-            <button
-              type="button"
-              onClick={onSend}
-              className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-              disabled={storyBusy}
-            >
-              <Send className="h-3.5 w-3.5" />
-              <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(story?.sendsCount ?? story?.interactions?.sends)}</span>
-            </button>
+          <div
+            className={`absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 transition-all duration-300 ${
+              overlayShouldShow ? 'pointer-events-auto translate-x-0 opacity-100' : 'pointer-events-none translate-x-4 opacity-0'
+            }`}
+          >
+            <ReactionBar
+              targetType="STORY"
+              targetId={String(story?.id || '')}
+              layout="rail"
+              compact
+              className="w-[68px]"
+              railVariant="launcher"
+              railLauncherLabel="Reaction"
+            />
+            <OverlayActionRailButton onClick={onComment} icon={MessageCircle} label="Comment" disabled={storyBusy} />
+            <OverlayActionRailButton onClick={onRepost} icon={Repeat2} label="Repost" disabled={storyBusy} />
+            <OverlayActionRailButton onClick={onDash} icon={Coins} label="Dash" disabled={storyBusy} />
+            <OverlayActionRailButton onClick={onSend} icon={Send} label="Send" disabled={storyBusy} />
           </div>
         </div>
       </div>
@@ -1837,3 +2645,5 @@ function StoryViewer({
     </div>
   );
 }
+
+

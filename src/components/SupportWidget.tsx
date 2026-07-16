@@ -9,6 +9,9 @@ import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { useSocket } from '../context/SocketContext';
 import { buildScrolithaPath, clearScrolithaLaunchParams, readScrolithaLaunchParams } from '../utils/scrolithaLaunch';
+import { plainTextToHtml } from '../utils/staticPageContent';
+import { normalizeScrolithaResponseText } from './scrolitha/scrolithaResponseFormat';
+import type { ScrolithaChatContext } from '../services/scrolitha';
 
 type Sender = 'user' | 'agent' | 'system';
 type UserRole = 'Freelancer' | 'Employer' | null;
@@ -71,6 +74,31 @@ const colorToText = (color: string, fallback = '#ffffff') => {
   const b = parseInt(hex.slice(4, 6), 16);
   const luma = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return luma > 0.62 ? '#0f172a' : '#ffffff';
+};
+
+const buildAgentMessageHtml = (value?: string) => {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  const normalized = normalizeScrolithaResponseText(source) || source;
+  return plainTextToHtml(normalized);
+};
+
+const buildChatContext = (
+  pathname: string,
+  search: string,
+  user: { id?: string; name?: string; role?: string } | null | undefined
+): ScrolithaChatContext => {
+  const role = String(user?.role || '').trim();
+  return {
+    page: pathname,
+    route: `${pathname}${search || ''}`,
+    surface: 'support-widget',
+    accountType: role,
+    userRole: role,
+    userId: String(user?.id || '').trim() || undefined,
+    userName: String(user?.name || '').trim() || undefined,
+    source: 'support_widget'
+  };
 };
 
 const normalizeActionSearchIndex = (action: ScrolithaSuggestedAction) =>
@@ -784,7 +812,7 @@ const SupportWidget: React.FC = () => {
         const data = await ScrolithaService.chat({
           message: payloadMessage,
           conversationId: conversationId || undefined,
-          context: { page: location.pathname }
+          context: buildChatContext(location.pathname, location.search, user)
         });
         if (data?.conversationId) setConversationId(data.conversationId);
         pushMessages({ sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() });
@@ -849,13 +877,13 @@ const SupportWidget: React.FC = () => {
 
   return (
     <div
-      className="fixed right-6 z-[100] flex flex-col items-end font-sans"
+      className="fixed right-3 z-[100] flex flex-col items-end font-sans sm:right-6"
       style={{ bottom: 'calc(1.5rem + var(--support-widget-offset, 0px))' }}
     >
       
       {/* Chat Window */}
       {isOpen && (
-        <div className="bg-white w-80 sm:w-96 h-[600px] rounded-2xl shadow-2xl border border-gray-200 mb-4 flex flex-col overflow-hidden animate-fade-in-up">
+        <div className="mb-4 flex h-[min(600px,calc(100dvh-7rem))] w-[min(calc(100vw-1rem),20rem)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl animate-fade-in-up sm:h-[600px] sm:w-96">
           
           {/* Header */}
           <div className="p-4 flex justify-between items-center text-white shadow-md" style={{ backgroundColor: headerColor }}>
@@ -916,7 +944,15 @@ const SupportWidget: React.FC = () => {
                               : { backgroundColor: agentBubbleColor, color: textColor }
                           }
                         >
-                        {msg.text && <p>{msg.text}</p>}
+                        {msg.text &&
+                          (msg.sender === 'agent' ? (
+                            <div
+                              className="scrolitha-widget-response prose prose-sm prose-slate max-w-none prose-p:my-2 prose-p:leading-6 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-li:leading-6 prose-headings:my-2 prose-headings:font-semibold prose-headings:text-current prose-h2:text-[13px] prose-h3:text-[12px] text-current whitespace-normal break-words"
+                              dangerouslySetInnerHTML={{ __html: buildAgentMessageHtml(msg.text) }}
+                            />
+                          ) : (
+                            <p>{msg.text}</p>
+                          ))}
                         
                         {msg.attachments && msg.attachments.map(att => (
                             <div key={att.id} className="mt-2 p-2 bg-white/20 rounded border border-white/20 flex items-center">

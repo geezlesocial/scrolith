@@ -1,5 +1,11 @@
 import api from './api';
 import { UploadedFile } from '../types';
+import {
+  annotateRecoverableError,
+  createOfflineRecoveryError,
+  isRetryableWriteError
+} from '../mobile/runtime/requestRecovery';
+import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 
 type VisibilityOption = 'public' | 'private';
 
@@ -16,10 +22,11 @@ interface ApiError {
 }
 
 const FILE_LIST_TIMEOUT_MS = Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
-const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 45000);
-const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 12000);
-const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 300000);
+const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000);
+const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
+const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 900000);
 const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
+const FILE_UPLOAD_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2);
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -77,9 +84,35 @@ const normalizeUploadedFile = (payload: any): UploadedFile => {
   const height = payload.height !== undefined && payload.height !== null ? Number(payload.height) : null;
   const duration = payload.duration !== undefined && payload.duration !== null ? Number(payload.duration) : null;
 
+  const fileId = payload.id || payload.fileId || payload.file_id || '';
+  const storageKey = payload.storage_key || payload.storageKey || '';
+  // Resolve every known shape so list/picker previews never get a bare id or SPA-relative path.
+  const resolvedUrl =
+    resolvePostAttachmentMediaUrl({
+      url: payload.url,
+      fileId,
+      id: fileId,
+      path: storageKey || payload.path,
+      storageKey,
+      storage_key: storageKey,
+      downloadUrl: payload.downloadUrl || payload.download_url,
+      file: payload.file,
+      asset: payload.asset,
+      media: payload.media
+    }) ||
+    String(payload.url || '').trim() ||
+    '';
+  const resolvedThumbnail =
+    resolvePostAttachmentMediaUrl({
+      url: thumbnailUrl,
+      fileId: payload.thumbnailFileId || payload.thumbnail_file_id,
+      path: payload.thumbnailPath || payload.thumbnail_path
+    }) ||
+    (thumbnailUrl ? String(thumbnailUrl) : null);
+
   return {
     id: payload.id,
-    fileId: payload.id,
+    fileId: fileId || payload.id,
     user_id: ownerId,
     owner_id: ownerId,
     ownerId,
@@ -88,18 +121,18 @@ const normalizeUploadedFile = (payload: any): UploadedFile => {
     name: payload.name || payload.original_name || payload.filename || 'file',
     type: mediaType,
     size: typeof fileSize === 'bigint' ? Number(fileSize) : Number(fileSize ?? 0),
-    url: payload.url || '',
+    url: resolvedUrl,
     category: payload.category || (mediaType === 'document' ? 'document' : 'portfolio'),
     created_at: createdAt,
-    storage_key: payload.storage_key || payload.storageKey,
-    storageKey: payload.storage_key || payload.storageKey,
+    storage_key: storageKey,
+    storageKey,
     storage_provider: storageProvider,
     storageProvider,
     visibility,
     mime_type: mime || undefined,
     mimeType: mime || undefined,
-    thumbnail_url: thumbnailUrl,
-    thumbnailUrl,
+    thumbnail_url: resolvedThumbnail,
+    thumbnailUrl: resolvedThumbnail,
     width,
     height,
     duration,
@@ -140,6 +173,7 @@ type UploadFileOptions =
       userId?: string;
       user_id?: string;
       onProgress?: (percent: number, event: ProgressEvent) => void;
+      onRetry?: (attempt: number, delayMs: number, error: Error) => void;
     };
 
 export const FileService = {
@@ -250,20 +284,47 @@ export const FileService = {
       FILE_UPLOAD_TIMEOUT_MAX_MS,
       Math.max(FILE_UPLOAD_TIMEOUT_BASE_MS, FILE_UPLOAD_TIMEOUT_BASE_MS + sizeMb * FILE_UPLOAD_TIMEOUT_PER_MB_MS)
     );
+    const retryHandler =
+      typeof options === 'object' && options
+        ? options.onRetry
+        : undefined;
+    const totalAttempts = Math.max(1, FILE_UPLOAD_RETRY_ATTEMPTS + 1);
 
-    const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: uploadTimeout,
-      onUploadProgress: onProgress
-        ? (event) => {
-            const total = event.total ?? 0;
-            const percent = total ? Math.round((event.loaded / total) * 100) : 0;
-            onProgress(percent, event);
-          }
-        : undefined
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineRecoveryError('Upload is paused while you are offline. Retry when your connection returns.');
+    }
+
+    let lastError: any = null;
+    for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
+      try {
+        const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
+          timeout: uploadTimeout,
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          onUploadProgress: onProgress
+            ? (event) => {
+                const total = event.total ?? 0;
+                const percent = total ? Math.round((event.loaded / total) * 100) : 0;
+                onProgress(percent, event);
+              }
+            : undefined
+        });
+        const data = handleApiResponse(response);
+        return normalizeUploadedFile(data);
+      } catch (error: any) {
+        const normalizedError = annotateRecoverableError(error);
+        lastError = normalizedError;
+        const shouldRetry = normalizedError.retryable && attempt < totalAttempts - 1;
+        if (!shouldRetry) break;
+        const delayMs = 500 * (attempt + 1);
+        retryHandler?.(attempt + 1, delayMs, normalizedError);
+        await wait(delayMs);
+      }
+    }
+
+    throw annotateRecoverableError(lastError, {
+      retryable: isRetryableWriteError(lastError)
     });
-    const data = handleApiResponse(response);
-    return normalizeUploadedFile(data);
   },
 
   // deleteFile supports legacy (id, ownerId?) signature but ownerId is ignored server-side

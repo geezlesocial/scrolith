@@ -19,6 +19,8 @@ const mapProposal = (p: any): Proposal => ({
   id: p.id,
   jobId: p.job_id ?? p.jobId ?? '',
   jobTitle: p.job_title ?? p.jobTitle ?? p.job?.title ?? '',
+  jobType: p.job_type ?? p.jobType ?? p.job?.type ?? undefined,
+  jobBudget: p.job_budget ?? p.jobBudget ?? p.job?.budget ?? undefined,
   freelancerId: p.freelancer_id ?? p.freelancerId ?? p.freelancer?.id ?? '',
   freelancerName: p.freelancer_name ?? p.freelancerName ?? p.freelancer?.name ?? '',
   freelancerAvatar: p.freelancer_avatar ?? p.freelancerAvatar ?? p.freelancer?.avatar ?? undefined,
@@ -62,6 +64,8 @@ export interface Proposal {
   id: string;
   jobId: string;
   jobTitle: string;
+  jobType?: string;
+  jobBudget?: string | null;
   freelancerId: string;
   freelancerName: string;
   freelancerAvatar?: string;
@@ -99,6 +103,24 @@ export interface ProposalsResponse {
 export interface AcceptProposalData {
   message?: string;
   startDate?: string;
+  contractType?: 'fixed' | 'hourly' | string;
+  paymentCycle?: 'WEEKLY' | 'BIWEEKLY' | 'MONTHLY' | string;
+  hourlyRate?: number;
+  contractValue?: number;
+  deliveryDays?: number;
+  description?: string;
+  weeklyHourCap?: number;
+  templateId?: string;
+  milestones?: Array<{
+    id?: string;
+    title: string;
+    description?: string;
+    amount: number;
+    dueDate: string;
+    order?: number;
+  }>;
+  conversationId?: string;
+  briefId?: string;
 }
 
 export interface CreateProposalData {
@@ -107,6 +129,8 @@ export interface CreateProposalData {
   proposedAmount: number;
   proposedTimeline: number;
   attachments?: string[];
+  briefId?: string;
+  conversationId?: string;
 }
 
 export interface ScheduleInterviewData {

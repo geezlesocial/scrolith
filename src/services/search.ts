@@ -2,6 +2,7 @@
 import { Recommendation } from "../types";
 
 import { getApiBaseUrl } from '../utils/apiBase';
+import { tokenStore } from './tokenStore';
 
 const getSearchApiUrl = () => getApiBaseUrl();
 
@@ -16,7 +17,7 @@ type ApiFail = { success: false; error?: string; status?: number };
 type ApiResponse<T> = ApiOk<T> | ApiFail;
 
 export type SearchEntityType = "posts" | "people" | "pages" | "jobs" | "gigs";
-export type UnifiedSearchEntityType = Exclude<SearchEntityType, "posts">;
+export type UnifiedSearchEntityType = SearchEntityType;
 
 export type UnifiedSearchItem = {
   id: string;
@@ -42,10 +43,67 @@ export type UnifiedSearchPayload = {
 };
 
 const DEFAULT_UNIFIED_GROUPS: UnifiedSearchGroups = {
+  posts: [],
   people: [],
   pages: [],
   jobs: [],
   gigs: []
+};
+
+const DEFAULT_SEARCH_PROMPTS = [
+  'interview tips',
+  'latest in ai',
+  'balancing work and personal life',
+  'remote work',
+  "when's the best time to switch jobs",
+  'logo design',
+  'web development',
+  'social media marketing'
+];
+
+const readQueryFromEndpoint = (endpoint: string) => {
+  try {
+    const raw = endpoint.startsWith('http') ? endpoint : `https://scrolith.local${endpoint}`;
+    const url = new URL(raw);
+    return String(url.searchParams.get('q') || url.searchParams.get('query') || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+const fallbackSearchRows = (query: string) => {
+  const clean = String(query || '').trim();
+  const encoded = encodeURIComponent(clean || 'Scrolith');
+  const label = clean || 'Scrolith';
+  return [
+    {
+      id: `fallback-people-${encoded}`,
+      type: 'people',
+      title: `People matching "${label}"`,
+      name: `People matching "${label}"`,
+      subtitle: 'Search Scrolith members',
+      description: 'Search Scrolith members',
+      url: `/search?q=${encoded}&type=people`
+    },
+    {
+      id: `fallback-pages-${encoded}`,
+      type: 'pages',
+      title: `Pages related to "${label}"`,
+      name: `Pages related to "${label}"`,
+      subtitle: 'Explore Scrolith pages',
+      description: 'Explore Scrolith pages',
+      url: `/search?q=${encoded}&type=pages`
+    },
+    {
+      id: `fallback-posts-${encoded}`,
+      type: 'posts',
+      title: `Posts mentioning "${label}"`,
+      name: `Posts mentioning "${label}"`,
+      subtitle: 'Open full post search',
+      description: 'Open full post search',
+      url: `/search?q=${encoded}&type=posts`
+    }
+  ];
 };
 
 class SearchService {
@@ -69,10 +127,16 @@ class SearchService {
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const token = await tokenStore.get().catch(() => null);
+      const headers: Record<string, string> = {
+        Accept: "application/json"
+      };
+      if (method === "POST") headers["Content-Type"] = "application/json";
+      if (token) headers.Authorization = `Bearer ${token}`;
 
       const res = await fetch(`${getSearchApiUrl()}${endpoint}`, {
         method,
-        headers: method === "POST" ? { "Content-Type": "application/json" } : undefined,
+        headers,
         body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,
         signal: controller.signal,
       });
@@ -114,27 +178,69 @@ class SearchService {
    *   (e.g., quick tags, trending keywords) when backend isn't ready.
    */
   private static getFallbackData(endpoint: string): any {
+    if (endpoint.includes("/search/unified")) {
+      const query = readQueryFromEndpoint(endpoint);
+      const rows = fallbackSearchRows(query);
+      return {
+        query,
+        groups: {
+          people: rows.filter((row) => row.type === 'people'),
+          pages: rows.filter((row) => row.type === 'pages'),
+          jobs: [],
+          gigs: [],
+          posts: rows.filter((row) => row.type === 'posts')
+        },
+        results: rows,
+        totals: {
+          people: 1,
+          pages: 1,
+          jobs: 0,
+          gigs: 0,
+          posts: 1,
+          total: rows.length
+        },
+        fallback: true
+      };
+    }
+
+    if (endpoint.startsWith("/search?") || endpoint.includes("/search?")) {
+      const query = readQueryFromEndpoint(endpoint);
+      const rows = fallbackSearchRows(query);
+      const normalizedEndpoint = endpoint.toLowerCase();
+      if (normalizedEndpoint.includes("type=people")) return rows.filter((row) => row.type === 'people');
+      if (normalizedEndpoint.includes("type=pages")) return rows.filter((row) => row.type === 'pages');
+      if (normalizedEndpoint.includes("type=posts")) return rows.filter((row) => row.type === 'posts');
+      return rows;
+    }
+
     if (endpoint.includes("/search/recommendations")) {
       return [];
     }
 
     if (endpoint.includes("/search/trending")) {
-      return [
-        { id: "trend-1", keyword: "Python", count: 1240 },
-        { id: "trend-2", keyword: "Logo Design", count: 850 },
-        { id: "trend-3", keyword: "SEO", count: 600 },
-        { id: "trend-4", keyword: "Web Development", count: 450 },
-      ];
+      return DEFAULT_SEARCH_PROMPTS.slice(0, 6).map((keyword, index) => ({
+        id: `trend-${index + 1}`,
+        keyword,
+        count: Math.max(120, 960 - index * 80),
+        trend: index < 3 ? 'up' : 'stable'
+      }));
     }
 
     if (endpoint.includes("/search/quick-tags")) {
-      return [
-        { id: "qt-1", label: "Python", url: "/browse?q=Python", bgColor: "#EEF2FF" },
-        { id: "qt-2", label: "Logo Design", url: "/browse?q=Logo%20Design", bgColor: "#FCE7F3" },
-        { id: "qt-3", label: "Video Editing", url: "/browse?q=Video%20Editing", bgColor: "#F3E8FF" },
-        { id: "qt-4", label: "SEO", url: "/browse?q=SEO", bgColor: "#ECFDF5" },
-        { id: "qt-5", label: "Web Development", url: "/browse?q=Web%20Development", bgColor: "#EFF6FF" },
-      ];
+      return DEFAULT_SEARCH_PROMPTS.slice(0, 6).map((label, index) => ({
+        id: `qt-${index + 1}`,
+        label,
+        url: `/search?q=${encodeURIComponent(label)}`,
+        bgColor: ['#EEF2FF', '#FCE7F3', '#F3E8FF', '#ECFDF5', '#EFF6FF', '#FFF7ED'][index % 6]
+      }));
+    }
+
+    if (endpoint.includes("/search/suggestions")) {
+      return DEFAULT_SEARCH_PROMPTS.slice(0, 5).map((text) => ({
+        text,
+        type: 'keyword',
+        category: 'Try searching for'
+      }));
     }
 
     return [];
@@ -143,6 +249,8 @@ class SearchService {
   private static extractList<T = any>(payload: any): T[] {
     if (Array.isArray(payload)) return payload as T[];
     if (Array.isArray(payload?.data)) return payload.data as T[];
+    if (Array.isArray(payload?.data?.items)) return payload.data.items as T[];
+    if (Array.isArray(payload?.items)) return payload.items as T[];
     return [];
   }
 
@@ -154,6 +262,7 @@ class SearchService {
 
     const groupsSource = source?.groups || {};
     const groups: UnifiedSearchGroups = {
+      posts: this.extractList<UnifiedSearchItem>(groupsSource?.posts),
       people: this.extractList<UnifiedSearchItem>(groupsSource?.people),
       pages: this.extractList<UnifiedSearchItem>(groupsSource?.pages),
       jobs: this.extractList<UnifiedSearchItem>(groupsSource?.jobs),
@@ -161,6 +270,7 @@ class SearchService {
     };
 
     const interleavedFallback = [
+      ...groups.posts,
       ...groups.people,
       ...groups.pages,
       ...groups.jobs,
@@ -175,6 +285,7 @@ class SearchService {
       pages: Number(source?.totals?.pages ?? groups.pages.length) || 0,
       jobs: Number(source?.totals?.jobs ?? groups.jobs.length) || 0,
       gigs: Number(source?.totals?.gigs ?? groups.gigs.length) || 0,
+      posts: Number(source?.totals?.posts ?? groups.posts.length) || 0,
       total: Number(source?.totals?.total ?? finalResults.length) || 0
     };
 
@@ -192,12 +303,14 @@ class SearchService {
 
   static async getRecommendations(userId: string): Promise<Recommendation[]> {
     const data = await this.get<any>(`/search/recommendations?userId=${encodeURIComponent(userId)}`);
-    return Array.isArray(data) ? data : this.getFallbackData("/search/recommendations");
+    const list = this.extractList<Recommendation>(data);
+    return list.length ? list : this.getFallbackData("/search/recommendations");
   }
 
   static async getTrendingSearches(limit: number = 5): Promise<any[]> {
     const data = await this.get<any>(`/search/trending?limit=${limit}`);
-    return Array.isArray(data) ? data : this.getFallbackData(`/search/trending?limit=${limit}`);
+    const list = this.extractList<any>(data);
+    return list.length ? list : this.getFallbackData(`/search/trending?limit=${limit}`);
   }
 
   static async search(
@@ -238,7 +351,7 @@ class SearchService {
         query: "",
         groups: { ...DEFAULT_UNIFIED_GROUPS },
         results: [],
-        totals: { people: 0, pages: 0, jobs: 0, gigs: 0, total: 0 }
+        totals: { posts: 0, people: 0, pages: 0, jobs: 0, gigs: 0, total: 0 }
       };
     }
 
@@ -253,7 +366,8 @@ class SearchService {
 
   static async getQuickTags(): Promise<any[]> {
     const data = await this.get<any>("/search/quick-tags");
-    return Array.isArray(data) ? data : this.getFallbackData("/search/quick-tags");
+    const list = this.extractList<any>(data);
+    return list.length ? list : this.getFallbackData("/search/quick-tags");
   }
 
   static async getSearchHistory(userId: string): Promise<any[]> {
@@ -319,7 +433,8 @@ class SearchService {
     if (userRole) params.append("role", userRole);
 
     const data = await this.get<any>(`/search/suggestions?${params.toString()}`);
-    return Array.isArray(data) ? data : [];
+    const list = this.extractList<any>(data);
+    return list.length ? list : this.getFallbackData(`/search/suggestions?${params.toString()}`);
   }
 
   static async saveSearchQuery(userId: string, query: string): Promise<ApiResponse<null>> {

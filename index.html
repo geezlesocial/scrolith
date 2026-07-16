@@ -4,7 +4,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Scrolith| Premium Freelance Marketplace</title>
+    <title>Scrolith | Where Creators Become Professionals and Audiences Become Opportunities</title>
     <meta name="theme-color" content="#0f6b4f" />
     <link rel="icon" href="/favicon.png" type="image/png" id="favicon-ico">
     <link rel="icon" href="/favicon.png" type="image/png" id="favicon-local">
@@ -27,10 +27,162 @@
         href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap"
       >
     </noscript>
+    <style>
+      #boot-fallback {
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background:
+          radial-gradient(circle at top, rgba(15, 107, 79, 0.14), transparent 42%),
+          linear-gradient(180deg, #f7f4ee 0%, #f2ede3 100%);
+        color: #0b0b0a;
+        transition: opacity 0.22s ease, visibility 0.22s ease;
+      }
+
+      #boot-fallback[data-hidden="true"] {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .boot-card {
+        width: min(100%, 420px);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+        padding: 24px;
+        text-align: left;
+        font-family: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
+      }
+
+      .boot-brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        text-align: center;
+      }
+
+      .boot-logo-shell {
+        display: inline-flex;
+        width: 88px;
+        height: 88px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 28px;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        background: rgba(248, 250, 252, 0.98);
+        box-shadow: 0 16px 36px rgba(15, 23, 42, 0.12);
+      }
+
+      .boot-logo {
+        width: 60px;
+        height: 60px;
+        object-fit: contain;
+      }
+
+      .boot-spinner {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        border: 2px solid rgba(15, 107, 79, 0.18);
+        border-top-color: #0f6b4f;
+        animation: boot-spin 0.8s linear infinite;
+      }
+
+      .boot-help {
+        display: none;
+        margin-top: 16px;
+      }
+
+      #boot-fallback[data-slow="true"] .boot-help,
+      #boot-fallback[data-error="true"] .boot-help {
+        display: block;
+      }
+
+      .boot-reload {
+        border: 0;
+        border-radius: 999px;
+        background: #0f6b4f;
+        color: #fff;
+        font: inherit;
+        font-weight: 600;
+        padding: 10px 16px;
+        cursor: pointer;
+      }
+
+      @keyframes boot-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-fallback" aria-live="polite">
+      <div class="boot-card">
+        <div class="boot-brand">
+          <div class="boot-logo-shell">
+            <img class="boot-logo" src="/logo.webp" alt="Scrolith logo" width="64" height="64" decoding="async" onerror="this.style.display='none'" />
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div class="boot-spinner" aria-hidden="true"></div>
+            <div>
+              <div id="boot-status" style="font-size:16px;font-weight:700;">Loading Scrolith...</div>
+              <div style="margin-top:4px;font-size:13px;color:#475569;">Preparing the app shell and reconnecting your session.</div>
+            </div>
+          </div>
+        </div>
+        <div class="boot-help">
+          <div id="boot-help-text" style="margin-top:14px;font-size:13px;color:#475569;">
+            This is taking longer than expected. You can retry without losing the page.
+          </div>
+          <button class="boot-reload" type="button" onclick="window.location.reload()">Reload App</button>
+        </div>
+      </div>
+    </div>
     <div id="root"></div>
-  <script type="module" src="/src/main.tsx"></script>
-</body>
-</html>
+    <script>
+      (function () {
+        var boot = document.getElementById('boot-fallback');
+        var status = document.getElementById('boot-status');
+        var help = document.getElementById('boot-help-text');
+        if (!boot || !status) return;
 
+        var hide = function () {
+          boot.setAttribute('data-hidden', 'true');
+          window.setTimeout(function () {
+            if (boot && boot.parentNode) boot.parentNode.removeChild(boot);
+          }, 240);
+        };
+
+        var markSlow = function (message) {
+          if (!boot || boot.getAttribute('data-hidden') === 'true') return;
+          boot.setAttribute('data-slow', 'true');
+          if (message && help) help.textContent = message;
+        };
+
+        var markError = function () {
+          if (!boot || boot.getAttribute('data-hidden') === 'true') return;
+          boot.setAttribute('data-error', 'true');
+          status.textContent = 'Scrolith ran into a startup problem.';
+          if (help) {
+            help.textContent = 'Reload the app to request a fresh shell. If this keeps happening, the current bundle or network path is failing during startup.';
+          }
+        };
+
+        window.addEventListener('scrolith:app-ready', hide, { once: true });
+        window.setTimeout(function () {
+          markSlow('The network is slow or the app is updating. Reload if the page stays here.');
+        }, 4500);
+        window.addEventListener('error', markError);
+        window.addEventListener('unhandledrejection', markError);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

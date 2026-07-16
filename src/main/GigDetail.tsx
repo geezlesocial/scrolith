@@ -16,8 +16,11 @@ import { PaymentService } from '../services/payment';
 import { MessagingService } from '../services/messaging';
 import { walletApi } from '../services/wallet';
 import { CMSService } from '../services/cms';
+import { FAVORITES_RATE_LIMIT_MESSAGE, isFavoritesRateLimitedError } from '../services/favorites';
 import { useSocket } from '../context/SocketContext';
+import { useMessages } from '../context/MessageContext';
 import { Contract, Message, TimeEntry } from '../types';
+import { reconcileOptimisticMessage } from '../services/messagingSurfaces';
 import { getUserFacingPaymentMethodName } from '../utils/paymentGatewayDisplay';
 
 const defaultGigExperience = {
@@ -32,6 +35,26 @@ const defaultGigExperience = {
     'Can you provide your timeline and budget estimate?',
     'Can you customize this package for my requirements?'
   ]
+};
+
+const formatRequirementFileTypeLabel = (rawType?: string) => {
+  const normalized = String(rawType || '').trim().toLowerCase();
+  switch (normalized) {
+      case 'images':
+      case 'image':
+          return 'Images';
+      case 'pdf':
+          return 'PDF';
+      case 'doc':
+      case 'docx':
+          return 'DOC / DOCX';
+      case 'zip':
+          return 'ZIP';
+      case 'other':
+          return 'Other files';
+      default:
+          return normalized ? normalized.toUpperCase() : 'Any format';
+  }
 };
 
 const GigDetail = () => {
@@ -79,8 +102,10 @@ const GigDetail = () => {
   const [hourlyEntries, setHourlyEntries] = useState<TimeEntry[]>([]);
   const [hourlyContractLoading, setHourlyContractLoading] = useState(false);
   const [hourlyActionLoading, setHourlyActionLoading] = useState<'start' | 'pause' | 'pay' | null>(null);
+  const [expandedFaqIndex, setExpandedFaqIndex] = useState<number | null>(0);
   const gigChatMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const { socket, isConnected } = useSocket();
+  const { registerVisibleConversation, unregisterVisibleConversation } = useMessages();
 
   const normalizeViewerRole = (rawRole?: string) => {
       const normalized = String(rawRole || '').toLowerCase();
@@ -352,6 +377,18 @@ const GigDetail = () => {
       gigChatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [gigChatMessages, gigChatOpen]);
 
+  // Shared unread ownership: treat open gig chat as a visible conversation.
+  useEffect(() => {
+      if (!gigChatOpen || !gigChatConversationId) return;
+      registerVisibleConversation(gigChatConversationId);
+      return () => unregisterVisibleConversation(gigChatConversationId);
+  }, [
+      gigChatOpen,
+      gigChatConversationId,
+      registerVisibleConversation,
+      unregisterVisibleConversation
+  ]);
+
   useEffect(() => {
       if (!socket || !gigChatOpen || !gigChatConversationId) return;
 
@@ -359,7 +396,9 @@ const GigDetail = () => {
           const message = normalizeGigChatMessage(payload);
           const payloadConversationId = message.conversationId || message.conversation_id;
           if (!payloadConversationId || payloadConversationId !== gigChatConversationId) return;
-          setGigChatMessages((prev) => upsertGigChatMessage(prev, message));
+          setGigChatMessages((prev) =>
+              reconcileOptimisticMessage(prev as Message[], message as Message) as Message[]
+          );
 
           const senderId = message.senderId || message.sender_id;
           if (user?.id && senderId && senderId !== user.id) {
@@ -483,6 +522,21 @@ const GigDetail = () => {
   ];
 
   const faqs = Array.isArray(gig?.faqs) ? gig!.faqs : [];
+  const gigRequirements = Array.isArray(gig?.requirements) ? gig.requirements : [];
+  const requiredRequirementCount = gigRequirements.filter((req: any) => req?.required !== false).length;
+  const fileRequirementCount = gigRequirements.filter((req: any) => req?.type === 'file').length;
+  const textRequirementCount = gigRequirements.length - fileRequirementCount;
+  const detailSectionClass = 'overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm';
+  const detailSectionHeaderClass =
+      'border-b border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(37,99,235,0.12),_transparent_55%),linear-gradient(180deg,_#ffffff_0%,_#f8fafc_100%)] px-6 py-6 sm:px-8';
+
+  useEffect(() => {
+      if (faqs.length === 0) {
+          setExpandedFaqIndex(null);
+          return;
+      }
+      setExpandedFaqIndex((current) => (current !== null && current < faqs.length ? current : 0));
+  }, [gig?.id, faqs.length]);
 
   // --- Utility Actions ---
   const handleSave = async () => {
@@ -492,7 +546,11 @@ const GigDetail = () => {
           await toggleFavorite('gig', gig.id);
           showNotification('success', already ? 'Removed' : 'Saved', already ? 'Gig removed from your favorites.' : 'Gig added to your favorites.');
       } catch (error: any) {
-          showNotification('error', 'Favorites', error?.message || 'Unable to update favorites.');
+          showNotification(
+              'error',
+              'Favorites',
+              isFavoritesRateLimitedError(error) ? FAVORITES_RATE_LIMIT_MESSAGE : error?.message || 'Unable to update favorites.'
+          );
       }
   };
   const handleShare = async () => {
@@ -920,6 +978,19 @@ const GigDetail = () => {
   const cardSubtitle = gigHeadings?.cardSubtitle || '';
   const sellerResponseTime = gig?.avgResponseTime || gig?.meta?.avgResponseTime || '1 Hour';
   const sellerStatus = gig?.sellerStatus || gig?.meta?.sellerStatus || 'Away';
+  const sellerLocation = gig?.meta?.sellerLocation || gig?.country || gig?.location || 'United States';
+  const sellerMemberSince = gig?.memberSince || 'Sep 2021';
+  const sellerLanguages = Array.isArray(gig?.languages) && gig.languages.length ? gig.languages : ['English'];
+  const sellerQueueCount = contractNumber((gig?.meta as any)?.ordersInQueue ?? gig?.ordersInQueue, 2);
+  const packageCount = Array.isArray(gig?.packages) ? gig.packages.length : 0;
+  const galleryAssetCount =
+      galleryImages.length +
+      (Array.isArray(gig?.videos) ? gig.videos.length : 0) +
+      (Array.isArray(gig?.documents) ? gig.documents.length : 0);
+  const currentPackageFeatures = Array.isArray(currentPackage?.features)
+      ? currentPackage.features.filter((feature: unknown) => typeof feature === 'string' && feature.trim() !== '')
+      : [];
+  const isSavedGig = Boolean(gig?.id && isFavorite('gig', gig.id));
   const suggestedHourlyRate = contractNumber((gig?.meta as any)?.hourlyRate ?? (gig?.meta as any)?.hourly_rate, 0)
       || Math.max(10, Math.round(contractNumber(currentPackage?.price ?? priceAmount, 75) / 3))
       || 25;
@@ -1187,7 +1258,128 @@ const GigDetail = () => {
                </div>
 
                {/* Requirements */}
-               {Array.isArray(gig.requirements) && gig.requirements.length > 0 && (
+               {gigRequirements.length > 0 && (
+                   <section className={detailSectionClass}>
+                       <div className={detailSectionHeaderClass}>
+                           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                               <div className="max-w-2xl">
+                                   <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-blue-700">
+                                       <Sparkles className="h-3.5 w-3.5" />
+                                       Order intake
+                                   </span>
+                                   <h3 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">{requirementsHeading}</h3>
+                                   <p className="mt-2 text-sm leading-6 text-slate-600">
+                                       These inputs are collected during order kickoff so the seller can start with cleaner scope,
+                                       fewer revision loops, and better delivery precision.
+                                   </p>
+                               </div>
+                               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Fields</p>
+                                       <p className="mt-1 text-xl font-bold text-slate-900">{gigRequirements.length}</p>
+                                   </div>
+                                   <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Required</p>
+                                       <p className="mt-1 text-xl font-bold text-slate-900">{requiredRequirementCount}</p>
+                                   </div>
+                                   <div className="col-span-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:col-span-1">
+                                       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Uploads</p>
+                                       <p className="mt-1 text-xl font-bold text-slate-900">{fileRequirementCount}</p>
+                                   </div>
+                               </div>
+                           </div>
+                       </div>
+                       <div className="px-6 py-6 sm:px-8">
+                           <div className="mb-5 flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+                               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                                   {textRequirementCount} text response{textRequirementCount === 1 ? '' : 's'}
+                               </span>
+                               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                                   {fileRequirementCount} file upload{fileRequirementCount === 1 ? '' : 's'}
+                               </span>
+                               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">
+                                   Shared after checkout
+                               </span>
+                           </div>
+                           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                               {gigRequirements.map((req: any, i: number) => {
+                                   const isFileRequirement = req?.type === 'file';
+                                   const isRequired = req?.required !== false;
+                                   const acceptedFileTypes = Array.isArray(req?.fileTypes) ? req.fileTypes : [];
+                                   const responseGuidance = isFileRequirement
+                                       ? 'Prepare source files, references, or brand assets before you submit the order.'
+                                       : 'Answer clearly and specifically so the seller can begin without avoidable follow-up.';
+
+                                   return (
+                                       <article
+                                           key={req?.id || i}
+                                           className="group flex h-full flex-col rounded-2xl border border-slate-200 bg-slate-50/80 p-5 transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white"
+                                       >
+                                           <div className="flex items-start gap-4">
+                                               <div className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border ${isFileRequirement ? 'border-indigo-200 bg-indigo-50 text-indigo-600' : 'border-emerald-200 bg-emerald-50 text-emerald-600'}`}>
+                                                   {isFileRequirement ? <FileText className="h-5 w-5" /> : <MessageCircle className="h-5 w-5" />}
+                                               </div>
+                                               <div className="min-w-0 flex-1">
+                                                   <div className="flex flex-wrap items-center gap-2">
+                                                       <span className="inline-flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-white">
+                                                           R{i + 1}
+                                                       </span>
+                                                       <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${isRequired ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`}>
+                                                           {isRequired ? 'Required' : 'Optional'}
+                                                       </span>
+                                                       <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600">
+                                                           {isFileRequirement ? 'File upload' : 'Text response'}
+                                                       </span>
+                                                   </div>
+                                                   <h4 className="mt-3 break-words text-lg font-semibold leading-7 text-slate-900">
+                                                       {req?.question || `Requirement ${i + 1}`}
+                                                   </h4>
+                                                   <p className="mt-2 text-sm leading-6 text-slate-600">
+                                                       {responseGuidance}
+                                                   </p>
+                                               </div>
+                                           </div>
+
+                                           <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                                               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                                                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Collection stage</p>
+                                                   <p className="mt-1 text-sm font-semibold text-slate-900">Requested during order intake</p>
+                                                   <p className="mt-1 text-xs leading-5 text-slate-500">
+                                                       Shared privately after checkout so delivery can start with the right context.
+                                                   </p>
+                                               </div>
+                                               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                                                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                                       {isFileRequirement ? 'Accepted files' : 'Response quality'}
+                                                   </p>
+                                                   {isFileRequirement ? (
+                                                       <div className="mt-2 flex flex-wrap gap-2">
+                                                           {(acceptedFileTypes.length ? acceptedFileTypes : ['any']).map((fileType: string) => (
+                                                               <span key={fileType} className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600">
+                                                                   {formatRequirementFileTypeLabel(fileType)}
+                                                               </span>
+                                                           ))}
+                                                       </div>
+                                                   ) : (
+                                                       <p className="mt-1 text-sm font-semibold text-slate-900">
+                                                           {isRequired ? 'Clear, decision-ready answer expected' : 'Helpful context when available'}
+                                                       </p>
+                                                   )}
+                                                   <p className="mt-2 text-xs leading-5 text-slate-500">
+                                                       {isFileRequirement
+                                                           ? `Maximum files: ${req?.maxFiles || 1}`
+                                                           : 'Use concise answers with goals, references, and constraints when relevant.'}
+                                                   </p>
+                                               </div>
+                                           </div>
+                                       </article>
+                                   );
+                               })}
+                           </div>
+                       </div>
+                   </section>
+               )}
+               {false && Array.isArray(gig.requirements) && gig.requirements.length > 0 && (
                    <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
                        <h3 className="text-xl font-bold text-gray-900 mb-6">{requirementsHeading}</h3>
                        <div className="space-y-4">
@@ -1216,7 +1408,6 @@ const GigDetail = () => {
                        </div>
                    </div>
                )}
-
                {/* Extras */}
                {Array.isArray(gig.extras) && gig.extras.length > 0 && (
                    <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
@@ -1308,6 +1499,84 @@ const GigDetail = () => {
                </div>
 
                {/* FAQs */}
+               <section className={detailSectionClass}>
+                   <div className={detailSectionHeaderClass}>
+                       <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+                           <div className="max-w-2xl">
+                               <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
+                                   <MessageCircle className="h-3.5 w-3.5" />
+                                   Buyer enablement
+                               </span>
+                               <h3 className="mt-4 text-2xl font-bold tracking-tight text-slate-900">FAQ</h3>
+                               <p className="mt-2 text-sm leading-6 text-slate-600">
+                                   Answers to the questions buyers usually ask before they commit to scope, access, or delivery.
+                               </p>
+                           </div>
+                           <div className="flex flex-wrap items-center gap-3">
+                               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Coverage</p>
+                                   <p className="mt-1 text-xl font-bold text-slate-900">{faqs.length}</p>
+                               </div>
+                               <button
+                                   onClick={handleContact}
+                                   className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+                               >
+                                   Ask the seller directly
+                                   <ArrowRight className="ml-2 h-4 w-4" />
+                               </button>
+                           </div>
+                       </div>
+                   </div>
+                   <div className="px-6 py-5 sm:px-8 sm:py-6">
+                       {faqs.length === 0 ? (
+                           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 py-6 text-sm text-slate-500">
+                               No FAQs provided yet. Use the contact action to ask about scope, access, or delivery details before ordering.
+                           </div>
+                       ) : (
+                           <div className="space-y-3">
+                               {faqs.map((faq: any, i: number) => {
+                                   const isExpanded = expandedFaqIndex === i;
+                                   return (
+                                       <article
+                                           key={faq?.id || i}
+                                           className={`overflow-hidden rounded-2xl border transition duration-200 ${isExpanded ? 'border-slate-300 bg-slate-50/70 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+                                       >
+                                           <button
+                                               type="button"
+                                               onClick={() => setExpandedFaqIndex((current) => (current === i ? null : i))}
+                                               aria-expanded={isExpanded}
+                                               aria-controls={`gig-faq-${i}`}
+                                               className="flex w-full items-start justify-between gap-4 px-5 py-5 text-left"
+                                           >
+                                               <div className="min-w-0">
+                                                   <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                                                       Q{i + 1}
+                                                   </span>
+                                                   <h4 className="mt-3 break-words text-base font-semibold leading-7 text-slate-900">
+                                                       {faq?.question || faq?.q || `Question ${i + 1}`}
+                                                   </h4>
+                                               </div>
+                                               <span className={`mt-0.5 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full transition ${isExpanded ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                                   <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                               </span>
+                                           </button>
+                                           {isExpanded && (
+                                               <div id={`gig-faq-${i}`} className="px-5 pb-5">
+                                                   <div className="border-l border-slate-200 pl-4 sm:pl-5">
+                                                       <p className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-600">
+                                                           {faq?.answer || faq?.a || 'No answer provided yet.'}
+                                                       </p>
+                                                   </div>
+                                               </div>
+                                           )}
+                                       </article>
+                                   );
+                               })}
+                           </div>
+                       )}
+                   </div>
+               </section>
+               {false && (
                <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200">
                    <h3 className="text-xl font-bold text-gray-900 mb-6">FAQ</h3>
                    {faqs.length === 0 ? (
@@ -1327,6 +1596,7 @@ const GigDetail = () => {
                        </div>
                    )}
                </div>
+               )}
 
            </div>
 

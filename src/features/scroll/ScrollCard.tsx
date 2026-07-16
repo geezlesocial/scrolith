@@ -1,16 +1,48 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Volume2, VolumeX, MessageCircle, Repeat2, Send, Coins, Flag, Maximize2, Sparkles } from 'lucide-react';
-import type { ScrollEngagementType, ScrollVideo } from '../../services/scroll';
+import { useNavigate } from 'react-router-dom';
+import {
+  AlertTriangle,
+  Clapperboard,
+  Link2,
+  ListVideo,
+  Volume2,
+  VolumeX,
+  MessageCircle,
+  Repeat2,
+  Send,
+  Coins,
+  Flag,
+  Sparkles,
+  Pencil,
+  Trash2,
+  MoreHorizontal,
+  Maximize2
+} from 'lucide-react';
+import { ScrollService, type ScrollEngagementType, type ScrollVideo } from '../../services/scroll';
+import ExpandablePreviewText from '../../components/common/ExpandablePreviewText';
+import ContentOfferTags from '../../components/commerce/ContentOfferTags';
 import ReactionBar from '../../community/components/ReactionBar';
-import { ReactionsService } from '../../services/reactions';
+import FollowButton from '../../community/components/FollowButton';
+import { ReactionsService, type ReactionTargetType } from '../../services/reactions';
 import { useUser } from '../../context/UserContext';
+import { resolveInlineMedia } from '../../utils/inlineMedia';
+import GraphicWarningGate from '../../components/media/GraphicWarningGate';
+import OverlayActionRailButton from '../../components/media/OverlayActionRailButton';
+import OptimizedImage from '../../components/media/OptimizedImage';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
+import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
+import ReactionReactorsModal from '../../community/components/ReactionReactorsModal';
+import ReactionSummaryButton from '../../community/components/ReactionSummaryButton';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
   isActive: boolean;
   autoplayEnabled: boolean;
+  autoAdvanceOnEnd?: boolean;
+  playbackBlocked?: boolean;
   muted: boolean;
   onToggleMute: () => void;
+  onRequestNext?: () => Promise<void> | void;
   onEngage: (scrollId: string, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => Promise<void> | void;
   onComment: (scroll: ScrollVideo) => Promise<void> | void;
   onShareToStory: (scroll: ScrollVideo) => Promise<void> | void;
@@ -18,42 +50,361 @@ type ScrollCardProps = {
   onDash: (scroll: ScrollVideo) => Promise<void> | void;
   onSend: (scroll: ScrollVideo) => Promise<void> | void;
   onReport: (scroll: ScrollVideo) => Promise<void> | void;
+  onEdit: (scroll: ScrollVideo) => Promise<void> | void;
+  onDelete: (scroll: ScrollVideo) => Promise<void> | void;
+  onRemix: (scroll: ScrollVideo, mode?: 'remix' | 'duet') => Promise<void> | void;
+  onOpenSeries: (seriesId: string, scrollId?: string) => Promise<void> | void;
+  headlinePreviewLimit?: number;
+  descriptionPreviewLimit?: number;
+  interestSurveyEnabled?: boolean;
+  initialIsFollowing?: boolean;
+  reactionTargetType?: ReactionTargetType;
+  reactionTargetId?: string;
 };
 
 const authorInitial = (name?: string | null) => String(name || 'S').trim().charAt(0).toUpperCase() || 'S';
+const formatGcoin = (value: number) => {
+  const safe = Math.max(0, Number(value || 0));
+  if (safe >= 1000000) return `${(safe / 1000000).toFixed(safe >= 10000000 ? 0 : 1)}M`;
+  if (safe >= 1000) return `${(safe / 1000).toFixed(safe >= 10000 ? 0 : 1)}K`;
+  return `${safe}`;
+};
+
+const DEFAULT_ALLOWED_REACTIONS = [
+  { key: 'like', label: 'Like', emoji: '\u{1F44D}', enabled: true },
+  { key: 'love', label: 'Love', emoji: '\u2764\uFE0F', enabled: true },
+  { key: 'good', label: 'Good', emoji: '\u2705', enabled: true },
+  { key: 'happy', label: 'Happy', emoji: '\u{1F604}', enabled: true },
+  { key: 'handwave', label: 'Handwave', emoji: '\u{1F44B}', enabled: true },
+  { key: 'angry', label: 'Angry', emoji: '\u{1F621}', enabled: true },
+  { key: 'cry', label: 'Cry', emoji: '\u{1F622}', enabled: true },
+  { key: 'mad', label: 'Mad', emoji: '\u{1F92C}', enabled: true },
+  { key: 'sorry', label: 'Sorry', emoji: '\u{1F64F}', enabled: true }
+];
+
+const TOUCH_CONTROL_HIDE_DELAY_MS = 20000;
+const DESKTOP_CONTROL_HIDE_DELAY_MS = 3600;
+
+const resolveScrollAuthorAvatar = (scroll: ScrollVideo) =>
+  resolvePostAttachmentMediaUrl({
+    url:
+      scroll?.author?.avatarUrl ||
+      scroll?.author?.avatar ||
+      scroll?.author?.photo ||
+      '',
+    fileId:
+      (scroll as any)?.author?.avatarFileId ||
+      (scroll as any)?.author?.avatar_file_id ||
+      ''
+  });
+
+const resolveScrollAuthorProfileUrl = (scroll: ScrollVideo) => {
+  const companySlug = String(
+    (scroll as any)?.author?.businessSlug ||
+      (scroll as any)?.author?.companySlug ||
+      (scroll as any)?.author?.pageSlug ||
+      ''
+  ).trim();
+  if (companySlug) return `/company/${encodeURIComponent(companySlug)}`;
+
+  const username = String(scroll?.author?.username || '').trim().replace(/^@+/, '');
+  if (username) return `/u/${encodeURIComponent(username)}`;
+
+  const authorId = String(scroll?.author?.id || '').trim();
+  if (authorId) return `/profile/${encodeURIComponent(authorId)}`;
+  return null;
+};
 
 const ScrollCard: React.FC<ScrollCardProps> = ({
   scroll,
   isActive,
   autoplayEnabled,
+  autoAdvanceOnEnd = false,
+  playbackBlocked = false,
   muted,
   onToggleMute,
+  onRequestNext,
   onEngage,
   onComment,
   onShareToStory,
   onRepost,
   onDash,
   onSend,
-  onReport
+  onReport,
+  onEdit,
+  onDelete,
+  onRemix,
+  onOpenSeries,
+  headlinePreviewLimit = 72,
+  descriptionPreviewLimit = 120,
+  interestSurveyEnabled = false,
+  initialIsFollowing,
+  reactionTargetType = 'SCROLL',
+  reactionTargetId
 }) => {
+  const navigate = useNavigate();
   const { user } = useUser();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const marksRef = useRef<Record<string, boolean>>({});
   const mediaGestureStartRef = useRef<{ x: number; y: number } | null>(null);
   const mediaLastTapAtRef = useRef(0);
+  const controlsHideTimerRef = useRef<number | null>(null);
+  const ownerMenuRef = useRef<HTMLDivElement | null>(null);
+  const resumeAfterPlaybackBlockRef = useRef(false);
+  const [graphicRevealed, setGraphicRevealed] = useState(false);
+  const [touchOverlayMode, setTouchOverlayMode] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
+  const [interestSignal, setInterestSignal] = useState<string | null>(scroll.viewer?.feedbackSignal || null);
+  const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
+  const mediaUrl = media.src;
+  const authorName = scroll.author?.name || 'Community member';
+  const authorAvatar = resolveScrollAuthorAvatar(scroll);
+  const authorProfileUrl = resolveScrollAuthorProfileUrl(scroll);
+  const description = String(scroll.description || '').trim();
+  const title = String(scroll.title || '').trim();
+  const headlineLine = title || description || 'Scroll video';
+  const secondaryLine = title && description ? description : '';
+  const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
+  const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
+  const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
+  const series = Array.isArray(scroll.series) ? scroll.series : [];
+  const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
+  const overlayControlsVisible = controlsVisible || ownerMenuOpen;
+  const reactionInitialCounts = useMemo(
+    () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
+    [scroll.metrics?.likes]
+  );
+  const [scrollReactionCounts, setScrollReactionCounts] = useState<Record<string, number>>(reactionInitialCounts || {});
+  const [scrollAllowedReactions, setScrollAllowedReactions] = useState(DEFAULT_ALLOWED_REACTIONS);
+  const [scrollReactorsOpen, setScrollReactorsOpen] = useState(false);
+  const rightActions = useMemo(
+    () => [
+      {
+        key: 'comment',
+        label: 'Comment',
+        icon: MessageCircle,
+        count: Number(scroll.metrics?.comments || 0),
+        countSuffix: undefined,
+        onClick: () => onComment(scroll)
+      },
+      {
+        key: 'repost',
+        label: 'Repost',
+        icon: Repeat2,
+        count: Number(scroll.metrics?.reposts || 0),
+        countSuffix: undefined,
+        onClick: () => onRepost(scroll)
+      },
+      {
+        key: 'dash',
+        label: 'Dash',
+        icon: Coins,
+        count: dashGcoinTotal,
+        countSuffix: 'GC',
+        onClick: () => onDash(scroll)
+      },
+      {
+        key: 'send',
+        label: 'Send',
+        icon: Send,
+        count: Number(scroll.metrics?.sends || 0),
+        countSuffix: undefined,
+        onClick: () => onSend(scroll)
+      }
+    ],
+    [dashGcoinTotal, onComment, onDash, onRepost, onSend, scroll]
+  );
 
   useEffect(() => {
     marksRef.current = {};
   }, [scroll.id]);
 
   useEffect(() => {
+    setScrollReactionCounts(reactionInitialCounts || {});
+  }, [reactionInitialCounts, reactionTargetId, scroll.id]);
+
+  useEffect(() => {
+    setGraphicRevealed(false);
+  }, [scroll.id]);
+
+  useEffect(() => {
+    setInterestSignal(scroll.viewer?.feedbackSignal || null);
+  }, [scroll.id, scroll.viewer?.feedbackSignal]);
+
+  useEffect(() => {
+    const targetId = String(reactionTargetId || scroll.id || '').trim();
+    if (!targetId) return;
+    let active = true;
+    ReactionsService.getSummary(reactionTargetType, targetId)
+      .then((summary) => {
+        if (!active || !summary) return;
+        setScrollReactionCounts(summary.counts || {});
+        if (Array.isArray(summary.allowed) && summary.allowed.length) {
+          setScrollAllowedReactions(summary.allowed);
+        }
+      })
+      .catch((error: any) => {
+        const status = Number(error?.response?.status || 0);
+        if (status && status !== 401 && status !== 403 && status !== 404) {
+          console.warn('Failed to load scroll reaction summary', error);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [reactionTargetId, reactionTargetType, scroll.id]);
+
+  useEffect(() => {
+    const onUpdated = (event: Event) => {
+      const raw = (event as CustomEvent).detail;
+      const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+      if (!detail) return;
+      if (String(detail.targetType || '').toUpperCase() !== String(reactionTargetType)) return;
+      const targetId = String(reactionTargetId || scroll.id || '').trim();
+      const eventTargetId = String(detail.targetId || detail.scrollId || '').trim();
+      if (!targetId || eventTargetId !== targetId) return;
+      if (detail.counts && typeof detail.counts === 'object' && !Array.isArray(detail.counts)) {
+        setScrollReactionCounts(detail.counts as Record<string, number>);
+      }
+    };
+    window.addEventListener('reactions:updated', onUpdated as EventListener);
+    window.addEventListener('scroll:reaction_updated', onUpdated as EventListener);
+    return () => {
+      window.removeEventListener('reactions:updated', onUpdated as EventListener);
+      window.removeEventListener('scroll:reaction_updated', onUpdated as EventListener);
+    };
+  }, [reactionTargetId, reactionTargetType, scroll.id]);
+
+  const clearControlsHideTimer = useCallback(() => {
+    if (controlsHideTimerRef.current !== null) {
+      window.clearTimeout(controlsHideTimerRef.current);
+      controlsHideTimerRef.current = null;
+    }
+  }, []);
+
+  const revealControls = useCallback(() => {
+    setControlsVisible(true);
+  }, []);
+
+  const resumePlaybackFromGesture = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !mediaUrl || !isActive || !autoplayEnabled || playbackBlocked) return;
+    video.muted = muted;
+    video.playsInline = true;
+
+    const playNow = () => {
+      const playAttempt = video.play();
+      if (playAttempt && typeof playAttempt.catch === 'function') {
+        playAttempt.catch(() => undefined);
+      }
+    };
+
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      playNow();
+      return;
+    }
+
+    const playWhenReady = () => {
+      video.removeEventListener('loadeddata', playWhenReady);
+      video.removeEventListener('canplay', playWhenReady);
+      playNow();
+    };
+
+    video.addEventListener('loadeddata', playWhenReady);
+    video.addEventListener('canplay', playWhenReady);
+    try {
+      video.load();
+    } catch {}
+  }, [autoplayEnabled, isActive, mediaUrl, muted, playbackBlocked]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const mediaQuery = window.matchMedia('(hover: none), (pointer: coarse)');
+    const syncTouchOverlayMode = () => {
+      const nextTouchOverlayMode = Boolean(mediaQuery.matches);
+      setTouchOverlayMode(nextTouchOverlayMode);
+      setControlsVisible(!nextTouchOverlayMode);
+      setOwnerMenuOpen(false);
+    };
+
+    syncTouchOverlayMode();
+
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', syncTouchOverlayMode);
+    } else if (typeof mediaQuery.addListener === 'function') {
+      mediaQuery.addListener(syncTouchOverlayMode);
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', syncTouchOverlayMode);
+      } else if (typeof mediaQuery.removeListener === 'function') {
+        mediaQuery.removeListener(syncTouchOverlayMode);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setOwnerMenuOpen(false);
+    setControlsVisible(!touchOverlayMode);
+  }, [scroll.id, touchOverlayMode]);
+
+  useEffect(() => {
+    clearControlsHideTimer();
+    if (!autoplayEnabled || !isActive || !controlsVisible || ownerMenuOpen) return;
+
+    controlsHideTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+    }, touchOverlayMode ? TOUCH_CONTROL_HIDE_DELAY_MS : DESKTOP_CONTROL_HIDE_DELAY_MS);
+
+    return clearControlsHideTimer;
+  }, [autoplayEnabled, clearControlsHideTimer, controlsVisible, isActive, ownerMenuOpen, touchOverlayMode]);
+
+  useEffect(() => clearControlsHideTimer, [clearControlsHideTimer]);
+
+  useEffect(() => {
+    if (!ownerMenuOpen) return;
+
+    const handlePointerDownOutside = (event: MouseEvent | TouchEvent) => {
+      if (ownerMenuRef.current?.contains(event.target as Node)) return;
+      setOwnerMenuOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOwnerMenuOpen(false);
+    };
+
+    document.addEventListener('mousedown', handlePointerDownOutside);
+    document.addEventListener('touchstart', handlePointerDownOutside);
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDownOutside);
+      document.removeEventListener('touchstart', handlePointerDownOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [ownerMenuOpen]);
+
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
+    const tryPlay = () => {
+      if (!isActive || !autoplayEnabled || playbackBlocked || document.hidden) return;
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+          // autoplay failures are expected on some devices until user interaction
+        });
+      }
+    };
+
     video.muted = muted;
     video.playsInline = true;
-    video.loop = true;
+    video.loop = !autoAdvanceOnEnd;
 
     if (!isActive) {
       video.pause();
@@ -68,13 +419,31 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       return;
     }
 
-    const playPromise = video.play();
-    if (playPromise && typeof playPromise.catch === 'function') {
-      playPromise.catch(() => {
-        // autoplay failures are expected on some devices until user interaction
-      });
+    if (playbackBlocked) {
+      resumeAfterPlaybackBlockRef.current = !video.paused;
+      video.pause();
+      return;
     }
-  }, [autoplayEnabled, isActive, muted, scroll.id]);
+
+    tryPlay();
+    video.addEventListener('loadedmetadata', tryPlay);
+    video.addEventListener('canplay', tryPlay);
+
+    return () => {
+      video.removeEventListener('loadedmetadata', tryPlay);
+      video.removeEventListener('canplay', tryPlay);
+    };
+  }, [autoAdvanceOnEnd, autoplayEnabled, isActive, muted, playbackBlocked, scroll.id]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isActive || !autoplayEnabled || playbackBlocked) return;
+    if (!resumeAfterPlaybackBlockRef.current || document.hidden) return;
+    resumeAfterPlaybackBlockRef.current = false;
+    video.muted = muted;
+    video.playsInline = true;
+    void video.play().catch(() => undefined);
+  }, [autoplayEnabled, isActive, muted, playbackBlocked, scroll.id]);
 
   useEffect(() => {
     const onVisibility = () => {
@@ -84,13 +453,18 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         video.pause();
         return;
       }
-      if (isActive && autoplayEnabled) {
+      if (isActive && autoplayEnabled && !playbackBlocked) {
         void video.play().catch(() => undefined);
       }
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
-  }, [autoplayEnabled, isActive]);
+  }, [autoplayEnabled, isActive, playbackBlocked]);
+
+  const handleVideoEnded = useCallback(() => {
+    if (!autoAdvanceOnEnd || !isActive) return;
+    void onRequestNext?.();
+  }, [autoAdvanceOnEnd, isActive, onRequestNext]);
 
   const handleTimeUpdate = async () => {
     if (!isActive || !videoRef.current) return;
@@ -133,19 +507,19 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   };
 
   const triggerDoubleTapLike = useCallback(async () => {
-    const scrollId = String(scroll?.id || '').trim();
-    if (!scrollId) return;
+    const targetId = String(reactionTargetId || scroll?.id || '').trim();
+    if (!targetId) return;
     if (!user?.id) {
       if (confirm('Log in to like scroll videos?')) window.location.href = '/auth/login';
       return;
     }
     try {
-      const summary = await ReactionsService.react('SCROLL', scrollId, 'like');
+      const summary = await ReactionsService.react(reactionTargetType, targetId, 'like');
       window.dispatchEvent(
         new CustomEvent('reactions:updated', {
           detail: {
-            targetType: 'SCROLL',
-            targetId: scrollId,
+            targetType: reactionTargetType,
+            targetId,
             counts: summary?.counts || {},
             userReaction: summary?.userReaction || null,
             actorUserId: user.id
@@ -155,13 +529,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     } catch (error) {
       console.error('Failed to apply scroll double-tap like', error);
     }
-  }, [scroll?.id, user?.id]);
+  }, [reactionTargetId, reactionTargetType, scroll?.id, user?.id]);
 
-  const mediaUrl = scroll.media?.url || '';
-  const authorName = scroll.author?.name || 'Community member';
-  const description = String(scroll.description || '').trim();
-  const title = String(scroll.title || '').trim();
-  const topLine = title || description || 'Scroll video';
   const mediaFilterStyle = useMemo(() => {
     const strength = Math.max(0, Math.min(100, Number(scroll.filterStrength ?? 60))) / 100;
     const preset = String(scroll.filterPreset || 'none').toLowerCase();
@@ -183,22 +552,33 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     return { filter: 'none' } as React.CSSProperties;
   }, [scroll.filterPreset, scroll.filterStrength]);
 
-  const rightActions = useMemo(
-    () => [
-      { key: 'comment', label: 'Comment', icon: MessageCircle, onClick: () => onComment(scroll), value: scroll.metrics.comments },
-      { key: 'repost', label: 'Repost', icon: Repeat2, onClick: () => onRepost(scroll), value: scroll.metrics.reposts },
-      { key: 'dash', label: 'Dash', icon: Coins, onClick: () => onDash(scroll), value: scroll.metrics.shares },
-      { key: 'send', label: 'Send', icon: Send, onClick: () => onSend(scroll), value: scroll.metrics.sends }
-    ],
-    [onComment, onDash, onRepost, onSend, scroll]
-  );
+  const showInterestSurvey =
+    interestSurveyEnabled &&
+    isActive &&
+    Boolean(user?.id) &&
+    String(scroll.author?.id || '').trim() !== String(user?.id || '').trim();
+
+  const handleInterestSurveySubmit = async (signal: 'INTERESTED' | 'NOT_INTERESTED') => {
+    if (!user?.id) {
+      throw new Error('Authentication required.');
+    }
+    if (signal === 'INTERESTED') {
+      await ScrollService.interested(scroll.id, { surface: 'scroll_interest_survey' });
+    } else {
+      await ScrollService.notInterested(scroll.id, { surface: 'scroll_interest_survey' });
+    }
+    setInterestSignal(signal);
+  };
 
   return (
     <article
       ref={rootRef}
       className="relative h-screen w-full snap-start bg-black text-white overflow-hidden"
       aria-label={`Scroll by ${authorName}`}
+      onMouseMove={revealControls}
+      onMouseDown={revealControls}
       onTouchStart={(event) => {
+        revealControls();
         const target = event.target as HTMLElement | null;
         if (target?.closest('button, a, input, textarea, select, label')) {
           mediaGestureStartRef.current = null;
@@ -230,6 +610,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           return;
         }
         mediaLastTapAtRef.current = now;
+        resumePlaybackFromGesture();
       }}
       onDoubleClick={(event) => {
         const target = event.target as HTMLElement | null;
@@ -241,29 +622,43 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     >
       {mediaUrl ? (
         <div className="relative h-full w-full bg-black">
-          {scroll.media?.thumbnailUrl ? (
-            <img
-              src={scroll.media.thumbnailUrl}
+          {media.poster ? (
+            <OptimizedImage
+              src={media.poster}
               alt=""
               aria-hidden
+              width={720}
+              height={1280}
+              sizes="(max-width: 768px) 100vw, 420px"
               className="absolute inset-0 h-full w-full object-cover blur-2xl opacity-35 scale-110"
             />
           ) : null}
-          <video
-            ref={videoRef}
-            src={mediaUrl}
-            className="relative z-0 h-full w-full object-contain"
-            style={mediaFilterStyle}
-            muted={muted}
-            loop
-            playsInline
-            controls={!autoplayEnabled}
-            controlsList={!autoplayEnabled ? 'nodownload' : undefined}
-            preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
-            onTimeUpdate={handleTimeUpdate}
-            poster={scroll.media?.thumbnailUrl || undefined}
-            onContextMenu={(event) => event.preventDefault()}
-          />
+          <GraphicWarningGate
+            active={Boolean(scroll.graphicWarning)}
+            revealed={graphicRevealed}
+            onReveal={() => setGraphicRevealed(true)}
+            className="h-full w-full"
+            contentClassName="h-full w-full"
+          >
+            <video
+              ref={videoRef}
+              src={mediaUrl}
+              className="relative z-0 h-full w-full object-contain"
+              style={mediaFilterStyle}
+              muted={muted}
+              loop={!autoAdvanceOnEnd}
+              playsInline
+              autoPlay={autoplayEnabled && isActive && !playbackBlocked}
+              controls={!autoplayEnabled}
+              controlsList={!autoplayEnabled ? 'nodownload' : undefined}
+              preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={handleVideoEnded}
+              poster={media.poster}
+              onContextMenu={(event) => event.preventDefault()}
+              onClick={() => resumePlaybackFromGesture()}
+            />
+          </GraphicWarningGate>
         </div>
       ) : (
         <div className="h-full w-full flex items-center justify-center bg-gray-900 text-sm text-gray-300">
@@ -271,99 +666,409 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/80 via-black/20 to-black/40" />
+      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/55 via-transparent to-black/25" />
 
-      <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-center justify-between">
-        <div className="pointer-events-auto flex items-center gap-3">
-          <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
-            {scroll.author?.avatar ? (
-              <img src={scroll.author.avatar} alt={authorName} className="h-full w-full object-cover" />
+      <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-start justify-between gap-3">
+          <div className="pointer-events-auto">
+            {authorProfileUrl ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  navigate(authorProfileUrl, { state: { fromMobileHome: true } });
+                }}
+                className="flex items-start gap-3 text-left"
+              >
+                <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
+                  {authorAvatar ? (
+                    <OptimizedImage
+                      src={authorAvatar}
+                      alt={authorName}
+                      width={80}
+                      height={80}
+                      sizes="40px"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{authorInitial(authorName)}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
+                    {scroll.isAIEnhanced ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
+                        <Sparkles className="h-3 w-3" />
+                        AI
+                      </span>
+                    ) : null}
+                    {scroll.graphicWarning ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+                        <AlertTriangle className="h-3 w-3" />
+                        Graphic warning
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </button>
             ) : (
-              <span>{authorInitial(authorName)}</span>
+              <div className="flex items-start gap-3">
+                <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
+                  {authorAvatar ? (
+                    <OptimizedImage
+                      src={authorAvatar}
+                      alt={authorName}
+                      width={80}
+                      height={80}
+                      sizes="40px"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{authorInitial(authorName)}</span>
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
+                    {scroll.isAIEnhanced ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
+                        <Sparkles className="h-3 w-3" />
+                        AI
+                      </span>
+                    ) : null}
+                    {scroll.graphicWarning ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-2 py-1 text-[10px] font-semibold text-amber-100 ring-1 ring-amber-300/40">
+                        <AlertTriangle className="h-3 w-3" />
+                        Graphic warning
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
             )}
+            <div className="min-w-0">
+              <div
+                className={`mt-2 transition-all duration-300 ${
+                  touchOverlayMode
+                    ? overlayControlsVisible
+                      ? 'max-h-10 opacity-100'
+                      : 'max-h-0 overflow-hidden opacity-0 pointer-events-none'
+                    : ''
+                }`}
+              >
+                <FollowButton
+                  targetUserId={scroll.author?.id}
+                  currentUserId={user?.id}
+                  initialIsFollowing={initialIsFollowing}
+                  tone="overlay"
+                  className="h-7 border-white/15 bg-white/10 px-2.5 text-[11px] text-white shadow-sm backdrop-blur-sm hover:bg-white/20 hover:text-white"
+                />
+              </div>
+            </div>
           </div>
-          <div>
-            <p className="text-sm font-semibold leading-tight">{authorName}</p>
-            <p className="text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
-          </div>
-          {scroll.isAIEnhanced ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
-              <Sparkles className="h-3 w-3" />
-              AI
-            </span>
-          ) : null}
-        </div>
 
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div
+          className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${
+            overlayControlsVisible ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0 pointer-events-none'
+          }`}
+        >
           <button
             type="button"
-            onClick={handleExpand}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
-            aria-label="Expand video"
-          >
-            <Maximize2 className="h-5 w-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onToggleMute}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+            onClick={() => {
+              revealControls();
+              onToggleMute();
+            }}
+            className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
             aria-label={muted ? 'Unmute' : 'Mute'}
           >
             {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
           </button>
-        </div>
-      </div>
-
-      <div className="absolute right-2.5 top-[58%] z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5">
-        <ReactionBar
-          targetType="SCROLL"
-          targetId={scroll.id}
-          layout="rail"
-          className="w-[54px]"
-          compact
-        />
-        {rightActions.map((action) => (
           <button
-            key={action.key}
             type="button"
-            onClick={action.onClick}
-            className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
-            aria-label={action.label}
+            onClick={() => {
+              revealControls();
+              void handleExpand();
+            }}
+            className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
+            aria-label="View fullscreen"
           >
-            <action.icon className="h-3.5 w-3.5" />
-            <span className="mt-1 text-[11px] font-semibold">{Number(action.value || 0)}</span>
+            <Maximize2 className="h-5 w-5" />
           </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => onShareToStory(scroll)}
-          className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
-          aria-label="Share to Story"
-        >
-          <Sparkles className="h-3.5 w-3.5" />
-          <span className="mt-1 text-[11px] font-semibold">Story</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onReport(scroll)}
-          className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/40 px-1.5 py-1.5 text-white transition hover:bg-black/60"
-          aria-label="Report"
-        >
-          <Flag className="h-3.5 w-3.5" />
-          <span className="mt-1 text-[11px] font-semibold">Report</span>
-        </button>
-      </div>
-
-      <div className="pointer-events-none absolute inset-x-4 bottom-6 z-20">
-        <div className="max-w-[70%] md:max-w-[60%]">
-          <p className="text-base font-semibold leading-snug">{topLine}</p>
-          {description && title ? <p className="mt-1 text-sm text-white/85 line-clamp-3">{description}</p> : null}
-          {scroll.location ? <p className="mt-1 text-xs text-white/80">Location: {scroll.location}</p> : null}
-          <p className="mt-2 text-[11px] text-white/70">{new Date(scroll.createdAt).toLocaleString()}</p>
+          {hasOwnerActions ? (
+            <div ref={ownerMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  revealControls();
+                  setOwnerMenuOpen((current) => !current);
+                }}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+                aria-label="Open scroll owner actions"
+                aria-expanded={ownerMenuOpen}
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+              {ownerMenuOpen ? (
+                <div className="absolute right-0 top-12 min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1.5 text-sm text-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.95)] backdrop-blur-xl">
+                  {scroll.canEdit ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOwnerMenuOpen(false);
+                        void onEdit(scroll);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit scroll
+                    </button>
+                  ) : null}
+                  {scroll.canDelete ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOwnerMenuOpen(false);
+                        void onDelete(scroll);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-rose-200 transition hover:bg-rose-500/15"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Delete scroll
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
+
+      <div
+        className={`absolute right-2.5 top-1/2 z-30 pointer-events-auto flex -translate-y-1/2 flex-col items-center gap-1.5 transition-all duration-300 sm:right-3 ${
+          overlayControlsVisible ? 'translate-x-0 opacity-100' : 'translate-x-6 opacity-0 pointer-events-none'
+        }`}
+      >
+        <ReactionBar
+          targetType={reactionTargetType}
+          targetId={reactionTargetId || scroll.id}
+          initialCounts={reactionInitialCounts}
+          layout="rail"
+          className="w-[60px] sm:w-[68px]"
+          compact
+          railVariant="launcher"
+          railLauncherLabel="Reaction"
+        />
+        {rightActions.map((action) => {
+          const count = Math.max(0, Number(action.count || 0));
+          const countLabel = action.countSuffix ? `${formatGcoin(count)} ${action.countSuffix}` : formatGcoin(count);
+          return (
+            <div key={action.key} className="flex flex-col items-center gap-1">
+              <OverlayActionRailButton
+                onClick={() => {
+                  revealControls();
+                  void action.onClick();
+                }}
+                icon={action.icon}
+                label={action.label}
+                className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+              />
+              {count > 0 ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    revealControls();
+                    void action.onClick();
+                  }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                  className="min-w-9 rounded-full border border-white/12 bg-black/45 px-2 py-0.5 text-center text-[10px] font-bold leading-4 text-white shadow-sm transition hover:bg-black/65"
+                  title={`${countLabel} ${action.label.toLowerCase()}`}
+                  aria-label={`${countLabel} ${action.label}`}
+                >
+                  {countLabel}
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+        <OverlayActionRailButton
+          onClick={() => {
+            revealControls();
+            void onShareToStory(scroll);
+          }}
+          icon={Sparkles}
+          label="Story"
+          className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+        />
+        <OverlayActionRailButton
+          onClick={() => {
+            revealControls();
+            void onReport(scroll);
+          }}
+          icon={Flag}
+          label="Report"
+          danger
+          className="min-h-[42px] min-w-[58px] rounded-[18px] sm:min-h-[46px] sm:min-w-[64px] sm:rounded-2xl"
+        />
+      </div>
+
+      <div
+        className={`pointer-events-none absolute inset-x-4 bottom-5 z-20 transition-all duration-300 ${
+          touchOverlayMode && !overlayControlsVisible
+            ? 'translate-y-6 opacity-0'
+            : 'translate-y-0 opacity-100'
+        } ${touchOverlayMode && !overlayControlsVisible ? 'pr-0 pointer-events-none' : 'pr-[76px] sm:pr-[88px]'}`}
+      >
+        <div className="w-full max-w-[min(34rem,100%)] space-y-2">
+          {scroll.sourceScroll ? (
+            <div className="pointer-events-auto rounded-[18px] border border-fuchsia-300/15 bg-fuchsia-400/8 px-3 py-2.5 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.9)] backdrop-blur-[2px]">
+              <div className="flex items-start gap-3">
+                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-fuchsia-300/25 bg-fuchsia-500/15 text-fuchsia-100">
+                  <Link2 className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fuchsia-100/90">
+                    {scroll.responseMode === 'duet' ? 'Duet response' : 'Remix response'}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-white">
+                    {scroll.sourceScroll.unavailable ? 'Original Scroll unavailable' : sourceHeadline || 'Original Scroll'}
+                  </div>
+                  <div className="mt-1 text-xs text-white/70">
+                    {scroll.sourceScroll.author?.name || 'Community member'}
+                    {scroll.sourceScroll.author?.username ? ` · @${scroll.sourceScroll.author.username}` : ''}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div className="pointer-events-auto rounded-[18px] border border-white/8 bg-black/18 px-3 py-2.5 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.88)] backdrop-blur-[2px]">
+            <ExpandablePreviewText
+              text={headlineLine}
+              limit={headlinePreviewLimit}
+              textClassName="text-[15px] font-semibold leading-snug text-white sm:text-base"
+              buttonClassName="text-white"
+            />
+            {secondaryLine ? (
+              <ExpandablePreviewText
+                text={secondaryLine}
+                limit={descriptionPreviewLimit}
+                className="mt-1.5"
+                textClassName="text-sm leading-relaxed text-white/85"
+                buttonClassName="text-white"
+              />
+            ) : null}
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/75">
+              {scroll.location ? (
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                  {scroll.location}
+                </span>
+              ) : null}
+              {tagCount > 0 ? (
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                  {tagCount} tag{tagCount === 1 ? '' : 's'}
+                </span>
+              ) : null}
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                {new Date(scroll.createdAt).toLocaleString()}
+              </span>
+            </div>
+            {Object.values(scrollReactionCounts || {}).some((value) => Number(value || 0) > 0) ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <ReactionSummaryButton
+                  counts={scrollReactionCounts}
+                  allowed={scrollAllowedReactions}
+                  variant="dark"
+                  compact
+                  className="max-w-full"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    revealControls();
+                    setScrollReactorsOpen(true);
+                  }}
+                />
+              </div>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  revealControls();
+                  void onRemix(scroll, 'remix');
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-50 hover:bg-cyan-400/15"
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Remix
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  revealControls();
+                  void onRemix(scroll, 'duet');
+                }}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-semibold text-white/85 hover:bg-white/10"
+              >
+                <Clapperboard className="h-3.5 w-3.5" />
+                Duet
+              </button>
+              {series.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  onClick={() => {
+                    revealControls();
+                    void onOpenSeries(entry.id, scroll.id);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-fuchsia-300/20 bg-fuchsia-400/10 px-3 py-1.5 text-xs font-semibold text-fuchsia-50 hover:bg-fuchsia-400/15"
+                >
+                  <ListVideo className="h-3.5 w-3.5" />
+                  {entry.title}
+                  <span className="text-[10px] text-fuchsia-100/80">
+                    {Math.max(1, Number(entry.position || 1))}/{Math.max(1, Number(entry.itemCount || 1))}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {showInterestSurvey ? (
+            <div className="pointer-events-auto">
+              <ContentInterestSurvey
+                entityId={scroll.id}
+                viewerId={user?.id}
+                contentType="scroll"
+                initialSignal={interestSignal}
+                enabled
+                appearance="dark"
+                onSubmit={handleInterestSurveySubmit}
+              />
+            </div>
+          ) : null}
+          <div className="pointer-events-auto">
+            <ContentOfferTags offerTags={scroll.offerTags} variant="dark" />
+          </div>
+        </div>
+      </div>
+
+      <ReactionReactorsModal
+        open={scrollReactorsOpen}
+        onClose={() => setScrollReactorsOpen(false)}
+        targetType={reactionTargetType}
+        targetId={reactionTargetId || scroll.id}
+        counts={scrollReactionCounts}
+        allowed={scrollAllowedReactions}
+        title="People who reacted"
+      />
     </article>
   );
 };
 
 export default ScrollCard;
+

@@ -3,6 +3,7 @@ import { AdminService } from './admin';
 import { AuthService } from './authService';
 import { tokenStore } from './tokenStore';
 import { getApiBaseUrl, getBackendOrigin } from '../utils/apiBase';
+import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../constants/defaultAudienceOptions';
 
 // FIXED: Use relative URL for proxy instead of hardcoded localhost:5000
 // Resolve API base: prefer explicit backend URL in builds, otherwise use proxy '/api' in dev.
@@ -18,13 +19,32 @@ if (import.meta.env.PROD && !_hasBackendEnv) {
 }
 const getCmsApiUrl = () => getApiBaseUrl();
 const getCmsBackendOrigin = () => getBackendOrigin();
-const BRAND_ASSET_URL = 'https://scrolith.com/icon-192.png';
+const BRAND_LOGO_URL = 'https://scrolith.com/logo.png';
+const BRAND_FAVICON_URL = 'https://scrolith.com/favicon.png';
+const AUTH_PAGES_CACHE_TTL_MS = 5 * 60 * 1000;
+const GUEST_HOMEPAGE_FETCH_TIMEOUT_MS = 3500;
+
+let authPagesCache: { config: AuthPagesConfig | null; cachedAt: number } | null = null;
+let authPagesRequest: Promise<AuthPagesConfig | null> | null = null;
 
 const devLog = (...args: any[]) => {
     if (!import.meta.env.PROD) console.log(...args);
 };
 const devWarn = (...args: any[]) => {
     if (!import.meta.env.PROD) console.warn(...args);
+};
+
+const fetchWithTimeout = async (url: string, init: RequestInit = {}, timeoutMs = 5000) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, {
+            ...init,
+            signal: controller.signal
+        });
+    } finally {
+        window.clearTimeout(timer);
+    }
 };
 
 // --- Fallback Data ---
@@ -54,7 +74,7 @@ const fallbackData = {
         {
             id: 'page-privacy',
             title: 'Privacy Policy',
-            slug: 'privacy-policy',
+            slug: 'privacy',
             content: '<h1>Privacy Policy</h1><p>Your privacy is important to us. This policy explains how we collect, use, and protect your information.</p>',
             status: 'PUBLISHED',
             categoryId: 'cat-legal',
@@ -74,7 +94,7 @@ const fallbackData = {
         {
             id: 'page-terms',
             title: 'Terms of Service',
-            slug: 'terms-of-service',
+            slug: 'terms',
             content: '<h1>Terms of Service</h1><p>By using Scrolith, you agree to these terms and conditions.</p>',
             status: 'PUBLISHED',
             categoryId: 'cat-legal',
@@ -86,6 +106,26 @@ const fallbackData = {
                 metaTitle: 'Terms of Service - Scrolith',
                 metaDescription: 'Terms and conditions for using Scrolith Marketplace.',
                 metaKeywords: ['terms', 'service', 'agreement']
+            },
+            images: [],
+            videos: [],
+            blocks: []
+        },
+        {
+            id: 'page-refund-policy',
+            title: 'Refund Policy',
+            slug: 'refund-policy',
+            content: '<h1>Refund Policy</h1><p>Read how Scrolith handles eligible refunds, disputes, and payment support requests.</p>',
+            status: 'PUBLISHED',
+            categoryId: 'cat-legal',
+            category_id: 'cat-legal',
+            updatedAt: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            visibility: 'public',
+            seo: {
+                metaTitle: 'Refund Policy - Scrolith',
+                metaDescription: 'Read the Scrolith refund rules for supported transactions and dispute flows.',
+                metaKeywords: ['refund', 'refund policy', 'dispute', 'payment support']
             },
             images: [],
             videos: [],
@@ -140,18 +180,19 @@ const fallbackData = {
     settings: {
         siteName: 'Scrolith Marketplace',
         siteDescription: 'Connect with top freelancers and find your next project',
-        siteTagline: 'Find, hire, and work with the best talent',
-        logoUrl: BRAND_ASSET_URL,
-        faviconUrl: BRAND_ASSET_URL,
+        siteTagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
+        logoUrl: BRAND_LOGO_URL,
+        faviconUrl: BRAND_FAVICON_URL,
         adminEmail: 'admin@Scrolith.com',
         supportEmail: 'support@Scrolith.com',
         footerAboutTitle: 'About Scrolith',
         footerAboutText: 'Connecting talent with opportunity worldwide.',
         footerCopyright: '© 2024 Scrolith Inc. All rights reserved.',
         footerLinks: [
-            { label: 'About Us', url: '/about', type: 'internal' },
-            { label: 'Privacy Policy', url: '/privacy-policy', type: 'internal' },
-            { label: 'Terms of Service', url: '/terms-of-service', type: 'internal' }
+            { label: 'About Us', url: '/p/about', type: 'internal' },
+            { label: 'Privacy Policy', url: '/p/privacy', type: 'internal' },
+            { label: 'Terms of Service', url: '/p/terms', type: 'internal' },
+            { label: 'Refund Policy', url: '/p/refund-policy', type: 'internal' }
         ],
         socialLinks: [
             { platform: 'twitter', url: 'https://twitter.com/Scrolith' },
@@ -359,6 +400,339 @@ const normalizeSectionType = (value: any): string => {
     }
 };
 
+const parseObjectValue = (value: any, fallback: Record<string, any> = {}) => {
+    if (value === undefined || value === null || value === '') return fallback;
+    if (typeof value === 'string') {
+        try {
+            const parsed = JSON.parse(value);
+            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+        } catch {
+            return fallback;
+        }
+    }
+    return typeof value === 'object' && !Array.isArray(value) ? value : fallback;
+};
+
+const normalizeHomepageSection = (section: any, index: number): HomepageSection => {
+    const source = section || {};
+    const rawType =
+        source.type ??
+        source.sectionType ??
+        source.section_type ??
+        source.section ??
+        source.name ??
+        source.title;
+    const normalizedType = normalizeSectionType(rawType);
+    const activeSource = source.isActive ?? source.is_active;
+    const isActive = activeSource === undefined || activeSource === null
+        ? true
+        : normalizeBoolean(activeSource, true);
+    const roleSource =
+        source.targetRoles ??
+        source.target_roles ??
+        source.roles ??
+        source.targeting?.roles ??
+        [];
+    const targetRoles = normalizeRoleList(roleSource);
+    const positionValue = source.position ?? source.sortOrder ?? source.sort_order ?? 0;
+    const parsedPosition = Number(positionValue);
+    const position = Number.isFinite(parsedPosition) ? parsedPosition : 0;
+
+    return {
+        ...source,
+        id: source.id ?? source._id ?? source.uuid ?? `section-${index}`,
+        type: normalizedType as any,
+        section_type: normalizedType,
+        sectionType: normalizedType,
+        name: source.name || source.title || normalizedType || 'Section',
+        isActive,
+        is_active: isActive,
+        position,
+        sortOrder: position,
+        sort_order: position,
+        content: parseObjectValue(source.content, {}),
+        style: parseObjectValue(source.style, {}),
+        targetRoles,
+        target_roles: targetRoles,
+        roles: targetRoles,
+        targeting: {
+            ...(source.targeting && typeof source.targeting === 'object' ? source.targeting : {}),
+            roles: targetRoles
+        }
+    } as HomepageSection & Record<string, any>;
+};
+
+const normalizeHomepageSlide = (slide: any, index: number): HomeSlide => {
+    const source = slide || {};
+    const activeSource = source.isActive ?? source.is_active;
+    const isActive = activeSource === undefined || activeSource === null
+        ? true
+        : normalizeBoolean(activeSource, true);
+    const sortValue = source.sortOrder ?? source.sort_order ?? 0;
+    const parsedSortOrder = Number(sortValue);
+    const sortOrder = Number.isFinite(parsedSortOrder) ? parsedSortOrder : 0;
+    const mediaType = source.mediaType ?? source.media_type ?? source.type ?? 'image';
+    const mediaUrl =
+        source.mediaUrl ??
+        source.media_url ??
+        source.image_url ??
+        source.image ??
+        source.video_url ??
+        source.video ??
+        source.url ??
+        '';
+    const redirectUrl = source.redirectUrl ?? source.redirect_url ?? source.link ?? source.href ?? '';
+    const roleVisibility = normalizeRoleList(source.roleVisibility ?? source.role_visibility ?? []);
+    const createdAt = source.createdAt || source.created_at || source.created || new Date().toISOString();
+    const updatedAt = source.updatedAt || source.updated_at || source.updated || new Date().toISOString();
+
+    return {
+        ...source,
+        id: source.id ?? source._id ?? source.uuid ?? `slide-${index}`,
+        mediaType,
+        media_type: mediaType,
+        mediaUrl,
+        media_url: mediaUrl,
+        redirectUrl,
+        redirect_url: redirectUrl,
+        roleVisibility,
+        role_visibility: roleVisibility,
+        sortOrder,
+        sort_order: sortOrder,
+        isActive,
+        is_active: isActive,
+        createdAt,
+        created_at: createdAt,
+        updatedAt,
+        updated_at: updatedAt,
+        backgroundColor: source.backgroundColor || source.background_color || source.bgColor || source.bg_color,
+        background_color: source.backgroundColor || source.background_color || source.bgColor || source.bg_color
+    } as HomeSlide & Record<string, any>;
+};
+
+const extractHomepageSections = (payload: any): any[] => {
+    const source = unwrap(payload) || {};
+    return (
+        (Array.isArray(source.sections) ? source.sections : null) ||
+        (Array.isArray(source.homeSections) ? source.homeSections : null) ||
+        (Array.isArray(source.home_sections) ? source.home_sections : null) ||
+        (Array.isArray(source.data?.sections) ? source.data.sections : null) ||
+        (Array.isArray(source.data?.homeSections) ? source.data.homeSections : null) ||
+        (Array.isArray(source.data?.home_sections) ? source.data.home_sections : null) ||
+        []
+    );
+};
+
+const extractHomepageSlides = (payload: any): any[] => {
+    const source = unwrap(payload) || {};
+    return (
+        (Array.isArray(source.slides) ? source.slides : null) ||
+        (Array.isArray(source.homeSlides) ? source.homeSlides : null) ||
+        (Array.isArray(source.home_slides) ? source.home_slides : null) ||
+        (Array.isArray(source.data?.slides) ? source.data.slides : null) ||
+        (Array.isArray(source.data?.homeSlides) ? source.data.homeSlides : null) ||
+        (Array.isArray(source.data?.home_slides) ? source.data.home_slides : null) ||
+        []
+    );
+};
+
+const normalizeHomepagePayload = (payload: any, fallbackPageType = 'homepage') => {
+    const source = unwrap(payload) || {};
+    const sections = extractHomepageSections(source)
+        .map(normalizeHomepageSection)
+        .sort((a, b) => (a.position || 0) - (b.position || 0));
+    const slides = extractHomepageSlides(source)
+        .map(normalizeHomepageSlide)
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+    const pageType = source.pageType ?? source.page_type ?? fallbackPageType;
+
+    return normalizeAssetUrls({
+        ...source,
+        pageType,
+        page_type: pageType,
+        sections,
+        homeSections: sections,
+        home_sections: sections,
+        slides,
+        homeSlides: slides,
+        home_slides: slides
+    });
+};
+
+const getHomepageSectionsFromNormalizedPayload = (payload: any) =>
+    ensureArray<any>(payload?.sections ?? payload?.homeSections ?? payload?.home_sections);
+
+const hasActiveHomepageSections = (payload: any) =>
+    getHomepageSectionsFromNormalizedPayload(payload).some((section) => section?.isActive !== false && section?.is_active !== false);
+
+const isDefaultCmsSeedHomepage = (payload: any) => {
+    const sections = getHomepageSectionsFromNormalizedPayload(payload);
+    if (sections.length === 0) return false;
+
+    const sectionIds = sections.map((section) => String(section?.id || '').trim().toLowerCase());
+    const sectionTypes = sections.map((section) => String(section?.type || '').trim().toLowerCase());
+    const body = JSON.stringify({
+        pageType: payload?.pageType ?? payload?.page_type,
+        sections
+    }).toLowerCase();
+    const hasDemoText =
+        body.includes('find the perfect freelancer for your project') ||
+        body.includes('dev mike') ||
+        body.includes('sarah art');
+    const hasSeedSectionSet =
+        sections.length <= 3 &&
+        sectionIds.includes('hero') &&
+        sectionIds.includes('categories') &&
+        sectionIds.includes('featured') &&
+        sectionTypes.includes('hero') &&
+        sectionTypes.includes('categories') &&
+        sectionTypes.includes('featured');
+    const hasScrolithGuestSections = sectionTypes.some((type) => type.startsWith('guest_'));
+
+    return !hasScrolithGuestSections && (hasDemoText || hasSeedSectionSet);
+};
+
+const fallbackGuestHomepage = () => normalizeHomepagePayload({
+    pageType: 'public_home',
+    published: false,
+    sections: [
+        {
+            id: 'fallback-guest-hero-auth',
+            type: 'guest_hero_auth',
+            name: 'Guest Hero + Auth',
+            is_active: true,
+            position: 1,
+            content: {
+                headline: 'The All-in-One Platform for Work, Talent, and Community',
+                subheadline: 'Scrolith combines professional networking, freelance marketplace, messaging, payments, and AI workflows.',
+                description: 'Join millions building careers, growing businesses, and collaborating in real time.',
+                primaryCtaLabel: 'Create account',
+                primaryCtaUrl: '/auth/signup',
+                secondaryCtaLabel: 'Log in',
+                secondaryCtaUrl: '/auth/login',
+                heroBackgroundUrl: '',
+                authPanelTitle: 'Welcome to Scrolith',
+                authPanelSubtitle: 'Sign in or create an account to start working and growing.',
+                defaultTab: 'signup',
+                enableSocialLogin: true,
+                loginCtaLabel: 'Login',
+                signupCtaLabel: 'Sign up',
+                scrolitha: {
+                    enabled: true,
+                    eyebrow: 'Scrolitha Live Assistant',
+                    title: 'Talk to Scrolitha before you create your account',
+                    subtitle: 'Launch guided AI onboarding directly from the guest homepage.',
+                    description: 'Visitors can preview gig creation, hiring, briefs, and marketplace workflows before signing in.',
+                    primaryPrompt: 'Create a gig draft',
+                    primaryLabel: 'Open Scrolitha',
+                    secondaryLabel: 'Join with popup',
+                    secondaryUrl: '/auth/signup',
+                    promptChips: ['Create a gig draft', 'Generate a project brief', 'How do I start on Scrolith?']
+                },
+                authPopup: {
+                    enabled: true,
+                    delaySeconds: 120,
+                    headline: 'Stay on Scrolith and continue your account setup',
+                    subheadline: 'Sign in or join directly from the guest homepage with the same enterprise auth controls.',
+                    defaultTab: 'signup',
+                    dismissLabel: 'Maybe later',
+                    trustNote: 'This popup is additive to your existing auth pages and can be dismissed anytime.'
+                }
+            },
+            style: {},
+            target_roles: ['guest']
+        },
+        {
+            id: 'fallback-what-is-scrolith',
+            type: 'guest_what_is_scrolith',
+            name: 'What is Scrolith',
+            is_active: true,
+            position: 2,
+            content: {
+                title: 'What is Scrolith?',
+                subtitle: 'A complete ecosystem for professionals and businesses.',
+                cards: [
+                    { id: 'social', title: 'Social Network', description: 'Build your network, publish updates, and grow visibility.' },
+                    { id: 'marketplace', title: 'Freelance Marketplace', description: 'Offer services or hire verified professionals.' },
+                    { id: 'messaging', title: 'Messaging', description: 'Real-time chat, voice notes, and collaborative communication.' },
+                    { id: 'payments', title: 'Wallet & Payments', description: 'Secure transactions and enterprise-grade payment flow.' },
+                    { id: 'ai', title: 'Scrolitha', description: 'Automate content, insights, and productivity workflows.' },
+                    { id: 'pages', title: 'Business Pages', description: 'Grow your brand with dedicated page presence and community.' }
+                ]
+            },
+            style: {},
+            target_roles: ['guest']
+        },
+        {
+            id: 'fallback-guest-paths',
+            type: 'guest_paths',
+            name: 'Freelancer vs Employer',
+            is_active: true,
+            position: 3,
+            content: {
+                title: 'Choose your path',
+                subtitle: 'Scrolith supports both talent and businesses at scale.',
+                freelancerTitle: 'Freelancer',
+                freelancerBullets: ['Create gigs', 'Apply to jobs', 'Earn income'],
+                freelancerCtaLabel: 'Start freelancing',
+                freelancerCtaUrl: '/auth/signup',
+                employerTitle: 'Employer',
+                employerBullets: ['Post jobs', 'Hire talent', 'Manage projects'],
+                employerCtaLabel: 'Start hiring',
+                employerCtaUrl: '/auth/signup'
+            },
+            style: {},
+            target_roles: ['guest']
+        },
+        {
+            id: 'fallback-guest-feature-showcase',
+            type: 'guest_feature_showcase',
+            name: 'Feature Showcase',
+            is_active: true,
+            position: 4,
+            content: {
+                title: 'Explore Scrolith features',
+                subtitle: 'Everything needed to work, hire, and scale in one platform.',
+                tabs: [
+                    { id: 'marketplace', label: 'Marketplace', title: 'Professional services marketplace', description: 'Discover and deliver high-value services globally.' },
+                    { id: 'community', label: 'Community', title: 'High-engagement community feed', description: 'Share updates, stories, and scroll content in real time.' },
+                    { id: 'messaging', label: 'Messaging', title: 'Instant communication tools', description: 'Reliable chat infrastructure for teams and clients.' },
+                    { id: 'ai', label: 'Scrolitha', title: 'Productivity with Scrolitha', description: 'Generate ideas, optimize content, and automate repetitive tasks.' },
+                    { id: 'payments', label: 'Payments', title: 'Secure wallet and payout stack', description: 'Enterprise-grade checkout, payouts, and fund management.' },
+                    { id: 'trust', label: 'Trust & Verification', title: 'Verified quality at scale', description: 'KYC, moderation, and safety-first controls for confidence.' }
+                ]
+            },
+            style: {},
+            target_roles: ['guest']
+        },
+        {
+            id: 'fallback-guest-final-cta',
+            type: 'guest_final_cta',
+            name: 'Final CTA',
+            is_active: true,
+            position: 5,
+            content: {
+                title: 'Join Scrolith today',
+                subtitle: 'Create your professional profile and unlock marketplace + community access.',
+                primaryCtaLabel: 'Sign up',
+                primaryCtaUrl: '/auth/signup',
+                secondaryCtaLabel: 'Login',
+                secondaryCtaUrl: '/auth/login'
+            },
+            style: {},
+            target_roles: ['guest']
+        }
+    ],
+    slides: [],
+    seo: {
+        title: 'Scrolith',
+        metaDescription: 'Connect with freelancers, jobs, gigs, and communities on Scrolith.',
+        keywords: [],
+        ogImage: ''
+    },
+    updatedAt: new Date().toISOString()
+}, 'public_home');
+
 const normalizeNavItem = (item: any) => {
     if (!item) return null;
     const visibility = normalizeRoleList(
@@ -400,6 +774,197 @@ const normalizeDropdown = (value: any, fallbackId: string) => {
     };
 };
 
+const normalizeFooterConfigSource = (raw: any, fallbackId = 'footer'): FooterConfig => {
+    const source = raw || {};
+    const now = Date.now();
+    const enabled = normalizeBoolean(
+        source.enabled ?? source.is_enabled ?? source.isEnabled ?? source.active ?? source.is_active ?? source.isActive,
+        true
+    );
+    const columnsSource = source.columns ?? source.footer_columns ?? source.footerColumns ?? source.items ?? [];
+    const columns = ensureArray<any>(columnsSource).map((column: any, colIndex: number) => {
+        const linksSource = column.links ?? column.items ?? column.children ?? [];
+        const links = ensureArray<any>(linksSource).map((link: any, linkIndex: number) => {
+            const url = link.url ?? link.href ?? link.link ?? '';
+            const type = link.type ?? (url && String(url).startsWith('http') ? 'external' : 'internal');
+            return {
+                ...link,
+                id: link.id || `footer-link-${now}-${colIndex}-${linkIndex}`,
+                label: link.label ?? link.title ?? link.name ?? '',
+                url,
+                visibility: normalizeRoleList(
+                    link.visibility ??
+                    link.roles ??
+                    link.target_roles ??
+                    link.targetRoles ??
+                    link.visible_to ??
+                    link.visibleTo ??
+                    link.role_visibility ??
+                    link.roleVisibility
+                ),
+                type
+            };
+        });
+
+        return {
+            ...column,
+            id: column.id || `footer-col-${now}-${colIndex}`,
+            title: column.title ?? column.label ?? column.name ?? '',
+            links
+        };
+    });
+
+    const contactSource = source.contact ?? source.footer_contact ?? source.footerContact ?? {};
+    const adminEmail = contactSource.admin_email ?? contactSource.adminEmail ?? source.admin_email ?? source.adminEmail ?? '';
+    const supportEmail =
+        contactSource.support_email ?? contactSource.supportEmail ?? source.support_email ?? source.supportEmail ?? '';
+    const ticketRoute =
+        contactSource.ticket_route ?? contactSource.ticketRoute ?? source.ticket_route ?? source.ticketRoute ?? '';
+
+    const socialsSource = source.socials ?? source.social_links ?? source.socialLinks ?? [];
+    const socials = ensureArray<any>(socialsSource).map((social: any, index: number) => ({
+        ...social,
+        id: social.id || `footer-social-${now}-${index}`,
+        platform: social.platform ?? social.name ?? social.label ?? '',
+        url: social.url ?? social.href ?? social.link ?? '',
+        enabled: normalizeBoolean(social.enabled ?? social.is_enabled ?? social.isEnabled, true),
+        icon: social.icon ?? social.icon_url ?? social.iconUrl ?? ''
+    }));
+
+    const logoUrl = source.logoUrl ?? source.logo_url ?? source.logo ?? '';
+    const socialLabelTitle =
+        source.social_label_title ??
+        source.socialLabelTitle ??
+        source.social_title ??
+        source.socialTitle ??
+        '';
+    const description = cleanFooterText(
+        source.description ??
+        source.footer_description ??
+        source.footerDescription ??
+        source.footer_about_text ??
+        source.footerAboutText ??
+        ''
+    );
+    const copyright = cleanFooterText(
+        source.copyright ??
+        source.footer_copyright ??
+        source.footerCopyright ??
+        ''
+    );
+
+    return normalizeAssetUrls({
+        ...source,
+        id: source.id || `${fallbackId}-${now}`,
+        enabled,
+        isEnabled: enabled,
+        is_enabled: enabled,
+        isActive: enabled,
+        is_active: enabled,
+        description,
+        copyright,
+        columns,
+        contact: {
+            ...contactSource,
+            admin_email: adminEmail,
+            adminEmail,
+            support_email: supportEmail,
+            supportEmail,
+            ticket_route: ticketRoute,
+            ticketRoute
+        },
+        socials,
+        logo_url: logoUrl,
+        logoUrl,
+        social_label_title: socialLabelTitle,
+        socialLabelTitle
+    }) as unknown as FooterConfig;
+};
+
+const isFooterExplicitlyDisabled = (footer: any) => {
+    if (!footer) return false;
+    const explicitValue = footer.enabled ?? footer.is_enabled ?? footer.isEnabled ?? footer.active ?? footer.is_active ?? footer.isActive;
+    return explicitValue !== undefined && explicitValue !== null && normalizeBoolean(explicitValue, true) === false;
+};
+
+const hasRenderableFooterConfig = (footer: any) => {
+    if (!footer) return false;
+    if (isFooterExplicitlyDisabled(footer)) return false;
+    const contact = footer.contact || {};
+    const hasVisibleColumnLinks = ensureArray<any>(footer.columns).some((column) =>
+        ensureArray<any>(column?.links).some((link) => link?.label && (link?.url || link?.href || link?.link))
+    );
+    const hasSocials = ensureArray<any>(footer.socials).some((social) => social?.url && social?.enabled !== false);
+    return Boolean(
+        footer.description ||
+        footer.copyright ||
+        hasVisibleColumnLinks ||
+        hasSocials ||
+        contact.support_email ||
+        contact.supportEmail ||
+        contact.admin_email ||
+        contact.adminEmail ||
+        contact.ticket_route ||
+        contact.ticketRoute
+    );
+};
+
+const cleanFooterText = (value: any) => String(value ?? '').replace(/Â©/g, '(c)').trim();
+
+const buildDefaultFooterConfig = (): FooterConfig =>
+    normalizeFooterConfigSource(
+        {
+            id: 'default-footer',
+            description:
+                'Scrolith is an AI-powered social freelance marketplace where creators, freelancers, and businesses connect, collaborate, and grow.',
+            copyright: '(c) 2026 Scrolith. All rights reserved.',
+            logo_url: BRAND_LOGO_URL,
+            columns: [
+                {
+                    id: 'default-footer-freelancers',
+                    title: 'For Freelancers',
+                    links: [
+                        { id: 'default-find-jobs', label: 'Find Jobs', url: '/browse-jobs', type: 'internal', visibility: [] },
+                        { id: 'default-create-gig', label: 'Create Gig', url: '/create-gig', type: 'internal', visibility: [] },
+                        { id: 'default-community', label: 'Community', url: '/community', type: 'internal', visibility: [] }
+                    ]
+                },
+                {
+                    id: 'default-footer-employers',
+                    title: 'For Employers',
+                    links: [
+                        { id: 'default-find-talent', label: 'Find Talent', url: '/browse', type: 'internal', visibility: [] },
+                        { id: 'default-post-job', label: 'Post a Job', url: '/create-job', type: 'internal', visibility: [] },
+                        { id: 'default-hire', label: 'Hire Resources', url: '/hire', type: 'internal', visibility: [] }
+                    ]
+                },
+                {
+                    id: 'default-footer-company',
+                    title: 'Company',
+                    links: [
+                        { id: 'default-about', label: 'About Us', url: '/p/about', type: 'internal', visibility: [] },
+                        { id: 'default-contact', label: 'Contact', url: '/contact', type: 'internal', visibility: [] },
+                        { id: 'default-terms', label: 'Terms of Service', url: '/p/terms', type: 'internal', visibility: [] },
+                        { id: 'default-privacy', label: 'Privacy Policy', url: '/p/privacy', type: 'internal', visibility: [] },
+                        { id: 'default-refund', label: 'Refund Policy', url: '/p/refund-policy', type: 'internal', visibility: [] }
+                    ]
+                }
+            ],
+            contact: {
+                support_email: 'support@scrolith.com',
+                admin_email: '/contact',
+                ticket_route: '/support'
+            },
+            socials: [
+                { id: 'default-facebook', platform: 'facebook', url: 'https://facebook.com/Scrolith', enabled: true },
+                { id: 'default-twitter', platform: 'twitter', url: 'https://twitter.com/Scrolith', enabled: true },
+                { id: 'default-linkedin', platform: 'linkedin', url: 'https://linkedin.com/company/Scrolith', enabled: true }
+            ],
+            socialLabelTitle: 'Follow us'
+        },
+        'default-footer'
+    );
+
 const getAuthHeaders = async () => {
     const token = await tokenStore.get();
     const user = AuthService.getStoredUser();
@@ -411,6 +976,15 @@ const getAuthHeaders = async () => {
     return headers;
 };
 
+const shouldIncludeBrowserCredentials = () => {
+    try {
+        const runtime = typeof window !== 'undefined' ? (window as any)?.Capacitor : null;
+        return !(runtime && typeof runtime.isNativePlatform === 'function' && runtime.isNativePlatform());
+    } catch {
+        return true;
+    }
+};
+
 // --- API HELPER ---
 const api = {
     get: async (endpoint: string) => {
@@ -420,6 +994,7 @@ const api = {
 
             const res = await fetch(url, {
                 method: 'GET',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: {
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
@@ -454,6 +1029,7 @@ const api = {
         try {
             const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'POST',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
             });
@@ -472,6 +1048,7 @@ const api = {
         try {
             const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'PUT',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
                 body: JSON.stringify(data)
             });
@@ -490,6 +1067,7 @@ const api = {
         try {
             const res = await fetch(`${getCmsApiUrl()}${endpoint}`, {
                 method: 'DELETE',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: { ...(await getAuthHeaders()) }
             });
             if (!res.ok) {
@@ -534,7 +1112,11 @@ export const CMSService = {
         const source = raw?.settings ?? raw?.data?.settings ?? raw ?? {};
 
         const siteName = source.siteName ?? source.site_name ?? 'Scrolith';
-        const tagline = source.tagline ?? source.siteTagline ?? source.site_tagline ?? 'Marketplace';
+        const tagline =
+            source.tagline ??
+            source.siteTagline ??
+            source.site_tagline ??
+            'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization';
         const logoUrl = source.logoUrl ?? source.logo_url ?? '';
         const faviconUrl = source.faviconUrl ?? source.favicon_url ?? '';
         const adminEmail = source.adminEmail ?? source.admin_email ?? 'admin@Scrolith.com';
@@ -800,7 +1382,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
                 if (!fallback) {
                     devWarn('⚠️ Homepage API returned null/empty; returning empty homepage object');
-                    return { sections: [], slides: [], pageType: 'homepage', published: false };
+                    return normalizeHomepagePayload({ sections: [], slides: [], pageType: 'homepage', published: false }, 'homepage');
                 }
 
                 devLog('✅ Homepage API response:', {
@@ -812,44 +1394,77 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                         published: fallback.published
                 });
 
-                return normalizeAssetUrls(fallback);
+                return normalizeHomepagePayload(fallback, options?.pageType || 'homepage');
         } catch (error) {
                 console.error('❌ Failed to fetch homepage:', error);
-                return { sections: [], slides: [], pageType: 'homepage', published: false };
+                return normalizeHomepagePayload({ sections: [], slides: [], pageType: 'homepage', published: false }, 'homepage');
         }
 },
 
     getGuestHomepage: async (): Promise<any> => {
         try {
-            const direct = await fetch(`${getCmsApiUrl()}/homepage/guest`, {
+            const guest = await fetchWithTimeout(`${getCmsApiUrl()}/homepage/guest`, {
                 cache: 'no-store',
                 headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
-            });
-            if (direct.ok) {
-                const raw = await direct.json();
-                return normalizeAssetUrls(unwrap(raw));
+            }, GUEST_HOMEPAGE_FETCH_TIMEOUT_MS);
+            if (guest.ok) {
+                const raw = await guest.json();
+                const normalized = normalizeHomepagePayload(raw, 'public_home');
+                if (hasActiveHomepageSections(normalized)) return normalized;
+            }
+            if (guest.status === 429) {
+                devWarn('Guest homepage fetch was rate limited; using static fallback');
+                return fallbackGuestHomepage();
             }
         } catch (error) {
             devWarn('Guest homepage direct fetch failed:', error);
+            return fallbackGuestHomepage();
         }
 
         try {
             const data = unwrap(await api.get('/homepage/guest'));
-            return normalizeAssetUrls(data);
+            const normalized = normalizeHomepagePayload(data, 'public_home');
+            if (hasActiveHomepageSections(normalized)) return normalized;
         } catch (error) {
-            console.error('Failed to fetch guest homepage:', error);
-            return {
-                sections: [],
-                seo: {
-                    title: 'Scrolith',
-                    metaDescription: '',
-                    keywords: [],
-                    ogImage: ''
-                },
-                updatedAt: new Date().toISOString()
-            };
+            devWarn('Guest homepage api.get fallback failed:', error);
         }
+
+        try {
+            const direct = await fetchWithTimeout(`${getCmsApiUrl()}/cms/homepage`, {
+                cache: 'no-store',
+                headers: { Accept: 'application/json', 'Cache-Control': 'no-cache' }
+            }, GUEST_HOMEPAGE_FETCH_TIMEOUT_MS);
+            if (direct.ok) {
+                const raw = await direct.json();
+                const normalized = normalizeHomepagePayload(raw, 'public_home');
+                if (hasActiveHomepageSections(normalized) && !isDefaultCmsSeedHomepage(normalized)) {
+                    return normalized;
+                }
+                devWarn('Ignoring default CMS seed homepage for guest homepage');
+            }
+            if (direct.status === 429) {
+                devWarn('Guest homepage canonical CMS fetch was rate limited; using static fallback');
+                return fallbackGuestHomepage();
+            }
+        } catch (error) {
+            devWarn('Guest homepage canonical CMS fetch failed:', error);
+        }
+
+        try {
+            const data = unwrap(await api.get('/cms/homepage'));
+            const normalized = normalizeHomepagePayload(data, 'public_home');
+            if (hasActiveHomepageSections(normalized) && !isDefaultCmsSeedHomepage(normalized)) {
+                return normalized;
+            }
+            devWarn('Ignoring default CMS seed homepage from api.get fallback');
+        } catch (error) {
+            devWarn('Guest homepage canonical api.get fallback failed:', error);
+        }
+
+        return fallbackGuestHomepage();
     },
+
+    getGuestHomepageFallback: (): any => fallbackGuestHomepage(),
 
     getGuestHomepageDraft: async (): Promise<any> => {
         try {
@@ -873,7 +1488,11 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     getHomepageSections: async (options?: { role?: UserRole; location?: string }) => {
         let rawSections: any[] = [];
         try {
-            const data = unwrap(await api.get('/cms/homepage/sections'));
+            const params = new URLSearchParams();
+            if (options?.role) params.append('role', options.role);
+            if (options?.location) params.append('location', options.location);
+            const queryString = params.toString();
+            const data = unwrap(await api.get(`/cms/homepage/sections${queryString ? `?${queryString}` : ''}`));
             rawSections =
                 (Array.isArray(data) ? data : null) ||
                 (Array.isArray(data?.sections) ? data.sections : null) ||
@@ -949,7 +1568,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             );
 
             const normalizedTargetRoles = normalizeRoleList(
-                section?.targeting?.roles ?? section?.target_roles ?? section?.roles ?? section?.visibility
+                section?.targetRoles ?? section?.target_roles ?? section?.roles ?? section?.targeting?.roles ?? section?.visibility
             );
 
             return {
@@ -966,6 +1585,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 sort_order: position,
                 sortOrder: position,
                 name: section.name || section.title || normalizedType || 'Section',
+                targetRoles: normalizedTargetRoles,
                 target_roles: normalizedTargetRoles,
                 targeting: { roles: normalizedTargetRoles },
                 roles: normalizedTargetRoles
@@ -976,7 +1596,7 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             const role = normalizeRole(options.role);
             sections = sections.filter((s: any) => {
                 const roles = normalizeRoleList(
-                    s?.targeting?.roles ?? s?.target_roles ?? s?.roles ?? s?.visibility
+                    s?.targetRoles ?? s?.target_roles ?? s?.roles ?? s?.targeting?.roles ?? s?.visibility
                 );
                 if (roles.length === 0) return true;
                 if (roles.includes('all') || roles.includes('*')) return true;
@@ -1478,91 +2098,24 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     getFooterConfig: async (): Promise<FooterConfig> => {
         try {
             const raw = unwrap(await api.get('/cms/footer'));
-            const source = raw || {};
-            const now = Date.now();
-
-            const columnsSource = source.columns ?? source.footer_columns ?? source.items ?? [];
-            const columns = ensureArray<any>(columnsSource).map((column: any, colIndex: number) => {
-                const linksSource = column.links ?? column.items ?? column.children ?? [];
-                const links = ensureArray<any>(linksSource).map((link: any, linkIndex: number) => {
-                    const url = link.url ?? link.href ?? link.link ?? '';
-                    const type = link.type ?? (url && String(url).startsWith('http') ? 'external' : 'internal');
-                    return {
-                        id: link.id || `footer-link-${now}-${colIndex}-${linkIndex}`,
-                        label: link.label ?? link.title ?? '',
-                        url,
-                        visibility: normalizeRoleList(
-                            link.visibility ?? link.roles ?? link.target_roles ?? link.visible_to ?? link.visibleTo
-                        ),
-                        type
-                    };
-                });
-
-                return {
-                    id: column.id || `footer-col-${now}-${colIndex}`,
-                    title: column.title ?? column.label ?? '',
-                    links
-                };
-            });
-
-            const contactSource = source.contact ?? source.footer_contact ?? {};
-            const adminEmail = contactSource.admin_email ?? contactSource.adminEmail ?? '';
-            const supportEmail = contactSource.support_email ?? contactSource.supportEmail ?? '';
-            const ticketRoute = contactSource.ticket_route ?? contactSource.ticketRoute ?? '';
-
-            const socialsSource = source.socials ?? source.social_links ?? source.socialLinks ?? [];
-            const socials = ensureArray<any>(socialsSource).map((social: any, index: number) => ({
-                id: social.id || `footer-social-${now}-${index}`,
-                platform: social.platform ?? social.name ?? '',
-                url: social.url ?? '',
-                enabled: normalizeBoolean(social.enabled ?? social.is_enabled, true),
-                icon: social.icon ?? social.icon_url ?? ''
-            }));
-
-            const logoUrl = source.logo_url ?? source.logoUrl ?? '';
-            const socialLabelTitle =
-                source.social_label_title ??
-                source.socialLabelTitle ??
-                source.social_title ??
-                source.socialTitle ??
-                '';
-            const description = source.description ?? source.footer_description ?? '';
-            const copyright = source.copyright ?? source.footer_copyright ?? '';
-
-            const footer = {
-                ...source,
-                id: source.id || `footer-${now}`,
-                description,
-                copyright,
-                columns,
-                contact: {
-                    admin_email: adminEmail,
-                    support_email: supportEmail,
-                    ticket_route: ticketRoute
-                },
-                socials,
-                logo_url: logoUrl,
-                logoUrl,
-                social_label_title: socialLabelTitle,
-                socialLabelTitle
-            } as unknown as FooterConfig;
-            return normalizeAssetUrls(footer) as FooterConfig;
+            const footer = normalizeFooterConfigSource(raw, 'footer');
+            if (isFooterExplicitlyDisabled(raw) || isFooterExplicitlyDisabled(footer)) return footer;
+            if (hasRenderableFooterConfig(footer)) return footer;
         } catch (error) {
             console.error('Failed to fetch footer config:', error);
-            return {
-                id: 'default',
-                description: '',
-                copyright: '',
-                columns: [],
-                contact: {
-                    admin_email: '',
-                    support_email: '',
-                    ticket_route: ''
-                },
-                socials: [],
-                logo_url: ''
-            };
         }
+
+        try {
+            const homepageRaw = unwrap(await api.get('/cms/homepage')) || {};
+            const homepageFooter = homepageRaw.footer ?? homepageRaw.homepage?.footer ?? homepageRaw.data?.footer;
+            const footer = normalizeFooterConfigSource(homepageFooter, 'homepage-footer');
+            if (isFooterExplicitlyDisabled(homepageFooter) || isFooterExplicitlyDisabled(footer)) return footer;
+            if (hasRenderableFooterConfig(footer)) return footer;
+        } catch (error) {
+            console.error('Failed to load footer config from homepage fallback:', error);
+        }
+
+        return normalizeFooterConfigSource({ id: 'footer-unavailable', enabled: false }, 'footer-unavailable');
     },
 
     saveFooterConfig: async (config: FooterConfig): Promise<FooterConfig> => {
@@ -2123,21 +2676,39 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
     // --- Auth Pages Config ---
     getAuthPagesConfig: async (): Promise<AuthPagesConfig | null> => {
+        if (authPagesCache && Date.now() - authPagesCache.cachedAt < AUTH_PAGES_CACHE_TTL_MS) {
+            return authPagesCache.config;
+        }
+
+        if (authPagesRequest) {
+            return authPagesRequest;
+        }
+
+        authPagesRequest = (async () => {
         try {
             const data = unwrap(await api.get('/cms/auth-pages'));
             const config = (data || null) as unknown as AuthPagesConfig | null;
-            if (!config) return null;
-            return normalizeAssetUrls(config) as AuthPagesConfig;
+            const normalized = config ? (normalizeAssetUrls(config) as AuthPagesConfig) : null;
+            authPagesCache = { config: normalized, cachedAt: Date.now() };
+            return normalized;
         } catch (error) {
             console.error('Failed to fetch auth pages config:', error);
+            authPagesCache = { config: null, cachedAt: Date.now() };
             return null;
+        } finally {
+            authPagesRequest = null;
         }
+        })();
+
+        return authPagesRequest;
     },
 
     saveAuthPagesConfig: async (config: AuthPagesConfig): Promise<AuthPagesConfig> => {
         try {
             const data = unwrap(await api.post('/cms/auth-pages', config));
-            return (data || config) as unknown as AuthPagesConfig;
+            const normalized = normalizeAssetUrls((data || config) as unknown as AuthPagesConfig) as AuthPagesConfig;
+            authPagesCache = { config: normalized, cachedAt: Date.now() };
+            return normalized;
         } catch (error) {
             console.error('Failed to save auth pages config:', error);
             throw error;
@@ -2265,8 +2836,9 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
 
             const res = await fetch(`${getCmsApiUrl()}/cms/media`, {
                 method: 'POST',
+                credentials: shouldIncludeBrowserCredentials() ? 'include' : 'omit',
                 headers: {
-                    ...getAuthHeaders()
+                    ...(await getAuthHeaders())
                 },
                 body: formData
             });
@@ -2290,7 +2862,61 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
     }),
 
     addHomepageSection: async (type: any) => {
+        const buildMemberHomeTemplate = () => ({
+            title: 'Grow your professional world',
+            subtitle: 'Catch up on your network, opportunities, and community highlights.',
+            searchPlaceholder: 'Search posts, jobs, gigs, people, or pages',
+            searchHint: 'Search across posts, jobs, gigs, people, and pages.',
+            showSearch: true,
+            showDiscover: true,
+            showFollowing: true,
+            showComposer: true,
+            showStories: true,
+            showMessages: true,
+            showSlider: true,
+            showProfiles: true,
+            showPagesRecommendations: true,
+            showProfileViewers: true,
+            showProfileViewing: true,
+            showJobs: true,
+            showEmployers: true,
+            showGigs: true,
+            showFreelancers: true,
+            maxFeedItems: 12,
+            maxStories: 8,
+            maxMessages: 6,
+            maxSearchResults: 8,
+            maxProfiles: 8,
+            maxPagesRecommendations: 6,
+            maxProfileViewers: 6,
+            maxProfileViewing: 6,
+            maxJobs: 6,
+            maxGigs: 6,
+            topics: DEFAULT_MEMBER_HOME_TOPICS,
+            regions: DEFAULT_MEMBER_HOME_REGIONS,
+            composerTitle: 'Share a quick update or idea with your network.',
+            storyTitle: 'Stories',
+            reelsTitle: 'Scroll',
+            feedTitle: 'Home feed',
+            profilesTitle: 'Add to your feed',
+            pagesTitle: 'Pages to follow',
+            profileViewersTitle: 'Profile viewers',
+            profileViewingTitle: 'Recently viewed',
+            jobsTitle: 'Job recommendations',
+            gigsTitle: 'Gigs you can hire',
+            employersTitle: 'Employers to follow',
+            freelancersTitle: 'Freelancers to connect',
+            messagesTitle: 'Recent messages',
+            sliderTitle: 'Highlights',
+            featuredActionsTitle: 'Featured',
+            projectBriefQuickActionTitle: 'Scrolitha Project Brief',
+            projectBriefQuickActionSubtitle: 'Draft a professional project brief with AI',
+            gigCreationQuickActionTitle: 'Scrolitha Gig Creation',
+            gigCreationQuickActionSubtitle: 'Generate your gig setup with AI guidance',
+            sliderItems: []
+        });
         const templates: Record<string, any> = {
+            member_home: buildMemberHomeTemplate(),
             popular_services: { title: '', subtitle: '', items: [] },
             promo_banners: { title: '', items: [] },
             trust_value: { title: '', subtitle: '', items: [] },
@@ -2312,7 +2938,28 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
                 defaultTab: 'signup',
                 enableSocialLogin: true,
                 loginCtaLabel: 'Login',
-                signupCtaLabel: 'Sign up'
+                signupCtaLabel: 'Sign up',
+                scrolitha: {
+                    enabled: true,
+                    eyebrow: 'Scrolitha Live Assistant',
+                    title: 'Talk to Scrolitha before you create your account',
+                    subtitle: 'Launch guided AI onboarding directly from the guest homepage.',
+                    description: 'Visitors can preview gig creation, hiring, briefs, and marketplace workflows before signing in.',
+                    primaryPrompt: 'Create a gig draft',
+                    primaryLabel: 'Open Scrolitha',
+                    secondaryLabel: 'Join with popup',
+                    secondaryUrl: '/auth/signup',
+                    promptChips: ['Create a gig draft', 'Generate a project brief', 'How do I start on Scrolith?']
+                },
+                authPopup: {
+                    enabled: true,
+                    delaySeconds: 120,
+                    headline: 'Stay on Scrolith and continue your account setup',
+                    subheadline: 'Sign in or join directly from the guest homepage with the same enterprise auth controls.',
+                    defaultTab: 'signup',
+                    dismissLabel: 'Maybe later',
+                    trustNote: 'This popup is additive to your existing auth pages and can be dismissed anytime.'
+                }
             },
             guest_what_is_scrolith: {
                 title: '',
@@ -2389,11 +3036,15 @@ getHomepage: async (options?: { role?: UserRole; location?: string; pageType?: s
             'guest_community_preview',
             'guest_final_cta'
         ]);
-        const targetingRoles = guestOnlyTypes.has(type) ? [UserRole.GUEST] : [];
+        const targetingRoles = type === 'member_home'
+            ? [UserRole.FREELANCER, UserRole.EMPLOYER, UserRole.ADMIN]
+            : guestOnlyTypes.has(type)
+                ? [UserRole.GUEST]
+                : [];
         const newSection = {
             id: `sec-${Date.now()}`,
             type,
-            name: `New ${type} Section`,
+            name: type === 'member_home' ? 'Signed-in Member Home' : `New ${type} Section`,
             isActive: true,
             position: 99,
             content: templates[type] ?? {},

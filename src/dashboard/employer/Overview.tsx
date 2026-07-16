@@ -25,6 +25,7 @@ import DashboardHero, {
 import KpiGrid, { KpiItem } from '../../components/dashboard/KpiGrid';
 import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
+import OpportunityStudioPanel from '../../components/dashboard/OpportunityStudioPanel';
 import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
 import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
@@ -510,6 +511,13 @@ export default function EmployerOverview() {
       }
       kpiContent={<KpiGrid items={kpiItems} loading={loading && !overview} />}
       quickActionsContent={<QuickActions items={quickActions} subtitle="Common hiring actions, one click away." />}
+      supplementaryContent={
+        <OpportunityStudioPanel
+          audience="employer"
+          title="Hiring Opportunity Studio"
+          subtitle="Structure demand faster, test package alternatives, and move directly from brief to job, gig, or page discovery."
+        />
+      }
       activityContent={
         <ActivityPanel
           title="Work Queue"

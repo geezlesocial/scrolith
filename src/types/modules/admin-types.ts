@@ -179,8 +179,21 @@ export interface SystemConfig {
   currency?: {
     auto_exchange_rate: boolean;
     base_currency: string;
-    provider: 'openexchangerates' | 'fixer' | 'mock';
+    provider: string;
     api_key?: string;
+  };
+  fx?: {
+    enabled: boolean;
+    providerCode: string;
+    syncBaseCurrency: string;
+    autoApproveSnapshots: boolean;
+    refreshEnabled: boolean;
+    refreshCron: string;
+    staleAfterSeconds: number;
+    fallbackToStoredRates: boolean;
+    sourceBaseUrl: string;
+    sourceProvider: string;
+    timezone: string;
   };
   storage?: {
     driver: string;
@@ -207,7 +220,7 @@ export interface ComplianceConfig {
 }
 
 export interface EmailProviderConfig {
-  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun';
+  provider: 'smtp' | 'ses' | 'sendgrid' | 'mailgun' | 'brevo';
   host?: string;
   port?: number;
   username?: string;
@@ -223,6 +236,10 @@ export interface EmailProviderConfig {
   apiKey?: string;
   domain?: string;
   mailgun_domain?: string;
+  brevoSmtpLogin?: string;
+  brevo_smtp_login?: string;
+  brevoSmtpKey?: string;
+  brevo_smtp_key?: string;
   region?: string;
   ses_region?: string;
   access_key_id?: string;

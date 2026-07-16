@@ -16,6 +16,7 @@ import { FileService } from '../../services/files';
 import { UploadedFile } from '../../types';
 import { useUser } from '../../context/UserContext';
 import { captureAndUpload } from '../../mobile/uploads';
+import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 
 type FileType = 'image' | 'video' | 'document';
 type FilterTab = 'all' | 'image' | 'video' | 'pdf' | 'document';
@@ -458,12 +459,26 @@ const FilePickerModal: React.FC<FilePickerModalProps> = ({
                       </div>
 
                       {kind === 'image' ? (
-                        <img src={file.url} alt={file.name} className="h-36 w-full object-cover" />
+                        <img
+                          src={
+                            resolvePostAttachmentMediaUrl({
+                              url: file.url,
+                              fileId: file.id || (file as any).fileId,
+                              storageKey: (file as any).storageKey || (file as any).storage_key
+                            }) || String(file.url || '').trim()
+                          }
+                          alt={file.name}
+                          className="h-36 w-full object-cover"
+                        />
                       ) : kind === 'video' ? (
                         <div className="relative h-36 w-full bg-slate-100">
                           {file.thumbnail_url || file.thumbnailUrl ? (
                             <img
-                              src={file.thumbnail_url || file.thumbnailUrl || ''}
+                              src={
+                                resolvePostAttachmentMediaUrl({
+                                  url: file.thumbnail_url || file.thumbnailUrl
+                                }) || String(file.thumbnail_url || file.thumbnailUrl || '').trim()
+                              }
                               alt={file.name}
                               className="h-full w-full object-cover"
                             />

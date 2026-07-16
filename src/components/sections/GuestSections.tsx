@@ -1,13 +1,14 @@
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useUser } from "../../context/UserContext";
-import { useContent } from "../../context/ContentContext";
-import { executeRecaptcha } from "../../services/recaptcha";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import AuthSocialButtons from "../../auth/AuthSocialButtons";
+import { useUser } from "../../context/UserContext";
+import { type Gig } from "../../services/gigs";
 import { CMSService } from "../../services/cms";
-import { resolveResponsiveAssetUrl } from "../../utils/assetUrl";
+import { listMarketplaceListings } from "../../services/marketplace";
+import OptimizedImage from "../media/OptimizedImage";
+import { getApiBaseUrl } from "../../utils/apiBase";
+import { resolveAssetUrl, resolveResponsiveAssetUrl } from "../../utils/assetUrl";
 import {
-  AuthPagesConfig,
   FooterCtaStripContent,
   GuestCommunityPreviewContent,
   GuestFeatureShowcaseContent,
@@ -22,15 +23,416 @@ import {
   PopularServicesContent,
   PromoBannersContent,
   TrustValueContent,
-  UserRole,
   VideoFeatureContent,
+  AuthPagesConfig,
+  UserRole,
 } from "../../types";
+import {
+  GuestAuthCard,
+  GuestAuthModal,
+  GuestScrolithaPanel,
+  isInlineGuestAuthUrl,
+  normalizeGuestAuthTab
+} from "./GuestAuthExperience";
 
 const ensureArray = <T = any,>(value: any): T[] => (Array.isArray(value) ? value : []);
+const SCROLITH_LOGO = "/logo.png";
 
 const resolveUrl = (item: any) => item?.url ?? item?.href ?? item?.link ?? "";
 
+const responsiveImageUrl = (
+  value: string | undefined | null,
+  width: number,
+  height: number,
+  fit: 'cover' | 'contain' | 'inside' = 'cover'
+) => resolveResponsiveAssetUrl(value || '', { width, height, fit, quality: 72 });
+
 const isExternalUrl = (url: string) => /^https?:\/\//i.test(url);
+
+const normalizeKey = (value: any) => String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+
+const isMarketplaceTab = (tab: any): boolean => {
+  const source = [
+    tab?.id,
+    tab?.key,
+    tab?.label,
+    tab?.title,
+    tab?.description
+  ].map((value) => normalizeKey(value)).join("|");
+
+  return (
+    source.includes("marketplace") ||
+    source.includes("professionalservices") ||
+    source.includes("servicesmarketplace") ||
+    source.includes("service")
+  );
+};
+
+const isCommunityTab = (tab: any): boolean => {
+  const source = [
+    tab?.id,
+    tab?.key,
+    tab?.label,
+    tab?.title,
+    tab?.description
+  ].map((value) => normalizeKey(value)).join("|");
+
+  return source.includes("community") || source.includes("feed");
+};
+
+const isMessagingTab = (tab: any): boolean => {
+  const source = [
+    tab?.id,
+    tab?.key,
+    tab?.label,
+    tab?.title,
+    tab?.description
+  ].map((value) => normalizeKey(value)).join("|");
+
+  return source.includes("messaging") || source.includes("message") || source.includes("chat");
+};
+
+const isAiAssistantTab = (tab: any): boolean => {
+  const source = [
+    tab?.id,
+    tab?.key,
+    tab?.label,
+    tab?.title,
+    tab?.description
+  ].map((value) => normalizeKey(value)).join("|");
+
+  return source.includes("aiassistant") || source.includes("scrolitha") || source.includes("assistant") || source.includes("ai");
+};
+
+const isPaymentsTab = (tab: any): boolean => {
+  const source = [
+    tab?.id,
+    tab?.key,
+    tab?.label,
+    tab?.title,
+    tab?.description
+  ].map((value) => normalizeKey(value)).join("|");
+
+  return source.includes("payment") || source.includes("wallet") || source.includes("payout");
+};
+
+const getGigImage = (gig: any): string => {
+  const candidates = [
+    gig?.coverImage,
+    gig?.cover_image,
+    gig?.cardImage,
+    gig?.card_image,
+    gig?.thumbnail,
+    gig?.image,
+    Array.isArray(gig?.images) ? gig.images[0] : "",
+    Array.isArray(gig?.media) ? gig.media[0] : "",
+  ];
+  return String(candidates.find((candidate) => String(candidate || "").trim()) || "").trim();
+};
+
+const getGigPrice = (gig: any): string => {
+  const rawPrice = gig?.price;
+  const amount =
+    typeof rawPrice === "number"
+      ? rawPrice
+      : Number(rawPrice?.amount ?? rawPrice?.minAmount ?? rawPrice?.min_amount ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return "View pricing";
+  return `From $${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+};
+
+const getGigUrl = (gig: any) => `/marketplace/listing/${encodeURIComponent(String(gig?.slug || gig?.id || ""))}`;
+
+const extractGigsFromPayload = (payload: any): Gig[] => {
+  const data = payload?.data ?? payload;
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.gigs)) return data.gigs;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+};
+
+type GuestCommunityPreviewItem = {
+  id: string;
+  title: string;
+  author: string;
+  comments: number;
+  reactions: number;
+};
+
+const extractCommunityPreviewItems = (payload: any): GuestCommunityPreviewItem[] => {
+  const data = payload?.data ?? payload;
+  const rows = ensureArray<any>(data?.items ?? data?.posts ?? data?.data ?? data);
+  return rows
+    .map((item, index) => {
+      const reactionsMap = item?.interactions?.reactions;
+      const reactions = reactionsMap && typeof reactionsMap === "object"
+        ? Object.values(reactionsMap).reduce((sum, value) => sum + Number(value || 0), 0)
+        : Number(item?.likesCount ?? item?.interactions?.likes ?? 0);
+
+      return {
+        id: String(item?.id || `community-preview-${index}`),
+        title: String(item?.title || item?.content || "Community update").trim(),
+        author: String(item?.authorName || item?.author?.displayName || item?.author?.name || "Scrolith member"),
+        comments: Number(item?.interactions?.comments ?? item?.commentsCount ?? 0),
+        reactions
+      };
+    })
+    .filter((item) => item.title)
+    .slice(0, 4);
+};
+
+type GuestMessagingPreviewItem = {
+  id: string;
+  title: string;
+  activity: string;
+  replies: number;
+};
+
+type GuestMarketplacePreviewItem = {
+  id: string;
+  title: string;
+  seller: string;
+  category: string;
+  price?: number;
+  image?: string;
+  slug?: string;
+};
+
+const FALLBACK_MARKETPLACE_PREVIEW_ITEMS: GuestMarketplacePreviewItem[] = [
+  {
+    id: 'demo-marketplace-1',
+    title: 'Premium brand identity kit',
+    seller: 'Scrolith Studio',
+    category: 'Design',
+    price: 480,
+    image: '/logo.webp',
+    slug: 'premium-brand-identity-kit'
+  },
+  {
+    id: 'demo-marketplace-2',
+    title: 'Product photography + retouching',
+    seller: 'Creative Guild',
+    category: 'Media',
+    price: 240,
+    image: '/logo.webp',
+    slug: 'product-photography-retouching'
+  },
+  {
+    id: 'demo-marketplace-3',
+    title: 'Website speed audit and fixes',
+    seller: 'Scrolith Pro',
+    category: 'Development',
+    price: 320,
+    image: '/logo.webp',
+    slug: 'website-speed-audit-fixes'
+  }
+];
+
+const FALLBACK_COMMUNITY_PREVIEW_ITEMS: GuestCommunityPreviewItem[] = [
+  {
+    id: 'demo-community-1',
+    title: 'Launching a new service on Scrolith?',
+    author: 'Community Studio',
+    comments: 12,
+    reactions: 34
+  },
+  {
+    id: 'demo-community-2',
+    title: 'What content gets the best response for freelancers?',
+    author: 'Growth Circle',
+    comments: 8,
+    reactions: 21
+  },
+  {
+    id: 'demo-community-3',
+    title: 'How teams keep briefs organized at scale',
+    author: 'Ops Network',
+    comments: 5,
+    reactions: 17
+  }
+];
+
+const FALLBACK_MESSAGING_PREVIEW_ITEMS: GuestMessagingPreviewItem[] = [
+  {
+    id: 'demo-message-1',
+    title: 'Proposal review for the new marketplace listing',
+    activity: 'by Scrolith Studio',
+    replies: 18
+  },
+  {
+    id: 'demo-message-2',
+    title: 'Team follow-up on design revisions and delivery',
+    activity: 'by Creative Guild',
+    replies: 11
+  },
+  {
+    id: 'demo-message-3',
+    title: 'New client inquiry about a scoped gig package',
+    activity: 'by Scrolith Pro',
+    replies: 7
+  }
+];
+
+const extractMessagingPreviewItems = (threadsPayload: any, feedPayload: any): GuestMessagingPreviewItem[] => {
+  const threadRows = ensureArray<any>(threadsPayload?.data ?? threadsPayload);
+  const fromThreads = threadRows.map((item, index) => ({
+    id: String(item?.id || `thread-preview-${index}`),
+    title: String(item?.title || item?.content || "Live discussion").trim(),
+    activity: String(item?.category || "Community thread"),
+    replies: Number(item?.commentsCount ?? item?.replyCount ?? item?.repliesCount ?? 0)
+  }));
+
+  if (fromThreads.length) {
+    return fromThreads.slice(0, 4);
+  }
+
+  const fallbackRows = extractCommunityPreviewItems(feedPayload);
+  return fallbackRows.map((item, index) => ({
+    id: item.id || `message-feed-${index}`,
+    title: item.title,
+    activity: `by ${item.author}`,
+    replies: item.comments
+  })).slice(0, 4);
+};
+
+const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewItem[] => {
+  const data = payload?.data ?? payload ?? {};
+  const rows = ensureArray<any>(data?.items ?? data?.listings ?? data?.data ?? data);
+  return rows
+    .map((item, index) => {
+      const image =
+        resolveAssetUrl(String(
+          item?.coverImage ||
+          item?.cover_image ||
+          item?.thumbnail ||
+          item?.thumbnailUrl ||
+          item?.thumbnail_url ||
+          item?.image ||
+          item?.imageUrl ||
+          item?.image_url ||
+          (Array.isArray(item?.images) ? item.images[0]?.url || item.images[0] : '') ||
+          (Array.isArray(item?.media) ? item.media.find((entry: any) => (entry?.type || 'image') !== 'video')?.url : '') ||
+          ''
+        ).trim());
+
+      return {
+        id: String(item?.id || item?.slug || `marketplace-preview-${index}`),
+        title: String(item?.title || item?.name || 'Marketplace listing').trim(),
+        seller: String(item?.sellerName || item?.seller_name || item?.authorName || item?.author?.displayName || 'Scrolith seller'),
+        category: String(item?.categoryName || item?.category_name || item?.category || 'Marketplace'),
+        price: Number(item?.price?.amount ?? item?.price ?? item?.startingPrice ?? item?.budget ?? 0) || undefined,
+        image,
+        slug: String(item?.slug || item?.id || '')
+      };
+    })
+    .filter((item) => item.title)
+    .slice(0, 3);
+};
+
+type GuestAiPreview = {
+  provider: string;
+  model: string;
+  status: string;
+  backup: boolean;
+  routing: string[];
+};
+
+const extractAiPreview = (payload: any): GuestAiPreview => {
+  const data = payload?.data ?? payload ?? {};
+  const scrolitha = data?.scrolitha || data?.providers?.scrolitha || {};
+  const provider = String(scrolitha?.provider || scrolitha?.runtime || "scrolitha").toUpperCase();
+  const model = String(scrolitha?.model || data?.providers?.google?.model || "Scrolitha");
+  const status = String(scrolitha?.status || "operational");
+  const backup = Boolean(scrolitha?.backupEngineAvailable);
+  const routing = Object.entries(data?.routing || {})
+    .map(([key, value]) => `${String(key).replace(/_/g, " ")}: ${String(value)}`)
+    .slice(0, 4);
+  return { provider, model, status, backup, routing };
+};
+
+type GuestPaymentsPreview = {
+  currencies: Array<{ code: string; symbol: string; rateUpdatedAt?: string }>;
+  methods: Array<{ id: string; name: string; mode: string }>;
+};
+
+const extractPaymentsPreview = (currenciesPayload: any, methodsPayload: any): GuestPaymentsPreview => {
+  const currenciesRaw = ensureArray<any>(currenciesPayload?.data ?? currenciesPayload);
+  const methodsRaw = ensureArray<any>(methodsPayload?.data ?? methodsPayload);
+
+  return {
+    currencies: currenciesRaw
+      .filter((item) => item?.isActive !== false)
+      .slice(0, 4)
+      .map((item) => ({
+        code: String(item?.code || ""),
+        symbol: String(item?.symbol || ""),
+        rateUpdatedAt: item?.rateUpdatedAt ? String(item.rateUpdatedAt) : undefined
+      })),
+    methods: methodsRaw
+      .slice(0, 4)
+      .map((item) => ({
+        id: String(item?.id || ""),
+        name: String(item?.name || "Gateway"),
+        mode: String(item?.mode || "live")
+      }))
+  };
+};
+
+const fetchGuestJson = async (path: string): Promise<any> => {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    method: "GET",
+    credentials: "omit",
+    headers: { Accept: "application/json" }
+  });
+  if (!response.ok) throw new Error(`guest_preview_${response.status}`);
+  return response.json();
+};
+
+const scheduleGuestIdleTask = (callback: () => void, timeout = 1200) => {
+  if (typeof window === "undefined") return () => {};
+  const idleCallback = (window as any).requestIdleCallback;
+  if (typeof idleCallback === "function") {
+    const id = idleCallback(callback, { timeout });
+    return () => {
+      const cancelIdleCallback = (window as any).cancelIdleCallback;
+      if (typeof cancelIdleCallback === "function") cancelIdleCallback(id);
+    };
+  }
+  const timer = window.setTimeout(callback, timeout);
+  return () => window.clearTimeout(timer);
+};
+
+const MarketplacePreviewImage: React.FC<{
+  image: string;
+  title: string;
+}> = ({ image, title }) => {
+  const [failed, setFailed] = React.useState(false);
+  const resolvedImage = !failed && image ? image : "";
+
+  if (!resolvedImage) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-center text-xs font-semibold text-slate-500">
+        Service preview
+      </div>
+    );
+  }
+
+  return (
+    <OptimizedImage
+      src={resolvedImage}
+      alt={title || "Marketplace service"}
+      width={360}
+      height={216}
+      fit="cover"
+      quality={72}
+      loading="lazy"
+      decoding="async"
+      sizes="(min-width: 1280px) 18vw, (min-width: 768px) 28vw, 92vw"
+      onError={() => setFailed(true)}
+      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+    />
+  );
+};
 
 const Wrapper: React.FC<{
   url?: string;
@@ -99,39 +501,40 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
   content,
   style
 }) => {
-  const initialTab = String(content?.defaultTab || 'signup').toLowerCase() === 'login' ? 'login' : 'signup';
-  const [activeTab, setActiveTab] = React.useState<'login' | 'signup'>(initialTab);
-  const { login, register } = useUser();
-  const { settings } = useContent();
+  const { isAuthenticated } = useUser();
   const navigate = useNavigate();
+  const location = useLocation();
+  const popupSettings = content?.authPopup || {};
+  const popupEnabled = popupSettings.enabled !== false;
+  const popupDelaySecondsRaw = Number(popupSettings.delaySeconds);
+  const popupDelaySeconds = Number.isFinite(popupDelaySecondsRaw)
+    ? Math.max(15, Math.min(900, Math.trunc(popupDelaySecondsRaw)))
+    : 120;
+  const popupSessionKey = React.useMemo(
+    () => `scrolith:guest-home-auth-popup:${location.pathname}`,
+    [location.pathname]
+  );
+  const [isAuthModalOpen, setIsAuthModalOpen] = React.useState(false);
   const [authConfig, setAuthConfig] = React.useState<AuthPagesConfig | null>(null);
-  const [loginForm, setLoginForm] = React.useState({ email: '', password: '' });
-  const [signupRole, setSignupRole] = React.useState<UserRole>(UserRole.FREELANCER);
-  const [signupForm, setSignupForm] = React.useState({
-    firstName: '',
-    lastName: '',
-    email: '',
-    password: '',
-    confirmPassword: ''
-  });
-  const [acceptTerms, setAcceptTerms] = React.useState(false);
-  const [showLoginPassword, setShowLoginPassword] = React.useState(false);
-  const [showSignupPassword, setShowSignupPassword] = React.useState(false);
-  const [showSignupConfirm, setShowSignupConfirm] = React.useState(false);
-  const [loginLoading, setLoginLoading] = React.useState(false);
-  const [signupLoading, setSignupLoading] = React.useState(false);
-  const [loginError, setLoginError] = React.useState('');
-  const [signupErrors, setSignupErrors] = React.useState<Record<string, string>>({});
+  const [modalTab, setModalTab] = React.useState<"login" | "signup">(
+    normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab)
+  );
 
-  const backgroundImageUrl = String(content?.heroBackgroundUrl || '').trim();
+  const backgroundImageUrl = responsiveImageUrl(String(content?.heroBackgroundUrl || '').trim(), 960, 720, 'cover');
   const sideBanners = ensureArray<any>((content as any)?.sideBanners);
   const trustPoints = ensureArray<string>((content as any)?.trustPoints);
-  const sideImageUrl = String((content as any)?.sideImageUrl || '').trim();
+  const sideImageUrl = responsiveImageUrl(String((content as any)?.sideImageUrl || '').trim(), 640, 360, 'cover');
   const sideImageAlt = String((content as any)?.sideImageAlt || 'Scrolith platform preview').trim();
   const brandLogos = ensureArray<any>((content as any)?.brandLogos);
+  const showHeroBrandFallback = !sideImageUrl && brandLogos.length === 0;
   const compactMode = (content as any)?.compactMode !== false;
   const displayedTrustPoints = (trustPoints.length ? trustPoints : ['Realtime marketplace', 'Secure payments', 'Verified talent'])
     .slice(0, compactMode ? 3 : 6);
+  const heroSignalCards = displayedTrustPoints.slice(0, 3).map((point, index) => ({
+    title: point,
+    subtitle: ["Live signal", "Verified flow", "Enterprise-ready"][index] || "Live signal",
+    accent: ["from-sky-500 to-cyan-500", "from-violet-500 to-fuchsia-500", "from-emerald-500 to-lime-500"][index] || "from-slate-500 to-slate-700"
+  }));
   const displayedBanners = (sideBanners.length
     ? sideBanners
     : [
@@ -141,442 +544,305 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
 
   React.useEffect(() => {
     let mounted = true;
-    const loadAuthConfig = async () => {
-      try {
-        const data = await CMSService.getAuthPagesConfig();
-        if (mounted) setAuthConfig(data || null);
-      } catch {
-        if (mounted) setAuthConfig(null);
-      }
-    };
-    loadAuthConfig();
+    const cancel = scheduleGuestIdleTask(() => {
+      void CMSService.getAuthPagesConfig()
+        .then((data) => {
+          if (mounted) setAuthConfig(data || null);
+        })
+        .catch(() => {
+          if (mounted) setAuthConfig(null);
+        });
+    }, 900);
     return () => {
       mounted = false;
+      cancel();
     };
   }, []);
 
-  const socialConfig = authConfig?.social_auth;
-  const signupContent = authConfig?.signup;
+  React.useEffect(() => {
+    setModalTab(normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab));
+  }, [content?.defaultTab, popupSettings.defaultTab]);
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
-    setLoginLoading(true);
+  React.useEffect(() => {
+    if (isAuthenticated) {
+      setIsAuthModalOpen(false);
+      return;
+    }
+    if (!popupEnabled) return;
     try {
-      const ok = await login(loginForm.email.trim(), loginForm.password);
-      if (!ok) setLoginError('Invalid credentials. Please try again.');
-    } catch (error: any) {
-      setLoginError(error?.message || 'Unable to sign in.');
-    } finally {
-      setLoginLoading(false);
-    }
-  };
+      if (sessionStorage.getItem(popupSessionKey) === "dismissed") return;
+    } catch {}
+    const timer = window.setTimeout(() => {
+      setModalTab(normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab));
+      setIsAuthModalOpen(true);
+    }, popupDelaySeconds * 1000);
+    return () => window.clearTimeout(timer);
+  }, [
+    content?.defaultTab,
+    isAuthenticated,
+    popupDelaySeconds,
+    popupEnabled,
+    popupSessionKey,
+    popupSettings.defaultTab
+  ]);
 
-  const validateSignup = () => {
-    const nextErrors: Record<string, string> = {};
-    if (!signupForm.firstName.trim()) nextErrors.firstName = 'First name is required.';
-    if (!signupForm.lastName.trim()) nextErrors.lastName = 'Last name is required.';
-    if (!signupForm.email.trim()) {
-      nextErrors.email = 'Email is required.';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(signupForm.email.trim())) {
-      nextErrors.email = 'Please enter a valid email address.';
-    }
-    if (!signupForm.password) {
-      nextErrors.password = 'Password is required.';
-    } else if (signupForm.password.length < 8 || !/(?=.*[A-Za-z])(?=.*\d)/.test(signupForm.password)) {
-      nextErrors.password = 'Use at least 8 characters with letters and numbers.';
-    }
-    if (signupForm.password !== signupForm.confirmPassword) {
-      nextErrors.confirmPassword = 'Passwords do not match.';
-    }
-    if (!acceptTerms) nextErrors.terms = 'Accept the terms to continue.';
-    setSignupErrors(nextErrors);
-    return Object.keys(nextErrors).length === 0;
-  };
+  const openAuthModal = React.useCallback(
+    (nextTab?: "login" | "signup") => {
+      setModalTab(nextTab || normalizeGuestAuthTab(popupSettings.defaultTab || content?.defaultTab));
+      setIsAuthModalOpen(true);
+    },
+    [content?.defaultTab, popupSettings.defaultTab]
+  );
 
-  const handleSignupSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateSignup()) return;
-    setSignupLoading(true);
-    setSignupErrors((prev) => ({ ...prev, submit: '' }));
+  const closeAuthModal = React.useCallback(() => {
+    setIsAuthModalOpen(false);
     try {
-      const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
-      const legacySiteKey = (settings as any)?.recaptcha_site_key || (settings as any)?.recaptchaSiteKey || '';
-      const recaptchaEnabled = Boolean(recaptchaConfig?.enabled) || Boolean(legacySiteKey);
-      const siteKey = String(recaptchaConfig?.siteKey || legacySiteKey || '').trim();
-      const version = (recaptchaConfig?.version || 'v3') as 'v2' | 'v3';
-      let recaptchaToken: string | undefined;
+      sessionStorage.setItem(popupSessionKey, "dismissed");
+    } catch {}
+  }, [popupSessionKey]);
 
-      if (recaptchaEnabled) {
-        if (version !== 'v3') {
-          setSignupErrors((prev) => ({ ...prev, submit: 'reCAPTCHA v3 is required for signup.' }));
-          setSignupLoading(false);
-          return;
-        }
-        if (!siteKey) {
-          setSignupErrors((prev) => ({ ...prev, submit: 'reCAPTCHA configuration is missing.' }));
-          setSignupLoading(false);
-          return;
-        }
-        recaptchaToken = await executeRecaptcha(siteKey, 'signup');
-      }
-
-      const fullName = `${signupForm.firstName.trim()} ${signupForm.lastName.trim()}`.trim();
-      const ok = await register(signupForm.email.trim(), fullName, signupForm.password, signupRole, recaptchaToken);
-      if (!ok) {
-        setSignupErrors((prev) => ({ ...prev, submit: 'Unable to create account right now.' }));
+  const handleHeroAction = React.useCallback(
+    (url: string | undefined, fallbackTab: "login" | "signup") => {
+      const target = String(url || "").trim();
+      if (isInlineGuestAuthUrl(target)) {
+        openAuthModal(target.includes("/auth/login") ? "login" : fallbackTab);
         return;
       }
-      if (signupRole === UserRole.EMPLOYER) navigate('/client/dashboard');
-      else navigate('/freelancer/dashboard');
-    } catch (error: any) {
-      setSignupErrors((prev) => ({ ...prev, submit: error?.message || 'Signup failed. Please try again.' }));
-    } finally {
-      setSignupLoading(false);
-    }
-  };
+      if (!target) {
+        openAuthModal(fallbackTab);
+        return;
+      }
+      if (isExternalUrl(target)) {
+        window.open(target, "_blank", "noopener,noreferrer");
+        return;
+      }
+      navigate(target);
+    },
+    [navigate, openAuthModal]
+  );
+  const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
 
   return (
-    <section className="py-8 sm:py-10" style={{ background: style?.background }}>
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 sm:px-6 lg:grid-cols-2 lg:gap-8 lg:px-8">
+    <>
+      <section
+        className="overflow-x-clip py-6 sm:py-12"
+        style={{ background: style?.background || "linear-gradient(180deg, #f8fafc 0%, #ffffff 55%, #f8fafc 100%)" }}
+      >
+      <div className="mx-auto grid w-full max-w-7xl min-w-0 gap-4 px-4 sm:gap-5 sm:px-6 lg:grid-cols-[1.08fr_0.92fr] lg:gap-8 lg:px-8">
         <div
-          className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+          className="relative min-w-0 overflow-hidden rounded-[30px] border border-slate-200/90 bg-gradient-to-br from-white via-white to-indigo-50/45 p-5 shadow-[0_28px_70px_-32px_rgba(15,23,42,0.26)] sm:rounded-[34px] sm:p-7 lg:p-8"
           style={!backgroundImageUrl ? undefined : { backgroundColor: 'rgba(255,255,255,0.92)' }}
         >
+          <div className="pointer-events-none absolute -left-12 -top-12 h-40 w-40 rounded-full bg-indigo-200/35 blur-3xl motion-safe:animate-pulse" />
+          <div className="pointer-events-none absolute -bottom-16 right-0 h-48 w-48 rounded-full bg-cyan-200/35 blur-3xl motion-safe:animate-pulse" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-indigo-300 to-transparent opacity-70" />
           {backgroundImageUrl ? (
-            <img
-              src={backgroundImageUrl}
+            <OptimizedImage
+              src={String(content?.heroBackgroundUrl || '').trim()}
               alt=""
               aria-hidden="true"
+              width={960}
+              height={720}
+              fit="cover"
+              quality={72}
               loading="eager"
               decoding="async"
               fetchPriority="high"
+              sizes="(min-width: 1024px) 52vw, 100vw"
               className="absolute inset-0 h-full w-full object-cover"
             />
           ) : null}
-          <div className={backgroundImageUrl ? 'relative z-10 rounded-2xl bg-white/90 p-5 backdrop-blur' : ''}>
-            <h1 className="text-2xl font-bold leading-tight text-slate-900 sm:text-3xl xl:text-4xl">
+          <div className={backgroundImageUrl ? 'relative z-10 min-w-0 rounded-[24px] border border-white/70 bg-white/92 p-4 backdrop-blur-sm sm:p-5' : 'min-w-0'}>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-gradient-to-r from-indigo-50 via-white to-indigo-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700 shadow-[0_10px_24px_-18px_rgba(79,70,229,0.7)]">
+                <img src={SCROLITH_LOGO} alt="Scrolith" width={16} height={16} className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
+                Scrolith Enterprise
+              </span>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 shadow-sm">
+                Global work graph
+              </span>
+            </div>
+            <h1 className="max-w-[12ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
-              <p className="mt-3 text-base text-slate-600">{content.subheadline}</p>
+              <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">{content.subheadline}</p>
             ) : null}
             {content?.description ? (
-              <p className="mt-3 text-sm text-slate-500">{content.description}</p>
+              <p className="mt-3 max-w-2xl text-[14px] leading-7 text-slate-500 sm:text-sm sm:leading-7">{content.description}</p>
             ) : null}
-            <div className="mt-6 flex flex-wrap gap-3">
-              <ActionLink
-                label={content?.primaryCtaLabel || 'Create account'}
-                url={content?.primaryCtaUrl || '/auth/signup'}
-                className="inline-flex items-center rounded-full bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
-              />
-              <ActionLink
-                label={content?.secondaryCtaLabel || 'Log in'}
-                url={content?.secondaryCtaUrl || '/auth/login'}
-                className="inline-flex items-center rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-              />
+            <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+              <button
+                type="button"
+                onClick={() => handleHeroAction(content?.primaryCtaUrl, "signup")}
+                className="inline-flex w-full items-center justify-center rounded-full bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(15,23,42,0.7)] transition hover:bg-slate-800 sm:w-auto"
+              >
+                {content?.primaryCtaLabel || "Create account"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleHeroAction(content?.secondaryCtaUrl, "login")}
+                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+              >
+                {content?.secondaryCtaLabel || "Log in"}
+              </button>
             </div>
-            <div className="mt-5 grid gap-2 sm:grid-cols-3">
+            <div className="mt-5 grid gap-2 min-[420px]:grid-cols-2 sm:grid-cols-3">
               {displayedTrustPoints.map((point, index) => (
-                <div key={`trust-point-${index}`} className="rounded-xl border border-white/60 bg-white/75 px-3 py-2 text-xs font-semibold text-slate-700 backdrop-blur-sm">
-                  {point}
+                <div
+                  key={`trust-point-${index}`}
+                  className="min-w-0 rounded-2xl border border-slate-200/90 bg-gradient-to-br from-slate-50 via-white to-indigo-50/60 px-3 py-3 text-[11px] font-semibold text-slate-700 shadow-sm"
+                >
+                  <span className="block truncate">{point}</span>
                 </div>
               ))}
             </div>
+            <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-white shadow-[0_24px_60px_-28px_rgba(15,23,42,0.6)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-indigo-200/85">Live work graph</p>
+                  <p className="mt-1 text-sm font-semibold text-white/95 sm:text-base">Work, talent, and commerce moving together in real time.</p>
+                </div>
+                <span className="shrink-0 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white/90">
+                  Realtime
+                </span>
+              </div>
+              <div className="mt-4 grid gap-2 min-[420px]:grid-cols-3">
+                {heroSignalCards.map((item, index) => (
+                  <div key={`${item.title}-${index}`} className="min-w-0 rounded-2xl border border-white/10 bg-white/8 p-3 shadow-[0_12px_28px_-20px_rgba(15,23,42,0.75)] backdrop-blur-sm">
+                    <div className={`mb-2 h-1.5 w-10 rounded-full bg-gradient-to-r ${item.accent}`} />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-white/55">{item.subtitle}</p>
+                    <p className="mt-1 truncate text-sm font-semibold text-white">{item.title}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {content?.enableSocialLogin !== false ? (
+              <div className="mt-5 rounded-[24px] border border-slate-200 bg-white/85 p-3.5 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.26)] backdrop-blur-sm">
+                <AuthSocialButtons mode="signup" role={UserRole.FREELANCER} config={socialConfig || undefined} redirectTo="/" />
+              </div>
+            ) : null}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {displayedBanners.map((banner, index) => (
-                <div
-                  key={banner.id || `side-banner-${index}`}
-                  className="rounded-2xl border border-slate-200/70 bg-white/80 p-3.5 backdrop-blur-sm"
-                >
+                <div key={banner.id || `side-banner-${index}`} className="min-w-0 rounded-2xl border border-slate-200 bg-white/90 p-4 transition hover:-translate-y-0.5 hover:shadow-md">
                   {banner.image ? (
                     <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white/60">
-                      <img
+                      <OptimizedImage
                         src={banner.image}
                         alt={banner.title || `Scrolith highlight ${index + 1}`}
+                        width={320}
+                        height={160}
+                        fit="cover"
+                        quality={72}
                         loading="lazy"
                         decoding="async"
+                        sizes="(min-width: 1024px) 15vw, (min-width: 640px) 30vw, 88vw"
                         className="h-20 w-full object-cover"
                       />
                     </div>
                   ) : null}
-                  <p className="text-sm font-semibold text-slate-900">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
-                  {banner.subtitle ? <p className="mt-1 text-xs text-slate-600">{banner.subtitle}</p> : null}
+                  <p className="break-words text-sm font-semibold text-slate-900 sm:text-[15px]">{banner.title || `Scrolith Advantage ${index + 1}`}</p>
+                  {banner.subtitle ? <p className="mt-1 break-words text-xs leading-6 text-slate-600 sm:text-sm">{banner.subtitle}</p> : null}
                 </div>
               ))}
             </div>
             {sideImageUrl ? (
               <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-2 backdrop-blur-sm">
-                <img
-                  src={sideImageUrl}
+                <OptimizedImage
+                  src={String((content as any)?.sideImageUrl || '').trim()}
                   alt={sideImageAlt}
+                  width={640}
+                  height={360}
+                  fit="cover"
+                  quality={72}
                   loading={backgroundImageUrl ? 'lazy' : 'eager'}
                   decoding="async"
-                  className="h-40 w-full rounded-xl object-cover sm:h-48"
+                  sizes="(min-width: 1024px) 34vw, 100vw"
+                  className="h-44 w-full rounded-xl object-cover sm:h-48 lg:h-52"
                 />
               </div>
             ) : null}
             {brandLogos.length ? (
               <div className="mt-4 rounded-2xl border border-slate-200/70 bg-white/80 p-3 backdrop-blur-sm">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trusted by teams worldwide</p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-2 min-[420px]:grid-cols-3 sm:grid-cols-4">
                   {brandLogos.slice(0, 8).map((logo, index) => (
                     <Wrapper
                       key={logo.id || `brand-logo-${index}`}
                       url={logo.url}
-                      className="flex h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
+                      className="flex min-w-0 h-10 items-center justify-center rounded-lg border border-slate-200 bg-white px-2"
                     >
                       {logo.image ? (
-                        <img
+                        <OptimizedImage
                           src={logo.image}
                           alt={logo.label || `Brand ${index + 1}`}
+                          width={96}
+                          height={48}
+                          fit="contain"
+                          quality={72}
                           loading="lazy"
                           decoding="async"
+                          disableSrcSet
                           className="max-h-6 w-auto object-contain"
                         />
                       ) : (
-                        <span className="text-[11px] font-semibold text-slate-600">{logo.label || `Brand ${index + 1}`}</span>
+                        <span className="truncate text-[11px] font-semibold text-slate-600">{logo.label || `Brand ${index + 1}`}</span>
                       )}
                     </Wrapper>
                   ))}
                 </div>
               </div>
             ) : null}
+            {showHeroBrandFallback ? (
+              <div className="mt-4 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-4">
+                <p className="mb-2 inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                  <img
+                    src={SCROLITH_LOGO}
+                    alt="Scrolith"
+                    width={16}
+                    height={16}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-4 w-4 rounded-full object-contain"
+                  />
+                  Scrolith Enterprise Label
+                </p>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {["Trusted by global teams", "Realtime collaboration", "Enterprise-grade delivery"].map((label) => (
+                    <div key={label} className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-2.5 py-2">
+                      <img
+                        src={SCROLITH_LOGO}
+                        alt=""
+                        aria-hidden="true"
+                        width={14}
+                        height={14}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-3.5 w-3.5 rounded-full object-contain"
+                      />
+                      <span className="text-[11px] font-semibold text-slate-700">{label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </div>
-          {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/40 to-white/10" /> : null}
+          {backgroundImageUrl ? <div className="absolute inset-0 bg-gradient-to-t from-white/55 via-white/20 to-transparent" /> : null}
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7 lg:sticky lg:top-24 lg:self-start">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-slate-900">{content?.authPanelTitle || 'Welcome back'}</h2>
-            {content?.authPanelSubtitle ? <p className="mt-1 text-sm text-slate-500">{content.authPanelSubtitle}</p> : null}
-          </div>
-          <div className="mb-4 flex rounded-full border border-slate-200 bg-slate-50 p-1">
-            <button
-              type="button"
-              onClick={() => setActiveTab('login')}
-              className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${
-                activeTab === 'login' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-              }`}
-            >
-              Login
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('signup')}
-              className={`flex-1 rounded-full px-3 py-2 text-sm font-semibold transition ${
-                activeTab === 'signup' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-              }`}
-              >
-                Signup
-              </button>
-            </div>
-          {activeTab === 'login' ? (
-            <form className="space-y-4" onSubmit={handleLoginSubmit}>
-              {content?.enableSocialLogin !== false ? <AuthSocialButtons mode="login" config={socialConfig || undefined} redirectTo="/" /> : null}
-              {loginError ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{loginError}</div>
-              ) : null}
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={loginForm.email}
-                onChange={(e) => setLoginForm((prev) => ({ ...prev, email: e.target.value }))}
-                placeholder="Email address"
-                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              />
-              <div className="relative">
-                <input
-                  type={showLoginPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm((prev) => ({ ...prev, password: e.target.value }))}
-                  placeholder="Password"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLoginPassword((prev) => !prev)}
-                  className="absolute inset-y-0 right-3 my-auto h-fit rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                >
-                  {showLoginPassword ? 'Hide' : 'Show'}
-                </button>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('signup')}
-                  className="font-semibold text-blue-700 hover:text-blue-800"
-                >
-                  New here? Create account
-                </button>
-                <Link to="/auth/forgot-password" className="font-semibold text-blue-700 hover:text-blue-800">
-                  Forgot password?
-                </Link>
-              </div>
-              <button
-                type="submit"
-                disabled={loginLoading}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loginLoading ? 'Signing in...' : (content?.loginCtaLabel || 'Login')}
-              </button>
-              <Link to="/auth/login" className="block text-center text-xs font-semibold text-slate-500 hover:text-slate-700">
-                Open full login page
-              </Link>
-            </form>
-          ) : (
-            <form className="space-y-4" onSubmit={handleSignupSubmit}>
-              <div className="grid grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-slate-50 p-1">
-                <button
-                  type="button"
-                  onClick={() => setSignupRole(UserRole.FREELANCER)}
-                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                    signupRole === UserRole.FREELANCER ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-                  }`}
-                >
-                  Freelancer
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSignupRole(UserRole.EMPLOYER)}
-                  className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                    signupRole === UserRole.EMPLOYER ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'
-                  }`}
-                >
-                  Employer
-                </button>
-              </div>
-              {content?.enableSocialLogin !== false ? (
-                <AuthSocialButtons mode="signup" role={signupRole} config={socialConfig || undefined} redirectTo="/" />
-              ) : null}
-              {signupErrors.submit ? (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{signupErrors.submit}</div>
-              ) : null}
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <input
-                    type="text"
-                    required
-                    value={signupForm.firstName}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, firstName: e.target.value }))}
-                    placeholder="First name"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  {signupErrors.firstName ? <p className="mt-1 text-xs text-red-600">{signupErrors.firstName}</p> : null}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    required
-                    value={signupForm.lastName}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, lastName: e.target.value }))}
-                    placeholder="Last name"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  {signupErrors.lastName ? <p className="mt-1 text-xs text-red-600">{signupErrors.lastName}</p> : null}
-                </div>
-              </div>
-              <div>
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={signupForm.email}
-                  onChange={(e) => setSignupForm((prev) => ({ ...prev, email: e.target.value }))}
-                  placeholder="Email address"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                />
-                {signupErrors.email ? <p className="mt-1 text-xs text-red-600">{signupErrors.email}</p> : null}
-              </div>
-              <div>
-                <div className="relative">
-                  <input
-                    type={showSignupPassword ? 'text' : 'password'}
-                    required
-                    autoComplete="new-password"
-                    value={signupForm.password}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, password: e.target.value }))}
-                    placeholder="Password"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupPassword((prev) => !prev)}
-                    className="absolute inset-y-0 right-3 my-auto h-fit rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                  >
-                    {showSignupPassword ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-                {signupErrors.password ? <p className="mt-1 text-xs text-red-600">{signupErrors.password}</p> : null}
-              </div>
-              <div>
-                <div className="relative">
-                  <input
-                    type={showSignupConfirm ? 'text' : 'password'}
-                    required
-                    autoComplete="new-password"
-                    value={signupForm.confirmPassword}
-                    onChange={(e) => setSignupForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                    placeholder="Confirm password"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-20 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupConfirm((prev) => !prev)}
-                    className="absolute inset-y-0 right-3 my-auto h-fit rounded-md px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                  >
-                    {showSignupConfirm ? 'Hide' : 'Show'}
-                  </button>
-                </div>
-                {signupErrors.confirmPassword ? <p className="mt-1 text-xs text-red-600">{signupErrors.confirmPassword}</p> : null}
-              </div>
-              <label className="flex items-start gap-2 text-xs text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={acceptTerms}
-                  onChange={(e) => setAcceptTerms(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span>
-                  I agree to the{' '}
-                  <Link to={(signupContent?.terms_url as string) || '/p/terms'} className="font-semibold text-blue-700 hover:text-blue-800">
-                    Terms
-                  </Link>{' '}
-                  and{' '}
-                  <Link to={(signupContent?.privacy_url as string) || '/p/privacy'} className="font-semibold text-blue-700 hover:text-blue-800">
-                    Privacy Policy
-                  </Link>
-                  .
-                </span>
-              </label>
-              {signupErrors.terms ? <p className="mt-1 text-xs text-red-600">{signupErrors.terms}</p> : null}
-              <div className="flex items-center justify-between text-xs">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('login')}
-                  className="font-semibold text-blue-700 hover:text-blue-800"
-                >
-                  Already have an account?
-                </button>
-                <Link to="/auth/signup" className="font-semibold text-slate-500 hover:text-slate-700">
-                  Open full signup page
-                </Link>
-              </div>
-              <button
-                type="submit"
-                disabled={signupLoading}
-                className="inline-flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {signupLoading ? 'Creating account...' : (content?.signupCtaLabel || 'Sign up')}
-              </button>
-            </form>
-          )}
+        <div className="min-w-0 space-y-4 sm:space-y-5 lg:sticky lg:top-24 lg:self-start">
+          <GuestAuthCard content={content} />
+          <GuestScrolithaPanel content={content} onRequestAuth={openAuthModal} />
         </div>
       </div>
-    </section>
+      </section>
+      <GuestAuthModal
+        open={isAuthModalOpen}
+        onClose={closeAuthModal}
+        content={content}
+        defaultTab={modalTab}
+      />
+    </>
   );
 };
 
@@ -592,24 +858,37 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
   const visibleCards = compactMode ? cards.slice(0, maxCards) : cards;
   if (!content?.title && !content?.subtitle && visibleCards.length === 0) return null;
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-8 text-center">
+          <div className="mb-8 text-center sm:mb-10">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Why teams choose Scrolith</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {visibleCards.map((card, index) => (
-            <div key={card.id || `guest-card-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div key={card.id || `guest-card-${index}`} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div className="mb-3 h-1.5 w-14 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" />
               {card.icon || card.image ? (
-                <div className="mb-3 flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                  <img src={card.icon || card.image} alt={card.title || `Feature ${index + 1}`} className="h-6 w-6 object-contain" />
+                <div className="mb-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
+                  <OptimizedImage
+                    src={card.icon || card.image}
+                    alt={card.title || `Feature ${index + 1}`}
+                    width={24}
+                    height={24}
+                    fit="contain"
+                    quality={72}
+                    loading="lazy"
+                    decoding="async"
+                    disableSrcSet
+                    className="h-6 w-6 object-contain"
+                  />
                 </div>
               ) : null}
               {card.title ? <h3 className="text-sm font-semibold text-slate-900">{card.title}</h3> : null}
-              {card.description ? <p className="mt-2 text-sm text-slate-600">{card.description}</p> : null}
+              {card.description ? <p className="mt-2 text-sm leading-6 text-slate-600">{card.description}</p> : null}
             </div>
           ))}
         </div>
@@ -622,16 +901,18 @@ export const GuestPathsSection: React.FC<{ content: GuestPathsContent; style?: a
   const freelancerBullets = ensureArray<string>(content?.freelancerBullets);
   const employerBullets = ensureArray<string>(content?.employerBullets);
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "#ffffff" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
           <div className="mb-8 text-center">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Onboarding paths</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-5 lg:grid-cols-2">
-          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+          <div className="rounded-3xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-6 shadow-sm">
+            <p className="mb-3 inline-flex rounded-full bg-emerald-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Talent track</p>
             <h3 className="text-lg font-semibold text-emerald-900">{content?.freelancerTitle || 'Freelancer'}</h3>
             <ul className="mt-3 space-y-2 text-sm text-emerald-900">
               {freelancerBullets.map((bullet, index) => (
@@ -647,7 +928,8 @@ export const GuestPathsSection: React.FC<{ content: GuestPathsContent; style?: a
               className="mt-5 inline-flex rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
             />
           </div>
-          <div className="rounded-3xl border border-blue-200 bg-blue-50 p-6 shadow-sm">
+          <div className="rounded-3xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-6 shadow-sm">
+            <p className="mb-3 inline-flex rounded-full bg-blue-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">Business track</p>
             <h3 className="text-lg font-semibold text-blue-900">{content?.employerTitle || 'Employer'}</h3>
             <ul className="mt-3 space-y-2 text-sm text-blue-900">
               {employerBullets.map((bullet, index) => (
@@ -680,26 +962,316 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
     : 5;
   const visibleTabs = compactMode ? tabs.slice(0, maxTabs) : tabs;
   const [activeIndex, setActiveIndex] = React.useState(0);
+  const [marketplacePreview, setMarketplacePreview] = React.useState<{
+    loading: boolean;
+    loaded: boolean;
+    gigs: Gig[];
+  }>({ loading: false, loaded: false, gigs: [] });
+  const [communityPreview, setCommunityPreview] = React.useState<{
+    loading: boolean;
+    loaded: boolean;
+    items: GuestCommunityPreviewItem[];
+  }>({ loading: false, loaded: false, items: [] });
+  const [messagingPreview, setMessagingPreview] = React.useState<{
+    loading: boolean;
+    loaded: boolean;
+    items: GuestMessagingPreviewItem[];
+  }>({ loading: false, loaded: false, items: [] });
+  const [aiPreview, setAiPreview] = React.useState<{
+    loading: boolean;
+    loaded: boolean;
+    data: GuestAiPreview | null;
+  }>({ loading: false, loaded: false, data: null });
+  const [paymentsPreview, setPaymentsPreview] = React.useState<{
+    loading: boolean;
+    loaded: boolean;
+    data: GuestPaymentsPreview | null;
+  }>({ loading: false, loaded: false, data: null });
+  const sectionRef = React.useRef<HTMLElement | null>(null);
+  const marketplacePreviewRequestRef = React.useRef(false);
+  const communityPreviewRequestRef = React.useRef(false);
+  const messagingPreviewRequestRef = React.useRef(false);
+  const aiPreviewRequestRef = React.useRef(false);
+  const paymentsPreviewRequestRef = React.useRef(false);
+  const [shouldLoadMarketplacePreview, setShouldLoadMarketplacePreview] = React.useState(false);
   const activeTab = visibleTabs[activeIndex] || visibleTabs[0];
+  const hasMarketplaceTab = visibleTabs.some(isMarketplaceTab);
+  const hasCommunityTab = visibleTabs.some(isCommunityTab);
+  const hasMessagingTab = visibleTabs.some(isMessagingTab);
+  const hasAiAssistantTab = visibleTabs.some(isAiAssistantTab);
+  const hasPaymentsTab = visibleTabs.some(isPaymentsTab);
+  const hasAnyLivePreviewTab =
+    hasMarketplaceTab || hasCommunityTab || hasMessagingTab || hasAiAssistantTab || hasPaymentsTab;
+  const showMarketplacePreview = isMarketplaceTab(activeTab);
+  const showCommunityPreview = isCommunityTab(activeTab);
+  const showMessagingPreview = isMessagingTab(activeTab);
+  const showAiPreview = isAiAssistantTab(activeTab);
+  const showPaymentsPreview = isPaymentsTab(activeTab);
+
+  React.useEffect(() => {
+    if (!hasAnyLivePreviewTab) return undefined;
+    if (shouldLoadMarketplacePreview) return undefined;
+
+    const markReady = () => setShouldLoadMarketplacePreview(true);
+
+    if (typeof window === "undefined") return undefined;
+    if (!("IntersectionObserver" in window)) {
+      const timer = window.setTimeout(markReady, 1800);
+      return () => window.clearTimeout(timer);
+    }
+
+    const target = sectionRef.current;
+    if (!target) {
+      const timer = window.setTimeout(markReady, 1200);
+      return () => window.clearTimeout(timer);
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0)) {
+          markReady();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "640px 0px" }
+    );
+    observer.observe(target);
+
+    const failSafe = window.setTimeout(markReady, 4200);
+    return () => {
+      window.clearTimeout(failSafe);
+      observer.disconnect();
+    };
+  }, [hasAnyLivePreviewTab, shouldLoadMarketplacePreview]);
+
+  React.useEffect(() => {
+    if (!hasMarketplaceTab || !shouldLoadMarketplacePreview || marketplacePreview.loaded || marketplacePreviewRequestRef.current) return undefined;
+    let cancelled = false;
+    marketplacePreviewRequestRef.current = true;
+
+    const loadMarketplacePreview = async () => {
+      setMarketplacePreview((prev) => ({ ...prev, loading: true }));
+      try {
+        const withTimeout = <T,>(request: Promise<T>, timeoutMs = 7000): Promise<T> =>
+          new Promise((resolve, reject) => {
+            const timer = window.setTimeout(() => reject(new Error("marketplace_preview_timeout")), timeoutMs);
+            request
+              .then((value) => {
+                window.clearTimeout(timer);
+                resolve(value);
+              })
+              .catch((error) => {
+                window.clearTimeout(timer);
+                reject(error);
+              });
+          });
+
+        let previewItems = extractMarketplacePreviewItems(
+          await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'recommended' }), 7000)
+        );
+
+        if (!previewItems.length) {
+          try {
+            previewItems = extractMarketplacePreviewItems(
+              await withTimeout(listMarketplaceListings({ page: 1, pageSize: 3, status: 'active', sort: 'popular' }), 5000)
+            );
+          } catch {
+            previewItems = [];
+          }
+        }
+
+        if (!previewItems.length) {
+          try {
+            const homepage = await withTimeout(fetchGuestJson("/homepage/guest"), 7000);
+            previewItems = extractMarketplacePreviewItems(homepage);
+          } catch {
+            previewItems = [];
+          }
+        }
+
+        if (!previewItems.length) {
+          previewItems = FALLBACK_MARKETPLACE_PREVIEW_ITEMS;
+        }
+
+        if (!cancelled) {
+          setMarketplacePreview({ loading: false, loaded: true, gigs: previewItems as any });
+        }
+      } catch {
+        if (!cancelled) {
+          setMarketplacePreview({ loading: false, loaded: true, gigs: FALLBACK_MARKETPLACE_PREVIEW_ITEMS as any });
+        }
+      } finally {
+        if (!cancelled) {
+          marketplacePreviewRequestRef.current = false;
+        }
+      }
+    };
+
+    void loadMarketplacePreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasMarketplaceTab, marketplacePreview.loaded, shouldLoadMarketplacePreview]);
+
+  React.useEffect(() => {
+    if (!hasCommunityTab || !shouldLoadMarketplacePreview || communityPreview.loaded || communityPreviewRequestRef.current) return undefined;
+    let cancelled = false;
+    communityPreviewRequestRef.current = true;
+
+    const loadCommunityPreview = async () => {
+      setCommunityPreview((prev) => ({ ...prev, loading: true }));
+      try {
+        const payload = await fetchGuestJson("/community/feed?limit=4&scope=public");
+        const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
+        if (!cancelled) {
+          const liveItems = extractCommunityPreviewItems(payload);
+          const fallbackItems = extractCommunityPreviewItems(homepage);
+          const items = liveItems.length ? liveItems : fallbackItems.length ? fallbackItems : FALLBACK_COMMUNITY_PREVIEW_ITEMS;
+          setCommunityPreview({ loading: false, loaded: true, items });
+        }
+      } catch {
+        if (!cancelled) {
+          setCommunityPreview({ loading: false, loaded: true, items: FALLBACK_COMMUNITY_PREVIEW_ITEMS });
+        }
+      } finally {
+        if (!cancelled) communityPreviewRequestRef.current = false;
+      }
+    };
+
+    void loadCommunityPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [communityPreview.loaded, hasCommunityTab, shouldLoadMarketplacePreview]);
+
+  React.useEffect(() => {
+    if (!hasMessagingTab || !shouldLoadMarketplacePreview || messagingPreview.loaded || messagingPreviewRequestRef.current) return undefined;
+    let cancelled = false;
+    messagingPreviewRequestRef.current = true;
+
+    const loadMessagingPreview = async () => {
+      setMessagingPreview((prev) => ({ ...prev, loading: true }));
+      try {
+        const [threadsPayload, feedPayload] = await Promise.allSettled([
+          fetchGuestJson("/community/threads?limit=4"),
+          fetchGuestJson("/community/feed?limit=4&scope=public")
+        ]);
+
+        const threads = threadsPayload.status === "fulfilled" ? threadsPayload.value : null;
+        const feed = feedPayload.status === "fulfilled" ? feedPayload.value : null;
+        const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
+        const items =
+          extractMessagingPreviewItems(threads, feed).length > 0
+            ? extractMessagingPreviewItems(threads, feed)
+            : extractMessagingPreviewItems(homepage, homepage).length > 0
+              ? extractMessagingPreviewItems(homepage, homepage)
+              : FALLBACK_MESSAGING_PREVIEW_ITEMS;
+
+        if (!cancelled) {
+          setMessagingPreview({ loading: false, loaded: true, items });
+        }
+      } catch {
+        if (!cancelled) {
+          setMessagingPreview({ loading: false, loaded: true, items: FALLBACK_MESSAGING_PREVIEW_ITEMS });
+        }
+      } finally {
+        if (!cancelled) messagingPreviewRequestRef.current = false;
+      }
+    };
+
+    void loadMessagingPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasMessagingTab, messagingPreview.loaded, shouldLoadMarketplacePreview]);
+
+  React.useEffect(() => {
+    if (!hasAiAssistantTab || !shouldLoadMarketplacePreview || aiPreview.loaded || aiPreviewRequestRef.current) return undefined;
+    let cancelled = false;
+    aiPreviewRequestRef.current = true;
+
+    const loadAiPreview = async () => {
+      setAiPreview((prev) => ({ ...prev, loading: true }));
+      try {
+        const payload = await fetchGuestJson("/ai/config");
+        if (!cancelled) {
+          setAiPreview({ loading: false, loaded: true, data: extractAiPreview(payload) });
+        }
+      } catch {
+        if (!cancelled) {
+          setAiPreview({ loading: false, loaded: true, data: null });
+        }
+      } finally {
+        if (!cancelled) aiPreviewRequestRef.current = false;
+      }
+    };
+
+    void loadAiPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [aiPreview.loaded, hasAiAssistantTab, shouldLoadMarketplacePreview]);
+
+  React.useEffect(() => {
+    if (!hasPaymentsTab || !shouldLoadMarketplacePreview || paymentsPreview.loaded || paymentsPreviewRequestRef.current) return undefined;
+    let cancelled = false;
+    paymentsPreviewRequestRef.current = true;
+
+    const loadPaymentsPreview = async () => {
+      setPaymentsPreview((prev) => ({ ...prev, loading: true }));
+      try {
+        const [currenciesPayload, methodsPayload] = await Promise.all([
+          fetchGuestJson("/currencies/active"),
+          fetchGuestJson("/payments/methods/active")
+        ]);
+        if (!cancelled) {
+          setPaymentsPreview({
+            loading: false,
+            loaded: true,
+            data: extractPaymentsPreview(currenciesPayload, methodsPayload)
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setPaymentsPreview({ loading: false, loaded: true, data: null });
+        }
+      } finally {
+        if (!cancelled) paymentsPreviewRequestRef.current = false;
+      }
+    };
+
+    void loadPaymentsPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasPaymentsTab, paymentsPreview.loaded, shouldLoadMarketplacePreview]);
+
   if (!content?.title && visibleTabs.length === 0) return null;
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section
+      ref={sectionRef}
+      className="py-12 sm:py-16"
+      style={{ background: style?.background || "linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%)" }}
+    >
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-6 text-center">
+          <div className="mb-6 text-center sm:mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live product tour</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
-        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
-          <div className="mb-5 flex flex-wrap gap-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-200/60 sm:p-6">
+          <div className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-slate-100 bg-slate-50 p-2">
             {visibleTabs.map((tab, index) => (
               <button
                 key={tab.id || `showcase-tab-${index}`}
                 type="button"
                 onClick={() => setActiveIndex(index)}
                 className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                  index === activeIndex ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  index === activeIndex
+                    ? 'bg-slate-900 text-white shadow-md shadow-slate-300'
+                    : 'bg-white text-slate-600 hover:bg-slate-100'
                 }`}
               >
                 {tab.label || tab.title || `Feature ${index + 1}`}
@@ -707,14 +1279,233 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
             ))}
           </div>
           {activeTab ? (
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-center">
-              <div>
+            <div className="grid gap-4 lg:grid-cols-5 lg:items-stretch">
+              <div className="lg:col-span-2">
+                <div className="rounded-2xl border border-slate-200 bg-gradient-to-b from-white to-slate-50 p-5 sm:p-6">
+                  <p className="mb-3 inline-flex rounded-full bg-slate-900/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                    Real-time preview
+                  </p>
                 <h3 className="text-xl font-semibold text-slate-900">{activeTab.title || activeTab.label}</h3>
-                {activeTab.description ? <p className="mt-2 text-sm text-slate-600">{activeTab.description}</p> : null}
+                {activeTab.description ? <p className="mt-2 text-sm leading-7 text-slate-600">{activeTab.description}</p> : null}
+                  <div className="mt-5 space-y-2 text-xs text-slate-500">
+                    <p>Data updates from live platform endpoints.</p>
+                    <p>Preview stays aligned with admin-managed homepage settings.</p>
+                  </div>
+                  <div className="mt-6 flex flex-wrap gap-2">
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">Live endpoints</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">CMS controlled</span>
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600">Enterprise ready</span>
+                  </div>
+                </div>
               </div>
-              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-                {activeTab.image ? (
-                  <img src={activeTab.image} alt={activeTab.title || ''} className="h-52 w-full object-cover sm:h-64" />
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 lg:col-span-3">
+                {showMarketplacePreview ? (
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-blue-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    <div className="pointer-events-none absolute -right-10 -top-10 h-24 w-24 rounded-full bg-blue-200/40 blur-2xl motion-safe:animate-pulse" />
+                    {!shouldLoadMarketplacePreview || marketplacePreview.loading ? (
+                      <div className="grid h-full gap-3 sm:grid-cols-3">
+                        {[0, 1, 2].map((item) => (
+                          <div key={`marketplace-preview-skeleton-${item}`} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                            <div className="h-24 animate-pulse bg-slate-200" />
+                            <div className="space-y-2 p-3">
+                              <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200" />
+                              <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : marketplacePreview.gigs.length ? (
+                      <div className="grid gap-3 sm:grid-cols-3">
+                        {marketplacePreview.gigs.map((gig, index) => {
+                          const image = getGigImage(gig);
+                          const url = getGigUrl(gig);
+                          return (
+                            <Link
+                              key={gig.id || `marketplace-preview-gig-${index}`}
+                              to={url}
+                              className="group min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg hover:shadow-blue-100"
+                            >
+                              <div className="relative h-24 overflow-hidden bg-slate-100 sm:h-28">
+                                <MarketplacePreviewImage image={image} title={gig.title || "Marketplace service"} />
+                                <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm">
+                                  {gig.category || gig.subcategory || "Service"}
+                                </div>
+                              </div>
+                              <div className="p-3">
+                                <p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-900">
+                                  {gig.title || "Professional service"}
+                                </p>
+                                <div className="mt-2 flex items-center justify-between gap-2">
+                                  <span className="truncate text-[11px] text-slate-500">
+                                    {(gig as any).freelancerName || "Scrolith Pro"}
+                                  </span>
+                                  <span className="whitespace-nowrap text-[11px] font-bold text-blue-700">
+                                    {getGigPrice(gig)}
+                                  </span>
+                                </div>
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Live marketplace listings are temporarily unavailable.</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">
+                            Public services will appear here as soon as the marketplace feed responds.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : showCommunityPreview ? (
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-indigo-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    <div className="pointer-events-none absolute -left-10 -bottom-10 h-24 w-24 rounded-full bg-indigo-200/40 blur-2xl motion-safe:animate-pulse" />
+                    {(!shouldLoadMarketplacePreview || communityPreview.loading) ? (
+                      <div className="space-y-3">
+                        {[0, 1, 2].map((item) => (
+                          <div key={`community-preview-skeleton-${item}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="h-3 w-2/5 animate-pulse rounded bg-slate-200" />
+                            <div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-slate-100" />
+                            <div className="mt-1 h-3 w-3/5 animate-pulse rounded bg-slate-100" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : communityPreview.items.length ? (
+                      <div className="space-y-3">
+                        {communityPreview.items.map((item) => (
+                          <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                            <p className="line-clamp-2 text-xs font-semibold text-slate-900">{item.title}</p>
+                            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                              <span className="truncate">by {item.author}</span>
+                              <span>{item.comments} comments · {item.reactions} reactions</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
+                        <p className="text-sm font-semibold text-slate-700">Community feed preview is updating in real time.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : showMessagingPreview ? (
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-violet-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    {(!shouldLoadMarketplacePreview || messagingPreview.loading) ? (
+                      <div className="space-y-3">
+                        {[0, 1, 2].map((item) => (
+                          <div key={`messaging-preview-skeleton-${item}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                            <div className="h-3 w-2/5 animate-pulse rounded bg-slate-200" />
+                            <div className="mt-2 h-3 w-4/5 animate-pulse rounded bg-slate-100" />
+                            <div className="mt-1 h-3 w-1/2 animate-pulse rounded bg-slate-100" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : messagingPreview.items.length ? (
+                      <div className="space-y-3">
+                        {messagingPreview.items.map((item) => (
+                          <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="truncate text-xs font-semibold text-slate-900">{item.title}</p>
+                              <span className="whitespace-nowrap rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
+                                {item.replies} replies
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-slate-500">{item.activity}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
+                        <p className="text-sm font-semibold text-slate-700">Messaging preview is syncing with live discussions.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : showAiPreview ? (
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-cyan-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    {(!shouldLoadMarketplacePreview || aiPreview.loading) ? (
+                      <div className="space-y-3">
+                        <div className="h-10 animate-pulse rounded-xl bg-white" />
+                        <div className="h-10 animate-pulse rounded-xl bg-white" />
+                        <div className="h-10 animate-pulse rounded-xl bg-white" />
+                      </div>
+                    ) : aiPreview.data ? (
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <p className="text-xs font-semibold text-slate-900">Runtime: {aiPreview.data.provider}</p>
+                          <p className="mt-1 text-[11px] text-slate-600">Model: {aiPreview.data.model}</p>
+                          <p className="mt-1 text-[11px] text-emerald-700">Status: {aiPreview.data.status}</p>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <p className="text-xs font-semibold text-slate-900">
+                            Backup engine: {aiPreview.data.backup ? "Available" : "Unavailable"}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {aiPreview.data.routing.map((route) => (
+                              <span key={route} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-600">
+                                {route}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
+                        <p className="text-sm font-semibold text-slate-700">Scrolitha preview is temporarily unavailable.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : showPaymentsPreview ? (
+                  <div className="relative min-h-[13rem] bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-3 sm:min-h-[16rem] sm:p-4">
+                    {(!shouldLoadMarketplacePreview || paymentsPreview.loading) ? (
+                      <div className="space-y-3">
+                        <div className="h-10 animate-pulse rounded-xl bg-white" />
+                        <div className="h-10 animate-pulse rounded-xl bg-white" />
+                        <div className="h-10 animate-pulse rounded-xl bg-white" />
+                      </div>
+                    ) : paymentsPreview.data ? (
+                      <div className="space-y-3">
+                        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <p className="text-xs font-semibold text-slate-900">Active payment methods</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {paymentsPreview.data.methods.map((method) => (
+                              <span key={method.id} className="rounded-full bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700">
+                                {method.name} ({method.mode})
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                          <p className="text-xs font-semibold text-slate-900">Active settlement currencies</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {paymentsPreview.data.currencies.map((currency) => (
+                              <span key={currency.code} className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold text-slate-700">
+                                {currency.symbol}{currency.code}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
+                        <p className="text-sm font-semibold text-slate-700">Payments preview is temporarily unavailable.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : activeTab.image ? (
+                  <OptimizedImage
+                    src={activeTab.image}
+                    alt={activeTab.title || ''}
+                    width={720}
+                    height={416}
+                    fit="cover"
+                    quality={72}
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(min-width: 1024px) 36vw, 100vw"
+                    className="h-52 w-full object-cover sm:h-64"
+                  />
                 ) : (
                   <div className="flex h-52 w-full items-center justify-center text-sm font-medium text-slate-500 sm:h-64">
                     Feature preview
@@ -745,16 +1536,17 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
   if (!hasData && !showEmptyState) return null;
 
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "#ffffff" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-6 text-center">
+          <div className="mb-6 text-center sm:mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live opportunities</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <h3 className="text-sm font-semibold text-slate-900">{content?.jobsTitle || 'Trending Jobs'}</h3>
             <div className="mt-3 space-y-3">
               {jobs.slice(0, compactMode ? maxItems : 6).map((job, index) => (
@@ -767,7 +1559,7 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <h3 className="text-sm font-semibold text-slate-900">{content?.gigsTitle || 'Trending Gigs'}</h3>
             <div className="mt-3 space-y-3">
               {gigs.slice(0, compactMode ? maxItems : 6).map((gig, index) => (
@@ -783,7 +1575,7 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
             <h3 className="text-sm font-semibold text-slate-900">{content?.postsTitle || 'Popular Posts'}</h3>
             <div className="mt-3 space-y-3">
               {posts.slice(0, compactMode ? maxItems : 6).map((post, index) => (
@@ -814,25 +1606,30 @@ export const GuestCommunityPreviewSection: React.FC<{ content: GuestCommunityPre
   if (posts.length === 0 && !showEmptyState) return null;
 
   return (
-    <section className="py-10 sm:py-12" style={{ background: style?.background }}>
+    <section className="py-12 sm:py-16" style={{ background: style?.background || "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         {(content?.title || content?.subtitle) && (
-          <div className="mb-6 text-center">
+          <div className="mb-6 text-center sm:mb-8">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Community momentum</p>
             {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
             {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
           </div>
         )}
         <div className="grid gap-4 md:grid-cols-2">
           {posts.slice(0, compactMode ? maxItems : 8).map((post, index) => (
-            <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div key={`${post.id || 'community-post'}-${index}`} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="mb-3 flex items-center gap-3">
                 {post.author?.avatar ? (
-                  <img
-                    src={resolveResponsiveAssetUrl(post.author.avatar, { width: 96, height: 96, fit: 'cover' })}
+                  <OptimizedImage
+                    src={post.author.avatar}
                     alt={post.author?.name || 'User'}
                     width={40}
                     height={40}
+                    fit="cover"
+                    quality={72}
+                    loading="lazy"
                     decoding="async"
+                    disableSrcSet
                     className="h-10 w-10 rounded-full object-cover"
                   />
                 ) : (
@@ -880,9 +1677,16 @@ export const GuestFinalCtaSection: React.FC<{ content: GuestFinalCtaContent; sty
     <section className="py-12 sm:py-16">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
         <div
-          className="rounded-3xl border border-slate-200 px-6 py-10 text-center shadow-sm sm:px-10"
-          style={{ background: style?.background || 'linear-gradient(120deg, #0f172a 0%, #1d4ed8 100%)' }}
+          className="rounded-3xl border border-slate-200 px-6 py-10 text-center shadow-xl shadow-indigo-300/30 sm:px-10"
+          style={{ background: style?.background || 'linear-gradient(120deg, #0f172a 0%, #4f46e5 60%, #7c3aed 100%)' }}
         >
+          <div className="mb-4 flex items-center justify-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-indigo-50">
+              <img src={SCROLITH_LOGO} alt="Scrolith" width={16} height={16} className="h-4 w-4 rounded-full object-contain" loading="lazy" decoding="async" />
+              Scrolith global platform
+            </span>
+          </div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-indigo-100">Ready to scale globally</p>
           {content?.title ? <h2 className="text-2xl font-bold text-white sm:text-3xl">{content.title}</h2> : null}
           {content?.subtitle ? <p className="mx-auto mt-2 max-w-3xl text-sm text-blue-100 sm:text-base">{content.subtitle}</p> : null}
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
@@ -935,7 +1739,18 @@ export const PopularServicesSection: React.FC<{ content: PopularServicesContent;
               >
                 {item.image && (
                   <div className="h-40 w-full overflow-hidden bg-gray-100">
-                    <img src={item.image} alt={item.title || ""} className="h-full w-full object-cover" />
+                    <OptimizedImage
+                      src={item.image}
+                      alt={item.title || ""}
+                      width={480}
+                      height={320}
+                      fit="cover"
+                      quality={72}
+                      loading="lazy"
+                      decoding="async"
+                      sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 92vw"
+                      className="h-full w-full object-cover"
+                    />
                   </div>
                 )}
                 <div className="p-4 space-y-2">
@@ -1001,7 +1816,18 @@ export const PromoBannersSection: React.FC<{ content: PromoBannersContent; style
                   </div>
                   {item.image && (
                     <div className="md:w-1/2 bg-white/20 flex items-center justify-center p-6">
-                      <img src={item.image} alt={item.heading || ""} className="w-full h-48 md:h-56 object-contain" />
+                      <OptimizedImage
+                        src={item.image}
+                        alt={item.heading || ""}
+                        width={560}
+                        height={320}
+                        fit="contain"
+                        quality={72}
+                        loading="lazy"
+                        decoding="async"
+                        sizes="(min-width: 1024px) 24vw, 100vw"
+                        className="w-full h-48 md:h-56 object-contain"
+                      />
                     </div>
                   )}
                 </div>
@@ -1038,7 +1864,18 @@ export const TrustValueSection: React.FC<{ content: TrustValueContent; style?: a
             >
               {item.icon && (
                 <div className="mb-4 h-10 w-10 rounded-xl bg-gray-100 flex items-center justify-center">
-                  <img src={item.icon} alt={item.title || ""} className="h-6 w-6 object-contain" />
+                  <OptimizedImage
+                    src={item.icon}
+                    alt={item.title || ""}
+                    width={24}
+                    height={24}
+                    fit="contain"
+                    quality={72}
+                    loading="lazy"
+                    decoding="async"
+                    disableSrcSet
+                    className="h-6 w-6 object-contain"
+                  />
                 </div>
               )}
               {item.title && <h3 className="text-base font-semibold text-gray-900">{item.title}</h3>}
@@ -1133,11 +1970,33 @@ export const MarketplaceTilesSection: React.FC<{ content: MarketplaceTilesConten
               >
                 <div className="space-y-3">
                   {(item.icon || item.image) && (
-                    <div className="h-12 w-12 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
+                <div className="h-12 w-12 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden">
                       {item.image ? (
-                        <img src={item.image} alt={item.title || ""} className="h-full w-full object-cover" />
+                        <OptimizedImage
+                          src={item.image}
+                          alt={item.title || ""}
+                          width={48}
+                          height={48}
+                          fit="cover"
+                          quality={72}
+                          loading="lazy"
+                          decoding="async"
+                          disableSrcSet
+                          className="h-full w-full object-cover"
+                        />
                       ) : item.icon ? (
-                        <img src={item.icon} alt={item.title || ""} className="h-6 w-6 object-contain" />
+                        <OptimizedImage
+                          src={item.icon}
+                          alt={item.title || ""}
+                          width={24}
+                          height={24}
+                          fit="contain"
+                          quality={72}
+                          loading="lazy"
+                          decoding="async"
+                          disableSrcSet
+                          className="h-6 w-6 object-contain"
+                        />
                       ) : null}
                     </div>
                   )}
@@ -1184,7 +2043,18 @@ export const GuidesGridSection: React.FC<{ content: GuidesGridContent; style?: a
             >
               {item.image && (
                 <div className="h-40 w-full overflow-hidden bg-gray-100">
-                  <img src={item.image} alt={item.title || ""} className="h-full w-full object-cover" />
+                  <OptimizedImage
+                    src={item.image}
+                    alt={item.title || ""}
+                    width={480}
+                    height={320}
+                    fit="cover"
+                    quality={72}
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(min-width: 1024px) 23vw, (min-width: 640px) 42vw, 92vw"
+                    className="h-full w-full object-cover"
+                  />
                 </div>
               )}
               <div className="p-5 space-y-2">
@@ -1229,7 +2099,18 @@ export const MadeOnScrolithSection: React.FC<{ content: MadeOnScrolithContent; s
             >
               {item.image && (
                 <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-lg transition">
-                  <img src={item.image} alt={item.title || ""} className="w-full object-cover" />
+                  <OptimizedImage
+                    src={item.image}
+                    alt={item.title || ""}
+                    width={480}
+                    height={640}
+                    fit="cover"
+                    quality={72}
+                    loading="lazy"
+                    decoding="async"
+                    sizes="(min-width: 1280px) 18vw, (min-width: 768px) 24vw, 46vw"
+                    className="w-full object-cover"
+                  />
                 </div>
               )}
             </Wrapper>

@@ -1,5 +1,19 @@
 import api from './api';
+import { beginManagedIdempotentRequest } from './idempotency';
 import { Conversation, Message, UserRole, MessageReaction, VoiceCall, MessengerVoiceConfig } from '../types';
+import {
+  annotateRecoverableError,
+  createOfflineRecoveryError,
+  isRetryableWriteError
+} from '../mobile/runtime/requestRecovery';
+import { getConversationMergeKey, mergeDirectConversations } from './messagingMerge';
+
+export {
+  getConversationMergeKey,
+  getMessageMergeKey,
+  mergeDirectConversations,
+  messageMatchesConversation
+} from './messagingMerge';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -113,7 +127,7 @@ const normalizeMessage = (raw: any): Message => {
 };
 
 const normalizeParticipant = (participant: any) => ({
-  id: safeString(participant?.id),
+  id: safeString(participant?.id ?? participant?.userId ?? participant?.user_id),
   name: safeString(participant?.name, 'Unknown'),
   avatar: safeString(participant?.avatar ?? participant?.avatar_url),
   username: safeString(participant?.username),
@@ -170,14 +184,55 @@ const normalizeList = (raw: any): Conversation[] => {
   const list = Array.isArray(raw)
     ? raw
     : safeArray<any>(raw?.conversations ?? raw?.items ?? raw?.data ?? []);
-  return list.map(normalizeConversation);
+  return mergeDirectConversations(list.map(normalizeConversation));
+};
+
+export type MessageSearchMatchType = 'user' | 'username' | 'message';
+
+export interface MessageSearchResult {
+  conversationId: string;
+  conversation: Conversation;
+  participant?: Conversation['participants'][number] | null;
+  participants: Conversation['participants'];
+  lastMessage: string;
+  matchedMessageSnippet?: string | null;
+  matchedMessageId?: string | null;
+  matchType: MessageSearchMatchType;
+  unreadCount: number;
+  updatedAt?: string;
+  searchScope?: 'user' | 'admin' | string;
+}
+
+const normalizeSearchResult = (raw: any): MessageSearchResult => {
+  const conversation = normalizeConversation(raw?.conversation ?? raw);
+  const participant = raw?.participant ? normalizeParticipant(raw.participant) : undefined;
+  const participants = safeArray<any>(raw?.participants).length
+    ? safeArray<any>(raw.participants).map(normalizeParticipant)
+    : conversation.participants;
+  const matchType = safeString(raw?.matchType ?? raw?.match_type, 'user') as MessageSearchMatchType;
+
+  return {
+    conversationId: safeString(raw?.conversationId ?? raw?.conversation_id ?? conversation.id),
+    conversation,
+    participant: participant || participants.find((entry) => entry.id !== '') || null,
+    participants,
+    lastMessage: safeString(raw?.lastMessage ?? raw?.last_message ?? conversation.lastMessage ?? conversation.last_message),
+    matchedMessageSnippet: raw?.matchedMessageSnippet ?? raw?.matched_message_snippet ?? null,
+    matchedMessageId: raw?.matchedMessageId ?? raw?.matched_message_id ?? null,
+    matchType: ['user', 'username', 'message'].includes(matchType) ? matchType : 'user',
+    unreadCount: safeNumber(raw?.unreadCount ?? raw?.unread_count ?? conversation.unreadCount ?? conversation.unread_count),
+    updatedAt: safeString(raw?.updatedAt ?? raw?.updated_at ?? conversation.lastMessageAt ?? conversation.last_message_at),
+    searchScope: safeString(raw?.searchScope ?? raw?.search_scope)
+  };
 };
 
 const conversationCache = new Map<string, { timestamp: number; data: Conversation[] }>();
 const inFlight = new Map<string, Promise<Conversation[]>>();
 const CACHE_TTL_MS = 5000;
 const RATE_LIMIT_COOLDOWN_MS = 30000;
+const WRITE_RETRY_ATTEMPTS = 2;
 let rateLimitUntil = 0;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const MessagingService = {
   getVoiceRuntimeConfig: async (): Promise<MessengerVoiceConfig & { blockedForCurrentUser?: boolean }> => {
@@ -222,7 +277,8 @@ export const MessagingService = {
           userId,
           role,
           limit: Math.max(20, Math.min(200, Number(options?.limit || 120))),
-          messagePreviewLimit: 20,
+          // Keep inbox payload small; open-thread loads full history separately.
+          messagePreviewLimit: 5,
           ...(options?.cursor ? { cursor: options.cursor } : {})
         }
       })
@@ -247,6 +303,80 @@ export const MessagingService = {
     return requestPromise;
   },
 
+  searchConversations: async (
+    query: string,
+    options?: { limit?: number; cursor?: string; signal?: AbortSignal; adminScope?: boolean }
+  ): Promise<{ results: MessageSearchResult[]; nextCursor?: string | null; hasMore: boolean }> => {
+    const trimmed = String(query || '').replace(/\s+/g, ' ').trim();
+    if (trimmed.length < 2) {
+      return { results: [], nextCursor: null, hasMore: false };
+    }
+
+    const response = await api.get('/messages/search', {
+      signal: options?.signal,
+      params: {
+        q: trimmed,
+        limit: Math.max(1, Math.min(50, Number(options?.limit || 20))),
+        ...(options?.cursor ? { cursor: options.cursor } : {}),
+        ...(options?.adminScope ? { scope: 'admin' } : {})
+      },
+      __suppressAuthRedirect: true,
+      __skipRetry: true
+    } as any);
+    const data = extractData<any>(response);
+    const results = Array.isArray(data)
+      ? data
+      : safeArray<any>(data?.results ?? data?.items ?? []);
+    const pagination = response?.data?.pagination ?? data?.pagination ?? {};
+    const normalizedResults = results.map(normalizeSearchResult);
+    const dedupedResults = (() => {
+      const directBuckets = new Map<string, MessageSearchResult[]>();
+      const passthrough: MessageSearchResult[] = [];
+
+      normalizedResults.forEach((result) => {
+        const key = getConversationMergeKey(result.conversation);
+        if (!key) {
+          passthrough.push(result);
+          return;
+        }
+        if (!directBuckets.has(key)) directBuckets.set(key, []);
+        directBuckets.get(key)!.push(result);
+      });
+
+      const mergedDirects = Array.from(directBuckets.values()).map((bucket) => {
+        const ordered = [...bucket].sort((left, right) => {
+          const leftAt = new Date(left?.updatedAt || left?.conversation?.lastMessageAt || 0).getTime();
+          const rightAt = new Date(right?.updatedAt || right?.conversation?.lastMessageAt || 0).getTime();
+          if (leftAt !== rightAt) return rightAt - leftAt;
+          return String(right?.conversationId || '').localeCompare(String(left?.conversationId || ''));
+        });
+        const primary = ordered[0];
+        return {
+          ...primary,
+          conversation: primary.conversation,
+          participants: primary.conversation.participants,
+          participant: primary.participant || primary.participants.find((entry) => entry.id !== '') || null,
+          lastMessage: primary.conversation.lastMessage,
+          unreadCount: ordered.reduce((sum, entry) => sum + Number(entry.unreadCount || 0), 0),
+          updatedAt: primary.conversation.lastMessageAt || primary.updatedAt
+        } as MessageSearchResult;
+      });
+
+      return [...passthrough, ...mergedDirects].sort((left, right) => {
+        const leftAt = new Date(left?.updatedAt || left?.conversation?.lastMessageAt || 0).getTime();
+        const rightAt = new Date(right?.updatedAt || right?.conversation?.lastMessageAt || 0).getTime();
+        if (leftAt !== rightAt) return rightAt - leftAt;
+        return String(right?.conversationId || '').localeCompare(String(left?.conversationId || ''));
+      });
+    })();
+
+    return {
+      results: dedupedResults,
+      nextCursor: pagination?.nextCursor ?? pagination?.next_cursor ?? null,
+      hasMore: Boolean(pagination?.hasMore ?? pagination?.has_more ?? false)
+    };
+  },
+
   getConversationById: async (id: string): Promise<Conversation | null> => {
     const response = await api.get(`/messages/conversations/${id}`);
     const raw = extractData<any>(response);
@@ -261,22 +391,70 @@ export const MessagingService = {
     attachments?: string[],
     replyToMessageId?: string | null
   ): Promise<Message> => {
-    const response = await api.post(`/messages/conversations/${conversationId}/messages`, {
-      senderId,
-      text,
-      role,
-      attachments: Array.isArray(attachments) ? attachments : [],
-      replyToMessageId: replyToMessageId || null
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineRecoveryError('Message is queued in the composer while you are offline. Retry when your connection returns.');
+    }
+    const request = beginManagedIdempotentRequest(`message-send:${conversationId}:${senderId}`);
+    let lastError: any = null;
+    for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await api.post(
+          `/messages/conversations/${conversationId}/messages`,
+          {
+            senderId,
+            text,
+            role,
+            attachments: Array.isArray(attachments) ? attachments : [],
+            replyToMessageId: replyToMessageId || null
+          },
+          { headers: request.headers }
+        );
+        request.complete();
+        return normalizeMessage(extractData<any>(response));
+      } catch (error) {
+        lastError = annotateRecoverableError(error);
+        if (!lastError.retryable || attempt >= WRITE_RETRY_ATTEMPTS) {
+          request.retain();
+          throw lastError;
+        }
+        await wait(400 * (attempt + 1));
+      }
+    }
+    request.retain();
+    throw annotateRecoverableError(lastError, {
+      retryable: isRetryableWriteError(lastError)
     });
-    return normalizeMessage(extractData<any>(response));
   },
 
   sendVoiceNote: async (
     conversationId: string,
     payload: { fileId: string; durationMs: number; text?: string }
   ): Promise<Message> => {
-    const response = await api.post(`/messages/conversations/${conversationId}/voice-notes`, payload);
-    return normalizeMessage(extractData<any>(response));
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw createOfflineRecoveryError('Voice note is paused while you are offline. Retry when your connection returns.');
+    }
+    const request = beginManagedIdempotentRequest(`voice-note:${conversationId}:${payload.fileId}`);
+    let lastError: any = null;
+    for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await api.post(`/messages/conversations/${conversationId}/voice-notes`, payload, {
+          headers: request.headers
+        });
+        request.complete();
+        return normalizeMessage(extractData<any>(response));
+      } catch (error) {
+        lastError = annotateRecoverableError(error);
+        if (!lastError.retryable || attempt >= WRITE_RETRY_ATTEMPTS) {
+          request.retain();
+          throw lastError;
+        }
+        await wait(400 * (attempt + 1));
+      }
+    }
+    request.retain();
+    throw annotateRecoverableError(lastError, {
+      retryable: isRetryableWriteError(lastError)
+    });
   },
 
   getVoiceCallHistory: async (conversationId: string): Promise<VoiceCall[]> => {
@@ -333,18 +511,25 @@ export const MessagingService = {
     reactionSummary?: Record<string, number>;
     userReaction?: string | null;
   }> => {
-    const response = await api.post(`/messages/conversations/${conversationId}/messages/${messageId}/reactions`, {
-      userId,
-      emoji
-    });
-    const data = extractData<any>(response) || {};
-    return {
-      conversationId: safeString(data?.conversationId ?? data?.conversation_id),
-      messageId: safeString(data?.messageId ?? data?.message_id),
-      reactions: safeArray<any>(data?.reactions).map(normalizeReaction),
-      reactionSummary: data?.reactionSummary ?? data?.reaction_summary ?? {},
-      userReaction: data?.userReaction ?? data?.user_reaction ?? null
-    };
+    const request = beginManagedIdempotentRequest(`message-reaction:${conversationId}:${messageId}:${emoji}`);
+    try {
+      const response = await api.post(`/messages/conversations/${conversationId}/messages/${messageId}/reactions`, {
+        userId,
+        emoji
+      }, { headers: request.headers });
+      request.complete();
+      const data = extractData<any>(response) || {};
+      return {
+        conversationId: safeString(data?.conversationId ?? data?.conversation_id),
+        messageId: safeString(data?.messageId ?? data?.message_id),
+        reactions: safeArray<any>(data?.reactions).map(normalizeReaction),
+        reactionSummary: data?.reactionSummary ?? data?.reaction_summary ?? {},
+        userReaction: data?.userReaction ?? data?.user_reaction ?? null
+      };
+    } catch (error) {
+      request.retain();
+      throw error;
+    }
   },
 
   createConversation: async (participants: Conversation['participants']): Promise<string> => {
@@ -379,7 +564,19 @@ export const MessagingService = {
 
   editMessage: async (conversationId: string, messageId: string, text: string): Promise<Message> => {
     const response = await api.patch(`/messages/conversations/${conversationId}/messages/${messageId}`, { text });
-    return normalizeMessage(extractData<any>(response));
+    const data = extractData<any>(response) || {};
+    // Edit API returns mutation payload (messageId/text/editedAt), not a full message document.
+    return normalizeMessage({
+      ...data,
+      id: data?.id ?? data?.messageId ?? messageId,
+      conversationId: data?.conversationId ?? data?.conversation_id ?? conversationId,
+      conversation_id: data?.conversation_id ?? data?.conversationId ?? conversationId,
+      text: data?.text ?? text,
+      editedAt: data?.editedAt ?? data?.edited_at ?? null,
+      edited_at: data?.edited_at ?? data?.editedAt ?? null,
+      isDeleted: Boolean(data?.isDeleted ?? data?.is_deleted ?? false),
+      is_deleted: Boolean(data?.is_deleted ?? data?.isDeleted ?? false)
+    });
   },
 
   copyMessage: async (conversationId: string, messageId: string): Promise<void> => {

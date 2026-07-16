@@ -1,29 +1,182 @@
 import { Capacitor } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
-import { PushNotifications } from '@capacitor/push-notifications';
+import { PushNotifications, type Channel } from '@capacitor/push-notifications';
 import api from '../services/api';
 import { tokenStore } from '../services/tokenStore';
-import { AppDistributionService } from '../services/appDistribution';
-import { extractPathFromUrl } from './deeplinks';
+import { type AppDistributionEvent } from '../services/appDistribution';
+import { trackMobileRuntimeEvent } from './mobileTelemetry';
+import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
 
 let initialized = false;
 let listenersAttached = false;
+let forceRegisterInFlight: Promise<boolean> | null = null;
+let lastForceRegisterAt = 0;
+const CUSTOM_SCHEME = 'scrolith';
 const TOKEN_KEY = 'push_device_token';
+const TOKEN_PROJECT_KEY = 'push_device_token_project';
+const DEVICE_ID_KEY = 'push_device_id';
+const PUSH_TOKEN_PROJECT_ID = String(import.meta.env.VITE_FIREBASE_PROJECT_ID || 'scrolith-platform').trim();
 const REGISTER_RETRIES = 4;
 const REGISTER_RETRY_DELAY_MS = 1200;
 const MAX_NATIVE_REGISTER_RETRIES = 5;
 const NATIVE_REGISTER_RETRY_BASE_MS = 4000;
+const FORCE_REGISTER_COOLDOWN_MS = 15000;
+const PUSH_LOG_PREFIX = '[ScrolithPush]';
+export const ANDROID_NOTIFICATION_CHANNELS = {
+  alerts: 'scrolith_alerts_v2',
+  general: 'scrolith_alerts_v2',
+  messages: 'scrolith_alerts_v2',
+  posts: 'scrolith_alerts_v2',
+  campaigns: 'scrolith_alerts_v2'
+} as const;
 
 let nativeRegisterRetryCount = 0;
 let nativeRegisterRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let lastReportedPushError = '';
 let lastReportedPushErrorAt = 0;
+let navigateToPath: ((path: string) => void) | undefined;
+
+const summarizeToken = (token: string) => {
+  const value = String(token || '');
+  if (!value) return 'none';
+  const prefix = value.slice(0, 8);
+  const suffix = value.slice(-6);
+  return `${prefix}...${suffix} (len=${value.length})`;
+};
+
+const getAllowedHosts = () => {
+  const envHost = String(import.meta.env.VITE_APP_DOMAIN || '').trim();
+  const envAltHost = String(import.meta.env.VITE_PUBLIC_APP_DOMAIN || '').trim();
+  const base = ['scrolith.com', 'www.scrolith.com'];
+  if (envHost) base.push(envHost);
+  if (envAltHost) base.push(envAltHost);
+  return new Set(base.map((h) => String(h).trim().toLowerCase()).filter(Boolean));
+};
+
+const extractPushPathFromUrl = (url: string): string | null =>
+  extractPathFromAppUrl(url, getAllowedHosts(), CUSTOM_SCHEME);
+
+const normalizePushActionPath = (raw?: unknown): string | null => {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  if (value.startsWith('/')) return value;
+  return extractPushPathFromUrl(value);
+};
+
+const buildFallbackPathFromPushData = (data: any): string | null => {
+  const type = String(data?.type || data?.notificationType || '').trim().toLowerCase();
+  const conversationId = String(data?.conversationId || data?.conversation_id || '').trim();
+  const postId = String(data?.postId || data?.post_id || data?.entityId || data?.entity_id || '').trim();
+  const campaignId = String(data?.campaignId || data?.campaign_id || '').trim();
+
+  if ((type === 'message' || type === 'new_message') && conversationId) {
+    return `/messages/${encodeURIComponent(conversationId)}`;
+  }
+  if (type.includes('message') && conversationId) {
+    return `/messages/${encodeURIComponent(conversationId)}`;
+  }
+  if ((type.includes('post') || type.includes('comment') || type.includes('mention') || type.includes('reaction')) && postId) {
+    return `/post/${encodeURIComponent(postId)}`;
+  }
+  if (type === 'app_campaign' || type === 'campaign') {
+    return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
+  }
+  return null;
+};
+
+const ensureAndroidNotificationChannels = async () => {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
+
+  const channels: Channel[] = [
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.alerts,
+      name: 'Scrolith Alerts',
+      description: 'Notifications from Scrolith',
+      sound: 'scrolith.wav',
+      importance: 5,
+      visibility: 1,
+      vibration: true
+    },
+    // Keep legacy channels present for older installs/history, but route new notifications to alerts v2.
+    {
+      id: 'general',
+      name: 'Scrolith notifications (legacy)',
+      description: 'Legacy notification channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'messages',
+      name: 'Messages (legacy)',
+      description: 'Legacy messages channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'posts',
+      name: 'Posts and community (legacy)',
+      description: 'Legacy posts channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'campaigns_scrolith_v2',
+      name: 'Scrolith campaigns (legacy)',
+      description: 'Legacy campaigns channel retained for compatibility.',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    }
+  ];
+
+  for (const channel of channels) {
+    try {
+      await PushNotifications.createChannel(channel);
+    } catch (error) {
+      console.warn('Failed to create Android notification channel', {
+        channelId: channel.id,
+        error: (error as any)?.message || error
+      });
+    }
+  }
+};
 
 const storeToken = async (token: string) => {
   if (!Capacitor.isNativePlatform()) return;
   try {
     await Preferences.set({ key: TOKEN_KEY, value: token });
+    await Preferences.set({ key: TOKEN_PROJECT_KEY, value: PUSH_TOKEN_PROJECT_ID });
   } catch {}
+};
+
+const ensureStoredTokenProject = async () => {
+  if (!Capacitor.isNativePlatform()) return true;
+  try {
+    const { value } = await Preferences.get({ key: TOKEN_PROJECT_KEY });
+    if (!value) {
+      const existingToken = await Preferences.get({ key: TOKEN_KEY });
+      if (existingToken.value) {
+        await Preferences.remove({ key: TOKEN_KEY });
+        await reportPushTrackingEvent('push_token_project_reset', {
+          platform: Capacitor.getPlatform()
+        });
+      }
+      await Preferences.set({ key: TOKEN_PROJECT_KEY, value: PUSH_TOKEN_PROJECT_ID });
+      return !existingToken.value;
+    }
+    if (value === PUSH_TOKEN_PROJECT_ID) return true;
+    await Preferences.remove({ key: TOKEN_KEY });
+    await Preferences.set({ key: TOKEN_PROJECT_KEY, value: PUSH_TOKEN_PROJECT_ID });
+    await reportPushTrackingEvent('push_token_project_reset', {
+      platform: Capacitor.getPlatform()
+    });
+    return false;
+  } catch {
+    return true;
+  }
 };
 
 const readToken = async () => {
@@ -36,10 +189,33 @@ const readToken = async () => {
   }
 };
 
+const buildDeviceId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {}
+  return `device-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+};
+
+const getOrCreateDeviceId = async () => {
+  if (!Capacitor.isNativePlatform()) return null;
+  try {
+    const existing = await Preferences.get({ key: DEVICE_ID_KEY });
+    if (existing.value) return existing.value;
+    const created = buildDeviceId();
+    await Preferences.set({ key: DEVICE_ID_KEY, value: created });
+    return created;
+  } catch {
+    return buildDeviceId();
+  }
+};
+
 const clearToken = async () => {
   if (!Capacitor.isNativePlatform()) return;
   try {
     await Preferences.remove({ key: TOKEN_KEY });
+    await Preferences.remove({ key: TOKEN_PROJECT_KEY });
   } catch {}
 };
 
@@ -47,36 +223,60 @@ const registerTokenWithBackend = async (token: string) => {
   if (!token) return false;
   try {
     const authToken = await tokenStore.get();
-    if (!authToken) return false;
+    if (!authToken) {
+      console.info(`${PUSH_LOG_PREFIX} registerDeviceToken skipped: missing auth token`);
+      return false;
+    }
+    const deviceId = await getOrCreateDeviceId();
+    console.info(`${PUSH_LOG_PREFIX} registerDeviceToken start`, {
+      platform: Capacitor.getPlatform(),
+      token: summarizeToken(token),
+      hasDeviceId: Boolean(deviceId)
+    });
     await api.post('/notifications/device/register', {
       platform: Capacitor.getPlatform(),
-      token
+      token,
+      deviceId
     }, {
       headers: {
         Authorization: `Bearer ${authToken}`
       }
     });
+    console.info(`${PUSH_LOG_PREFIX} registerDeviceToken success`, {
+      platform: Capacitor.getPlatform(),
+      token: summarizeToken(token)
+    });
     return true;
   } catch (e) {
-    console.error('Failed to register device token', e);
+    const status = (e as any)?.response?.status;
+    const message = (e as any)?.message || 'registration request failed';
+    console.error(`${PUSH_LOG_PREFIX} registerDeviceToken failed`, {
+      status,
+      message,
+      platform: Capacitor.getPlatform(),
+      token: summarizeToken(token)
+    });
+    console.error('Failed to register device token', {
+      status,
+      message
+    });
+    await reportPushTrackingEvent('push_token_sync_failed', {
+      platform: Capacitor.getPlatform(),
+      tokenPrefix: String(token || '').slice(0, 12)
+    });
     return false;
   }
 };
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const reportPushTrackingEvent = async (event: 'push_registration_error' | 'push_token_registered', details: Record<string, any>) => {
-  try {
-    await AppDistributionService.trackEvent({
-      event,
-      platform: Capacitor.getPlatform() as any,
-      deviceCategory: Capacitor.getPlatform() as any,
-      sourcePath: '/mobile/push',
-      details
-    });
-  } catch {
-    // best effort only
-  }
+const reportPushTrackingEvent = async (
+  event: AppDistributionEvent,
+  details: Record<string, any>
+) => {
+  await trackMobileRuntimeEvent(event, details, {
+    sourcePath: '/mobile/push'
+  });
 };
 
 const scheduleNativeRegisterRetry = async (reason: string) => {
@@ -122,10 +322,12 @@ const buildForegroundPushPayload = (incoming: any) => {
     data.link ||
     data.actionUrl ||
     data.action_url ||
+    data.url ||
     notification?.link ||
     notification?.actionUrl ||
-    notification?.action_url;
-  const actionUrl = rawAction ? extractPathFromUrl(String(rawAction)) || String(rawAction) : undefined;
+    notification?.action_url ||
+    notification?.url;
+  const actionUrl = normalizePushActionPath(rawAction) || buildFallbackPathFromPushData(data) || undefined;
 
   return {
     id: notification?.id || data.notificationId,
@@ -142,11 +344,18 @@ const buildForegroundPushPayload = (incoming: any) => {
 };
 
 const attachPushListeners = (navigate?: (path: string) => void) => {
+  if (navigate) {
+    navigateToPath = navigate;
+  }
   if (listenersAttached) return;
   listenersAttached = true;
 
   PushNotifications.addListener('registration', async (token) => {
     try {
+      console.info(`${PUSH_LOG_PREFIX} PushNotifications registration event`, {
+        platform: Capacitor.getPlatform(),
+        token: summarizeToken(token.value)
+      });
       nativeRegisterRetryCount = 0;
       if (nativeRegisterRetryTimer) {
         clearTimeout(nativeRegisterRetryTimer);
@@ -180,6 +389,10 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('pushNotificationReceived', (notification) => {
     try {
+      void reportPushTrackingEvent('push_notification_received', {
+        type: notification?.data?.type || notification?.notification?.data?.type || 'system',
+        notificationId: notification?.id || notification?.data?.notificationId || null
+      });
       if (typeof window === 'undefined') return;
       window.dispatchEvent(new CustomEvent('mobile:push-notification-received', {
         detail: buildForegroundPushPayload(notification)
@@ -190,36 +403,157 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
   });
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
-    const deepLink =
-      (event.notification?.data as any)?.deepLink || (event.notification?.data as any)?.deeplink;
-    if (!deepLink || !navigate) return;
-    const path = extractPathFromUrl(String(deepLink));
-    if (path) navigate(path);
+    const notificationData = (event.notification?.data as any) || {};
+    const action =
+      notificationData?.deepLink ||
+      notificationData?.deeplink ||
+      notificationData?.link ||
+      notificationData?.actionUrl ||
+      notificationData?.action_url ||
+      notificationData?.url ||
+      event.notification?.link;
+    const path = normalizePushActionPath(action) || buildFallbackPathFromPushData(notificationData);
+    void reportPushTrackingEvent('push_notification_opened', {
+      notificationId: event.notification?.id || (event.notification?.data as any)?.notificationId || null,
+      path: path || String(action || '') || null
+    });
+    if (!path || !navigateToPath) {
+      void reportPushTrackingEvent('push_notification_open_failed', {
+        notificationId: event.notification?.id || notificationData?.notificationId || null,
+        reason: !action ? 'missing_deeplink' : !path ? 'invalid_path' : 'navigate_unavailable',
+        path: String(action || '') || null
+      });
+      return;
+    }
+    navigateToPath(path);
   });
 };
 
 export const syncStoredPushToken = async () => {
-  if (!Capacitor.isNativePlatform()) return false;
+  if (!Capacitor.isNativePlatform()) {
+    console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken skipped: non-native platform`);
+    return false;
+  }
+  const projectOk = await ensureStoredTokenProject();
+  if (!projectOk) {
+    console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken skipped: token project reset`);
+    return false;
+  }
   const stored = await readToken();
-  if (!stored) return false;
-  return registerTokenWithRetry(stored);
+  if (!stored) {
+    console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken skipped: no stored token`);
+    return false;
+  }
+  console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken start`, {
+    token: summarizeToken(stored)
+  });
+  const synced = await registerTokenWithRetry(stored);
+  console.info(`${PUSH_LOG_PREFIX} syncStoredPushToken result`, {
+    synced,
+    token: summarizeToken(stored)
+  });
+  return synced;
 };
 
 export const initPushNotifications = async (navigate?: (path: string) => void) => {
   if (!Capacitor.isNativePlatform()) return;
   attachPushListeners(navigate);
+  await ensureAndroidNotificationChannels();
 
   if (initialized) {
     await syncStoredPushToken();
     return;
   }
 
+  const authToken = await tokenStore.get();
+  if (!authToken) return;
+  await ensureStoredTokenProject();
+
   const perm = await PushNotifications.requestPermissions();
-  if (perm.receive !== 'granted') return;
+  if (perm.receive !== 'granted') {
+    await reportPushTrackingEvent('push_permission_denied', {
+      receive: perm.receive
+    });
+    return;
+  }
 
   await PushNotifications.register();
   initialized = true;
   await syncStoredPushToken();
+};
+
+export const forcePushRegistrationAfterAuth = async (navigate?: (path: string) => void) => {
+  if (!Capacitor.isNativePlatform()) {
+    console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth skipped: non-native platform`);
+    return false;
+  }
+
+  if (forceRegisterInFlight) {
+    console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth skipped: in-flight`);
+    return forceRegisterInFlight;
+  }
+
+  const now = Date.now();
+  if (lastForceRegisterAt && now - lastForceRegisterAt < FORCE_REGISTER_COOLDOWN_MS) {
+    console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth skipped: cooldown active`, {
+      cooldownMs: FORCE_REGISTER_COOLDOWN_MS
+    });
+    return syncStoredPushToken();
+  }
+
+  forceRegisterInFlight = (async () => {
+    try {
+      console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth start`, {
+        platform: Capacitor.getPlatform()
+      });
+      attachPushListeners(navigate);
+      await ensureAndroidNotificationChannels();
+
+      const authToken = await tokenStore.get();
+      if (!authToken) {
+        console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth aborted: missing auth token`);
+        return false;
+      }
+      console.info(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth auth token present`);
+
+      await ensureStoredTokenProject();
+      const checkedPerm = await PushNotifications.checkPermissions();
+      console.info(`${PUSH_LOG_PREFIX} push permission check`, { receive: checkedPerm.receive });
+
+      let perm = checkedPerm;
+      if (perm.receive !== 'granted') {
+        perm = await PushNotifications.requestPermissions();
+        console.info(`${PUSH_LOG_PREFIX} push permission request result`, { receive: perm.receive });
+      }
+
+      if (perm.receive !== 'granted') {
+        console.warn(`${PUSH_LOG_PREFIX} forcePushRegistrationAfterAuth aborted: permission denied`, {
+          receive: perm.receive
+        });
+        return false;
+      }
+
+      try {
+        console.info(`${PUSH_LOG_PREFIX} PushNotifications.register start`);
+        await PushNotifications.register();
+        initialized = true;
+        console.info(`${PUSH_LOG_PREFIX} PushNotifications.register success`);
+      } catch (error) {
+        const message = (error as any)?.message || String(error);
+        console.error(`${PUSH_LOG_PREFIX} PushNotifications.register failed`, {
+          message
+        });
+        await scheduleNativeRegisterRetry('force_register_after_auth');
+      }
+
+      return syncStoredPushToken();
+    } finally {
+      lastForceRegisterAt = Date.now();
+      forceRegisterInFlight = null;
+    }
+  })();
+
+  return forceRegisterInFlight;
 };
 
 export const unregisterPushNotifications = async () => {
@@ -230,7 +564,10 @@ export const unregisterPushNotifications = async () => {
       await api.post('/notifications/device/unregister', { token });
     }
   } catch (e) {
-    console.warn('Failed to unregister push token', e);
+    console.warn('Failed to unregister push token', {
+      status: (e as any)?.response?.status,
+      message: (e as any)?.message || 'unregister request failed'
+    });
   } finally {
     await clearToken();
     initialized = false;

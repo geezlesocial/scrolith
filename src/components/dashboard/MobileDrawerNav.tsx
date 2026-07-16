@@ -50,7 +50,7 @@ const renderStatusChip = (label: string, value: string, tone: 'indigo' | 'green'
         ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
         : 'border-slate-200 bg-slate-100 text-slate-700';
   return (
-    <div className={['rounded-2xl border px-3 py-2', toneClass].join(' ')}>
+    <div className={['rounded-2xl border px-3 py-2.5', toneClass].join(' ')}>
       <p className="text-[10px] font-semibold uppercase tracking-wide opacity-80">{label}</p>
       <p className="mt-1 text-sm font-semibold">{value}</p>
     </div>
@@ -74,16 +74,16 @@ export const MobileDrawerNav: React.FC<MobileDrawerNavProps> = ({
 }) => {
   return (
     <div className="flex h-full flex-col">
-      <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-white shadow-sm">
+      <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-3.5 text-white shadow-sm xl:p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <img
               src={userAvatar || 'https://ui-avatars.com/api/?name=User&background=1f2937&color=fff'}
               alt={userName}
-              className="h-12 w-12 rounded-full border border-white/20 object-cover shadow-sm"
+              className="h-11 w-11 rounded-full border border-white/20 object-cover shadow-sm xl:h-12 xl:w-12"
             />
             <div className="min-w-0">
-              <p className="truncate text-base font-semibold">{userName}</p>
+              <p className="truncate text-[15px] font-semibold xl:text-base">{userName}</p>
               <p className="truncate text-xs uppercase tracking-[0.18em] text-slate-300">{roleLabel}</p>
             </div>
           </div>
@@ -97,10 +97,10 @@ export const MobileDrawerNav: React.FC<MobileDrawerNavProps> = ({
           </button>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 md:grid-cols-1 lg:grid-cols-3">
+        <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 md:grid-cols-1">
           <div
             className={[
-              'rounded-2xl border px-3 py-2',
+              'rounded-2xl border px-3 py-2.5',
               socketConnected ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-100' : 'border-amber-400/25 bg-amber-400/10 text-amber-100'
             ].join(' ')}
           >
@@ -117,21 +117,21 @@ export const MobileDrawerNav: React.FC<MobileDrawerNavProps> = ({
         <button
           type="button"
           onClick={onRoleSwitch}
-          className="mt-4 w-full rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
+          className="mt-4 w-full rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-100"
         >
           {roleSwitchLabel}
         </button>
       </div>
 
-      <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-1">
+      <div className="mt-4 flex-1 space-y-3 overflow-y-auto pr-1">
         {sections.map((section) => (
           <section key={section.id} className="rounded-3xl border border-slate-200 bg-white p-3 shadow-sm">
-            <div className="mb-3 px-1">
+            <div className="mb-2.5 px-1">
               <h4 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{section.title}</h4>
               {section.description ? <p className="mt-1 text-xs text-slate-500">{section.description}</p> : null}
             </div>
 
-            <ul className="space-y-1.5">
+            <ul className="space-y-1">
               {section.items.map((item) => {
                 const isActive = activeTab === item.tab;
                 return (
@@ -140,7 +140,7 @@ export const MobileDrawerNav: React.FC<MobileDrawerNavProps> = ({
                       type="button"
                       onClick={() => onTabSelect(item.tab)}
                       className={[
-                        'flex w-full items-start justify-between gap-3 rounded-2xl border px-3 py-3 text-left transition',
+                        'flex w-full items-start justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition',
                         isActive
                           ? 'border-indigo-200 bg-indigo-50 text-indigo-700 shadow-sm'
                           : 'border-transparent text-slate-700 hover:border-slate-200 hover:bg-slate-50'

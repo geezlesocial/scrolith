@@ -146,12 +146,20 @@ export const GcoinService = {
     return { success: true, message: 'Transfer completed' };
   },
 
-  donate: async (postId: string, amount: number, note?: string): Promise<{ success: boolean; message: string }> => {
+  donate: async (postId: string, amount: number, note?: string): Promise<{ success: boolean; message: string; data?: any }> => {
     const response = await api.post('/gcoin/donate', { postId, amount, note });
     if (response?.data?.success === false) {
       return { success: false, message: response?.data?.error || 'Donation failed' };
     }
-    return { success: true, message: 'Donation completed' };
+    return { success: true, message: 'Donation completed', data: extractData<any>(response) };
+  },
+
+  donateScroll: async (scrollId: string, amount: number, note?: string): Promise<{ success: boolean; message: string; data?: any }> => {
+    const response = await api.post('/gcoin/donate/scroll', { scrollId, amount, note });
+    if (response?.data?.success === false) {
+      return { success: false, message: response?.data?.error || 'Donation failed' };
+    }
+    return { success: true, message: 'Donation completed', data: extractData<any>(response) };
   },
 
   checkAndAward: async (userId: string, type: 'like' | 'repost' | 'share', count: number): Promise<boolean> => {

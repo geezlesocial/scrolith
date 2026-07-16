@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader } from 'lucide-react';
 import { AuthService } from '../services/authService';
+import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 const OAuthCallback = () => {
   const [message, setMessage] = useState('Completing sign in...');
@@ -26,12 +27,17 @@ const OAuthCallback = () => {
 
     const finish = async () => {
       try {
-        await AuthService.getCurrentUser();
+        const me = await AuthService.getCurrentUser();
+        if (me) {
+          window.location.replace(
+            me.followOnboardingRequired ? resolveAuthenticatedEntryPath(me) : next
+          );
+          return;
+        }
       } catch (e) {
         // Ignore; navigation will re-trigger auth bootstrap
-      } finally {
-        window.location.replace(next);
       }
+      window.location.replace(next);
     };
 
     finish();

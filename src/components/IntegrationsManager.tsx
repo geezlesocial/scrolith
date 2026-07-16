@@ -1,4 +1,4 @@
-﻿import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useContent } from '../context/ContentContext';
 import { PlatformIntegrationsSettings } from '../types';
@@ -36,9 +36,42 @@ const removeScript = (id: string) => {
   if (script) script.remove();
 };
 
+const deferNonCriticalTask = (task: () => void | Promise<void>, timeoutMs = 1800) => {
+  if (typeof window === 'undefined') return () => {};
+
+  let disposed = false;
+  let timeoutId: number | null = null;
+  let idleId: number | null = null;
+
+  const run = () => {
+    if (disposed) return;
+    disposed = true;
+    void task();
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+    if (idleId !== null && 'cancelIdleCallback' in window) {
+      (window as any).cancelIdleCallback(idleId);
+    }
+  };
+
+  if ('requestIdleCallback' in window) {
+    idleId = (window as any).requestIdleCallback(run, { timeout: timeoutMs });
+  } else {
+    timeoutId = window.setTimeout(run, Math.min(timeoutMs, 1200));
+  }
+
+  return () => {
+    disposed = true;
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+    if (idleId !== null && 'cancelIdleCallback' in window) {
+      (window as any).cancelIdleCallback(idleId);
+    }
+  };
+};
+
 const IntegrationsManager: React.FC = () => {
   const { settings } = useContent();
   const location = useLocation();
+  const pathname = location.pathname || '/';
   const integrations = (settings as any)?.integrations as PlatformIntegrationsSettings | undefined;
   const legacyAnalyticsId = (settings as any)?.google_analytics_id || (settings as any)?.googleAnalyticsId || '';
   const legacyPixelId = (settings as any)?.facebook_pixel_id || (settings as any)?.facebookPixelId || '';
@@ -59,6 +92,30 @@ const IntegrationsManager: React.FC = () => {
   const firebase = integrations?.firebase;
   const facebookComments = integrations?.facebookComments;
 
+  const isLandingLikeRoute = useMemo(
+    () =>
+      pathname === '/' ||
+      pathname === '/member_home' ||
+      /^\/m(\/|$)/.test(pathname) ||
+      /^\/community(\/|$)/.test(pathname) ||
+      /^\/scroll(\/|$)/.test(pathname),
+    [pathname]
+  );
+  const needsRecaptcha = useMemo(
+    () =>
+      pathname === '/' ||
+      /^\/auth(\/|$)/.test(pathname) ||
+      /^\/support(\/|$)/.test(pathname) ||
+      /^\/contact(\/|$)/.test(pathname) ||
+      /^\/dashboard(\/|$)/.test(pathname) ||
+      /^\/admin(\/|$)/.test(pathname),
+    [pathname]
+  );
+  const needsAdminIntegrationPreview = useMemo(
+    () => /^\/admin(\/|$)/.test(pathname) || /^\/dev-docs(\/|$)/.test(pathname),
+    [pathname]
+  );
+
   useEffect(() => {
     const loadGa = async () => {
       if (!analytics?.googleEnabled || !analytics?.googleAnalyticsId) {
@@ -78,10 +135,12 @@ const IntegrationsManager: React.FC = () => {
       w.gtag = w.gtag || function gtag() { w.dataLayer.push(arguments); };
       w.gtag('js', new Date());
       w.gtag('config', id, { send_page_view: false });
+      w.gtag('config', id, { page_path: `${window.location.pathname}${window.location.search}` });
     };
 
-    loadGa().catch((e) => console.warn('Failed to load Google Analytics', e));
-  }, [analytics?.googleEnabled, analytics?.googleAnalyticsId]);
+    const cancel = deferNonCriticalTask(loadGa, isLandingLikeRoute ? 2200 : 1200);
+    return () => cancel();
+  }, [analytics?.googleEnabled, analytics?.googleAnalyticsId, isLandingLikeRoute]);
 
   useEffect(() => {
     const loadPixel = async () => {
@@ -113,12 +172,13 @@ const IntegrationsManager: React.FC = () => {
       w.fbq('track', 'PageView');
     };
 
-    loadPixel().catch((e) => console.warn('Failed to load Facebook Pixel', e));
-  }, [analytics?.facebookEnabled, analytics?.facebookPixelId]);
+    const cancel = deferNonCriticalTask(loadPixel, isLandingLikeRoute ? 2600 : 1400);
+    return () => cancel();
+  }, [analytics?.facebookEnabled, analytics?.facebookPixelId, isLandingLikeRoute]);
 
   useEffect(() => {
     const loadRecaptcha = async () => {
-      if (!recaptcha?.enabled || !recaptcha?.siteKey) {
+      if (!recaptcha?.enabled || !recaptcha?.siteKey || !needsRecaptcha) {
         removeScript('recaptcha-script');
         const w = window as any;
         if (w.grecaptcha) delete w.grecaptcha;
@@ -128,7 +188,7 @@ const IntegrationsManager: React.FC = () => {
       const siteKey = recaptcha.siteKey.trim();
       if (!siteKey) return;
 
-      const version = recaptcha?.version || 'v3';
+      const version = recaptcha.version || 'v3';
       const src = version === 'v2'
         ? 'https://www.google.com/recaptcha/api.js?render=explicit'
         : `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(siteKey)}`;
@@ -136,11 +196,11 @@ const IntegrationsManager: React.FC = () => {
     };
 
     loadRecaptcha().catch((e) => console.warn('Failed to load reCAPTCHA', e));
-  }, [recaptcha?.enabled, recaptcha?.siteKey]);
+  }, [needsRecaptcha, recaptcha?.enabled, recaptcha?.siteKey, recaptcha?.version]);
 
   useEffect(() => {
     const loadGoogleMaps = async () => {
-      if (!googleMap?.enabled || !googleMap?.apiKey) {
+      if (!googleMap?.enabled || !googleMap?.apiKey || !needsAdminIntegrationPreview) {
         removeScript('google-maps-script');
         return;
       }
@@ -152,11 +212,15 @@ const IntegrationsManager: React.FC = () => {
     };
 
     loadGoogleMaps().catch((e) => console.warn('Failed to load Google Maps', e));
-  }, [googleMap?.enabled, googleMap?.apiKey]);
+  }, [googleMap?.enabled, googleMap?.apiKey, needsAdminIntegrationPreview]);
 
   useEffect(() => {
     const loadFirebase = async () => {
-      if (!firebase?.enabled || !firebase?.apiKey || !firebase?.projectId) return;
+      if (!firebase?.enabled || !firebase?.apiKey || !firebase?.projectId || !needsAdminIntegrationPreview) {
+        removeScript('firebase-app');
+        removeScript('firebase-analytics');
+        return;
+      }
 
       await ensureScript('firebase-app', 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
       if (firebase.measurementId) {
@@ -185,23 +249,33 @@ const IntegrationsManager: React.FC = () => {
           if (existing && typeof existing.delete === 'function') {
             await existing.delete();
           }
-        } catch (e) {
-          // ignore delete failures
+        } catch {
+          // Ignore delete failures.
         }
         fb.initializeApp(config);
       }
 
       if (firebase.measurementId && typeof fb.analytics === 'function') {
-        try { fb.analytics(); } catch (e) { /* ignore */ }
+        try { fb.analytics(); } catch { /* ignore */ }
       }
     };
 
     loadFirebase().catch((e) => console.warn('Failed to load Firebase', e));
-  }, [firebase?.enabled, firebase?.apiKey, firebase?.authDomain, firebase?.projectId, firebase?.storageBucket, firebase?.messagingSenderId, firebase?.appId, firebase?.measurementId]);
+  }, [
+    firebase?.enabled,
+    firebase?.apiKey,
+    firebase?.authDomain,
+    firebase?.projectId,
+    firebase?.storageBucket,
+    firebase?.messagingSenderId,
+    firebase?.appId,
+    firebase?.measurementId,
+    needsAdminIntegrationPreview
+  ]);
 
   useEffect(() => {
     const loadFacebookComments = async () => {
-      if (!facebookComments?.enabled || !facebookComments?.appId) {
+      if (!facebookComments?.enabled || !facebookComments?.appId || !needsAdminIntegrationPreview) {
         removeScript('facebook-comments-sdk');
         return;
       }
@@ -227,7 +301,7 @@ const IntegrationsManager: React.FC = () => {
     };
 
     loadFacebookComments().catch((e) => console.warn('Failed to load Facebook Comments SDK', e));
-  }, [facebookComments?.enabled, facebookComments?.appId]);
+  }, [facebookComments?.enabled, facebookComments?.appId, needsAdminIntegrationPreview]);
 
   useEffect(() => {
     const path = `${location.pathname}${location.search}`;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   TrendingUp,
   Calendar,
@@ -10,15 +10,17 @@ import {
   Plus,
   Camera as CameraIcon,
   X,
-  Heart,
   Repeat2,
   Send,
   Coins,
   Download,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Sparkles,
+  AlertTriangle
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLiveFeature } from '../context/LiveFeatureContext';
 import { useUser } from '../context/UserContext';
 import DonateButton from '../components/DonateButton';
 import { CommunityService } from '../services/community';
@@ -26,25 +28,77 @@ import { AdService } from '../services/ads';
 import { ScrollService, type ScrollConfig, type ScrollVideo } from '../services/scroll';
 import { ReactionsService } from '../services/reactions';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
+import AdVideoPlayer from '../components/ads/AdVideoPlayer';
+import MediaPreviewModal, { type PreviewMedia } from '../components/media/MediaPreviewModal';
+import PostVideoActionBar from '../components/media/PostVideoActionBar';
+import PostExpandModal from '../components/post/PostExpandModal';
 import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
+import EnterpriseStoryViewer from '../features/stories/components/StoryViewer';
+import LiveFeaturedRail from '../features/live/components/LiveFeaturedRail';
+import ExpandablePreviewText from '../components/common/ExpandablePreviewText';
+import StaticPreviewText from '../components/common/StaticPreviewText';
+import ContentOfferTags from '../components/commerce/ContentOfferTags';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
 import MentionText from './components/MentionText';
-import ReactionBar from './components/ReactionBar';
-import RepostModal from './components/RepostModal';
-import PostShareModal from './components/PostShareModal';
 import MentionHashtagTextarea from './components/MentionHashtagTextarea';
+import FollowButton from './components/FollowButton';
 import PostOptionsButton from './components/post-options/PostOptionsButton';
 import { applyFollowUpdatePayload, resetFollowState, setFollowStatuses, useFollowStateMap } from './followState';
 import { useNotification } from '../context/NotificationContext';
-import SendGcoinModal from '../components/SendGcoinModal';
 import { FileService } from '../services/files';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from './storyStyles';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import {
+  extractFeedItemList,
+  extractHasMore,
+  extractNextCursor,
+  mergeUniqueFeedItems,
+  shouldContinueOffsetFallback
+} from '../utils/feedPagination';
+import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../utils/continuousFeed';
+import {
+  getStableFeedReactKey,
+  logFeedLifecycle,
+  prependRealtimeItem,
+  resolveTransportAfterFailure,
+  shouldAllowObserverLoadMore,
+  shouldSkipDuplicateCursorRequest,
+  shouldStopUnchangedCursorLoop
+} from '../utils/feedLifecycle';
+import { Phase2Service } from '../services/phase2';
+import { MemberFeedService } from '../services/memberFeed';
+import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
+import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
+import {
+  buildPostVideoScrollViewerPath,
+  stashPendingPostVideoScrollViewerSource,
+  type PendingPostVideoScrollViewerSource
+} from '../utils/postVideoScrollBridge';
+import { buildPublicAppUrl } from '../utils/siteUrl';
 import { downloadToDevice } from '../utils/deviceDownload';
 import { Capacitor } from '@capacitor/core';
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
 import { upsertImagePreloadLink } from '../utils/resourceHints';
+import GraphicWarningGate from '../components/media/GraphicWarningGate';
+import PostOriginPreview from '../components/post/PostOriginPreview';
+import TranslatablePostText from '../components/translation/TranslatablePostText';
+import AdCard from '../components/AdCard';
+import StoryUploadStatusCard from '../components/stories/StoryUploadStatusCard';
+import StoryAuthorAvatar from '../components/stories/StoryAuthorAvatar';
+import SearchInput from '../components/SearchInput';
+import OptimizedImage from '../components/media/OptimizedImage';
+import { pickInterestSurveyCandidateIds } from '../components/recommendation/ContentInterestSurvey';
+import { RecoService } from '../services/reco';
+import {
+  postAiInsightPreferenceToBoolean,
+  resolvePostAiInsightPreference,
+  resolveStoredPostAiInsightPreference,
+  type PostAiInsightPreference
+} from '../utils/postAiControls';
+import { normalizeContentOfferTags } from '../utils/contentOffers';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -57,6 +111,28 @@ const inferMediaType = (media: { url?: string; mimeType?: string; type?: string 
   if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
   return 'document';
 };
+
+const toPreviewMedia = (media: any): PreviewMedia | null => {
+  const url = String(media?.url || '').trim();
+  if (!url) return null;
+  return {
+    id: media?.id,
+    url,
+    name: media?.name,
+    mimeType: media?.mimeType || media?.mime_type,
+    type: media?.type,
+    thumbnailUrl: media?.thumbnailUrl || media?.thumbnail_url || null,
+    duration: media?.duration
+  };
+};
+
+const extractCommunityFeedItems = (payload: any): any[] => extractFeedItemList(payload);
+
+const extractCommunityFeedCursor = (payload: any): string | null => extractNextCursor(payload);
+
+const GRAPHIC_WARNING_LABEL = 'Graphic warning';
+const FEED_SINGLE_MEDIA_HEIGHT_CLASS = 'h-[20rem] sm:h-[24rem] lg:h-[28rem]';
+const FEED_MULTI_MEDIA_HEIGHT_CLASS = 'h-[15rem] sm:h-[18rem] lg:h-[22rem]';
 
 const formatRelativeTime = (value: string | Date | null | undefined) => {
   if (!value) return 'recently';
@@ -135,6 +211,7 @@ const isPrivilegedRole = (role?: string) => {
 };
 
 type StoryVisibility = 'public' | 'followers' | 'following' | 'mutuals' | 'network' | 'private' | 'custom';
+type StoryKind = 'text' | 'image' | 'video';
 
 const storyVisibilityOptions: Array<{ value: StoryVisibility; label: string }> = [
   { value: 'public', label: 'Public' },
@@ -156,29 +233,18 @@ const normalizeStoryVisibility = (value?: string): StoryVisibility => {
 
 const isPrivateStoryVisibility = (value?: StoryVisibility) => value === 'private' || value === 'custom';
 
-const resolveStoryMediaUrl = (story: any) => {
-  const raw =
-    story?.media?.url ||
-    story?.mediaUrl ||
-    story?.media_url ||
-    story?.mediaFileUrl ||
-    story?.media_file_url ||
-    story?.media?.[0]?.url;
-  if (raw) return resolveAssetUrl(raw);
-
-  const fileId = story?.mediaFileId || story?.media_file_id;
-  if (typeof fileId === 'string') {
-    if (fileId.startsWith('disk:')) {
-      const relative = fileId.slice('disk:'.length).replace(/^\/+/, '');
-      return resolveAssetUrl(`/uploads/${relative}`);
-    }
-    if (fileId.startsWith('http://') || fileId.startsWith('https://')) {
-      return resolveAssetUrl(fileId);
-    }
-  }
-  return '';
+const resolveStoryType = (story: any): StoryKind => {
+  const raw = String(story?.type || story?.storyType || story?.media?.type || '').trim().toLowerCase();
+  if (raw === 'video') return 'video';
+  if (raw === 'image') return 'image';
+  const media = resolveInlineMedia(story, { typeHint: raw || story?.type });
+  if (media.kind === 'video') return 'video';
+  if (media.kind === 'image') return 'image';
+  return 'text';
 };
 
+const resolveStoryMedia = (story: any) => resolveInlineMedia(story, { typeHint: story?.type });
+const resolveStoryMediaUrl = (story: any) => (resolveStoryType(story) === 'text' ? '' : resolveStoryMedia(story).src);
 const resolveStoryContent = (story: any) =>
   story?.content ||
   story?.text ||
@@ -201,19 +267,123 @@ const resolveStoryAuthorName = (story: any, fallback = 'Community') => {
   return normalized || fallback;
 };
 
-const resolveStoryAuthorAvatar = (story: any) => {
-  const raw =
+const resolveViewerProfileAvatar = (story: any, viewer?: any) => {
+  if (!story || !viewer) return '';
+  const normalizeOwnerToken = (value: unknown) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
+  const storyOwnerTokens = [
+    story?.authorId,
+    story?.userId,
+    story?.user_id,
+    story?.author?.id,
+    story?.authorUsername,
+    story?.author?.username,
+    story?.userName,
+    story?.user_name,
+    story?.user?.username,
+    story?.authorName,
+    story?.author?.displayName,
+    story?.author?.name,
+    story?.user?.displayName,
+    story?.user?.name
+  ].map(normalizeOwnerToken).filter(Boolean);
+  const viewerTokens = [
+    viewer?.id,
+    viewer?.user_id,
+    viewer?.username,
+    viewer?.user_name,
+    viewer?.name,
+    viewer?.email
+  ].map(normalizeOwnerToken).filter(Boolean);
+  if (!storyOwnerTokens.some((token) => viewerTokens.includes(token))) return '';
+
+  const viewerAvatar = resolveUserAvatarUrl(viewer);
+  if (viewerAvatar) return viewerAvatar;
+
+  const viewerProfilePhotoFileId = String(
+    viewer?.profilePhotoFileId || viewer?.profile_photo_file_id || viewer?.avatarFileId || viewer?.avatar_file_id || ''
+  ).trim();
+  if (viewerProfilePhotoFileId) return resolvePostAttachmentMediaUrl({ fileId: viewerProfilePhotoFileId });
+
+  return '';
+};
+
+const resolveStoryAuthorAvatar = (story: any, viewer?: any) => {
+  const directAvatar = String(
     story?.authorAvatar ||
-    story?.author?.avatarUrl ||
-    story?.author?.avatar ||
-    story?.authorPhoto ||
-    story?.userAvatar ||
-    story?.user_avatar ||
-    story?.user?.avatarUrl ||
-    story?.user?.avatar ||
-    '';
-  const normalized = String(raw || '').trim();
-  return normalized ? resolveAssetUrl(normalized) : '';
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.author?.avatar ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo ||
+      ''
+  ).trim();
+  if (
+    directAvatar &&
+    (/^(https?:|data:|blob:|\/|uploads\/)/i.test(directAvatar) ||
+      directAvatar.includes('/uploads/') ||
+      /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(directAvatar))
+  ) {
+    return resolvePostAttachmentMediaUrl({ url: directAvatar });
+  }
+
+  const profilePhotoFileId = String(
+    story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.profile_photo_file_id ||
+      story?.avatarFileId ||
+      story?.avatar_file_id ||
+      story?.author?.profilePhotoFileId ||
+      story?.author?.profile_photo_file_id ||
+      story?.author?.avatarFileId ||
+      story?.author?.avatar_file_id ||
+      story?.user?.profilePhotoFileId ||
+      story?.user?.profile_photo_file_id ||
+      story?.user?.avatarFileId ||
+      story?.user?.avatar_file_id ||
+      ''
+  ).trim();
+  if (profilePhotoFileId) {
+    return resolvePostAttachmentMediaUrl({ fileId: profilePhotoFileId });
+  }
+
+  return resolveUserAvatarUrl({
+    ...story,
+    ...(story?.author || {}),
+    avatarUrl:
+      story?.authorAvatar ||
+      story?.author_avatar ||
+      story?.avatarUrl ||
+      story?.avatar_url ||
+      story?.author?.avatarUrl ||
+      story?.userAvatar ||
+      story?.user_avatar ||
+      story?.user?.avatarUrl,
+    avatar:
+      story?.avatar ||
+      story?.author?.avatar ||
+      story?.user?.avatar ||
+      story?.authorPhoto ||
+      story?.author_photo,
+    profilePhotoFileId:
+      story?.authorAvatarFileId ||
+      story?.author_avatar_file_id ||
+      story?.profilePhotoFileId ||
+      story?.author?.profilePhotoFileId ||
+      story?.user?.profilePhotoFileId,
+    profile_photo_file_id:
+      story?.profile_photo_file_id ||
+      story?.author?.profile_photo_file_id ||
+      story?.user?.profile_photo_file_id,
+    avatarFileId: story?.avatarFileId || story?.author?.avatarFileId || story?.user?.avatarFileId,
+    avatar_file_id: story?.avatar_file_id || story?.author?.avatar_file_id || story?.user?.avatar_file_id
+  }) || resolveViewerProfileAvatar(story, viewer);
 };
 
 const resolveStoryAuthorInitial = (story: any) => {
@@ -227,7 +397,7 @@ const isStoryActive = (story: any) => {
   return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
 };
 
-const resolveReelMediaUrl = (scroll: ScrollVideo) => resolveAssetUrl(String(scroll?.media?.url || '').trim());
+const resolveReelMedia = (scroll: ScrollVideo) => resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
 
 const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
   const normalized = String(scroll?.author?.name || '').trim();
@@ -253,6 +423,9 @@ type PostDraft = {
   location: string;
   visibility: 'public' | 'friends' | 'network' | 'private' | 'custom';
   commentPolicy: 'everyone' | 'followers' | 'following' | 'mutuals' | 'none';
+  graphicWarning: boolean;
+  isAIEnhanced: boolean;
+  aiInsightPreference: PostAiInsightPreference;
   media: Array<{
     localId: string;
     id?: string;
@@ -265,6 +438,7 @@ type PostDraft = {
 const CommunityHome = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { status: liveFeatureStatus } = useLiveFeature();
   const params = useParams<{ id?: string }>();
   const focusPostId = String(params.id || '').trim();
   const focusQuery = new URLSearchParams(location.search);
@@ -275,6 +449,9 @@ const CommunityHome = () => {
   const [trendingTopics, setTrendingTopics] = useState<any[]>([]);
   const [upcomingEvents, setUpcomingEvents] = useState<any[]>([]);
   const [topContributors, setTopContributors] = useState<any[]>([]);
+  const [recommendedCommunityPeople, setRecommendedCommunityPeople] = useState<any[]>([]);
+  const [recommendedCommunityPages, setRecommendedCommunityPages] = useState<any[]>([]);
+  const [pageFollowBusy, setPageFollowBusy] = useState<Record<string, boolean>>({});
   const [discussions, setDiscussions] = useState<any[]>([]);
   const [communityStats, setCommunityStats] = useState({
     members: 0,
@@ -283,6 +460,26 @@ const CommunityHome = () => {
     events: 0
   });
   const [posts, setPosts] = useState<any[]>([]);
+  const [postsNextCursor, setPostsNextCursor] = useState<string | null>(null);
+  const [postsOffsetFallbackEnabled, setPostsOffsetFallbackEnabled] = useState(false);
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false);
+  const [postsFeedTerminal, setPostsFeedTerminal] = useState(false);
+  const postsEmptyPageStreakRef = useRef(0);
+  const discoverySupplementUsedRef = useRef(false);
+  /** Phase 3: orchestrated member-feed with Phase 1 continuous-feed fallback. */
+  const postsTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
+  const postsOrchestratedFailedRef = useRef(false);
+  const postsNextCursorRef = useRef<string | null>(null);
+  const postsOffsetFallbackRef = useRef(false);
+  const postsFeedTerminalRef = useRef(false);
+  const postsInFlightCursorRef = useRef<string | null>(null);
+  const postsLastCompletedCursorRef = useRef<string | null>(null);
+  const postsLastCompletedAddedRef = useRef(0);
+  const postsInitialLoadingRef = useRef(false);
+  const [insightCollapsedByPost, setInsightCollapsedByPost] = useState<Record<string, boolean>>({});
+  const [revealedGraphicPosts, setRevealedGraphicPosts] = useState<Record<string, boolean>>({});
+  const [previewMedia, setPreviewMedia] = useState<PreviewMedia | null>(null);
+  const [expandedPost, setExpandedPost] = useState<any | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
@@ -297,17 +494,14 @@ const CommunityHome = () => {
   const [storyRailTab, setStoryRailTab] = useState<'stories' | 'reels'>('stories');
   const [storyTextOpen, setStoryTextOpen] = useState(false);
   const [storyPosting, setStoryPosting] = useState(false);
+  const [storyMediaUploadBusy, setStoryMediaUploadBusy] = useState(false);
+  const [storyMediaUploadLabel, setStoryMediaUploadLabel] = useState('');
+  const [storyMediaUploadProgress, setStoryMediaUploadProgress] = useState(0);
   const [activeStory, setActiveStory] = useState<any | null>(null);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
   const [storyEditSaving, setStoryEditSaving] = useState(false);
   const [storyActionBusy, setStoryActionBusy] = useState<Record<string, boolean>>({});
-  const [storyActionTarget, setStoryActionTarget] = useState<any | null>(null);
-  const [storyCommentOpen, setStoryCommentOpen] = useState(false);
-  const [storyCommentDraft, setStoryCommentDraft] = useState('');
-  const [storyRepostOpen, setStoryRepostOpen] = useState(false);
-  const [storySendOpen, setStorySendOpen] = useState(false);
-  const [storyDashOpen, setStoryDashOpen] = useState(false);
   const [storyCameraOpen, setStoryCameraOpen] = useState(false);
   const [storyCameraStream, setStoryCameraStream] = useState<MediaStream | null>(null);
   const storyVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -341,27 +535,76 @@ const CommunityHome = () => {
   const viewTracked = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
-  const storyGestureStartRef = useRef<{ x: number; y: number } | null>(null);
-  const storyLastTapAtRef = useRef(0);
+  const postsSentinelRef = useRef<HTMLDivElement | null>(null);
+  const postsRef = useRef<any[]>([]);
+  const postsLoadingMoreRef = useRef(false);
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
 
-  const openPostDetail = useCallback(
-    (postId: string) => {
-      const id = String(postId || '').trim();
-      if (!id) return;
-      navigate(`/post/${encodeURIComponent(id)}`);
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+
+  const findPrimaryVideoAttachment = useCallback((post: any) => {
+    const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
+    return (
+      attachments.find((entry: any) => {
+        const type = inferMediaType(entry || {});
+        return type === 'video';
+      }) || null
+    );
+  }, []);
+
+  const openVideoPostInScroll = useCallback(
+    (post: any, media: any) => {
+      const postId = String(post?.id || '').trim();
+      const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
+      if (!postId || !mediaUrl) return;
+      const sourcePayload: PendingPostVideoScrollViewerSource = {
+        sourcePostId: postId,
+        fileId: String(media?.fileId || media?.file_id || media?.file?.id || media?.asset?.id || media?.id || '').trim() || null,
+        mediaUrl,
+        thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
+        title: String(post?.title || '').trim() || null,
+        description: String(post?.content || '').trim() || null,
+        location: String(post?.location || '').trim() || null,
+        authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
+        authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || post?.authorAvatar || '').trim() || null,
+        authorUsername: String(post?.author?.username || post?.authorUsername || '').trim() || null,
+        isFollowingAuthor:
+          typeof post?.viewer?.isFollowingAuthor === 'boolean' ? Boolean(post.viewer.isFollowingAuthor) : null,
+        createdAt: String(post?.createdAt || '').trim() || null
+      };
+      stashPendingPostVideoScrollViewerSource(sourcePayload);
+      navigate(buildPostVideoScrollViewerPath(sourcePayload), {
+        state: {
+          pendingViewerSource: sourcePayload
+        }
+      });
     },
     [navigate]
   );
 
+  const openPostCard = useCallback(
+    (post: any) => {
+      if (!post?.id) return;
+      const primaryVideo = findPrimaryVideoAttachment(post);
+      if (primaryVideo) {
+        openVideoPostInScroll(post, primaryVideo);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [findPrimaryVideoAttachment, openVideoPostInScroll]
+  );
+
   const openPostFromText = useCallback(
-    (event: React.MouseEvent<HTMLElement>, postId: string) => {
+    (event: React.MouseEvent<HTMLElement>, post: any) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest('a, button, input, textarea, select, label, video, audio')) return;
-      openPostDetail(postId);
+      openPostCard(post);
     },
-    [openPostDetail]
+    [openPostCard]
   );
 
   const triggerPostDoubleTapLike = useCallback(
@@ -391,17 +634,40 @@ const CommunityHome = () => {
     [user?.id]
   );
 
+  const handlePostMediaPrimaryAction = useCallback(
+    (post: any, media: any) => {
+      const type = inferMediaType(media || {});
+      if (type === 'video') {
+        openVideoPostInScroll(post, media);
+        return;
+      }
+      const preview = toPreviewMedia({
+        ...media,
+        url: resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || media?.url,
+        thumbnailUrl: resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl
+      });
+      if (preview) {
+        setPreviewMedia(preview);
+        return;
+      }
+      setExpandedPost(post);
+    },
+    [openVideoPostInScroll]
+  );
+
   const queueOpenPostFromMediaTap = useCallback(
-    (postId: string, mediaKey: string) => {
+    (post: any, media: any, mediaKey: string) => {
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
       const timerKey = `${postId}:${mediaKey}`;
       const existing = postMediaTapTimersRef.current[timerKey];
       if (existing) window.clearTimeout(existing);
       postMediaTapTimersRef.current[timerKey] = window.setTimeout(() => {
         delete postMediaTapTimersRef.current[timerKey];
-        openPostDetail(postId);
+        handlePostMediaPrimaryAction(post, media);
       }, 220);
     },
-    [openPostDetail]
+    [handlePostMediaPrimaryAction]
   );
 
   const onPostMediaDoubleClick = useCallback(
@@ -446,6 +712,53 @@ const CommunityHome = () => {
     [triggerPostDoubleTapLike]
   );
 
+  const buildContributorUrl = useCallback((entry?: any) => {
+    const handle = String(entry?.username || entry?.userName || '').trim().replace(/^@+/, '');
+    if (handle) return `/u/${encodeURIComponent(handle)}`;
+    const id = String(entry?.id || entry?.userId || '').trim();
+    return id ? `/profile/${encodeURIComponent(id)}` : '/community';
+  }, []);
+
+  const buildCommunityPageUrl = useCallback((page?: any) => {
+    const slug = String(page?.slug || page?.handle || page?.username || '').trim().replace(/^@+/, '');
+    if (slug) return `/company/${encodeURIComponent(slug)}`;
+    const id = String(page?.id || page?.pageId || '').trim();
+    return id ? `/community/pages/${encodeURIComponent(id)}` : '/community';
+  }, []);
+
+  const handleCommunityPageFollow = useCallback(async (page: any) => {
+    const pageId = String(page?.id || page?.pageId || '').trim();
+    if (!pageId) return;
+    if (!user?.id) {
+      if (confirm('Log in to follow pages?')) window.location.href = '/auth/login';
+      return;
+    }
+    if (pageFollowBusy[pageId]) return;
+    const wasFollowing = Boolean(page?.isFollowing);
+    setPageFollowBusy((prev) => ({ ...prev, [pageId]: true }));
+    setRecommendedCommunityPages((prev) =>
+      prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: !wasFollowing } : item))
+    );
+    try {
+      if (wasFollowing && page?.followId) {
+        await CommunityService.unfollowTarget(String(page.followId));
+      } else if (!wasFollowing) {
+        const response = await CommunityService.followTarget({ targetType: 'page', targetId: pageId });
+        const followId = response?.id || response?.followId || response?.data?.id || null;
+        setRecommendedCommunityPages((prev) =>
+          prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: true, followId } : item))
+        );
+      }
+    } catch (error) {
+      setRecommendedCommunityPages((prev) =>
+        prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: wasFollowing } : item))
+      );
+      console.error('Failed to update page follow status', error);
+    } finally {
+      setPageFollowBusy((prev) => ({ ...prev, [pageId]: false }));
+    }
+  }, [pageFollowBusy, user?.id]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onResize = () => setViewportDevice(getViewportDevice(window.innerWidth));
@@ -475,6 +788,7 @@ const CommunityHome = () => {
     if (interactions.shares === undefined) interactions.shares = post.sharesCount ?? post.shares_count ?? 0;
     if (interactions.views === undefined) interactions.views = post.viewsCount ?? post.views_count ?? 0;
     if (interactions.reactions === undefined) interactions.reactions = post.reactions || {};
+    if (interactions.dashGcoinTotal === undefined) interactions.dashGcoinTotal = post.dashGcoinTotal ?? post.dash_gcoin_total ?? 0;
     const authorId = post.authorId || post.userId || post.user_id || post.author?.id || post.author?.userId || post.author?.user_id;
     const authorName = post.authorName || post.userName || post.user_name || post.author?.displayName || post.author?.name || 'Community member';
     const authorUsername =
@@ -485,7 +799,7 @@ const CommunityHome = () => {
       post.author?.userName ||
       post.author?.user_name ||
       null;
-    const authorAvatar = post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+    const authorAvatar = resolveUserAvatarUrl(post.author || post) || post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
     const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
     const authorUserId =
       post.authorUserId ||
@@ -498,18 +812,23 @@ const CommunityHome = () => {
       id: post.id || `${authorId}-${Date.now()}`,
       title: post.title,
       content: post.content,
-      attachments: (post.attachments || []).map((item: any) => ({
-        id: item.id || item.fileId,
-        url: item.url || item,
-        name: item.name || item.originalName || item.filename,
-        mimeType: item.mimeType || item.mime_type,
-        type: item.type || inferMediaType(item)
+    attachments: (post.attachments || []).map((item: any) => ({
+      id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
+      fileId: item.fileId || item.file_id || item.file?.id || item.asset?.id || item.id || null,
+      url: resolvePostAttachmentMediaUrl(item),
+      name: item.name || item.originalName || item.filename,
+      mimeType: item.mimeType || item.mime_type,
+        type: item.type || inferMediaType(item),
+        thumbnailUrl: resolvePostAttachmentPosterUrl(item),
+        duration: item.duration,
+        width: item.width,
+        height: item.height
       })),
       author: {
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
         displayName: post.author?.displayName || authorName,
-        avatarUrl: post.author?.avatarUrl || authorAvatar,
+        avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
@@ -531,20 +850,72 @@ const CommunityHome = () => {
       location: post.location || null,
       visibility: post.visibility,
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
+      repostsEnabled: post.repostsEnabled ?? post.reposts_enabled ?? true,
       isPinned: post.isPinned ?? post.is_pinned ?? false,
       isHighlighted: post.isHighlighted ?? post.is_highlighted ?? false,
+      graphicWarning: Boolean(post.graphicWarning ?? post.graphic_warning ?? false),
+      isAIEnhanced: Boolean(post.isAIEnhanced ?? post.is_ai_enhanced ?? false),
+      offerTags: normalizeContentOfferTags(post.offerTags ?? post.offer_tags),
+      originalPost:
+        post.originalPost && typeof post.originalPost === 'object'
+          ? {
+              id: post.originalPost.id,
+              authorName: post.originalPost.authorName ?? post.originalPost.author_name ?? null,
+              authorUsername: post.originalPost.authorUsername ?? post.originalPost.author_username ?? null,
+              title: post.originalPost.title ?? null,
+              content: post.originalPost.content ?? null
+            }
+          : null,
+      dashGcoinTotal: Number(post.dashGcoinTotal ?? post.dash_gcoin_total ?? interactions.dashGcoinTotal ?? 0),
+      aiInsightEnabled: Boolean(post.aiInsightEnabled ?? post.ai_insight_enabled ?? false),
+      aiInsightGenerated: Boolean(
+        post.aiInsightGenerated ??
+          post.ai_insight_generated ??
+          (String(post.aiInsightText ?? post.ai_insight_text ?? '').trim() ? true : false)
+      ),
+      aiInsightText: String(post.aiInsightText ?? post.ai_insight_text ?? '').trim() || null,
+      aiScore:
+        post.aiScore !== undefined && post.aiScore !== null
+          ? Number(post.aiScore)
+          : post.ai_score !== undefined && post.ai_score !== null
+            ? Number(post.ai_score)
+            : null,
       likesCount: post.likesCount ?? post.likes_count ?? interactions.likes,
       sharesCount: post.sharesCount ?? post.shares_count ?? interactions.shares,
       repostsCount: post.repostsCount ?? post.reposts_count ?? interactions.reposts,
       interactions,
-      userState: post.userState || post.user_state || {}
+      userState: post.userState || post.user_state || {},
+      ranking: post.ranking
+        ? {
+            mode: post.ranking.mode,
+            recipeKey: post.ranking.recipeKey ?? post.ranking.recipe_key ?? null,
+            score: Number(post.ranking.score ?? 0),
+            primaryReason: post.ranking.primaryReason || post.ranking.primary_reason || null,
+            reasons: Array.isArray(post.ranking.reasons) ? post.ranking.reasons : []
+          }
+        : post.rankingScore != null
+          ? { score: Number(post.rankingScore), primaryReason: null, reasons: [] }
+          : undefined
     };
   }, []);
 
   const sortPosts = useCallback((items: any[]) => {
+    // Preserve server personalization when ranking scores are present.
+    // Fall back to recency so unranked/offset pages remain stable.
     return [...items].sort((a, b) => {
       if (Boolean(a.isPinned) !== Boolean(b.isPinned)) {
         return a.isPinned ? -1 : 1;
+      }
+      if (Boolean(a.isHighlighted) !== Boolean(b.isHighlighted)) {
+        return a.isHighlighted ? -1 : 1;
+      }
+      const scoreA = Number(a?.ranking?.score ?? a?.rankingScore ?? Number.NaN);
+      const scoreB = Number(b?.ranking?.score ?? b?.rankingScore ?? Number.NaN);
+      const hasScoreA = Number.isFinite(scoreA);
+      const hasScoreB = Number.isFinite(scoreB);
+      if (hasScoreA || hasScoreB) {
+        if (hasScoreA && hasScoreB && scoreB !== scoreA) return scoreB - scoreA;
+        if (hasScoreA !== hasScoreB) return hasScoreA ? -1 : 1;
       }
       const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
       const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -571,6 +942,18 @@ const CommunityHome = () => {
       return filterActiveStories(next);
     });
     setActiveStory((current) => (current?.id === updated.id ? { ...current, ...updated } : current));
+    setStoryActionTarget((current) =>
+      current?.id === updated.id
+        ? {
+            ...current,
+            ...updated,
+            interactions: {
+              ...(current?.interactions || {}),
+              ...(updated?.interactions || {})
+            }
+          }
+        : current
+    );
   }, [filterActiveStories]);
 
   const syncCommentCount = useCallback((postId: string, nextCount: unknown) => {
@@ -585,28 +968,271 @@ const CommunityHome = () => {
   const applyPostUpdate = useCallback((updated: any) => {
     setPosts((prev) => {
       const exists = prev.some((item) => item.id === updated.id);
-      const merged = exists
-        ? prev.map((item) =>
-            item.id === updated.id
-              ? {
-                  ...item,
-                  ...updated,
-                  interactions: updated.interactions
-                    ? { ...(item.interactions || {}), ...updated.interactions }
-                    : item.interactions,
-                  userState: updated.userState
-                    ? { ...(item.userState || {}), ...updated.userState }
-                    : item.userState
-                }
-              : item
-          )
-        : [updated, ...prev];
-      return sortPosts(merged);
+      let next: any[];
+      if (exists) {
+        next = prev.map((item) =>
+          item.id === updated.id
+            ? {
+                ...item,
+                ...updated,
+                interactions: updated.interactions
+                  ? { ...(item.interactions || {}), ...updated.interactions }
+                  : item.interactions,
+                userState: updated.userState
+                  ? { ...(item.userState || {}), ...updated.userState }
+                  : item.userState
+              }
+            : item
+        );
+      } else {
+        // Realtime insert: prepend without resetting pagination cursors.
+        const inserted = prependRealtimeItem(prev, updated);
+        next = inserted.inserted ? inserted.next : prev;
+      }
+      postsRef.current = next;
+      return next;
     });
     if (updated.interactions?.comments !== undefined) {
       syncCommentCount(updated.id, updated.interactions?.comments);
     }
-  }, [sortPosts, syncCommentCount]);
+  }, [syncCommentCount]);
+
+  const loadMorePosts = useCallback(async () => {
+    if (postsLoadingMoreRef.current || postsFeedTerminalRef.current || postsInitialLoadingRef.current) return;
+    const cursor = String(postsNextCursorRef.current || '').trim();
+    if (
+      shouldSkipDuplicateCursorRequest({
+        cursor,
+        inFlightCursor: postsInFlightCursorRef.current,
+        loadMoreInFlight: postsLoadingMoreRef.current,
+        lastCompletedCursor: postsLastCompletedCursorRef.current,
+        lastCompletedAddedCount: postsLastCompletedAddedRef.current
+      })
+    ) {
+      return;
+    }
+    const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+    const existingCount = postsRef.current.length;
+    const canUseOffsetFallback = !cursor && postsOffsetFallbackRef.current && existingCount > 0;
+    const canUseDiscoverySupplement = !cursor && !canUseOffsetFallback && !discoverySupplementUsedRef.current;
+    if (!cursor && !canUseOffsetFallback && !canUseDiscoverySupplement) {
+      postsFeedTerminalRef.current = true;
+      setPostsFeedTerminal(true);
+      return;
+    }
+
+    postsLoadingMoreRef.current = true;
+    postsInFlightCursorRef.current = cursor || null;
+    setPostsLoadingMore(true);
+    try {
+      if (postsTransportRef.current === 'orchestrated' && cursor && !postsOrchestratedFailedRef.current) {
+        try {
+          const page = await MemberFeedService.tryFetchPage({
+            surface: 'community',
+            mode: 'for_you',
+            limit: postsLimit,
+            cursor,
+            timeoutMs: 18000
+          });
+          if (page) {
+            const nextPosts = sortPosts(
+              (page.posts || [])
+                .map((post: any) => {
+                  try {
+                    return normalizePost(post);
+                  } catch {
+                    return null;
+                  }
+                })
+                .filter(Boolean)
+            );
+            const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
+            if (addedCount > 0) {
+              postsEmptyPageStreakRef.current = 0;
+              const sorted = sortPosts(merged);
+              postsRef.current = sorted;
+              setPosts(sorted);
+              setCommentCounts((prev) => {
+                const next = { ...prev };
+                nextPosts.forEach((post: any) => {
+                  if (post?.id) next[post.id] = post.interactions?.comments ?? next[post.id] ?? 0;
+                });
+                return next;
+              });
+            } else {
+              postsEmptyPageStreakRef.current += 1;
+            }
+            postsLastCompletedCursorRef.current = cursor;
+            postsLastCompletedAddedRef.current = addedCount;
+            const stopUnchanged = shouldStopUnchangedCursorLoop({
+              requestedCursor: cursor,
+              returnedCursor: page.nextCursor,
+              uniqueAddedCount: addedCount,
+              consecutiveEmptyPages: postsEmptyPageStreakRef.current,
+              maxEmptyPages: 2
+            });
+            if (
+              !page.hasMore ||
+              (!page.nextCursor && addedCount === 0) ||
+              stopUnchanged ||
+              shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2)
+            ) {
+              postsNextCursorRef.current = null;
+              setPostsNextCursor(null);
+              postsOffsetFallbackRef.current = false;
+              setPostsOffsetFallbackEnabled(false);
+              postsFeedTerminalRef.current = true;
+              setPostsFeedTerminal(true);
+            } else {
+              postsNextCursorRef.current = page.nextCursor;
+              setPostsNextCursor(page.nextCursor);
+              postsOffsetFallbackRef.current = false;
+              setPostsOffsetFallbackEnabled(false);
+              postsFeedTerminalRef.current = false;
+              setPostsFeedTerminal(false);
+            }
+            logFeedLifecycle({
+              surface: 'community',
+              transport: 'orchestrated',
+              kind: 'load_more',
+              sequence: 0,
+              cursor,
+              nextCursor: page.nextCursor,
+              itemCount: nextPosts.length,
+              hasMore: page.hasMore,
+              feedCountAfter: postsRef.current.length
+            });
+            return;
+          }
+          postsOrchestratedFailedRef.current = true;
+          postsTransportRef.current = resolveTransportAfterFailure(postsTransportRef.current, 'orchestrated');
+        } catch (orchestratedError) {
+          console.warn('Community orchestrated load-more failed; using Phase 1', orchestratedError);
+          postsOrchestratedFailedRef.current = true;
+          postsTransportRef.current = resolveTransportAfterFailure(postsTransportRef.current, 'orchestrated');
+        }
+      }
+
+      let response: any = null;
+      let nextPosts: any[] = [];
+
+      if (canUseDiscoverySupplement && !cursor && !canUseOffsetFallback) {
+        discoverySupplementUsedRef.current = true;
+        try {
+          const discovery = await Phase2Service.getDiscoveryFeed({ mode: 'for_you', limit: postsLimit });
+          const discoveryPosts = (Array.isArray(discovery?.items) ? discovery.items : [])
+            .filter((item: any) => String(item?.type || '').toLowerCase() === 'post' && item?.id)
+            .map((item: any) =>
+              normalizePost({
+                id: item.id,
+                title: item.title,
+                content: item.description || item.title,
+                author: item.author,
+                ranking: { score: Number(item.score || 0), primaryReason: Array.isArray(item.why) ? item.why[0] : 'Recommended for you', reasons: item.why || [] },
+                createdAt: item.createdAt || item.created_at || new Date().toISOString()
+              })
+            );
+          nextPosts = sortPosts(discoveryPosts);
+        } catch (discoveryError) {
+          console.warn('Community discovery supplement failed', discoveryError);
+          nextPosts = [];
+        }
+      } else {
+        response = canUseOffsetFallback
+          ? await CommunityService.getPosts({ limit: postsLimit, offset: existingCount })
+          : await CommunityService.getFeed({ limit: postsLimit, scope: 'discover', cursor });
+        nextPosts = sortPosts(
+          extractCommunityFeedItems(response)
+            .map((post: any) => {
+              try {
+                return normalizePost(post);
+              } catch (error) {
+                console.warn('Skipping malformed community feed post', error, post);
+                return null;
+              }
+            })
+            .filter(Boolean)
+        );
+      }
+
+      const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
+      if (addedCount > 0) {
+        postsEmptyPageStreakRef.current = 0;
+        const sorted = sortPosts(merged);
+        postsRef.current = sorted;
+        setPosts(sorted);
+        setCommentCounts((prev) => {
+          const next = { ...prev };
+          nextPosts.forEach((post: any) => {
+            if (post?.id) next[post.id] = post.interactions?.comments ?? next[post.id] ?? 0;
+          });
+          return next;
+        });
+      } else {
+        postsEmptyPageStreakRef.current += 1;
+      }
+      postsLastCompletedCursorRef.current = cursor || null;
+      postsLastCompletedAddedRef.current = addedCount;
+
+      const nextCursor = canUseOffsetFallback || canUseDiscoverySupplement ? null : extractCommunityFeedCursor(response);
+      const hasMoreFlag = canUseOffsetFallback || canUseDiscoverySupplement ? null : extractHasMore(response);
+      const offsetEnabled = shouldContinueOffsetFallback({
+        usedOffsetFallback: canUseOffsetFallback,
+        nextCursor,
+        pageItemCount: nextPosts.length,
+        pageSize: postsLimit,
+        uniqueAddedCount: addedCount
+      });
+      const terminal = resolveFeedTerminalState({
+        nextCursor,
+        hasMoreFlag,
+        uniqueAddedCount: addedCount,
+        offsetFallbackEnabled: offsetEnabled,
+        secondarySourcesRemaining: !discoverySupplementUsedRef.current
+      });
+      const stopUnchanged = shouldStopUnchangedCursorLoop({
+        requestedCursor: cursor,
+        returnedCursor: nextCursor,
+        uniqueAddedCount: addedCount,
+        consecutiveEmptyPages: postsEmptyPageStreakRef.current,
+        maxEmptyPages: 2
+      });
+
+      if (shouldHaltEmptyPageLoop(postsEmptyPageStreakRef.current, 2) || terminal.isTerminal || stopUnchanged) {
+        postsNextCursorRef.current = null;
+        setPostsNextCursor(null);
+        postsOffsetFallbackRef.current = false;
+        setPostsOffsetFallbackEnabled(false);
+        postsFeedTerminalRef.current = true;
+        setPostsFeedTerminal(true);
+      } else {
+        postsNextCursorRef.current = nextCursor;
+        setPostsNextCursor(nextCursor);
+        postsOffsetFallbackRef.current = offsetEnabled;
+        setPostsOffsetFallbackEnabled(offsetEnabled);
+        postsFeedTerminalRef.current = false;
+        setPostsFeedTerminal(false);
+      }
+      logFeedLifecycle({
+        surface: 'community',
+        transport: postsTransportRef.current,
+        kind: 'load_more',
+        sequence: 0,
+        cursor: cursor || null,
+        nextCursor,
+        itemCount: nextPosts.length,
+        hasMore: !terminal.isTerminal,
+        feedCountAfter: postsRef.current.length
+      });
+    } catch (error) {
+      // Preserve cursor/offset so the sentinel can retry without a full remount.
+      console.error('Failed to load more community posts:', error);
+    } finally {
+      postsLoadingMoreRef.current = false;
+      postsInFlightCursorRef.current = null;
+      setPostsLoadingMore(false);
+    }
+  }, [normalizePost, profile.feedPageSize, sortPosts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -697,76 +1323,292 @@ const CommunityHome = () => {
     };
 
     const fetchData = async () => {
+      postsInitialLoadingRef.current = true;
+      // Only full-page gate when there is no existing content (soft reloads keep feed mounted).
+      if (postsRef.current.length === 0) {
+        setLoading(true);
+      }
+      setStoriesLoading(true);
+      setReelsLoading(true);
+      const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
+      const reelsLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || 18)));
       try {
-        setStoriesLoading(true);
-        setReelsLoading(true);
-        const postsLimit = Math.max(6, Math.min(40, Number(profile.feedPageSize || 20)));
-        const reelsLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || 18)));
-        const [feedPosts, ads, homepageConfig, storiesFeed, scrollFeed] = await Promise.all([
-          CommunityService.getPosts({ limit: postsLimit }),
-          AdService.getAds(user?.role),
+        const [
+          feedPostsResult,
+          adsResult,
+          homepageConfigResult,
+          storiesFeedResult,
+          scrollFeedResult,
+          overviewResult,
+          pagesResult,
+          peopleResult
+        ] = await Promise.allSettled([
+          CommunityService.getFeed({ limit: postsLimit, scope: 'discover' }),
+          Promise.allSettled([
+            CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
+            CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 6 })
+          ]).then((results) => {
+            const merged: any[] = [];
+            results.forEach((result) => {
+              if (result.status === 'fulfilled' && Array.isArray(result.value)) merged.push(...result.value);
+            });
+            const seen = new Set<string>();
+            return merged.filter((ad) => {
+              const id = String(ad?.id || '').trim();
+              if (!id || seen.has(id)) return false;
+              seen.add(id);
+              return true;
+            });
+          }),
           CommunityService.getCommunityHomepage(),
           CommunityService.getStoriesFeed(),
-          ScrollService.getFeed({ limit: reelsLimit }).catch((error) => {
-            console.warn('Failed to load reels feed on community home:', error);
-            return { items: [] as ScrollVideo[] };
-          }),
-          loadCommunityOverview()
+          ScrollService.getFeed({ limit: reelsLimit }),
+          loadCommunityOverview(),
+          CommunityService.getRecommendedBusinessPages(4),
+          user?.id
+            ? Promise.allSettled([
+                RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit: 4 }),
+                RecoService.getAccounts({ surface: 'who_to_follow', type: 'client', limit: 4 })
+              ]).then((results) => {
+                const merged: any[] = [];
+                results.forEach((result) => {
+                  if (result.status === 'fulfilled' && Array.isArray(result.value)) merged.push(...result.value);
+                });
+                const seen = new Set<string>();
+                return merged.filter((account) => {
+                  const id = String(account?.id || account?.entityId || account?.user?.id || '').trim();
+                  if (!id || seen.has(id)) return false;
+                  seen.add(id);
+                  return true;
+                });
+              })
+            : Promise.resolve([])
         ]);
         if (cancelled) return;
-        const normalizedPosts = sortPosts((Array.isArray(feedPosts) ? feedPosts : []).map(normalizePost));
-        setPosts(normalizedPosts);
-        const followSeed: Record<string, boolean> = {};
-        const authorIds = new Set<string>();
-        normalizedPosts.forEach((post: any) => {
-          const authorType = String(post.author?.type || 'user').toLowerCase();
-          const authorId = String(post.author?.id || post.authorId || '').trim();
-          if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
-          authorIds.add(authorId);
-          if (post.viewer?.isFollowingAuthor !== undefined) {
-            followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+
+        // Phase 3: prefer orchestrated member-feed for initial community posts stream.
+        // Stay on legacy after a session failure (no orchestrated/legacy flapping).
+        let usedOrchestrated = false;
+        const mayTryOrchestrated = !postsOrchestratedFailedRef.current || postsTransportRef.current === 'orchestrated';
+        try {
+          if (mayTryOrchestrated) {
+          const orchestrated = await MemberFeedService.tryFetchPage({
+            surface: 'community',
+            mode: 'for_you',
+            limit: postsLimit,
+            timeoutMs: 15000
+          });
+          if (orchestrated && (orchestrated.posts.length > 0 || orchestrated.hasMore)) {
+            usedOrchestrated = true;
+            postsTransportRef.current = 'orchestrated';
+            postsOrchestratedFailedRef.current = false;
+            const normalizedPosts = sortPosts(
+              orchestrated.posts.map((post: any) => {
+                try {
+                  return normalizePost(post);
+                } catch {
+                  return null;
+                }
+              }).filter(Boolean)
+            );
+            postsEmptyPageStreakRef.current = 0;
+            discoverySupplementUsedRef.current = true;
+            postsFeedTerminalRef.current = !orchestrated.hasMore && normalizedPosts.length === 0;
+            setPostsFeedTerminal(postsFeedTerminalRef.current);
+            setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
+            postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+            postsNextCursorRef.current = orchestrated.nextCursor;
+            setPostsNextCursor(orchestrated.nextCursor);
+            postsOffsetFallbackRef.current = false;
+            setPostsOffsetFallbackEnabled(false);
+            setCommentCounts((prev) => {
+              if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
+              return normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
+                acc[post.id] = post.interactions?.comments ?? 0;
+                return acc;
+              }, {});
+            });
+            if (orchestrated.people.length) {
+              setRecommendedCommunityPeople((prev) => (prev.length ? prev : orchestrated.people.slice(0, 6)));
+            }
+            if (orchestrated.pages.length) {
+              setRecommendedCommunityPages((prev) => (prev.length ? prev : orchestrated.pages.slice(0, 4)));
+            }
+            const followSeed: Record<string, boolean> = {};
+            const authorIds = new Set<string>();
+            normalizedPosts.forEach((post: any) => {
+              const authorType = String(post.author?.type || 'user').toLowerCase();
+              const authorId = String(post.author?.id || post.authorId || '').trim();
+              if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
+              authorIds.add(authorId);
+              if (post.viewer?.isFollowingAuthor !== undefined) {
+                followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+              }
+            });
+            if (Object.keys(followSeed).length) {
+              setFollowStatuses((prev) => ({ ...prev, ...followSeed }));
+            }
           }
-        });
-        if (Object.keys(followSeed).length) {
-          setFollowStatuses(followSeed);
-        }
-        if (authorIds.size && user?.id) {
-          try {
-            const statusMap = await CommunityService.getFollowStatus(Array.from(authorIds));
-            if (cancelled) return;
-            setFollowStatuses(statusMap);
-          } catch (error) {
-            console.warn('Failed to hydrate follow status map for community posts:', error);
           }
+        } catch (orchestratedInitError) {
+          console.warn('Community orchestrated feed unavailable; using Phase 1', orchestratedInitError);
+          postsOrchestratedFailedRef.current = true;
+          postsTransportRef.current = resolveTransportAfterFailure(postsTransportRef.current, 'orchestrated');
         }
-        setCommentCounts(
-          normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
-            acc[post.id] = post.interactions?.comments ?? 0;
-            return acc;
-          }, {})
-        );
-        setAds(ads);
-        setHomepage(homepageConfig);
-        setStories(filterActiveStories(Array.isArray(storiesFeed) ? storiesFeed : []));
-        const nextReels = Array.isArray(scrollFeed?.items)
-          ? scrollFeed.items.filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED').slice(0, reelsLimit)
-          : [];
-        setScrollConfig(scrollFeed?.config || null);
-        setReels(nextReels);
+
+        if (!usedOrchestrated && feedPostsResult.status === 'fulfilled') {
+          postsTransportRef.current = 'legacy';
+          let rawPosts = extractCommunityFeedItems(feedPostsResult.value);
+          let nextCursor = extractCommunityFeedCursor(feedPostsResult.value);
+          if (rawPosts.length === 0) {
+            try {
+              const fallbackResponse = await CommunityService.getPosts({ limit: postsLimit });
+              rawPosts = extractCommunityFeedItems(fallbackResponse);
+            } catch (feedFallbackError) {
+              console.warn('Failed to load community feed fallback:', feedFallbackError);
+            }
+          }
+          const normalizedPosts = sortPosts(rawPosts.map(normalizePost));
+          postsEmptyPageStreakRef.current = 0;
+          discoverySupplementUsedRef.current = false;
+          postsFeedTerminalRef.current = false;
+          setPostsFeedTerminal(false);
+          setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
+          postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+          postsNextCursorRef.current = nextCursor;
+          setPostsNextCursor(nextCursor);
+          const offsetOn = Boolean(normalizedPosts.length) && !nextCursor;
+          postsOffsetFallbackRef.current = offsetOn;
+          setPostsOffsetFallbackEnabled(offsetOn);
+          setCommentCounts((prev) => {
+            if (normalizedPosts.length === 0 && Object.keys(prev).length) return prev;
+            return normalizedPosts.reduce((acc: Record<string, number>, post: any) => {
+              acc[post.id] = post.interactions?.comments ?? 0;
+              return acc;
+            }, {});
+          });
+
+          const followSeed: Record<string, boolean> = {};
+          const authorIds = new Set<string>();
+          normalizedPosts.forEach((post: any) => {
+            const authorType = String(post.author?.type || 'user').toLowerCase();
+            const authorId = String(post.author?.id || post.authorId || '').trim();
+            if (authorType !== 'user' || !authorId || String(user?.id || '') === authorId) return;
+            authorIds.add(authorId);
+            if (post.viewer?.isFollowingAuthor !== undefined) {
+              followSeed[authorId] = Boolean(post.viewer.isFollowingAuthor);
+            }
+          });
+          if (Object.keys(followSeed).length) {
+            setFollowStatuses((prev) => ({ ...prev, ...followSeed }));
+          }
+          if (authorIds.size && user?.id) {
+            try {
+              const statusMap = await CommunityService.getFollowStatus(Array.from(authorIds));
+              if (cancelled) return;
+              setFollowStatuses(statusMap);
+            } catch (error) {
+              console.warn('Failed to hydrate follow status map for community posts:', error);
+            }
+          }
+        } else {
+          console.error('Failed to load community posts:', feedPostsResult.reason);
+          setPostsNextCursor(null);
+        }
+
+        if (adsResult.status === 'fulfilled') {
+          setAds(Array.isArray(adsResult.value) ? adsResult.value : []);
+        } else {
+          console.error('Failed to load community ads:', adsResult.reason);
+        }
+
+        if (homepageConfigResult.status === 'fulfilled') {
+          setHomepage(homepageConfigResult.value || null);
+        } else {
+          console.error('Failed to load community homepage config:', homepageConfigResult.reason);
+        }
+
+        if (storiesFeedResult.status === 'fulfilled') {
+          const filteredStories = filterActiveStories(Array.isArray(storiesFeedResult.value) ? storiesFeedResult.value : []);
+          const nextStories = await hydrateStoryAuthorAvatars(filteredStories, user);
+          if (cancelled) return;
+          setStories((prev) => (nextStories.length === 0 && prev.length ? prev : nextStories));
+        } else {
+          console.error('Failed to load community stories:', storiesFeedResult.reason);
+        }
+
+        if (scrollFeedResult.status === 'fulfilled') {
+          const nextReels = Array.isArray(scrollFeedResult.value?.items)
+            ? scrollFeedResult.value.items
+                .filter((item: ScrollVideo) => String(item?.status || '').toUpperCase() !== 'REMOVED')
+                .slice(0, reelsLimit)
+            : [];
+          setScrollConfig(scrollFeedResult.value?.config || null);
+          setReels((prev) => (nextReels.length === 0 && prev.length ? prev : nextReels));
+        } else {
+          console.error('Failed to load community reels:', scrollFeedResult.reason);
+        }
+
+        if (overviewResult.status === 'rejected') {
+          console.error('Failed to load community overview:', overviewResult.reason);
+        }
+
+        if (pagesResult.status === 'fulfilled') {
+          const pages = Array.isArray(pagesResult.value) ? pagesResult.value : [];
+          setRecommendedCommunityPages(
+            pages
+              .map((page: any) => {
+                const source = page?.account || page || {};
+                const id = String(source?.id || page?.entityId || page?.pageId || '').trim();
+                if (!id) return null;
+                return {
+                  id,
+                  name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
+                  slug: source?.slug || source?.pageSlug || page?.slug || page?.handle || '',
+                  handle: source?.handle || source?.pageHandle || page?.handle || '',
+                  avatar: resolveUserAvatarUrl(source || page) || null,
+                  tagline: source?.tagline || source?.headline || page?.tagline || page?.description || '',
+                  followersCount: Number(source?.followersCount || page?.followersCount || 0),
+                  isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
+                  followId: source?.followId || page?.followId || null
+                };
+              })
+              .filter(Boolean)
+          );
+        } else {
+          console.error('Failed to load community page recommendations:', pagesResult.reason);
+        }
+
+        if (peopleResult.status === 'fulfilled') {
+          const people = Array.isArray(peopleResult.value) ? peopleResult.value : [];
+          setRecommendedCommunityPeople(
+            people
+              .map((account: any) => {
+                const source = account?.user || account?.account || account || {};
+                const id = String(source?.id || account?.entityId || account?.userId || '').trim();
+                if (!id) return null;
+                return {
+                  id,
+                  name: String(source?.name || account?.name || 'Community member').trim() || 'Community member',
+                  username: source?.username || source?.handle || account?.username || account?.handle || '',
+                  avatar:
+                    resolveUserAvatarUrl(source || account) ||
+                    resolveAssetUrl(source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar) ||
+                    null,
+                  headline: source?.headline || source?.bio || account?.headline || account?.reason || 'Recommended for your network',
+                  isFollowing: Boolean(source?.isFollowing ?? account?.isFollowing)
+                };
+              })
+              .filter(Boolean)
+              .slice(0, 6)
+          );
+        } else {
+          console.error('Failed to load community people recommendations:', peopleResult.reason);
+        }
       } catch (error) {
         console.error('Error loading community data:', error);
-        setTrendingTopics([]);
-        setUpcomingEvents([]);
-        setTopContributors([]);
-        setDiscussions([]);
-        setAds([]);
-        setPosts([]);
-        setCommentCounts({});
-        setHomepage(null);
-        setStories([]);
-        setScrollConfig(null);
-        setReels([]);
       } finally {
+        postsInitialLoadingRef.current = false;
         if (!cancelled) {
           setStoriesLoading(false);
           setReelsLoading(false);
@@ -785,7 +1627,21 @@ const CommunityHome = () => {
 
     const onAdEvent = async () => {
       try {
-        const newAds = await AdService.getAds(user?.role);
+        const adResults = await Promise.allSettled([
+          CommunityService.getPublicAds({ placement: 'community_feed', limit: 8 }),
+          CommunityService.getPublicAds({ placement: 'homepage_feed', limit: 6 })
+        ]);
+        const merged: any[] = [];
+        adResults.forEach((result) => {
+          if (result.status === 'fulfilled' && Array.isArray(result.value)) merged.push(...result.value);
+        });
+        const seen = new Set<string>();
+        const newAds = merged.filter((ad) => {
+          const id = String(ad?.id || '').trim();
+          if (!id || seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
         if (cancelled) return;
         setAds(newAds);
       } catch (e) { console.error('Failed to refresh ads on event', e); }
@@ -801,7 +1657,8 @@ const CommunityHome = () => {
       try {
         const updated = await CommunityService.getStoriesFeed();
         if (cancelled) return;
-        setStories(filterActiveStories(Array.isArray(updated) ? updated : []));
+        const nextStories = filterActiveStories(Array.isArray(updated) ? updated : []);
+        setStories((prev) => (nextStories.length === 0 && prev.length ? prev : nextStories));
       } catch (e) { console.error('Failed to refresh stories', e); }
     };
     const onStoryUpdated = (event: Event) => {
@@ -891,8 +1748,8 @@ const CommunityHome = () => {
           : current
       );
     };
-    window.addEventListener('community:ad_status_updated', onAdEvent as EventListener);
-    window.addEventListener('community:ad_created', onAdEvent as EventListener);
+    const adEvents = ['community:ad_status_updated', 'community:ad_created', 'community:ad_deleted', 'community:ads_config_updated'];
+    adEvents.forEach((eventName) => window.addEventListener(eventName, onAdEvent as EventListener));
     window.addEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
     window.addEventListener('community:story_created', onStoryUpdate as EventListener);
     window.addEventListener('community:story_deleted', onStoryUpdate as EventListener);
@@ -911,8 +1768,7 @@ const CommunityHome = () => {
 
     return () => {
       cancelled = true;
-      window.removeEventListener('community:ad_status_updated', onAdEvent as EventListener);
-      window.removeEventListener('community:ad_created', onAdEvent as EventListener);
+      adEvents.forEach((eventName) => window.removeEventListener(eventName, onAdEvent as EventListener));
       window.removeEventListener('community:homepage_updated', onHomepageUpdate as EventListener);
       window.removeEventListener('community:story_created', onStoryUpdate as EventListener);
       window.removeEventListener('community:story_deleted', onStoryUpdate as EventListener);
@@ -929,7 +1785,10 @@ const CommunityHome = () => {
       window.removeEventListener('community:thread_deleted', refreshCommunityOverview as EventListener);
       window.removeEventListener('community:comment_created', refreshCommunityOverview as EventListener);
     };
-  }, [applyStoryUpdate, filterActiveStories, normalizePost, profile.feedPageSize, sortPosts, user?.id, user?.role]);
+    // Intentionally omit normalizePost/sortPosts identities — unstable callbacks must not
+    // re-trigger full community bootstrap (that unmounted/remounted the feed and caused shake).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.feedPageSize, user?.id, user?.role]);
 
   useEffect(() => {
     const onPostCreated = (event: Event) => {
@@ -997,18 +1856,40 @@ const CommunityHome = () => {
         )
       );
     };
+    const onPostAiInsightReady = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const postId = String(detail?.postId || detail?.id || '').trim();
+      if (!postId) return;
+      const insightTextRaw = detail?.aiInsightText ?? detail?.ai_insight_text ?? null;
+      const insightText =
+        insightTextRaw === null || insightTextRaw === undefined
+          ? null
+          : String(insightTextRaw).trim() || null;
+      applyPostUpdate({
+        id: postId,
+        aiInsightEnabled: Boolean(detail?.aiInsightEnabled ?? detail?.ai_insight_enabled ?? true),
+        aiInsightGenerated: Boolean(
+          detail?.aiInsightGenerated ?? detail?.ai_insight_generated ?? (insightText ? true : false)
+        ),
+        aiInsightText: insightText
+      });
+    };
 
     window.addEventListener('community:post_created', onPostCreated as EventListener);
     window.addEventListener('community:post_updated', onPostUpdated as EventListener);
     window.addEventListener('community:post_deleted', onPostDeleted as EventListener);
     window.addEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
     window.addEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+    window.addEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+    window.addEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     return () => {
       window.removeEventListener('community:post_created', onPostCreated as EventListener);
       window.removeEventListener('community:post_updated', onPostUpdated as EventListener);
       window.removeEventListener('community:post_deleted', onPostDeleted as EventListener);
       window.removeEventListener('community:post_metrics_updated', onPostMetricsUpdated as EventListener);
       window.removeEventListener('community:post_reaction_updated', onPostReactionUpdated as EventListener);
+      window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
+      window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
   }, [applyPostUpdate, editingPostId, normalizePost]);
 
@@ -1130,7 +2011,7 @@ const CommunityHome = () => {
         textFont: storyDraft.textFont,
         textAlign: storyDraft.textAlign
       });
-      setStories((prev) => filterActiveStories([created, ...prev]));
+      setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
       setStoryDraft({
         content: '',
         visibility: 'public',
@@ -1146,27 +2027,43 @@ const CommunityHome = () => {
     }
   };
 
+  const clearStoryMediaUploadState = () => {
+    setStoryMediaUploadBusy(false);
+    setStoryMediaUploadLabel('');
+    setStoryMediaUploadProgress(0);
+  };
+
   const publishStoryFile = async (file: File, type: 'image' | 'video') => {
     if (!user) return;
     setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(0);
+    setStoryMediaUploadLabel(`Uploading ${file.name}`);
     try {
       const uploaded = await FileService.uploadFile(file, 'community', {
         role: user.role,
         visibility: isPrivateStoryVisibility(storyDraft.visibility) ? 'private' : 'public',
-        userId: user.id
+        userId: user.id,
+        onProgress: (percent) => {
+          setStoryMediaUploadProgress(percent || 0);
+          setStoryMediaUploadLabel(percent >= 100 ? `Preparing ${file.name}` : `Uploading ${file.name}`);
+        }
       });
+      setStoryMediaUploadProgress(100);
+      setStoryMediaUploadLabel('Preparing your story for publish...');
       const created = await CommunityService.createStory({
         type,
         mediaFileId: uploaded.id,
         visibility: storyDraft.visibility
       });
-      setStories((prev) => filterActiveStories([created, ...prev]));
+      setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
     } finally {
       setStoryPosting(false);
+      clearStoryMediaUploadState();
     }
   };
 
@@ -1360,6 +2257,22 @@ const CommunityHome = () => {
         viewerLiked: liked,
         _count: { ...(story._count || {}), likes: likesCount }
       });
+      window.dispatchEvent(
+        new CustomEvent('community:story_liked', {
+          detail: {
+            storyId: story.id,
+            userId: user.id,
+            liked,
+            likesCount,
+            story: {
+              id: story.id,
+              likesCount,
+              viewerLiked: liked,
+              _count: { ...(story._count || {}), likes: likesCount }
+            }
+          }
+        })
+      );
     } catch (error: any) {
       console.error('Failed to like story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to like story.');
@@ -1379,265 +2292,6 @@ const CommunityHome = () => {
     }
   };
 
-  const engageStoryAndSync = useCallback(
-    async (story: any, type: 'comment' | 'repost' | 'dash' | 'send') => {
-      const storyId = String(story?.id || '').trim();
-      if (!storyId) return null;
-      const response = await CommunityService.engageStory(storyId, type);
-      const payload = response?.story || response;
-      const interactions = response?.interactions || payload?.interactions || {};
-      applyStoryUpdate({
-        ...story,
-        ...(payload || {}),
-        commentsCount: interactions.comments ?? payload?.commentsCount ?? story.commentsCount ?? 0,
-        repostsCount: interactions.reposts ?? payload?.repostsCount ?? story.repostsCount ?? 0,
-        dashesCount: interactions.dashes ?? payload?.dashesCount ?? story.dashesCount ?? 0,
-        sendsCount: interactions.sends ?? payload?.sendsCount ?? story.sendsCount ?? 0,
-        interactions: {
-          ...(story.interactions || {}),
-          comments: interactions.comments ?? payload?.commentsCount ?? story.interactions?.comments ?? story.commentsCount ?? 0,
-          reposts: interactions.reposts ?? payload?.repostsCount ?? story.interactions?.reposts ?? story.repostsCount ?? 0,
-          dashes: interactions.dashes ?? payload?.dashesCount ?? story.interactions?.dashes ?? story.dashesCount ?? 0,
-          sends: interactions.sends ?? payload?.sendsCount ?? story.interactions?.sends ?? story.sendsCount ?? 0
-        }
-      });
-      return response;
-    },
-    [applyStoryUpdate]
-  );
-
-  const buildStoryUrl = useCallback((storyId: string) => {
-    if (typeof window === 'undefined') return `/community?story=${encodeURIComponent(storyId)}`;
-    return `${window.location.origin}/community?story=${encodeURIComponent(storyId)}`;
-  }, []);
-
-  const ensureStoryAuth = useCallback(
-    (promptMessage: string) => {
-      if (user?.id) return true;
-      if (confirm(promptMessage)) window.location.href = '/auth/login';
-      return false;
-    },
-    [user?.id]
-  );
-
-  const handleStoryCommentAction = useCallback(
-    async (story: any) => {
-      if (!ensureStoryAuth('Log in to comment on stories?')) return;
-      if (!story?.id) return;
-      setStoryActionTarget(story);
-      setStoryCommentDraft('');
-      setStoryCommentOpen(true);
-    },
-    [ensureStoryAuth]
-  );
-
-  const handleStoryRepostAction = useCallback(
-    async (story: any) => {
-      if (!ensureStoryAuth('Log in to repost stories?')) return;
-      if (!story?.id) return;
-      setStoryActionTarget(story);
-      setStoryRepostOpen(true);
-    },
-    [ensureStoryAuth]
-  );
-
-  const handleStorySendAction = useCallback(
-    async (story: any) => {
-      if (!story?.id) return;
-      setStoryActionTarget(story);
-      setStorySendOpen(true);
-    },
-    []
-  );
-
-  const handleStoryDashAction = useCallback(
-    async (story: any) => {
-      if (!ensureStoryAuth('Log in to dash story creators?')) return;
-      if (!story?.id) return;
-      setStoryActionTarget(story);
-      setStoryDashOpen(true);
-    },
-    [ensureStoryAuth]
-  );
-
-  const submitStoryComment = useCallback(async () => {
-    const story = storyActionTarget;
-    const storyId = String(story?.id || '').trim();
-    if (!storyId || storyActionBusy[storyId]) return;
-    const content = String(storyCommentDraft || '').trim();
-    if (!content) {
-      showNotification('warning', 'Stories', 'Comment cannot be empty.');
-      return;
-    }
-    setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
-    try {
-      await CommunityService.createPost({
-        content: `${content}\n\nCommented on story by ${resolveStoryAuthorName(story, 'Community member')}.\n${buildStoryUrl(storyId)}`
-      });
-      await engageStoryAndSync(story, 'comment');
-      setStoryCommentOpen(false);
-      setStoryCommentDraft('');
-      showNotification('success', 'Stories', 'Comment shared to your feed.');
-    } catch (error: any) {
-      showNotification('error', 'Stories', error?.message || 'Unable to comment on this story.');
-    } finally {
-      setStoryActionBusy((prev) => ({ ...prev, [storyId]: false }));
-    }
-  }, [buildStoryUrl, engageStoryAndSync, showNotification, storyActionBusy, storyActionTarget, storyCommentDraft]);
-
-  const repostStory = useCallback(
-    async (comment?: string) => {
-      const story = storyActionTarget;
-      const storyId = String(story?.id || '').trim();
-      if (!storyId || storyActionBusy[storyId]) return;
-      const authorName = resolveStoryAuthorName(story, 'Community member');
-      const storyText = String(resolveStoryContent(story) || '').trim();
-      const link = buildStoryUrl(storyId);
-      const wrapperComment = String(comment || '').trim();
-      setStoryActionBusy((prev) => ({ ...prev, [storyId]: true }));
-      try {
-        await CommunityService.createPost({
-          title: storyText ? `Story repost - ${authorName}` : undefined,
-          content: wrapperComment ? `${wrapperComment}\n\n${link}` : `${storyText || `Reposted a story by ${authorName}.`}\n\n${link}`,
-          attachmentFileIds:
-            story?.mediaFileId && String(story?.authorId || '') === String(user?.id || '')
-              ? [story.mediaFileId]
-              : undefined
-        });
-        await engageStoryAndSync(story, 'repost');
-        setStoryRepostOpen(false);
-        showNotification('success', 'Stories', 'Story reposted.');
-      } catch (error: any) {
-        showNotification('error', 'Stories', error?.message || 'Unable to repost this story.');
-      } finally {
-        setStoryActionBusy((prev) => ({ ...prev, [storyId]: false }));
-      }
-    },
-    [buildStoryUrl, engageStoryAndSync, showNotification, storyActionBusy, storyActionTarget, user?.id]
-  );
-
-  const activeStoryIndex = activeStory?.id ? stories.findIndex((story) => story.id === activeStory.id) : -1;
-  const hasPrevStory = activeStoryIndex > 0;
-  const hasNextStory = activeStoryIndex >= 0 && activeStoryIndex < stories.length - 1;
-
-  const goToStoryByOffset = useCallback(
-    (offset: number) => {
-      if (!activeStory?.id) return;
-      const index = stories.findIndex((story) => story.id === activeStory.id);
-      if (index < 0) return;
-      const nextIndex = index + offset;
-      if (nextIndex < 0 || nextIndex >= stories.length) return;
-      const target = stories[nextIndex];
-      if (target) void openStory(target);
-    },
-    [activeStory?.id, stories, openStory]
-  );
-
-  const onStoryGestureStart = useCallback((event: React.TouchEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('button, a, input, textarea, select, label')) {
-      storyGestureStartRef.current = null;
-      return;
-    }
-    const touch = event.changedTouches?.[0];
-    if (!touch) {
-      storyGestureStartRef.current = null;
-      return;
-    }
-    storyGestureStartRef.current = { x: touch.clientX, y: touch.clientY };
-  }, []);
-
-  const onStoryGestureEnd = useCallback(
-    (event: React.TouchEvent<HTMLElement>) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('button, a, input, textarea, select, label')) return;
-      const start = storyGestureStartRef.current;
-      const touch = event.changedTouches?.[0];
-      storyGestureStartRef.current = null;
-      if (!start || !touch) return;
-      const deltaX = touch.clientX - start.x;
-      const deltaY = touch.clientY - start.y;
-      if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
-        if (deltaX > 0) goToStoryByOffset(-1);
-        if (deltaX < 0) goToStoryByOffset(1);
-        return;
-      }
-      if (!activeStory) return;
-      if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 18) return;
-      const now = Date.now();
-      if (storyLastTapAtRef.current && now - storyLastTapAtRef.current <= 320) {
-        event.preventDefault();
-        event.stopPropagation();
-        storyLastTapAtRef.current = 0;
-        void handleStoryLike(activeStory);
-        return;
-      }
-      storyLastTapAtRef.current = now;
-    },
-    [activeStory, goToStoryByOffset, handleStoryLike]
-  );
-
-  const onStoryMediaDoubleClick = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('button, a, input, textarea, select, label')) return;
-      if (!activeStory) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void handleStoryLike(activeStory);
-    },
-    [activeStory, handleStoryLike]
-  );
-
-  useEffect(() => {
-    if (!activeStory?.id) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault();
-        goToStoryByOffset(-1);
-      } else if (event.key === 'ArrowRight') {
-        event.preventDefault();
-        goToStoryByOffset(1);
-      } else if (event.key === 'Escape') {
-        event.preventDefault();
-        setActiveStory(null);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeStory?.id, goToStoryByOffset]);
-
-  const activeStoryShareUrl = storyActionTarget?.id
-    ? buildStoryUrl(String(storyActionTarget.id))
-    : (typeof window === 'undefined' ? '/community' : `${window.location.origin}/community`);
-  const activeStoryDashRecipient = String(
-    storyActionTarget?.authorId || storyActionTarget?.author?.id || storyActionTarget?.userId || ''
-  ).trim();
-  const downloadStoryMedia = useCallback(
-    async (story: any) => {
-      const mediaUrl = resolveStoryMediaUrl(story);
-      if (!mediaUrl) {
-        showNotification('warning', 'Stories', 'No downloadable media is attached to this story.');
-        return;
-      }
-      try {
-        const result = await downloadToDevice({
-          url: mediaUrl,
-          fileName: `${resolveStoryAuthorName(story, 'story')}-story-${String(story?.id || Date.now())}`,
-          mimeType: story?.type === 'video' ? 'video/mp4' : story?.type === 'image' ? 'image/jpeg' : ''
-        });
-        showNotification(
-          'success',
-          'Stories',
-          result.native ? `Saved to ${result.path || 'your device'}.` : 'Download started.'
-        );
-      } catch (error: any) {
-        showNotification('error', 'Stories', error?.message || 'Unable to download story media.');
-      }
-    },
-    [showNotification]
-  );
-
   const promotePost = (post: any) => {
     if (!user) {
       if (confirm('Log in to promote this post?')) window.location.href = '/auth/login';
@@ -1648,7 +2302,42 @@ const CommunityHome = () => {
       showNotification('error', 'Promote this post', 'Post details are not available.');
       return;
     }
-    navigate(`/my-ads?source=post&postId=${encodeURIComponent(postId)}`);
+    const boostMedia = Array.isArray(post?.attachments)
+      ? post.attachments
+          .map((item: any) => {
+            const url = String(resolvePostAttachmentMediaUrl(item) || item?.url || '').trim();
+            if (!url) return null;
+            return {
+              id: String(item?.id || item?.fileId || item?.file_id || url).trim(),
+              fileId: String(item?.fileId || item?.file_id || item?.file?.id || item?.asset?.id || item?.id || '').trim(),
+              url,
+              thumbnailUrl: String(resolvePostAttachmentPosterUrl(item) || item?.thumbnailUrl || item?.thumbnail_url || '').trim(),
+              mimeType: String(item?.mimeType || item?.mime_type || '').trim(),
+              type: item?.type || inferMediaType(item)
+            };
+          })
+          .filter(Boolean)
+          .slice(0, 6)
+      : [];
+    const boostPayload = {
+      boostPostId: postId,
+      boostSource: 'community-post',
+      boostTitle: String(post?.title || '').trim() || 'Promoted Post',
+      boostBody: String(post?.content || '').trim(),
+      boostSubtitle: String(post?.businessPage?.name || post?.author?.displayName || post?.authorName || '').trim() || 'Community Post',
+      boostDestinationUrl: `${window.location.origin}/community/posts/${encodeURIComponent(postId)}`,
+      boostCtaText: 'Learn more',
+      boostMedia,
+      createdAt: new Date().toISOString()
+    };
+    try {
+      window.sessionStorage.setItem('scrolith:my_ads:boost_listing_prefill', JSON.stringify(boostPayload));
+    } catch (error) {
+      // Best-effort handoff only.
+    }
+    navigate(`/my-ads?boostPostId=${encodeURIComponent(postId)}&boostOpen=1`, {
+      state: boostPayload
+    });
   };
 
   const resolveAuthorId = (post: any) => String(
@@ -1669,6 +2358,24 @@ const CommunityHome = () => {
     return '';
   };
 
+  const canPromotePost = useCallback(
+    (post: any) => {
+      const viewerId = String(user?.id || '').trim();
+      if (!viewerId) return false;
+      const directOwnerId = resolveAuthorOwnerUserId(post);
+      if (directOwnerId && directOwnerId === viewerId) return true;
+
+      const pageOwnerId = String(post?.businessPage?.ownerId || '').trim();
+      if (pageOwnerId && pageOwnerId === viewerId) return true;
+
+      const clubOwnerId = String(post?.club?.ownerId || '').trim();
+      if (clubOwnerId && clubOwnerId === viewerId) return true;
+
+      return false;
+    },
+    [user?.id]
+  );
+
   const beginEditPost = useCallback((post: any) => {
     const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
     const commentPolicy = (['everyone', 'followers', 'following', 'mutuals', 'none'].includes(policyValue)
@@ -1684,6 +2391,9 @@ const CommunityHome = () => {
       location: post.location || '',
       visibility: (post.visibility as PostDraft['visibility']) || 'public',
       commentPolicy,
+      graphicWarning: Boolean(post.graphicWarning),
+      isAIEnhanced: Boolean(post.isAIEnhanced),
+      aiInsightPreference: resolveStoredPostAiInsightPreference(post.aiInsightEnabled),
       media: (post.attachments || []).map((media: any, index: number) => ({
         localId: `${post.id}-media-${media.id || index}`,
         id: media.id,
@@ -1734,7 +2444,12 @@ const CommunityHome = () => {
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
-        commentPolicy: editingDraft.commentPolicy
+        commentPolicy: editingDraft.commentPolicy,
+        graphicWarning: editingDraft.graphicWarning,
+        isAIEnhanced: editingDraft.isAIEnhanced,
+        aiInsightEnabled: postAiInsightPreferenceToBoolean(
+          resolvePostAiInsightPreference(editingDraft.aiInsightPreference, 'off')
+        )
       });
       if (updated) {
         applyPostUpdate(normalizePost(updated));
@@ -1862,10 +2577,60 @@ const CommunityHome = () => {
     };
   }, [heroBackgroundImage, showHero]);
 
-  if (loading) {
+  const loadMorePostsRef = useRef(loadMorePosts);
+  loadMorePostsRef.current = loadMorePosts;
+  // Attach once the feed (and sentinel) is mounted; avoid re-creating on cursor/loading toggles.
+  const communityFeedMounted = !loading || posts.length > 0;
+  useEffect(() => {
+    if (!communityFeedMounted) return;
+    const node = postsSentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (
+          !shouldAllowObserverLoadMore({
+            isIntersecting: Boolean(entry?.isIntersecting),
+            initialLoading: postsInitialLoadingRef.current,
+            loadMoreInFlight: postsLoadingMoreRef.current,
+            isTerminal: postsFeedTerminalRef.current,
+            hasCursor: Boolean(String(postsNextCursorRef.current || '').trim()),
+            offsetFallbackEnabled: postsOffsetFallbackRef.current,
+            secondarySourceRemaining: !discoverySupplementUsedRef.current
+          })
+        ) {
+          return;
+        }
+        void loadMorePostsRef.current();
+      },
+      { rootMargin: '320px 0px', threshold: 0 }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [communityFeedMounted, user?.id]);
+
+  const interestSurveyPostIds = useMemo(
+    () =>
+      new Set(
+        pickInterestSurveyCandidateIds(
+          posts.map((post: any) => ({
+            id: post?.id,
+            authorId: post?.authorUserId || post?.authorId,
+            initialSignal: post?.userState?.interestSignal
+          })),
+          user?.id,
+          'post',
+          5
+        )
+      ),
+    [posts, user?.id]
+  );
+
+  // Full-page skeleton only on first paint with no posts — never unmount feed during soft reloads.
+  if (loading && posts.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
+        <div className="text-center min-h-[12rem]">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-500">Loading Community...</p>
         </div>
@@ -1904,7 +2669,12 @@ const CommunityHome = () => {
     : 'inline-flex items-center gap-1 rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-rose-700';
 
   const showLeftSidebar = showTrendingTopics || showUpcomingEvents || showTopContributors;
-  const showRightSidebar = showQuickActions || showSponsored || showStats;
+  const showRightSidebar =
+    showQuickActions ||
+    showSponsored ||
+    showStats ||
+    recommendedCommunityPeople.length > 0 ||
+    recommendedCommunityPages.length > 0;
 
   const mainColSpanClass =
     showLeftSidebar && showRightSidebar
@@ -2022,14 +2792,32 @@ const CommunityHome = () => {
                 </div>
                 <div className="space-y-3">
                   {topContributors.map((contributor) => (
-                    <div key={contributor.id} className="flex items-center p-2 hover:bg-gray-50 rounded-lg">
-                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center mr-3">
-                        <span className="font-bold">{contributor.name.charAt(0)}</span>
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium">{contributor.name}</div>
-                        <div className="text-sm text-gray-500">{contributor.reputation} rep</div>
-                      </div>
+                    <div key={contributor.id} className="flex items-center gap-3 rounded-lg p-2 hover:bg-gray-50">
+                      <Link to={buildContributorUrl(contributor)} className="flex min-w-0 flex-1 items-center gap-3">
+                        <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-200">
+                          {contributor.avatar ? (
+                            <img
+                              src={resolveUserAvatarUrl(contributor.avatar) || resolvePostAttachmentMediaUrl(contributor.avatar)}
+                              alt={contributor.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <span className="flex h-full w-full items-center justify-center font-bold">
+                              {String(contributor.name || 'C').charAt(0)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{contributor.name}</div>
+                          <div className="text-sm text-gray-500">{contributor.reputation} rep</div>
+                        </div>
+                      </Link>
+                      <FollowButton
+                        targetUserId={contributor.id}
+                        currentUserId={user?.id}
+                        initialIsFollowing={followStateMap[contributor.id]}
+                        className="h-7 px-2 text-[11px]"
+                      />
                     </div>
                   ))}
                 </div>
@@ -2049,10 +2837,19 @@ const CommunityHome = () => {
                   {visibleSliders.map((slide: any) => (
                     <div key={slide.id} className="min-w-[260px] border rounded-lg overflow-hidden">
                       {slide.imageUrl && (
-                        <img src={slide.imageUrl} alt={slide.title || 'Slide'} className="w-full h-32 object-cover" />
+                        <OptimizedImage
+                          src={resolveAssetUrl(slide.imageUrl)}
+                          alt={slide.title || 'Slide'}
+                          width={640}
+                          height={256}
+                          sizes="(max-width: 768px) 100vw, 320px"
+                          className="w-full h-32 object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       )}
                       {slide.videoUrl && (
-                        <video src={slide.videoUrl} controls className="w-full h-32 object-cover" />
+                        <video src={resolveAssetUrl(slide.videoUrl)} controls className="w-full h-32 object-cover" />
                       )}
                       <div className="p-3">
                         <div className="font-semibold text-sm">{slide.title}</div>
@@ -2093,50 +2890,66 @@ const CommunityHome = () => {
                   </div>
 
                   {storyRailTab === 'stories' ? (
-                    <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
-                      <select
-                        value={storyDraft.visibility}
-                        onChange={(event) =>
-                          setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
-                        }
-                        className={`${isMobileViewport ? 'rounded-2xl px-3 py-2 text-[11px]' : 'rounded-full px-3 py-1 text-xs'} border border-gray-200 font-semibold text-gray-600`}
-                      >
-                        {storyVisibilityOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <button
-                        onClick={() => setStoryTextOpen(true)}
-                        className={storyActionButtonClass}
-                        disabled={storyPosting}
-                      >
-                        Text story
-                      </button>
-                      <button
-                        onClick={() => storyDeviceInputRef.current?.click()}
-                        className={storyActionButtonClass}
-                        disabled={storyPosting}
-                      >
-                        <Plus className="h-3 w-3" />
-                        From device
-                      </button>
-                      <button
-                        onClick={startStoryCamera}
-                        className={storyPrimaryButtonClass}
-                        disabled={storyPosting}
-                      >
-                        <CameraIcon className="h-3 w-3" />
-                        Camera
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className={storyLiveButtonClass}
-                      >
-                        Go Live
-                      </button>
+                    <div className="space-y-3">
+                      <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
+                        <select
+                          value={storyDraft.visibility}
+                          onChange={(event) =>
+                            setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                          }
+                          className={`${isMobileViewport ? 'rounded-2xl px-3 py-2 text-[11px]' : 'rounded-full px-3 py-1 text-xs'} border border-gray-200 font-semibold text-gray-600`}
+                        >
+                          {storyVisibilityOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => setStoryTextOpen(true)}
+                          className={storyActionButtonClass}
+                          disabled={storyPosting}
+                        >
+                          Text story
+                        </button>
+                        <button
+                          onClick={() => storyDeviceInputRef.current?.click()}
+                          className={storyActionButtonClass}
+                          disabled={storyPosting}
+                        >
+                          <Plus className="h-3 w-3" />
+                          From device
+                        </button>
+                        <button
+                          onClick={startStoryCamera}
+                          className={storyPrimaryButtonClass}
+                          disabled={storyPosting}
+                        >
+                          <CameraIcon className="h-3 w-3" />
+                          Camera
+                        </button>
+                        {liveFeatureStatus.enabled ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate('/live/studio')}
+                            className={storyLiveButtonClass}
+                          >
+                            Go Live
+                          </button>
+                        ) : null}
+                      </div>
+                      {storyMediaUploadLabel ? (
+                        <StoryUploadStatusCard
+                          busy={storyMediaUploadBusy}
+                          label={storyMediaUploadLabel}
+                          progress={storyMediaUploadProgress}
+                          hint={
+                            storyMediaUploadBusy
+                              ? 'Scrolith is uploading and preparing your selected story media.'
+                              : 'Your story upload is ready for the next step.'
+                          }
+                        />
+                      ) : null}
                     </div>
                   ) : (
                     <div className={`grid gap-2 ${isMobileViewport ? 'grid-cols-2' : 'flex flex-wrap items-center'}`}>
@@ -2148,13 +2961,15 @@ const CommunityHome = () => {
                         <Plus className="h-3 w-3" />
                         Create Scroll
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => navigate('/live/studio')}
-                        className={`${isMobileViewport ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100' : 'inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100'}`}
-                      >
-                        Go Live
-                      </button>
+                      {liveFeatureStatus.enabled ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/live/studio')}
+                          className={`${isMobileViewport ? 'inline-flex w-full items-center justify-center gap-1 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] font-semibold text-rose-700 transition hover:bg-rose-100' : 'inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 transition hover:bg-rose-100'}`}
+                        >
+                          Go Live
+                        </button>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -2163,7 +2978,7 @@ const CommunityHome = () => {
                   <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide sm:gap-3">
                     <button
                       onClick={() => storyDeviceInputRef.current?.click()}
-                      className="flex h-40 min-w-[108px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-44 sm:min-w-[120px]"
+                      className="flex h-48 min-w-[118px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-52 sm:min-w-[132px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Your story
@@ -2177,26 +2992,60 @@ const CommunityHome = () => {
                         <button
                           key={story.id}
                           onClick={() => openStory(story)}
-                          className="relative h-40 min-w-[108px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 sm:h-44 sm:min-w-[120px]"
+                          className="relative h-48 min-w-[118px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-100 sm:h-52 sm:min-w-[132px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveStoryMediaUrl(story);
-                            if (mediaUrl) {
-                              return story.type === 'video' ? (
-                                <video
-                                  src={mediaUrl}
-                                  className="h-full w-full object-cover"
-                                  autoPlay
-                                  muted
-                                  playsInline
-                                  loop
-                                  preload="metadata"
-                                />
-                              ) : (
-                                <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
+                            const media = resolveStoryMedia(story);
+                            const text = resolveStoryContent(story);
+                            const isTextStory = String(story?.type || '').trim().toLowerCase() === 'text';
+                            if (isTextStory && text) {
+                              const style = getStoryTextStyle(story);
+                              return (
+                                <div
+                                  className="flex h-full w-full items-center justify-center px-3 text-center text-xs font-semibold"
+                                  style={{
+                                    background: style.background,
+                                    color: style.color,
+                                    fontFamily: style.fontFamily,
+                                    textAlign: style.textAlign as any
+                                  }}
+                                >
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
+                                </div>
                               );
                             }
-                            const text = resolveStoryContent(story);
+                            if (media.src) {
+                              return media.kind === 'video' ? (
+                                <InlineAutoplayVideo
+                                  key={String(story?.id || media.src)}
+                                  src={media.src}
+                                  poster={media.poster}
+                                  className="h-full w-full object-cover"
+                                  containerClassName="h-full w-full"
+                                  controls={false}
+                                  loop
+                                  preload="metadata"
+                                  autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                  showMuteToggle={false}
+                                />
+                              ) : (
+                                <OptimizedImage
+                                  src={media.src}
+                                  alt="Story"
+                                  width={720}
+                                  height={1280}
+                                  sizes="(max-width: 768px) 100vw, 360px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              );
+                            }
                             if (text) {
                               const style = getStoryTextStyle(story);
                               return (
@@ -2209,7 +3058,12 @@ const CommunityHome = () => {
                                     textAlign: style.textAlign as any
                                   }}
                                 >
-                                  <span className="line-clamp-4 whitespace-pre-wrap">{text}</span>
+                                  <StaticPreviewText
+                                    text={text}
+                                    className="line-clamp-4"
+                                    textClassName="whitespace-pre-wrap break-words"
+                                    moreClassName="opacity-90"
+                                  />
                                 </div>
                               );
                             }
@@ -2219,16 +3073,18 @@ const CommunityHome = () => {
                           })()}
                           {(() => {
                             const authorName = resolveStoryAuthorName(story, 'Community');
-                            const authorAvatar = resolveStoryAuthorAvatar(story);
+                            const authorAvatar = resolveStoryAuthorAvatar(story, user);
                             const authorInitial = resolveStoryAuthorInitial(story);
                             return (
-                              <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
-                                {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                                ) : (
-                                  <span>{authorInitial}</span>
-                                )}
-                              </div>
+                              <StoryAuthorAvatar
+                                src={authorAvatar}
+                                name={authorName}
+                                initial={authorInitial}
+                                className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-white/90 bg-slate-700 text-[11px] font-semibold text-white shadow"
+                                width={56}
+                                height={56}
+                                sizes="28px"
+                              />
                             );
                           })()}
                           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2 text-left">
@@ -2243,7 +3099,7 @@ const CommunityHome = () => {
                     <button
                       type="button"
                       onClick={() => setScrollCreateOpen(true)}
-                      className="flex h-40 min-w-[108px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-44 sm:min-w-[120px]"
+                      className="flex h-48 min-w-[118px] flex-col items-center justify-center rounded-2xl border border-dashed border-gray-300 text-xs text-gray-500 sm:h-52 sm:min-w-[132px]"
                     >
                       <Plus className="h-5 w-5 mb-2" />
                       Create Scroll
@@ -2258,11 +3114,11 @@ const CommunityHome = () => {
                           key={scroll.id}
                           type="button"
                           onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
-                          className="relative h-40 min-w-[108px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 sm:h-44 sm:min-w-[120px]"
+                          className="relative h-48 min-w-[118px] overflow-hidden rounded-2xl border border-gray-200 bg-gray-900 sm:h-52 sm:min-w-[132px]"
                         >
                           {(() => {
-                            const mediaUrl = resolveReelMediaUrl(scroll);
-                            if (!mediaUrl) {
+                            const media = resolveReelMedia(scroll);
+                            if (!media.src) {
                               return (
                                 <div className="h-full w-full flex items-center justify-center text-xs text-white/75">
                                   Scroll
@@ -2270,14 +3126,17 @@ const CommunityHome = () => {
                               );
                             }
                             return (
-                              <video
-                                src={mediaUrl}
+                              <InlineAutoplayVideo
+                                key={String(scroll?.id || media.src)}
+                                src={media.src}
+                                poster={media.poster}
                                 className="h-full w-full object-cover"
-                                autoPlay
-                                muted
-                                playsInline
+                                containerClassName="h-full w-full"
+                                controls={false}
                                 loop
                                 preload="metadata"
+                                autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                showMuteToggle={false}
                               />
                             );
                           })()}
@@ -2288,7 +3147,16 @@ const CommunityHome = () => {
                             return (
                               <div className="absolute left-2 top-2 inline-flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border-2 border-blue-300/90 bg-slate-700 text-[11px] font-semibold text-white shadow">
                                 {authorAvatar ? (
-                                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                                  <OptimizedImage
+                                    src={authorAvatar}
+                                    alt={authorName}
+                                    width={96}
+                                    height={96}
+                                    sizes="48px"
+                                    className="h-full w-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                  />
                                 ) : (
                                   <span>{authorInitial}</span>
                                 )}
@@ -2307,6 +3175,13 @@ const CommunityHome = () => {
               </div>
             )}
 
+            <LiveFeaturedRail
+              surface="communityHome"
+              title="Featured Live Streams"
+              subtitle="Watch active livestreams from the community without leaving your web or mobile feed."
+              className="mt-4"
+            />
+
             {showCustomSections && visibleSections.length > 0 && (
               <div className="space-y-4">
                 {visibleSections.map((section: any) => (
@@ -2314,10 +3189,19 @@ const CommunityHome = () => {
                     {section.title && <h3 className="text-lg font-semibold">{section.title}</h3>}
                     {section.body && <p className="text-sm text-gray-600 mt-2">{section.body}</p>}
                     {section.type === 'image' && section.imageUrl && (
-                      <img src={section.imageUrl} alt={section.title || 'Section'} className="mt-3 rounded-lg w-full object-cover" />
+                      <OptimizedImage
+                        src={resolveAssetUrl(section.imageUrl)}
+                        alt={section.title || 'Section'}
+                        width={960}
+                        height={540}
+                        sizes="(max-width: 1024px) 100vw, 720px"
+                        className="mt-3 rounded-lg w-full object-cover"
+                        loading="lazy"
+                        decoding="async"
+                      />
                     )}
                     {section.type === 'video' && section.videoUrl && (
-                      <video src={section.videoUrl} controls className="mt-3 rounded-lg w-full" />
+                      <video src={resolveAssetUrl(section.videoUrl)} controls className="mt-3 rounded-lg w-full" />
                     )}
                   </div>
                 ))}
@@ -2326,17 +3210,14 @@ const CommunityHome = () => {
             {/* Search Bar */}
             {showSearchBar && (
               <div className="rounded-xl bg-white p-3 shadow-sm sm:p-4">
-                <div className="flex items-center gap-2 rounded-[28px] border border-gray-200 bg-slate-50 px-3 py-2">
-                  <Search className="h-5 w-5 shrink-0 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder={isMobileViewport ? 'Search jobs, gigs, people...' : 'Search discussions, topics, or people...'}
-                    className="w-full bg-transparent py-2 text-sm text-gray-700 outline-none placeholder:text-gray-400"
-                  />
-                  <button className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-blue-600 p-3 text-white transition hover:bg-blue-700">
-                    <Filter className="w-4 h-4" />
-                  </button>
-                </div>
+                <SearchInput
+                  placeholder={isMobileViewport ? 'Search jobs, gigs, people...' : 'Search discussions, topics, or people...'}
+                  searchPath="/search"
+                  className="w-full"
+                  showButton
+                  buttonLabel={isMobileViewport ? 'Search' : 'Search'}
+                  buttonAriaLabel="Search community content"
+                />
               </div>
             )}
 
@@ -2355,6 +3236,7 @@ const CommunityHome = () => {
                   const ownerUserId = resolveAuthorOwnerUserId(post);
                   const isOwner = Boolean(ownerUserId) && String(user?.id || '') === ownerUserId;
                   const canManage = isOwner || isPrivilegedRole(user?.role);
+                  const canPromote = canPromotePost(post);
                   const isEditing = editingPostId === post.id;
                   const actionBusy = Boolean(postActionBusy[post.id]);
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
@@ -2362,7 +3244,7 @@ const CommunityHome = () => {
                     id: post.author?.id || post.authorId,
                     username: post.author?.username ?? post.authorUsername,
                     displayName: post.author?.displayName || post.authorName,
-                    avatarUrl: post.author?.avatarUrl || post.authorAvatar,
+                    avatarUrl: resolveUserAvatarUrl(post.author || post) || post.authorAvatar,
                     type: post.author?.type || (post.businessPage ? 'business' : 'user'),
                     businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
                     isVerified: post.author?.isVerified,
@@ -2376,9 +3258,9 @@ const CommunityHome = () => {
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
                     <article
-                      key={post.id}
+                      key={getStableFeedReactKey(post)}
                       id={`community-post-${post.id}`}
-                      className={`rounded-[24px] border border-slate-200/80 bg-gradient-to-b from-white via-white to-slate-50/70 p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)] transition-shadow hover:shadow-[0_24px_48px_-26px_rgba(15,23,42,0.52)] sm:rounded-[30px] sm:p-5 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
+                      className={`overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-22px_rgba(15,23,42,0.28)] transition-shadow duration-150 hover:shadow-[0_2px_8px_rgba(15,23,42,0.06),0_16px_36px_-22px_rgba(15,23,42,0.32)] sm:p-6 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}
@@ -2407,11 +3289,23 @@ const CommunityHome = () => {
                             {post.isHighlighted && (
                               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Highlighted</span>
                             )}
+                            {post.isAIEnhanced && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                                <Sparkles className="h-3 w-3" />
+                                AI-enhanced
+                              </span>
+                            )}
+                            {post.graphicWarning && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                <AlertTriangle className="h-3 w-3" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
+                            )}
                           </>
                         }
                         rightSlot={
-                          <div className="flex items-center gap-2">
-                            {canManage ? (
+                          <div className="flex min-w-fit items-center gap-2 whitespace-nowrap">
+                            {canPromote ? (
                               <button
                                 onClick={() => promotePost(post)}
                                 className="rounded-full border border-indigo-200 bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-indigo-600 shadow-sm transition hover:bg-indigo-50 sm:px-3 sm:text-[11px] sm:tracking-[0.16em]"
@@ -2453,6 +3347,60 @@ const CommunityHome = () => {
                             className="min-h-[120px] w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
                           />
                           <div className="text-xs text-gray-500">Tip: type @ to mention people and # to add tags.</div>
+                          <div className="grid gap-3 md:grid-cols-3">
+                            <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.graphicWarning)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, graphicWarning: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                {GRAPHIC_WARNING_LABEL}
+                              </span>
+                            </label>
+                            <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(editingDraft?.isAIEnhanced)}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev ? { ...prev, isAIEnhanced: event.target.checked } : prev
+                                  )
+                                }
+                              />
+                              <span className="inline-flex items-center gap-1">
+                                <Sparkles className="h-4 w-4 text-emerald-600" />
+                                Mark as AI-enhanced
+                              </span>
+                            </label>
+                            <label className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700">
+                              <span className="block text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                                Scrolitha AI insight
+                              </span>
+                              <select
+                                value={editingDraft?.aiInsightPreference || 'off'}
+                                onChange={(event) =>
+                                  setEditingDraft((prev) =>
+                                    prev
+                                      ? {
+                                          ...prev,
+                                          aiInsightPreference: resolvePostAiInsightPreference(event.target.value, 'off')
+                                        }
+                                      : prev
+                                  )
+                                }
+                                className="mt-2 w-full bg-transparent text-sm font-semibold text-gray-900 outline-none"
+                              >
+                                <option value="on">Generate for this post</option>
+                                <option value="off">Do not generate</option>
+                              </select>
+                            </label>
+                          </div>
                           <div className="grid gap-3 md:grid-cols-2">
                             <select
                               value={editingDraft?.visibility || 'public'}
@@ -2506,6 +3454,8 @@ const CommunityHome = () => {
                             <div className="grid gap-3 md:grid-cols-2">
                               {editingDraft.media.map((media) => {
                                 const type = media.type || inferMediaType(media);
+                                const mediaUrl = resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || media?.url;
+                                const posterUrl = resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl;
                                 return (
                                   <div key={media.localId} className="relative overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
                                     <button
@@ -2516,9 +3466,19 @@ const CommunityHome = () => {
                                       <X className="h-4 w-4" />
                                     </button>
                                     {type === 'video' ? (
-                                      <video src={media.url} className="h-40 w-full object-cover" controls />
+                                      <video src={mediaUrl} poster={posterUrl || undefined} className="h-40 w-full object-cover" controls />
                                     ) : type === 'image' ? (
-                                      <img src={media.url} alt={media.name || 'Post media'} className="h-40 w-full object-cover" />
+                                      <OptimizedImage
+                                        src={posterUrl}
+                                        fallbackSrc={mediaUrl}
+                                        alt={media.name || 'Post media'}
+                                        width={960}
+                                        height={540}
+                                        sizes="(max-width: 1280px) 100vw, 420px"
+                                        className="h-40 w-full object-cover"
+                                        loading="lazy"
+                                        decoding="async"
+                                      />
                                     ) : (
                                       <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-gray-500">
                                         {media.name || 'Attachment'}
@@ -2550,39 +3510,31 @@ const CommunityHome = () => {
                       ) : (
                         <>
                           <div className="mt-4 space-y-4">
-                          {post.title ? (
-                            <button
-                              type="button"
-                              onClick={() => openPostDetail(post.id)}
-                              className="text-left text-xl font-semibold tracking-tight text-slate-950 hover:text-blue-700 hover:underline"
-                            >
-                              {post.title}
-                            </button>
-                          ) : null}
                           {focusPostId === post.id && focusMentionToken ? (
                             <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                               You were mentioned in this post.
                             </div>
                           ) : null}
-                          <div
-                            className="cursor-pointer text-[15px] leading-7 text-slate-700"
-                            role="button"
-                            tabIndex={0}
-                            onClick={(event) => openPostFromText(event, post.id)}
-                            onKeyDown={(event) => {
+                          <PostOriginPreview originalPost={post.originalPost} className="mt-2" />
+                          <TranslatablePostText
+                            post={post}
+                            viewerId={user?.id}
+                            viewerUsername={user?.username}
+                            mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
+                            expandable
+                            titleClassName="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
+                            contentWrapperClassName="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                            buttonClassName="text-slate-900"
+                            translationRowClassName="text-slate-500"
+                            onTitleClick={() => openPostCard(post)}
+                            onContentClick={(event) => openPostFromText(event, post)}
+                            onContentKeyDown={(event) => {
                               if (event.key === 'Enter' || event.key === ' ') {
                                 event.preventDefault();
-                                openPostDetail(post.id);
+                                openPostCard(post);
                               }
                             }}
-                          >
-                            <MentionText
-                              text={post.content}
-                              mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
-                              viewerId={user?.id}
-                              viewerUsername={user?.username}
-                            />
-                          </div>
+                          />
                           {post.tags?.length ? (
                             <div className="flex flex-wrap gap-2">
                               {post.tags.map((tag: string) => (
@@ -2592,86 +3544,32 @@ const CommunityHome = () => {
                               ))}
                             </div>
                           ) : null}
-                          {Array.isArray(post.attachments) && post.attachments.length > 0 && (
-                            <div
-                              className={`grid gap-3 ${
-                                post.attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'
-                              }`}
-                            >
-                              {post.attachments.map((media: any) => {
-                                const type = inferMediaType(media || {});
-                                const mediaKey = String(media.id || media.url || '');
-                                const mediaHeightClass =
-                                  post.attachments.length === 1 ? 'h-64 md:h-80' : 'h-44 md:h-52';
-                                if (type === 'video') {
-                                  return (
-                                    <div
-                                      key={media.id || media.url}
-                                      role="button"
-                                      tabIndex={0}
-                                      onClick={(event) => {
-                                        if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                                        queueOpenPostFromMediaTap(post.id, mediaKey);
-                                      }}
-                                      onDoubleClick={(event) => {
-                                        if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
-                                        onPostMediaDoubleClick(event, post, mediaKey);
-                                      }}
-                                      onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
-                                          event.preventDefault();
-                                          openPostDetail(post.id);
-                                        }
-                                      }}
-                                      className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
-                                    >
-                                      <InlineAutoplayVideo
-                                        src={media.url}
-                                        poster={media.thumbnailUrl || undefined}
-                                        className={`${mediaHeightClass} w-full object-cover`}
-                                        controls={false}
-                                        autoplayEnabled={profile.autoplayEnabled}
-                                        preload="metadata"
-                                      />
-                                    </div>
-                                  );
-                                }
-                                if (type === 'image') {
-                                  return (
-                                    <button
-                                      key={media.id || media.url}
-                                      type="button"
-                                      onClick={() => queueOpenPostFromMediaTap(post.id, mediaKey)}
-                                      onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
-                                      onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                      className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
-                                    >
-                                      <img
-                                        src={media.thumbnailUrl || media.url}
-                                        alt={media.name || 'Post media'}
-                                        className={`${mediaHeightClass} w-full object-cover`}
-                                        loading="lazy"
-                                        decoding="async"
-                                      />
-                                    </button>
-                                  );
-                                }
-                                return (
-                                  <button
-                                    key={media.id || media.url}
-                                    type="button"
-                                    onClick={() => openPostDetail(post.id)}
-                                    className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-sm hover:bg-slate-50"
-                                  >
-                                    <span className="text-blue-600 underline">
-                                      {media.name || media.url?.split('/').pop() || 'View attachment'}
-                                    </span>
-                                  </button>
-                                );
-                              })}
+                          <ContentOfferTags offerTags={post.offerTags} />
+                          {post.aiInsightGenerated && post.aiInsightText ? (
+                            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                                  <Sparkles className="h-3.5 w-3.5" />
+                                  AI Insight
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setInsightCollapsedByPost((prev) => ({
+                                      ...prev,
+                                      [post.id]: !(prev[post.id] ?? true)
+                                    }))
+                                  }
+                                  className="text-[11px] font-semibold text-emerald-700 hover:underline"
+                                >
+                                  {(insightCollapsedByPost[post.id] ?? true) ? 'Show' : 'Hide'}
+                                </button>
+                              </div>
+                              {!(insightCollapsedByPost[post.id] ?? true) ? (
+                                <p className="mt-2 text-sm text-emerald-900">{post.aiInsightText}</p>
+                              ) : null}
                             </div>
-                          )}
+                          ) : null}
                           {(post.topic || post.location) && (
                             <div className="flex flex-wrap gap-2 text-[11px] text-slate-500">
                               {post.topic && (
@@ -2682,16 +3580,127 @@ const CommunityHome = () => {
                               )}
                             </div>
                           )}
+                          {Array.isArray(post.attachments) && post.attachments.length > 0 && (
+                            <GraphicWarningGate
+                              active={Boolean(post.graphicWarning)}
+                              revealed={Boolean(revealedGraphicPosts[post.id])}
+                              onReveal={() => setRevealedGraphicPosts((prev) => ({ ...prev, [post.id]: true }))}
+                              label={GRAPHIC_WARNING_LABEL}
+                            >
+                              <div
+                                className={`grid gap-3 ${
+                                  post.attachments.length === 1 ? 'grid-cols-1' : 'md:grid-cols-2'
+                                }`}
+                              >
+                                {post.attachments.map((media: any) => {
+                                  const type = inferMediaType(media || {});
+                                  const mediaKey = String(media.id || media.url || '');
+                                  const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
+                                  const posterUrl = String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl).trim();
+                                  const mediaHeightClass =
+                                    post.attachments.length === 1
+                                      ? FEED_SINGLE_MEDIA_HEIGHT_CLASS
+                                      : FEED_MULTI_MEDIA_HEIGHT_CLASS;
+                                  if (type === 'video') {
+                                    return (
+                                      <div
+                                        key={media.id || media.url}
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(event) => {
+                                          if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                          queueOpenPostFromMediaTap(post, media, mediaKey);
+                                        }}
+                                        onDoubleClick={(event) => {
+                                          if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
+                                          onPostMediaDoubleClick(event, post, mediaKey);
+                                        }}
+                                        onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault();
+                                            handlePostMediaPrimaryAction(post, media);
+                                          }
+                                        }}
+                                        className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+                                      >
+                                        <InlineAutoplayVideo
+                                          src={mediaUrl}
+                                          poster={posterUrl || undefined}
+                                          className={`${mediaHeightClass} w-full object-cover`}
+                                          controls={false}
+                                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                                          preload="metadata"
+                                          overlay={(videoElement) => (
+                                            <PostVideoActionBar
+                                              postId={post.id}
+                                              postTitle={post.title}
+                                              postContent={post.content}
+                                              postLocation={post.location}
+                                              media={media}
+                                              videoElement={videoElement}
+                                            />
+                                          )}
+                                        />
+                                      </div>
+                                    );
+                                  }
+                                  if (type === 'image') {
+                                    return (
+                                      <button
+                                        key={media.id || media.url}
+                                        type="button"
+                                        onClick={() => handlePostMediaPrimaryAction(post, media)}
+                                        onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
+                                        onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                        className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                                      >
+                                        <OptimizedImage
+                                          src={posterUrl}
+                                          fallbackSrc={mediaUrl}
+                                          alt={media.name || 'Post media'}
+                                          width={960}
+                                          height={540}
+                                          sizes="(max-width: 1024px) 100vw, 50vw"
+                                          className={`${mediaHeightClass} w-full object-cover`}
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
+                                      </button>
+                                    );
+                                  }
+                                  return (
+                                    <button
+                                      key={media.id || media.url}
+                                      type="button"
+                                      onClick={() => handlePostMediaPrimaryAction(post, media)}
+                                      className="rounded-2xl border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-sm hover:bg-slate-50"
+                                    >
+                                      <span className="text-blue-600 underline">
+                                        {media.name || mediaUrl.split('/').pop() || 'View attachment'}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </GraphicWarningGate>
+                          )}
                           <PostEngagementBar
                             postId={post.id}
+                            postTitle={post.title}
+                            postContent={post.content}
                             authorId={post.authorUserId || post.authorId}
+                            dashGcoinTotal={Number((post as any).dashGcoinTotal ?? post.interactions?.dashGcoinTotal ?? 0)}
                             commentPolicy={post.commentPolicy}
+                            postRepostsEnabled={post.repostsEnabled}
                             commentCount={commentCount}
                             repostCount={post.repostsCount ?? post.interactions?.reposts ?? 0}
                             shareCount={post.sharesCount ?? post.interactions?.shares ?? 0}
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
                             initialUserReaction={post.userState?.reaction}
+                            interestSurveyEnabled={interestSurveyPostIds.has(post.id)}
+                            initialInterestSignal={post.userState?.interestSignal}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             onCommentCountChange={syncCommentCount}
@@ -2702,6 +3711,30 @@ const CommunityHome = () => {
                     </article>
                   );
                 })}
+                <div ref={postsSentinelRef} className="h-10 shrink-0" aria-hidden="true" />
+                {postsLoadingMore ? (
+                  <div
+                    className="min-h-[3rem] rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    Loading more posts...
+                  </div>
+                ) : postsFeedTerminal ? (
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
+                    You&apos;re all caught up. No more unique community posts right now.
+                  </div>
+                ) : postsNextCursor || postsOffsetFallbackEnabled || !discoverySupplementUsedRef.current ? (
+                  <div className="flex justify-center pb-2">
+                    <button
+                      type="button"
+                      onClick={() => void loadMorePosts()}
+                      className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                    >
+                      Load more
+                    </button>
+                  </div>
+                ) : null}
               </div>
               </div>
             )}
@@ -2760,45 +3793,118 @@ const CommunityHome = () => {
             </div>
             )}
 
+            {recommendedCommunityPeople.length > 0 ? (
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+                <h2 className="mb-4 text-lg font-bold">People to follow</h2>
+                <div className="space-y-3">
+                  {recommendedCommunityPeople.map((person) => {
+                    const avatar = resolveUserAvatarUrl(person.avatar) || resolvePostAttachmentMediaUrl(person.avatar);
+                    return (
+                      <div key={person.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
+                        <Link to={buildContributorUrl(person)} className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">
+                            {avatar ? (
+                              <OptimizedImage
+                                src={avatar}
+                                alt={person.name}
+                                width={96}
+                                height={96}
+                                sizes="56px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">
+                                {String(person.name || 'U').charAt(0)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-gray-900">{person.name}</div>
+                            <div className="truncate text-xs text-gray-500">{person.headline}</div>
+                          </div>
+                        </Link>
+                        <FollowButton
+                          targetUserId={person.id}
+                          currentUserId={user?.id}
+                          initialIsFollowing={Boolean(person.isFollowing || followStateMap[person.id])}
+                          className="h-7 px-2 text-[11px]"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {recommendedCommunityPages.length > 0 ? (
+              <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
+                <h2 className="mb-4 text-lg font-bold">Pages to follow</h2>
+                <div className="space-y-3">
+                  {recommendedCommunityPages.map((page) => {
+                    const avatar = resolvePostAttachmentMediaUrl(page.avatar);
+                    return (
+                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
+                        <Link to={buildCommunityPageUrl(page)} className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">
+                            {avatar ? (
+                              <OptimizedImage
+                                src={avatar}
+                                alt={page.name}
+                                width={96}
+                                height={96}
+                                sizes="56px"
+                                className="h-full w-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center text-sm font-bold text-gray-500">
+                                {String(page.name || 'P').charAt(0)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-gray-900">{page.name}</div>
+                            <div className="truncate text-xs text-gray-500">{page.tagline || `${page.followersCount || 0} followers`}</div>
+                          </div>
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={Boolean(pageFollowBusy[page.id])}
+                          onClick={() => handleCommunityPageFollow(page)}
+                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase ${
+                            page.isFollowing ? 'border-gray-300 text-gray-700' : 'border-blue-200 text-blue-600'
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {pageFollowBusy[page.id] ? '...' : page.isFollowing ? 'Following' : 'Follow'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             {/* Ads/Sponsored */}
             {showSponsored && (
             <div className="rounded-xl bg-white p-4 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold mb-4">{getModuleTitle(modules, 'sponsored', 'Sponsored')}</h2>
               <div className="space-y-4">
                 {ads.map((ad) => {
-                  const media =
-                    (Array.isArray(ad.media) && ad.media.length > 0 ? ad.media[0] : null) ||
-                    (ad.creativeUrl ? { url: ad.creativeUrl, type: 'image' } : null);
-                  const mediaType = media ? inferMediaType(media) : null;
-
                   return (
-                    <div key={ad.id} className="border border-gray-200 rounded-lg p-4">
-                      <h3 className="font-medium text-gray-900">{ad.title}</h3>
-                      <p className="text-sm text-gray-600 mt-2">{ad.description || ad.body}</p>
-                      {media?.url && (
-                        <div className="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-gray-50">
-                          {mediaType === 'video' ? (
-                            <video src={media.url} controls className="h-36 w-full object-cover" />
-                          ) : (
-                            <img src={media.url} alt={ad.title || 'Ad media'} className="h-36 w-full object-cover" />
-                          )}
-                        </div>
-                      )}
-                      <div className="mt-3 flex items-center gap-3">
-                        <a
-                          href={ad.ctaUrl || '#'}
-                          className="text-sm text-blue-600 hover:text-blue-800"
-                          onClick={() => AdService.recordClick(ad.id).catch(() => {})}
-                        >
-                          {ad.ctaText || 'Learn more'}
-                        </a>
-                        {/* If ad has creator/recipient info, show Donate button */}
-                        {(ad.creatorId || ad.recipientId) && (
-                          // @ts-ignore - loosely typed CMS ad object may include creatorId/recipientId
-                          <DonateButton recipientIdentifier={ad.creatorId || ad.recipientId} />
-                        )}
-                      </div>
-                    </div>
+                    <AdCard
+                      key={ad.id}
+                      ad={{
+                        ...(ad as any),
+                        destinationUrl: (ad as any).destinationUrl || (ad as any).ctaUrl || null,
+                        body: (ad as any).body || (ad as any).description || ''
+                      }}
+                      showDonate={Boolean((ad as any).creatorId || (ad as any).recipientId)}
+                      compact
+                      className="mb-0"
+                    />
                   );
                 })}
               </div>
@@ -3003,21 +4109,32 @@ const CommunityHome = () => {
                   </div>
                 ) : (
                   (() => {
-                    const mediaUrl = resolveStoryMediaUrl(editingStory);
-                    if (mediaUrl) {
-                      return editingStory.type === 'video' ? (
-                        <video
-                          src={mediaUrl}
+                    const media = resolveStoryMedia(editingStory);
+                    if (media.src) {
+                      return media.kind === 'video' ? (
+                        <InlineAutoplayVideo
+                          key={String(editingStory?.id || media.src)}
+                          src={media.src}
+                          poster={media.poster}
+                          className="h-48 w-full object-cover"
+                          containerClassName="h-48 w-full"
                           controls
-                          autoPlay
-                          muted
-                          playsInline
                           loop
                           preload="metadata"
-                          className="h-48 w-full object-cover"
+                          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+                          showMuteToggle={false}
                         />
                       ) : (
-                        <img src={mediaUrl} alt="Story media" className="h-48 w-full object-cover" />
+                        <OptimizedImage
+                          src={media.src}
+                          alt="Story media"
+                          width={720}
+                          height={1280}
+                          sizes="(max-width: 768px) 100vw, 420px"
+                          className="h-48 w-full object-cover"
+                          loading="lazy"
+                          decoding="async"
+                        />
                       );
                     }
                     return (
@@ -3156,316 +4273,41 @@ const CommunityHome = () => {
       )}
 
       {activeStory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 sm:p-6">
-          <div className="w-full max-w-xl max-h-[94dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {(() => {
-                  const authorName = resolveStoryAuthorName(activeStory, 'Community member');
-                  const authorAvatar = resolveStoryAuthorAvatar(activeStory);
-                  const authorInitial = resolveStoryAuthorInitial(activeStory);
-                  return (
-                    <>
-                      <div className="inline-flex h-9 w-9 items-center justify-center overflow-hidden rounded-full border border-gray-200 bg-slate-700 text-xs font-semibold text-white">
-                        {authorAvatar ? (
-                          <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
-                        ) : (
-                          <span>{authorInitial}</span>
-                        )}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{authorName}</p>
-                        <p className="text-xs text-gray-500">{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</p>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-              <div className="flex items-center gap-2">
-                {resolveStoryMediaUrl(activeStory) ? (
-                  <button
-                    onClick={() => void downloadStoryMedia(activeStory)}
-                    className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
-                    type="button"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <Download className="h-3.5 w-3.5" />
-                      Download
-                    </span>
-                  </button>
-                ) : null}
-                {canManageStory(activeStory) && (
-                  <>
-                    <button
-                      onClick={() => openStoryEditor(activeStory)}
-                      className="rounded-full border border-gray-200 px-3 py-1 text-xs font-semibold text-gray-600 hover:text-gray-800"
-                      type="button"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleStoryDelete(activeStory)}
-                      className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-500 hover:text-red-600"
-                      type="button"
-                      disabled={storyActionBusy[activeStory.id]}
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
-                <button onClick={() => setActiveStory(null)} className="text-sm text-gray-500 hover:text-gray-700">
-                  Close
-                </button>
-              </div>
-            </div>
-            <div
-              className="relative mt-4 overflow-hidden rounded-2xl bg-gray-100 aspect-[9/16] sm:aspect-[9/14]"
-              style={{ touchAction: 'pan-y' }}
-              onTouchStart={onStoryGestureStart}
-              onTouchEnd={onStoryGestureEnd}
-              onDoubleClick={onStoryMediaDoubleClick}
-              onPointerDown={(event) => {
-                if (event.pointerType !== 'touch') return;
-                const target = event.target as HTMLElement | null;
-                if (target?.closest('button, a, input, textarea, select, label')) {
-                  storyGestureStartRef.current = null;
-                  return;
-                }
-                storyGestureStartRef.current = { x: event.clientX, y: event.clientY };
-              }}
-              onPointerUp={(event) => {
-                if (event.pointerType !== 'touch') return;
-                const target = event.target as HTMLElement | null;
-                if (target?.closest('button, a, input, textarea, select, label')) return;
-                const start = storyGestureStartRef.current;
-                storyGestureStartRef.current = null;
-                if (!start) return;
-                const deltaX = event.clientX - start.x;
-                const deltaY = event.clientY - start.y;
-                if (Math.abs(deltaX) >= 20 && Math.abs(deltaX) > Math.abs(deltaY) + 6) {
-                  if (deltaX > 0) void goToStoryByOffset(-1);
-                  if (deltaX < 0) void goToStoryByOffset(1);
-                }
-              }}
-            >
-              {(() => {
-                const mediaUrl = resolveStoryMediaUrl(activeStory);
-                if (mediaUrl) {
-                  return activeStory.type === 'video' ? (
-                    <video
-                      src={mediaUrl}
-                      autoPlay
-                      muted
-                      playsInline
-                      loop
-                      preload="metadata"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <img src={mediaUrl} alt="Story" className="h-full w-full object-cover" />
-                    );
-                  }
-                const text = resolveStoryContent(activeStory);
-                if (text) {
-                  const style = getStoryTextStyle(activeStory);
-                  return (
-                    <div
-                      className="flex h-full w-full items-center justify-center px-4 sm:px-6 text-center"
-                      style={{
-                        background: style.background,
-                        color: style.color,
-                        fontFamily: style.fontFamily,
-                        textAlign: style.textAlign as any
-                      }}
-                    >
-                      <p className="text-lg font-semibold leading-snug whitespace-pre-wrap">{text}</p>
-                    </div>
-                  );
-                }
-                return <div className="h-full w-full flex items-center justify-center text-sm text-gray-500">No media</div>;
-              })()}
-              <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/70 via-black/15 to-black/45" />
-              <div className="pointer-events-none absolute inset-y-0 left-0 right-0 z-30 flex items-center justify-between px-2">
-                <button
-                  type="button"
-                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
-                    hasPrevStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
-                  }`}
-                  onClick={() => goToStoryByOffset(-1)}
-                  disabled={!hasPrevStory}
-                  aria-label="Previous story"
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </button>
-                <button
-                  type="button"
-                  className={`pointer-events-auto inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white transition ${
-                    hasNextStory ? 'hover:bg-black/65' : 'cursor-not-allowed opacity-35'
-                  }`}
-                  onClick={() => goToStoryByOffset(1)}
-                  disabled={!hasNextStory}
-                  aria-label="Next story"
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </button>
-              </div>
-              <div className="pointer-events-none absolute bottom-3 left-3 z-20 max-w-[calc(100%-80px)] text-white">
-                <div className="rounded-xl bg-black/40 px-3 py-2 text-[11px] font-semibold backdrop-blur-sm">
-                  <div className="flex items-center gap-2">
-                    <span>{formatCompactCount(activeStory.likesCount ?? activeStory._count?.likes ?? 0)} likes</span>
-                    <span>{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)} comments</span>
-                    <span>{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)} reposts</span>
-                  </div>
-                </div>
-              </div>
-              <div className="absolute right-2.5 top-[58%] z-30 flex -translate-y-1/2 flex-col items-center gap-1.5 pointer-events-auto">
-                <ReactionBar targetType="STORY" targetId={activeStory.id} layout="rail" compact className="w-[54px]" />
-                <button
-                  type="button"
-                  onClick={() => handleStoryCommentAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <MessageCircle className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.commentsCount ?? activeStory.interactions?.comments)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryRepostAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Repeat2 className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.repostsCount ?? activeStory.interactions?.reposts)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryDashAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Coins className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">Dash</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStorySendAction(activeStory)}
-                  className="inline-flex min-w-[52px] flex-col items-center rounded-xl bg-black/45 px-1.5 py-1.5 text-white transition hover:bg-black/65"
-                  disabled={Boolean(storyActionBusy[activeStory.id])}
-                >
-                  <Send className="h-3.5 w-3.5" />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.sendsCount ?? activeStory.interactions?.sends)}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStoryLike(activeStory)}
-                  className={`inline-flex min-w-[52px] flex-col items-center rounded-xl px-1.5 py-1.5 text-white transition ${
-                    activeStory.viewerLiked ? 'bg-rose-600/85' : 'bg-black/45 hover:bg-black/65'
-                  }`}
-                  disabled={storyActionBusy[activeStory.id]}
-                >
-                  <Heart className={`h-3.5 w-3.5 ${activeStory.viewerLiked ? 'fill-white text-white' : ''}`} />
-                  <span className="mt-1 text-[10px] font-semibold">{formatCompactCount(activeStory.likesCount ?? activeStory._count?.likes ?? 0)}</span>
-                </button>
-              </div>
-            </div>
-            {(() => {
-              const text = resolveStoryContent(activeStory);
-              const mediaUrl = resolveStoryMediaUrl(activeStory);
-              if (text && mediaUrl) {
-                return <p className="mt-3 text-sm text-gray-700">{text}</p>;
-              }
-              return null;
-            })()}
-            <div className="mt-3 flex items-center gap-2 text-[11px] text-gray-500">
-              <span>{normalizeStoryVisibility(activeStory.visibility)}</span>
-              <span>{activeStory.createdAt ? new Date(activeStory.createdAt).toLocaleString() : ''}</span>
-            </div>
-          </div>
-        </div>
+        <EnterpriseStoryViewer
+          story={activeStory}
+          stories={stories}
+          viewer={user}
+          onClose={() => setActiveStory(null)}
+          onNavigate={(nextStory) => {
+            if (!nextStory?.id) return;
+            openStory(nextStory);
+          }}
+          onEdit={() => openStoryEditor(activeStory)}
+          onDelete={() => void handleStoryDelete(activeStory)}
+          canManage={canManageStory(activeStory)}
+          autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
+        />
       )}
 
-      {storyCommentOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setStoryCommentOpen(false)}
-          />
-          <div className="relative w-full max-w-lg rounded-2xl bg-white p-5 text-gray-900 shadow-2xl">
-            <h3 className="text-base font-semibold">Comment on story</h3>
-            <p className="mt-1 text-xs text-gray-500">Your comment will be shared to your feed and linked to this story.</p>
-            <textarea
-              value={storyCommentDraft}
-              onChange={(event) => setStoryCommentDraft(event.target.value)}
-              rows={4}
-              placeholder="Write your comment..."
-              className="mt-4 w-full rounded-xl border border-gray-200 p-3 text-sm text-gray-700"
-            />
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setStoryCommentOpen(false)}
-                className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitStoryComment()}
-                className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase text-white"
-                disabled={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-              >
-                {storyActionBusy[String(storyActionTarget?.id || '')] ? 'Posting...' : 'Comment'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      <RepostModal
-        isOpen={storyRepostOpen}
-        onClose={() => setStoryRepostOpen(false)}
-        busy={Boolean(storyActionBusy[String(storyActionTarget?.id || '')])}
-        onRepostNow={async () => repostStory()}
-        onRepostWithComment={async (comment) => repostStory(comment)}
+      <PostExpandModal
+        open={Boolean(expandedPost)}
+        post={expandedPost}
+        viewerId={user?.id}
+        viewerUsername={user?.username}
+        onClose={() => setExpandedPost(null)}
       />
 
-      <PostShareModal
-        isOpen={storySendOpen}
-        onClose={() => setStorySendOpen(false)}
-        postUrl={activeStoryShareUrl}
-        entityLabel="story"
-        shareText={
-          storyActionTarget?.id
-            ? `Check this story on Scrolith: ${activeStoryShareUrl}`
-            : 'Check this story on Scrolith'
-        }
-        onShareToNetwork={() => {
-          if (!storyActionTarget?.id) return;
-          setStorySendOpen(false);
-          setStoryRepostOpen(true);
-        }}
-        onTrackedShare={async () => {
-          if (!storyActionTarget?.id) return;
-          await engageStoryAndSync(storyActionTarget, 'send');
-        }}
-      />
-
-      <SendGcoinModal
-        isOpen={storyDashOpen}
-        onClose={() => setStoryDashOpen(false)}
-        prefillRecipientId={activeStoryDashRecipient || undefined}
-        titleOverride="Dash Story Creator"
-        subtitleOverride="Support this story creator instantly with your Gcoin balance."
-        onSuccess={async () => {
-          if (!storyActionTarget?.id) return;
-          await engageStoryAndSync(storyActionTarget, 'dash');
-        }}
+      <MediaPreviewModal
+        open={Boolean(previewMedia)}
+        media={previewMedia}
+        onClose={() => setPreviewMedia(null)}
       />
     </div>
   );
 };
 
 export default CommunityHome;
+
+
+
 

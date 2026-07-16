@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
 import { AuthService } from '../services/authService';
-import { unregisterPushNotifications } from '../mobile/push';
+import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
 
 interface UserContextType {
   user: User | null;
@@ -9,7 +9,7 @@ interface UserContextType {
   isLoading: boolean;
   getAdminProfile: () => any;
   updateAdminProfile: (data: any) => void;
-  login: (email: string, password: string) => Promise<boolean>;
+  login: (email: string, password: string, options?: { redirect?: boolean }) => Promise<boolean>;
   logout: () => void;
   register: (email: string, name: string, password: string, role?: any, recaptchaToken?: string) => Promise<boolean>;
   updateUser: (updates: any) => void;
@@ -18,9 +18,44 @@ interface UserContextType {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 8000;
+const MOBILE_POST_AUTH_TARGET_KEY = 'scrolith:mobile-post-auth-target';
+
+const resolvePostAuthPath = (user: User | null) => {
+  return resolveAuthenticatedEntryPath(user);
+};
+
+const redirectAfterAuth = (user: User | null) => {
+  if (typeof window === 'undefined') return;
+  const target = resolvePostAuthPath(user);
+  try {
+    window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+    window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+  } catch {
+    // Session storage is best-effort; the direct redirect below is primary.
+  }
+  window.location.replace(new URL(target, window.location.origin).href);
+};
+
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
+  let timeoutId: number | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeoutId = window.setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+};
+
 export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => AuthService.getStoredUser());
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => Boolean(AuthService.getStoredUser()));
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(true);
 
   // Initialize auth state with proper role recognition
@@ -33,32 +68,41 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const url = new URL(window.location.href);
           url.searchParams.delete('from');
           window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+          try {
+            window.dispatchEvent(new PopStateEvent('popstate', { state: window.history.state }));
+          } catch {
+            // Ignore popstate synthesis failures.
+          }
         }
       } catch {}
       setIsLoading(true);
       
       try {
-        const cachedUser = AuthService.getStoredUser();
+        const token = await AuthService.getToken();
+        const cachedUser = token ? AuthService.getStoredUser() : null;
+
+        if (!token) {
+          await AuthService.clearToken();
+          if (mounted) {
+            setUser(null);
+            setIsAuthenticated(false);
+          }
+          return;
+        }
+
         if (cachedUser && mounted) {
           setUser(cachedUser);
           setIsAuthenticated(true);
         }
 
-        const { user: me, unauthorized } = await AuthService.getCurrentUserWithStatus();
+        const { user: me, unauthorized } = await withTimeout(
+          AuthService.getCurrentUserWithStatus(),
+          AUTH_BOOTSTRAP_TIMEOUT_MS,
+          { user: cachedUser, unauthorized: false }
+        );
         if (me && mounted) {
           setUser(me);
           setIsAuthenticated(true);
-
-          const fromAuth = window.location.search.includes('from=auth');
-          if (fromAuth && window.location.pathname === '/') {
-            if (me.role === UserRole.ADMIN) {
-              window.location.href = '/admin/dashboard';
-            } else if (me.role === UserRole.FREELANCER) {
-              window.location.href = '/freelancer/dashboard';
-            } else if (me.role === UserRole.EMPLOYER) {
-              window.location.href = '/client/dashboard';
-            }
-          }
         } else if (unauthorized) {
           setUser(null);
           setIsAuthenticated(false);
@@ -133,7 +177,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateUser(data);
   };
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (email: string, password: string, options?: { redirect?: boolean }): Promise<boolean> => {
     setIsLoading(true);
     
     try {
@@ -185,16 +229,8 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }));
         }
 
-        // Redirect based on role - but only if they explicitly want to go to dashboard
-        // Add a query parameter to indicate coming from login
-        if (userWithRole.role === UserRole.ADMIN) {
-          window.location.href = '/admin/dashboard';
-        } else if (userWithRole.role === UserRole.FREELANCER) {
-          window.location.href = '/freelancer/dashboard';
-        } else if (userWithRole.role === UserRole.EMPLOYER) {
-          window.location.href = '/client/dashboard';
-        } else {
-          window.location.href = '/';
+        if (options?.redirect !== false) {
+          redirectAfterAuth(userWithRole);
         }
         return true;
       }
@@ -246,19 +282,32 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
+    setUser(null);
+    setIsAuthenticated(false);
+    try {
+      localStorage.removeItem('admin_profile');
+      localStorage.removeItem('user');
+    } catch {}
+
+    // Drop all private messaging media object URLs before navigation.
+    void import('../services/messagingMedia')
+      .then((mod) => {
+        mod.revokeAllAuthenticatedMediaUrls();
+      })
+      .catch(() => {
+        // best-effort
+      });
+
+    void AuthService.clearToken();
     void (async () => {
       try {
+        const { unregisterPushNotifications } = await import('../mobile/push');
         await unregisterPushNotifications();
       } catch {}
       await AuthService.logout();
-      // Update React state after logout
-      setUser(null);
-      setIsAuthenticated(false);
-      // Clear admin profile
-      localStorage.removeItem('admin_profile');
-      // Redirect to login page
-      window.location.href = '/auth/login';
     })();
+
+    window.location.assign('/auth/login');
   };
 
   const updateUser = (updates: Partial<User>) => {
@@ -291,12 +340,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sessionStorage.setItem('activeRole', String(newRole));
     } catch {}
 
-    // Redirect to appropriate dashboard
-    if (newRole === UserRole.FREELANCER) {
-      window.location.href = '/freelancer/dashboard';
-    } else if (newRole === UserRole.EMPLOYER) {
-      window.location.href = '/client/dashboard';
-    }
+    redirectAfterAuth(updatedUser);
   };
 
   return (

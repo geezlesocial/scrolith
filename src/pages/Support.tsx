@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { SupportService } from '../services/support';
 import { useContent } from '../context/ContentContext';
 import { useNotification } from '../context/NotificationContext';
-import { Ticket, CheckCircle, Upload, ArrowRight, User, Mail, Phone, RefreshCw, MessageSquare } from 'lucide-react';
+import { Ticket, CheckCircle, Upload, ArrowRight, User, Mail, Phone, RefreshCw, MessageSquare, Paperclip } from 'lucide-react';
 import { TicketCategory, SupportTicket, TicketStatus } from '../types';
 import { executeRecaptcha } from '../services/recaptcha';
 
@@ -329,6 +329,22 @@ const Support = () => {
                                             <div className="mt-4 text-gray-700 bg-gray-50 p-4 rounded-lg text-sm">
                                                 <span className="block text-xs font-bold text-gray-400 mb-1 uppercase">Your Message</span>
                                                 {trackedTicket.message}
+                                                {trackedTicket.attachments?.length ? (
+                                                    <div className="mt-3 flex flex-wrap gap-2">
+                                                        {trackedTicket.attachments.map((attachment) => (
+                                                            <a
+                                                                key={attachment}
+                                                                href={attachment}
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                                                            >
+                                                                <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                                                Attachment
+                                                            </a>
+                                                        ))}
+                                                    </div>
+                                                ) : null}
                                             </div>
                                         </div>
 
@@ -342,14 +358,30 @@ const Support = () => {
                                                 trackedTicket.replies.filter((r: any) => !r.internalNote).map((reply: any) => (
                                                     <div key={reply.id} className={`flex ${reply.sender === 'admin' ? 'justify-start' : 'justify-end'}`}>
                                                         <div className={`max-w-[85%] rounded-xl p-4 shadow-sm ${reply.sender === 'admin' ? 'bg-blue-50 text-blue-900' : 'bg-gray-100 text-gray-900'}`}>
-                                                            <div className="flex items-center justify-between mb-2 text-xs opacity-70">
-                                                                <span className="font-bold">{reply.senderName}</span>
-                                                                <span>{new Date(reply.timestamp).toLocaleDateString()}</span>
-                                                            </div>
-                                                            <p className="text-sm whitespace-pre-wrap">{reply.message}</p>
-                                                        </div>
-                                                    </div>
-                                                ))
+                                                             <div className="flex items-center justify-between mb-2 text-xs opacity-70">
+                                                                 <span className="font-bold">{reply.senderName}</span>
+                                                                 <span>{new Date(reply.timestamp).toLocaleDateString()}</span>
+                                                             </div>
+                                                             <p className="text-sm whitespace-pre-wrap">{reply.message}</p>
+                                                             {reply.attachments?.length ? (
+                                                                <div className="mt-3 flex flex-wrap gap-2">
+                                                                    {reply.attachments.map((attachment: string) => (
+                                                                        <a
+                                                                            key={attachment}
+                                                                            href={attachment}
+                                                                            target="_blank"
+                                                                            rel="noreferrer"
+                                                                            className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50"
+                                                                        >
+                                                                            <Paperclip className="mr-1.5 h-3.5 w-3.5" />
+                                                                            Attachment
+                                                                        </a>
+                                                                    ))}
+                                                                </div>
+                                                             ) : null}
+                                                         </div>
+                                                     </div>
+                                                 ))
                                             )}
                                         </div>
                                         

@@ -13,6 +13,8 @@ interface ContentContextType {
 }
 
 const ContentContext = createContext<ContentContextType | undefined>(undefined);
+const DEFAULT_LOGO_URL = 'https://scrolith.com/logo.png';
+const DEFAULT_FAVICON_URL = 'https://scrolith.com/favicon.png';
 
 export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
@@ -86,10 +88,10 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
       console.error('Failed to load settings, using defaults', error);
       const defaultSettings: any = {
         siteName: 'Scrolith',
-        tagline: 'The Freelance Marketplace',
-        logoUrl: 'https://ui-avatars.com/api/?name=Scrolith&background=0D8ABC&color=fff&size=128&bold=true',
-        faviconUrl: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
-        favicon_url: 'https://ui-avatars.com/api/?name=G&background=0D8ABC&color=fff&size=64&bold=true',
+        tagline: 'AI-Powered Social Freelance Marketplace with Secure Escrow & Monetization',
+        logoUrl: DEFAULT_LOGO_URL,
+        faviconUrl: DEFAULT_FAVICON_URL,
+        favicon_url: DEFAULT_FAVICON_URL,
         adminEmail: 'admin@Scrolith.com',
         supportEmail: 'support@Scrolith.com',
         footerAboutTitle: 'About Scrolith',

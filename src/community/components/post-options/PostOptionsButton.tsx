@@ -3,6 +3,7 @@ import { MoreHorizontal } from 'lucide-react';
 
 import PostOptionsBottomSheet from './PostOptionsBottomSheet';
 import PostOptionsMenu from './PostOptionsMenu';
+import PostSaveCollectionDialog from './PostSaveCollectionDialog';
 import { usePostOptions } from './usePostOptions';
 
 const useIsMobile = (breakpointPx = 900) => {
@@ -47,15 +48,20 @@ export default function PostOptionsButton({
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const isMobile = useIsMobile(900);
   const [open, setOpen] = useState(false);
+  const [saveCollectionOpen, setSaveCollectionOpen] = useState(false);
 
-  const { items } = usePostOptions({
+  const { items, saved, setSaved } = usePostOptions({
     post,
     isOpen: open,
     onHideFromFeed,
     onEditPost,
     onDeletePost,
     onTogglePin,
-    onToggleHighlight
+    onToggleHighlight,
+    onOpenSaveCollectionPicker: () => {
+      setOpen(false);
+      setSaveCollectionOpen(true);
+    }
   });
 
   const resolvedTitle = useMemo(() => menuTitle || 'Post options', [menuTitle]);
@@ -73,8 +79,7 @@ export default function PostOptionsButton({
         ref={buttonRef}
         type="button"
         className={
-          buttonClassName ||
-          'rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50'
+          `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 ${buttonClassName || ''}`
         }
         aria-label="Post options"
         onClick={(e) => {
@@ -95,6 +100,15 @@ export default function PostOptionsButton({
       ) : (
         <PostOptionsMenu open={open} anchorEl={buttonRef.current} items={items} onClose={() => setOpen(false)} />
       )}
+
+      <PostSaveCollectionDialog
+        open={saveCollectionOpen}
+        postId={String(post?.id || '').trim()}
+        postTitle={String(post?.title || post?.content || '').slice(0, 80)}
+        saved={saved}
+        onSavedChange={(next) => setSaved(next)}
+        onClose={() => setSaveCollectionOpen(false)}
+      />
     </>
   );
 }

@@ -43,6 +43,20 @@ export interface NotificationsResponse {
   };
 }
 
+export interface QuietHourRule {
+  id: string;
+  userId: string;
+  label?: string;
+  channel: 'ALL' | 'IN_APP' | 'PUSH' | 'EMAIL';
+  timezone?: string;
+  daysOfWeek: string[];
+  startMinute: number;
+  endMinute: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const notificationsApi = {
   getNotifications: async (): Promise<Notification[]> => {
     const response = await api.get<ApiResponse<Notification[]>>('/notifications');
@@ -97,5 +111,24 @@ export const NotificationService = {
   },
   markAllAsRead: async () => {
     await api.post('/notifications/mark-all-read');
+  },
+  getQuietHours: async (): Promise<QuietHourRule[]> => {
+    const res = await api.get('/notifications/quiet-hours');
+    const rows = res.data?.data;
+    return Array.isArray(rows) ? rows : [];
+  },
+  createQuietHour: async (payload: {
+    label?: string | null;
+    channel?: 'ALL' | 'IN_APP' | 'PUSH' | 'EMAIL';
+    timezone?: string | null;
+    daysOfWeek?: string[];
+    startTime?: string;
+    endTime?: string;
+  }): Promise<QuietHourRule> => {
+    const res = await api.post('/notifications/quiet-hours', payload);
+    return handleApiResponse<QuietHourRule>(res);
+  },
+  deleteQuietHour: async (id: string): Promise<void> => {
+    await api.delete(`/notifications/quiet-hours/${encodeURIComponent(id)}`);
   }
 };
