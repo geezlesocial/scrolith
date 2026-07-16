@@ -36,13 +36,14 @@ const shouldUseMobilePostLoginRoute = () => {
       window.screen?.availHeight || Number.POSITIVE_INFINITY
     );
     const touchDevice = coarsePointer || maxTouchPoints > 0;
+    // Match mobile shell floor (lg / 1024). Do not treat touch laptops ≤1366 as mobile —
+    // that mis-routed post-login into MobileHome and incomplete desktop chrome.
     return (
-      viewportWidth < 1180 ||
-      (touchDevice && viewportWidth <= 1366) ||
-      (touchDevice && screenWidth <= 900)
+      viewportWidth < 1024 ||
+      (touchDevice && screenWidth <= 900 && viewportWidth < 1024)
     );
   } catch {
-    return window.innerWidth < 1180;
+    return window.innerWidth < 1024;
   }
 };
 

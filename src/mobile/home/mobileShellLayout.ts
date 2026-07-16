@@ -1,6 +1,13 @@
-import { shouldUseMobileShellViewportFor } from './mobileShellLayoutUtils';
+import {
+  DESKTOP_MEMBER_HOME_MIN_WIDTH,
+  shouldUseMobileShellViewportFor
+} from './mobileShellLayoutUtils';
 
-export const MOBILE_SHELL_BREAKPOINT = 1180;
+/**
+ * Align mobile-shell cutoff with Tailwind `lg` and Member Home 3-column CSS.
+ * Previous 1180 + touch≤1366 rule forced MobileHome on common desktop laptops.
+ */
+export const MOBILE_SHELL_BREAKPOINT = DESKTOP_MEMBER_HOME_MIN_WIDTH;
 
 export const MOBILE_PAGE_CONTAINER_CLASS = 'mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-5';
 export const MOBILE_PAGE_SECTION_CLASS = `${MOBILE_PAGE_CONTAINER_CLASS} py-4 md:py-5`;

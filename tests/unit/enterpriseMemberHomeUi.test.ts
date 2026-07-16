@@ -29,6 +29,15 @@ const memberHomeSource = readFileSync(
   'utf8'
 );
 const appSource = readFileSync(join(here, '../../src/App.tsx'), 'utf8');
+const mobileShellSource = readFileSync(
+  join(here, '../../src/mobile/home/mobileShellLayout.ts'),
+  'utf8'
+);
+const mobileShellUtilsSource = readFileSync(
+  join(here, '../../src/mobile/home/mobileShellLayoutUtils.ts'),
+  'utf8'
+);
+const loginSource = readFileSync(join(here, '../../src/auth/Login.tsx'), 'utf8');
 
 test('page shell centers with enterprise max width and structural class', () => {
   assert.match(enterprisePageShell, /max-w-\[1560px\]/);
@@ -178,4 +187,18 @@ test('grid closes before modals — no extra full-width boards after grid siblin
   assert.equal((afterRight.match(/data-testid="scrolith-member-home-grid"/g) || []).length, 0);
   assert.equal((afterRight.match(/enterpriseMemberHomeGrid/g) || []).length, 0);
   assert.equal((afterRight.match(/Member Home Discovery Board/g) || []).length, 0);
+});
+
+test('mobile shell floor aligns to lg so desktop Member Home is not replaced by MobileHome', () => {
+  assert.match(mobileShellSource, /MOBILE_SHELL_BREAKPOINT\s*=\s*DESKTOP_MEMBER_HOME_MIN_WIDTH/);
+  assert.match(mobileShellUtilsSource, /DESKTOP_MEMBER_HOME_MIN_WIDTH\s*=\s*1024/);
+  // Regression: must not force mobile for coarse-touch up to 1366
+  assert.equal(mobileShellUtilsSource.includes('viewportWidth <= 1366'), false);
+  assert.equal(mobileShellUtilsSource.includes('e<=1366'), false);
+  assert.match(appSource, /shouldUseMobileMemberHome \? <MobileHome \/> : <MemberHomeSection \/>/);
+});
+
+test('login post-auth mobile detection no longer treats touch laptops ≤1366 as mobile', () => {
+  assert.equal(loginSource.includes('viewportWidth <= 1366'), false);
+  assert.match(loginSource, /viewportWidth < 1024/);
 });
