@@ -5,6 +5,7 @@ import {
   getScrolithaRuntimeHealth,
   sanitizeScrolithaUserMessage
 } from '../services/scrolitha/scrolitha.ollama';
+import { classifyScrolithaError } from '../services/scrolitha/scrolitha.errors';
 import { clearPostInsights, regeneratePostInsightsBatch } from '../services/postAi.service';
 import {
   createScrolithaSkill,
@@ -40,7 +41,7 @@ const asScrolithaModelLabel = (value: any) => {
 };
 
 const sanitizeAdminError = (error: any, fallback: string) =>
-  sanitizeScrolithaUserMessage(String(error?.message || fallback), fallback);
+  sanitizeScrolithaUserMessage(classifyScrolithaError(error, fallback).message, fallback);
 
 export const getAdminScrolithaConfigController = async (req: Request, res: Response) => {
   try {

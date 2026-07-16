@@ -1,6 +1,9 @@
 /**
  * Graceful degradation helpers for Scrolitha failure modes.
+ * User-facing copy is centralized via scrolitha.errors classification.
  */
+import { classifyScrolithaError } from './scrolitha.errors';
+
 export type DegradationResult<T> = {
   ok: boolean;
   degraded: boolean;
@@ -36,17 +39,11 @@ export const safeAsync = async <T>(
 
 export const userFacingDegradationMessage = (reason: string) => {
   const r = String(reason || '').toLowerCase();
-  if (r.includes('disabled') || r.includes('rollout')) {
-    return 'Scrolitha is temporarily unavailable for this capability.';
-  }
-  if (r.includes('timeout')) {
-    return 'Scrolitha took too long to respond. Please try again.';
-  }
   if (r.includes('cancel')) {
     return 'Request cancelled.';
   }
-  if (r.includes('rate') || r.includes('capacity')) {
-    return 'Scrolitha is busy. Please try again shortly.';
-  }
-  return 'Scrolitha could not complete this request. Core platform features remain available.';
+  // Shared classifier keeps timeout/rollout/rate-limit wording consistent across surfaces.
+  return classifyScrolithaError(new Error(String(reason || '')), 
+    'Scrolitha could not complete this request. Core platform features remain available.'
+  ).message;
 };
