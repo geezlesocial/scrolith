@@ -6,7 +6,7 @@ import { CMSService } from '../services/cms';
 import AIService from '../services/ai/ai.service';
 import { AnswersPageConfig } from '../types';
 import { sanitizeScrolithaPageConfig } from '../utils/scrolithaBranding';
-import ScrolithaResponseCard from '../components/scrolitha/ScrolithaResponseCard';
+import { ScrolithaResponseCard } from '../components/scrolitha';
 
 const fallback: AnswersPageConfig = {
   hero: {

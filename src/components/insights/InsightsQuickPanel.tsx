@@ -32,6 +32,8 @@ import {
 import { ScrolithaService, type ScrolithaRewriteMode } from '../../services/scrolitha';
 import { readCoachDraft, writeCoachDraft, type CoachDraftSnapshot } from '../../utils/scrolithaDrafts';
 import { classifyScrolithaClientError } from '../../utils/scrolithaErrors';
+import { runScrolithaRewrite } from '../../utils/scrolithaRewrite';
+import { extractScrolithaRewrittenText, extractScrolithaWarning } from '../../utils/scrolithaText';
 import { ScrollService, type ScrollSeriesDiscovery } from '../../services/scroll';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 
@@ -740,8 +742,14 @@ export default function InsightsQuickPanel({
             text,
             context: { surface: 'member_home', target: 'gig', source: 'insights_quick_panel' }
           });
-          nextOutput = String(result?.improved || result?.rewrittenText || result?.text || '').trim();
-          nextWarning = String(result?.warning || '').trim();
+          nextOutput = extractScrolithaRewrittenText(result);
+          nextWarning = extractScrolithaWarning(result);
+          if (!nextOutput) {
+            throw new Error('Scrolitha returned an empty result. Please try again.');
+          }
+          setCoachOutput(nextOutput);
+          setCoachStatus(nextWarning || 'Scrolitha coach updated your draft.');
+          setCoachRetryable(false);
         } else {
           const rewriteMode =
             actionKey === 'clarify-brief'
@@ -753,24 +761,22 @@ export default function InsightsQuickPanel({
               : coachSurface === 'gig'
                 ? 'Improve this gig copy so the offer is clearer, stronger, and easier for buyers to trust.'
                 : 'Clarify this brief so the need, scope, and expected outcome are easy to understand and match.';
-          const result = await ScrolithaService.rewrite({
+          const result = await runScrolithaRewrite({
             text,
             scope: coachSurface,
             mode: rewriteMode as ScrolithaRewriteMode,
             tone: actionKey === 'professional' ? 'professional' : undefined,
             goal
           });
-          nextOutput = String(result?.rewrittenText || result?.text || result?.reply || '').trim();
-          nextWarning = String(result?.warning || '').trim();
+          if (!result.ok) {
+            setCoachStatus(result.message);
+            setCoachRetryable(result.retryable);
+            return;
+          }
+          setCoachOutput(result.text);
+          setCoachStatus(result.warning || 'Scrolitha coach updated your draft.');
+          setCoachRetryable(false);
         }
-
-        if (!nextOutput) {
-          throw new Error('Scrolitha returned an empty result. Please try again.');
-        }
-
-        setCoachOutput(nextOutput);
-        setCoachStatus(nextWarning || 'Scrolitha coach updated your draft.');
-        setCoachRetryable(false);
       } catch (e: any) {
         const classified = classifyScrolithaClientError(
           e,

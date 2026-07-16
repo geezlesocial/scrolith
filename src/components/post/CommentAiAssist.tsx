@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Check, Loader2, Sparkles, Wand2, X } from 'lucide-react';
 import { useNotification } from '../../context/NotificationContext';
-import ScrolithaService, { type ScrolithaRewriteMode } from '../../services/scrolitha';
+import type { ScrolithaRewriteMode } from '../../services/scrolitha';
+import { runScrolithaRewrite } from '../../utils/scrolithaRewrite';
 
 type CommentAiAction = {
   key: string;
@@ -74,6 +75,7 @@ const CommentAiAssist: React.FC<CommentAiAssistProps> = ({
   const [suggestion, setSuggestion] = useState('');
   const [sourceText, setSourceText] = useState('');
   const [suggestionAction, setSuggestionAction] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
   const commentAiActions = useMemo(() => buildCommentAiActions(scopeLabel), [scopeLabel]);
 
   const dismissSuggestion = () => {
@@ -88,40 +90,30 @@ const CommentAiAssist: React.FC<CommentAiAssistProps> = ({
       showNotification('warning', 'Scrolitha', `Write your ${scopeLabel} first, then run Scrolitha assistance.`);
       return;
     }
-    if (loading || disabled) return;
+    if (loading || disabled || inFlightRef.current) return;
 
+    inFlightRef.current = true;
     setLoading(true);
     setRunningAction(action.key);
     try {
-      const result = await ScrolithaService.rewrite({
+      const result = await runScrolithaRewrite({
         text,
         mode: action.mode,
         goal: action.goal,
         scope: `comment-${scopeLabel}`
       });
-      const enhancedText = String(
-        result?.rewrittenText || result?.rewrite || result?.enhancedText || result?.text || ''
-      ).trim();
-      if (!enhancedText) {
-        showNotification('warning', 'Scrolitha', 'No suggestion was returned. Please try again.');
+      if (!result.ok) {
+        showNotification(result.retryable ? 'warning' : 'error', 'Scrolitha', result.message);
         return;
       }
-      if (result?.warning) {
-        showNotification('warning', 'Scrolitha', String(result.warning));
+      if (result.warning) {
+        showNotification('warning', 'Scrolitha', result.warning);
       }
       setSourceText(text);
-      setSuggestion(enhancedText);
+      setSuggestion(result.text);
       setSuggestionAction(action.key);
-    } catch (error: any) {
-      showNotification(
-        'error',
-        'Scrolitha',
-        error?.response?.data?.error ||
-          error?.response?.data?.message ||
-          error?.message ||
-          'Unable to enhance this text right now.'
-      );
     } finally {
+      inFlightRef.current = false;
       setLoading(false);
       setRunningAction(null);
     }

@@ -17,6 +17,8 @@ const safeParse = <T>(raw: string | null): T | null => {
 
 export const SCROLITHA_SUPPORT_DRAFT_KEY = 'scrolitha:support:draft:v1';
 export const SCROLITHA_COACH_DRAFT_KEY = 'scrolitha:coach:draft:v1';
+/** Shared handoff key for project-brief → SupportWidget / auth redirect flows. */
+export const SCROLITHA_PENDING_PROJECT_PROMPT_KEY = 'scrolitha_pending_project_prompt';
 
 export type SupportDraftSnapshot = {
   message?: string;
@@ -91,6 +93,35 @@ export const clearCoachDraft = () => {
   if (!isBrowser()) return;
   try {
     window.sessionStorage.removeItem(SCROLITHA_COACH_DRAFT_KEY);
+  } catch {
+    // ignore
+  }
+};
+
+export const writePendingProjectPrompt = (prompt: string) => {
+  if (!isBrowser()) return;
+  const value = String(prompt || '').trim();
+  if (!value) return;
+  try {
+    window.sessionStorage.setItem(SCROLITHA_PENDING_PROJECT_PROMPT_KEY, value);
+  } catch {
+    // non-fatal
+  }
+};
+
+export const readPendingProjectPrompt = (): string => {
+  if (!isBrowser()) return '';
+  try {
+    return String(window.sessionStorage.getItem(SCROLITHA_PENDING_PROJECT_PROMPT_KEY) || '').trim();
+  } catch {
+    return '';
+  }
+};
+
+export const clearPendingProjectPrompt = () => {
+  if (!isBrowser()) return;
+  try {
+    window.sessionStorage.removeItem(SCROLITHA_PENDING_PROJECT_PROMPT_KEY);
   } catch {
     // ignore
   }
