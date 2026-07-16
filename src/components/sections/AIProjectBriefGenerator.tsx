@@ -5,6 +5,7 @@ import { AIService } from "../../services/ai/ai.service";
 import { useNotification } from "../../context/NotificationContext";
 import { useUser } from "../../context/UserContext";
 import type { ProjectBriefContent } from "../../types";
+import { writePendingProjectPrompt } from "../../utils/scrolithaDrafts";
 
 const AIProjectBriefGenerator = ({ content }: { content?: ProjectBriefContent }) => {
   const [prompt, setPrompt] = useState("");
@@ -44,7 +45,7 @@ const AIProjectBriefGenerator = ({ content }: { content?: ProjectBriefContent })
 
   const routeToAuth = (mode: "login" | "signup") => {
     if (promptValue) {
-      sessionStorage.setItem("scrolitha_pending_project_prompt", promptValue);
+      writePendingProjectPrompt(promptValue);
     }
     const redirect = encodeURIComponent("/create-job?mode=ai_draft");
     navigate(`/auth/${mode}?redirect=${redirect}&source=scrolitha_project_brief`);

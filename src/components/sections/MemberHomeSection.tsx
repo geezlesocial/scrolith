@@ -117,6 +117,7 @@ import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../
 import type { CommunityClub, StructuredLocationFields } from '../../types';
 import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
 import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
+import { writePendingProjectPrompt } from '../../utils/scrolithaDrafts';
 import EnterpriseStoryViewer from '../../features/stories/components/StoryViewer';
 import {
   enterpriseCta,
@@ -7099,7 +7100,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     (mode: 'login' | 'signup', action: 'project_brief' | 'gig_creation') => {
       const cleanPrompt = projectBriefPrompt.trim();
       if (action === 'project_brief' && cleanPrompt) {
-        sessionStorage.setItem('scrolitha_pending_project_prompt', cleanPrompt);
+        writePendingProjectPrompt(cleanPrompt);
       }
       const redirect =
         action === 'project_brief'

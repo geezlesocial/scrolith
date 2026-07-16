@@ -21,7 +21,8 @@ import type { OfferTagSelection } from '../../utils/contentOffers';
 import type { PendingPostVideoScrollSource } from '../../utils/postVideoScrollBridge';
 import { LocationService } from '../../services/location';
 import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
-import { ScrolithaService, type ScrolithaRewriteMode } from '../../services/scrolitha';
+import type { ScrolithaRewriteMode } from '../../services/scrolitha';
+import { runScrolithaRewrite } from '../../utils/scrolithaRewrite';
 import type { LocationSuggestion } from '../../types';
 
 type ScrollCreateModalProps = {
@@ -358,31 +359,29 @@ const ScrollCreateModal: React.FC<ScrollCreateModalProps> = ({
       showNotification('info', 'Scrolitha', 'Add a description first so Scrolitha can improve it.');
       return;
     }
+    if (aiRewriting) return;
 
     try {
       setAiRewriting(mode);
-      const result = await ScrolithaService.rewrite({
+      const result = await runScrolithaRewrite({
         text,
         mode,
         scope: 'scroll_description'
       });
-      const rewrittenText = String(result?.rewrittenText || '').trim();
-      if (!rewrittenText) {
-        throw new Error('Scrolitha returned an empty description.');
+      if (!result.ok) {
+        showNotification(result.retryable ? 'warning' : 'error', 'Scrolitha', result.message);
+        return;
       }
-      setDescription(rewrittenText);
+      setDescription(result.text);
       setIsAIEnhanced(true);
-      if (result?.warning) {
-        showNotification('warning', 'Scrolitha', String(result.warning));
+      if (result.warning) {
+        showNotification('warning', 'Scrolitha', result.warning);
       }
-      showNotification('success', 'Scrolitha', `${SCROLL_DESCRIPTION_REWRITE_ACTIONS.find((entry) => entry.mode === mode)?.label || 'Rewrite'} applied.`);
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.error ||
-        error?.response?.data?.message ||
-        error?.message ||
-        'Scrolitha could not improve the description right now.';
-      showNotification('error', 'Scrolitha', message);
+      showNotification(
+        'success',
+        'Scrolitha',
+        `${SCROLL_DESCRIPTION_REWRITE_ACTIONS.find((entry) => entry.mode === mode)?.label || 'Rewrite'} applied.`
+      );
     } finally {
       setAiRewriting(null);
     }
