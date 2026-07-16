@@ -166,7 +166,10 @@ const extractCommunityPreviewItems = (payload: any): GuestCommunityPreviewItem[]
     .map((item, index) => {
       const reactionsMap = item?.interactions?.reactions;
       const reactions = reactionsMap && typeof reactionsMap === "object"
-        ? Object.values(reactionsMap).reduce((sum, value) => sum + Number(value || 0), 0)
+        ? Object.values(reactionsMap as Record<string, unknown>).reduce(
+            (sum: number, value) => sum + Number(value || 0),
+            0
+          )
         : Number(item?.likesCount ?? item?.interactions?.likes ?? 0);
 
       return {
@@ -198,80 +201,7 @@ type GuestMarketplacePreviewItem = {
   slug?: string;
 };
 
-const FALLBACK_MARKETPLACE_PREVIEW_ITEMS: GuestMarketplacePreviewItem[] = [
-  {
-    id: 'demo-marketplace-1',
-    title: 'Premium brand identity kit',
-    seller: 'Scrolith Studio',
-    category: 'Design',
-    price: 480,
-    image: '/logo.webp',
-    slug: 'premium-brand-identity-kit'
-  },
-  {
-    id: 'demo-marketplace-2',
-    title: 'Product photography + retouching',
-    seller: 'Creative Guild',
-    category: 'Media',
-    price: 240,
-    image: '/logo.webp',
-    slug: 'product-photography-retouching'
-  },
-  {
-    id: 'demo-marketplace-3',
-    title: 'Website speed audit and fixes',
-    seller: 'Scrolith Pro',
-    category: 'Development',
-    price: 320,
-    image: '/logo.webp',
-    slug: 'website-speed-audit-fixes'
-  }
-];
-
-const FALLBACK_COMMUNITY_PREVIEW_ITEMS: GuestCommunityPreviewItem[] = [
-  {
-    id: 'demo-community-1',
-    title: 'Launching a new service on Scrolith?',
-    author: 'Community Studio',
-    comments: 12,
-    reactions: 34
-  },
-  {
-    id: 'demo-community-2',
-    title: 'What content gets the best response for freelancers?',
-    author: 'Growth Circle',
-    comments: 8,
-    reactions: 21
-  },
-  {
-    id: 'demo-community-3',
-    title: 'How teams keep briefs organized at scale',
-    author: 'Ops Network',
-    comments: 5,
-    reactions: 17
-  }
-];
-
-const FALLBACK_MESSAGING_PREVIEW_ITEMS: GuestMessagingPreviewItem[] = [
-  {
-    id: 'demo-message-1',
-    title: 'Proposal review for the new marketplace listing',
-    activity: 'by Scrolith Studio',
-    replies: 18
-  },
-  {
-    id: 'demo-message-2',
-    title: 'Team follow-up on design revisions and delivery',
-    activity: 'by Creative Guild',
-    replies: 11
-  },
-  {
-    id: 'demo-message-3',
-    title: 'New client inquiry about a scoped gig package',
-    activity: 'by Scrolith Pro',
-    replies: 7
-  }
-];
+/** Phase 17B: no synthetic demo listings — live APIs or honest empty states only. */
 
 const extractMessagingPreviewItems = (threadsPayload: any, feedPayload: any): GuestMessagingPreviewItem[] => {
   const threadRows = ensureArray<any>(threadsPayload?.data ?? threadsPayload);
@@ -658,31 +588,40 @@ export const GuestHeroAuthSection: React.FC<{ content: GuestHeroAuthContent; sty
                 <img src={SCROLITH_LOGO} alt="Scrolith" width={16} height={16} className="h-4 w-4 rounded-full object-contain" loading="eager" decoding="async" />
                 Scrolith Enterprise
               </span>
-              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 shadow-sm">
-                Global work graph
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-800 shadow-sm">
+                Work · Market · AI · Community
               </span>
             </div>
-            <h1 className="max-w-[12ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
+            <h1 className="max-w-[14ch] text-[2rem] font-extrabold leading-[1.03] tracking-[-0.04em] text-slate-900 sm:max-w-none sm:text-3xl lg:text-4xl xl:text-[3.3rem]">
               {content?.headline || 'Build your next opportunity on Scrolith'}
             </h1>
             {content?.subheadline ? (
               <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">{content.subheadline}</p>
-            ) : null}
+            ) : (
+              <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 sm:text-base sm:leading-8">
+                One professional graph where talent, clients, companies, and communities grow together — powered by
+                Scrolitha AI and enterprise-grade trust.
+              </p>
+            )}
             {content?.description ? (
               <p className="mt-3 max-w-2xl text-[14px] leading-7 text-slate-500 sm:text-sm sm:leading-7">{content.description}</p>
             ) : null}
+            <p className="mt-3 max-w-2xl text-xs font-medium leading-6 text-slate-500 sm:text-[13px]">
+              Join free in minutes. Start with a stronger feed, clearer opportunities, and an AI coach that understands
+              work — not just chat.
+            </p>
             <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={() => handleHeroAction(content?.primaryCtaUrl, "signup")}
-                className="inline-flex w-full items-center justify-center rounded-full bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(15,23,42,0.7)] transition hover:bg-slate-800 sm:w-auto"
+                className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full bg-slate-950 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_18px_40px_-20px_rgba(15,23,42,0.7)] transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 sm:w-auto"
               >
                 {content?.primaryCtaLabel || "Create account"}
               </button>
               <button
                 type="button"
                 onClick={() => handleHeroAction(content?.secondaryCtaUrl, "login")}
-                className="inline-flex w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
+                className="inline-flex min-h-[48px] w-full items-center justify-center rounded-full border border-slate-300 bg-white/90 px-5 py-3.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 sm:w-auto"
               >
                 {content?.secondaryCtaLabel || "Log in"}
               </button>
@@ -869,7 +808,7 @@ export const GuestWhatIsScrolithSection: React.FC<{ content: GuestWhatIsScrolith
         )}
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {visibleCards.map((card, index) => (
-            <div key={card.id || `guest-card-${index}`} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <div key={card.id || `guest-card-${index}`} className="group rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0">
               <div className="mb-3 h-1.5 w-14 rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" />
               {card.icon || card.image ? (
                 <div className="mb-3 flex h-11 w-11 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
@@ -1089,16 +1028,12 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
           }
         }
 
-        if (!previewItems.length) {
-          previewItems = FALLBACK_MARKETPLACE_PREVIEW_ITEMS;
-        }
-
         if (!cancelled) {
           setMarketplacePreview({ loading: false, loaded: true, gigs: previewItems as any });
         }
       } catch {
         if (!cancelled) {
-          setMarketplacePreview({ loading: false, loaded: true, gigs: FALLBACK_MARKETPLACE_PREVIEW_ITEMS as any });
+          setMarketplacePreview({ loading: false, loaded: true, gigs: [] });
         }
       } finally {
         if (!cancelled) {
@@ -1125,13 +1060,13 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
         const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
         if (!cancelled) {
           const liveItems = extractCommunityPreviewItems(payload);
-          const fallbackItems = extractCommunityPreviewItems(homepage);
-          const items = liveItems.length ? liveItems : fallbackItems.length ? fallbackItems : FALLBACK_COMMUNITY_PREVIEW_ITEMS;
+          const homepageItems = extractCommunityPreviewItems(homepage);
+          const items = liveItems.length ? liveItems : homepageItems;
           setCommunityPreview({ loading: false, loaded: true, items });
         }
       } catch {
         if (!cancelled) {
-          setCommunityPreview({ loading: false, loaded: true, items: FALLBACK_COMMUNITY_PREVIEW_ITEMS });
+          setCommunityPreview({ loading: false, loaded: true, items: [] });
         }
       } finally {
         if (!cancelled) communityPreviewRequestRef.current = false;
@@ -1160,19 +1095,16 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
         const threads = threadsPayload.status === "fulfilled" ? threadsPayload.value : null;
         const feed = feedPayload.status === "fulfilled" ? feedPayload.value : null;
         const homepage = await fetchGuestJson("/homepage/guest").catch(() => null);
-        const items =
-          extractMessagingPreviewItems(threads, feed).length > 0
-            ? extractMessagingPreviewItems(threads, feed)
-            : extractMessagingPreviewItems(homepage, homepage).length > 0
-              ? extractMessagingPreviewItems(homepage, homepage)
-              : FALLBACK_MESSAGING_PREVIEW_ITEMS;
+        const primaryItems = extractMessagingPreviewItems(threads, feed);
+        const homepageItems = extractMessagingPreviewItems(homepage, homepage);
+        const items = primaryItems.length ? primaryItems : homepageItems;
 
         if (!cancelled) {
           setMessagingPreview({ loading: false, loaded: true, items });
         }
       } catch {
         if (!cancelled) {
-          setMessagingPreview({ loading: false, loaded: true, items: FALLBACK_MESSAGING_PREVIEW_ITEMS });
+          setMessagingPreview({ loading: false, loaded: true, items: [] });
         }
       } finally {
         if (!cancelled) messagingPreviewRequestRef.current = false;
@@ -1268,11 +1200,12 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                 key={tab.id || `showcase-tab-${index}`}
                 type="button"
                 onClick={() => setActiveIndex(index)}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                className={`min-h-[40px] rounded-full px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 ${
                   index === activeIndex
                     ? 'bg-slate-900 text-white shadow-md shadow-slate-300'
                     : 'bg-white text-slate-600 hover:bg-slate-100'
                 }`}
+                aria-pressed={index === activeIndex}
               >
                 {tab.label || tab.title || `Feature ${index + 1}`}
               </button>
@@ -1351,10 +1284,16 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                     ) : (
                       <div className="grid h-full min-h-[12rem] place-items-center rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 text-center">
                         <div>
-                          <p className="text-sm font-semibold text-slate-800">Live marketplace listings are temporarily unavailable.</p>
+                          <p className="text-sm font-semibold text-slate-800">No live marketplace listings available right now.</p>
                           <p className="mt-1 text-xs leading-5 text-slate-500">
-                            Public services will appear here as soon as the marketplace feed responds.
+                            We only show real production listings — never placeholders.
                           </p>
+                          <Link
+                            to="/auth/signup"
+                            className="mt-3 inline-flex min-h-[40px] items-center text-xs font-semibold text-blue-700 underline-offset-2 hover:underline"
+                          >
+                            Create free account
+                          </Link>
                         </div>
                       </div>
                     )}
@@ -1535,35 +1474,79 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
   const hasData = jobs.length > 0 || gigs.length > 0 || posts.length > 0;
   if (!hasData && !showEmptyState) return null;
 
+  const emptyJoin = (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-center">
+      <p className="text-xs font-medium text-slate-600">No live items from the platform right now.</p>
+      <Link
+        to="/auth/signup"
+        className="mt-2 inline-flex min-h-[40px] items-center text-xs font-semibold text-blue-700 underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+      >
+        Create free account to explore
+      </Link>
+    </div>
+  );
+
   return (
-    <section className="py-12 sm:py-16" style={{ background: style?.background || "#ffffff" }}>
+    <section className="guest-live-ecosystem py-12 sm:py-16" style={{ background: style?.background || "#ffffff" }}>
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
-        {(content?.title || content?.subtitle) && (
+        {(content?.title || content?.subtitle || hasData) && (
           <div className="mb-6 text-center sm:mb-8">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Live opportunities</p>
-            {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : null}
-            {content?.subtitle ? <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p> : null}
+            <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+              <span className="relative flex h-2 w-2" aria-hidden="true">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-40 motion-reduce:animate-none" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-800">Live ecosystem</p>
+            </div>
+            {content?.title ? <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">{content.title}</h2> : (
+              <h2 className="text-2xl font-bold text-slate-900 sm:text-3xl">Opportunities moving on Scrolith right now</h2>
+            )}
+            {content?.subtitle ? (
+              <p className="mt-2 text-sm text-slate-600 sm:text-base">{content.subtitle}</p>
+            ) : (
+              <p className="mt-2 text-sm text-slate-600 sm:text-base">
+                Real jobs, gigs, and discussions from production — not demos. Join to engage.
+              </p>
+            )}
           </div>
         )}
         <div className="grid gap-4 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-            <h3 className="text-sm font-semibold text-slate-900">{content?.jobsTitle || 'Trending Jobs'}</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md motion-reduce:hover:translate-y-0">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">{content?.jobsTitle || 'Trending Jobs'}</h3>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700">
+                Hiring
+              </span>
+            </div>
             <div className="mt-3 space-y-3">
               {jobs.slice(0, compactMode ? maxItems : 6).map((job, index) => (
-                <Link key={`${job.id || 'job'}-${index}`} to="/auth/login" className="block rounded-xl border border-slate-100 p-3 hover:bg-slate-50">
+                <Link
+                  key={`${job.id || 'job'}-${index}`}
+                  to="/auth/login"
+                  className="block rounded-xl border border-slate-100 p-3 transition hover:border-blue-100 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                >
                   <p className="text-sm font-medium text-slate-800">{job.title || 'Job opening'}</p>
                   <p className="mt-1 text-xs text-slate-500">{job.type || 'Role'}{job.budget ? ` | ${job.budget}` : ''}</p>
                 </Link>
               ))}
-              {jobs.length === 0 ? <p className="text-xs text-slate-500">No live jobs yet.</p> : null}
+              {jobs.length === 0 ? emptyJoin : null}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-            <h3 className="text-sm font-semibold text-slate-900">{content?.gigsTitle || 'Trending Gigs'}</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md motion-reduce:hover:translate-y-0">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">{content?.gigsTitle || 'Trending Gigs'}</h3>
+              <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                Marketplace
+              </span>
+            </div>
             <div className="mt-3 space-y-3">
               {gigs.slice(0, compactMode ? maxItems : 6).map((gig, index) => (
-                <Link key={`${gig.id || 'gig'}-${index}`} to="/auth/login" className="block rounded-xl border border-slate-100 p-3 hover:bg-slate-50">
+                <Link
+                  key={`${gig.id || 'gig'}-${index}`}
+                  to="/auth/login"
+                  className="block rounded-xl border border-slate-100 p-3 transition hover:border-violet-100 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
+                >
                   <p className="text-sm font-medium text-slate-800">{gig.title || 'Professional service'}</p>
                   <p className="mt-1 text-xs text-slate-500">
                     {typeof gig.price === 'number' ? `$${gig.price}` : 'Price on request'}
@@ -1571,23 +1554,37 @@ export const GuestTrendingPreviewSection: React.FC<{ content: GuestTrendingPrevi
                   </p>
                 </Link>
               ))}
-              {gigs.length === 0 ? <p className="text-xs text-slate-500">No live gigs yet.</p> : null}
+              {gigs.length === 0 ? emptyJoin : null}
             </div>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-            <h3 className="text-sm font-semibold text-slate-900">{content?.postsTitle || 'Popular Posts'}</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md motion-reduce:hover:translate-y-0">
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">{content?.postsTitle || 'Popular Posts'}</h3>
+              <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                Community
+              </span>
+            </div>
             <div className="mt-3 space-y-3">
               {posts.slice(0, compactMode ? maxItems : 6).map((post, index) => (
-                <Link key={`${post.id || 'post'}-${index}`} to="/auth/login" className="block rounded-xl border border-slate-100 p-3 hover:bg-slate-50">
+                <Link
+                  key={`${post.id || 'post'}-${index}`}
+                  to="/auth/login"
+                  className="block rounded-xl border border-slate-100 p-3 transition hover:border-emerald-100 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+                >
                   <p className="text-sm font-medium text-slate-800">{post.title || 'Community discussion'}</p>
                   <p className="mt-1 line-clamp-2 text-xs text-slate-500">{post.content || ''}</p>
                 </Link>
               ))}
-              {posts.length === 0 ? <p className="text-xs text-slate-500">No live community posts yet.</p> : null}
+              {posts.length === 0 ? emptyJoin : null}
             </div>
           </div>
         </div>
+        {hasData ? (
+          <p className="mt-5 text-center text-xs text-slate-500">
+            Sourced from live platform content. Sign in to apply, message, and engage.
+          </p>
+        ) : null}
       </div>
     </section>
   );
@@ -1693,12 +1690,12 @@ export const GuestFinalCtaSection: React.FC<{ content: GuestFinalCtaContent; sty
             <ActionLink
               label={content?.primaryCtaLabel || 'Sign up'}
               url={content?.primaryCtaUrl || '/auth/signup'}
-              className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+              className="inline-flex min-h-[44px] items-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             />
             <ActionLink
               label={content?.secondaryCtaLabel || 'Login'}
               url={content?.secondaryCtaUrl || '/auth/login'}
-              className="inline-flex rounded-full border border-white/60 px-5 py-2.5 text-sm font-semibold text-white hover:border-white"
+              className="inline-flex min-h-[44px] items-center rounded-full border border-white/60 px-5 py-2.5 text-sm font-semibold text-white transition hover:border-white hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
             />
           </div>
         </div>
