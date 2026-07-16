@@ -26,6 +26,8 @@ export type MemberHomeHighlightItem = {
   eyebrow?: string;
   meta?: string;
   badge?: string;
+  /** Phase 18 optional intelligence note (presentation-only). */
+  reason?: string;
   ctaLabel?: string;
   href?: string;
   onClick?: () => void;
@@ -417,6 +419,11 @@ const ModuleCard = ({
             <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-5">
               {item.description}
             </p>
+            {item.reason ? (
+              <p className="mt-1 line-clamp-1 text-[11px] font-medium text-sky-700">
+                Why: {item.reason}
+              </p>
+            ) : null}
             <div className="mt-2 flex items-center justify-between gap-2">
               <span className={['truncate', enterpriseWidgetMeta].join(' ')}>
                 {item.meta || 'Live on member home'}

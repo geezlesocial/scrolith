@@ -973,3 +973,24 @@ svg {
     transform: none !important;
   }
 }
+
+/* Phase 18 / 18.1 — Feed intelligence chip micro-motion (subtle, reduced-motion safe) */
+.feed-intel-chip-enter {
+  animation: riseFade 220ms ease-out both;
+}
+
+.feed-intel-rail {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  .feed-intel-rail {
+    gap: 0.375rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .feed-intel-chip-enter {
+    animation: none !important;
+  }
+}

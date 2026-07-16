@@ -41,12 +41,19 @@ import { resolveVerificationLevel } from '../../../utils/verification';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
+import FeedIntelligenceSignals from '../../../components/feed/FeedIntelligenceSignals';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 import { pickInterestSurveyCandidateIds } from '../../../components/recommendation/ContentInterestSurvey';
 import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
+import {
+  resolveFeedRankingPresentation,
+  resolveListingFitReasons,
+  resolvePageRecoPresentation,
+  resolvePersonRecoPresentation
+} from '../../../utils/feedIntelligence';
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -821,6 +828,31 @@ export default function MobileFeed({
       sourceLanguage: post?.sourceLanguage ?? post?.source_language ?? null,
       translationVersion: post?.translationVersion ?? post?.translation_version ?? null,
       interactions,
+      ranking: (() => {
+        const raw = post?.ranking;
+        const presentation = resolveFeedRankingPresentation(post);
+        if (!raw && !presentation.primaryReason && presentation.reasons.length === 0 && !presentation.scoreLabel) {
+          return post?.ranking;
+        }
+        return {
+          mode: raw?.mode || raw?.recipeKey || undefined,
+          score:
+            raw?.score != null
+              ? Number(raw.score)
+              : post?.score != null || post?.rankingScore != null
+                ? Number(post.score ?? post.rankingScore)
+                : undefined,
+          primaryReason: presentation.primaryReason || raw?.primaryReason || raw?.primary_reason || null,
+          reasons:
+            presentation.reasons.length > 0
+              ? presentation.reasons
+              : Array.isArray(raw?.reasons)
+                ? raw.reasons
+                : presentation.primaryReason
+                  ? [presentation.primaryReason]
+                  : []
+        };
+      })(),
       userState: post?.userState || post?.user_state || {}
     };
   }, []);
@@ -897,15 +929,17 @@ export default function MobileFeed({
 
     if (topJob) {
       const budgetLabel = formatHighlightMoney((topJob as any)?.budget);
+      const jobFit = resolveListingFitReasons(topJob, 'job');
       items.push({
         id: `mobile-job:${topJob.id}`,
-        eyebrow: 'Featured jobs',
+        eyebrow: 'Hiring intelligence',
         title: topJob.title || 'Recommended job',
         description: [topJob.clientName || 'Employer', topJob.category || topJob.subcategory || 'Professional opportunity']
           .filter(Boolean)
           .join(' · '),
         meta: budgetLabel ? `Budget $${budgetLabel}` : 'Flexible budget',
         badge: 'Live',
+        reason: jobFit[0] ? `Why: ${jobFit.slice(0, 2).join(' · ')}` : 'Matched to your professional graph',
         ctaLabel: 'Browse jobs',
         href: '/browse-jobs',
         mediaUrl: resolveHighlightListingImage(topJob as any),
@@ -916,15 +950,17 @@ export default function MobileFeed({
 
     if (topGig) {
       const priceLabel = formatHighlightMoney((topGig as any)?.price);
+      const gigFit = resolveListingFitReasons(topGig, 'gig');
       items.push({
         id: `mobile-gig:${topGig.id}`,
-        eyebrow: 'Featured gigs',
+        eyebrow: 'Marketplace intelligence',
         title: topGig.title || 'Recommended gig',
         description: [topGig.freelancerName || 'Freelancer', topGig.category || topGig.subcategory || 'Service listing']
           .filter(Boolean)
           .join(' · '),
         meta: priceLabel ? `From $${priceLabel}` : 'Pricing available',
         badge: 'Recommended',
+        reason: gigFit[0] ? `Why: ${gigFit.slice(0, 2).join(' · ')}` : 'Matched marketplace demand',
         ctaLabel: 'Browse gigs',
         href: '/browse',
         mediaUrl: resolveHighlightListingImage(topGig as any),
@@ -999,14 +1035,19 @@ export default function MobileFeed({
     if (topPerson || topPage) {
       const networkLead = topPerson?.name || topPage?.name || 'Suggested connections';
       const followPool = [topPerson?.name, topPage?.name].filter(Boolean).join(' · ');
+      const networkWhy =
+        (topPerson as any)?.whyRecommended ||
+        (topPage as any)?.whyRecommended ||
+        'Strengthen your professional graph';
       items.push({
         id: 'mobile-network-highlights',
-        eyebrow: 'Follow recommendations',
+        eyebrow: 'Relationship intelligence',
         title: networkLead,
         description:
           followPool || 'Suggested people and pages are already integrated into your home feed for faster growth.',
         meta: `${suggestedPeople.length} people · ${suggestedPages.length} pages`,
         badge: 'Grow',
+        reason: networkWhy,
         ctaLabel: 'Open recommendations',
         onClick: () =>
           scrollToFeedSection(
@@ -1039,8 +1080,9 @@ export default function MobileFeed({
     } else if (topPost) {
       items.push({
         id: `mobile-post:${topPost.id}`,
-        eyebrow: 'Feed pulse',
+        eyebrow: 'Feed intelligence',
         title: topPost.title || topPost.author?.displayName || topPost.authorName || 'Fresh from your network',
+        reason: topPost?.ranking?.primaryReason || 'Ranked for your current professional graph',
         description: String(
           topPost.content || 'Stay on top of the newest posts, updates, and conversations in your home feed.'
         ).trim(),
@@ -1855,7 +1897,17 @@ export default function MobileFeed({
               const username = String(account?.username || p?.username || '').trim();
               const avatarUrl = resolvePostAttachmentMediaUrl(account?.avatar || p?.avatar || null);
               if (!id || !name) return null;
-              return { id, name, username, avatarUrl, targetType: 'user' as const };
+              const intel = resolvePersonRecoPresentation(p);
+              return {
+                id,
+                name,
+                username,
+                avatarUrl,
+                targetType: 'user' as const,
+                reasons: intel.reasons,
+                whyRecommended: intel.whyRecommended,
+                badge: intel.badge
+              };
             })
             .filter(Boolean);
           setSuggestedPeople(mapped.slice(0, requestLimit * 2));
@@ -1890,7 +1942,17 @@ export default function MobileFeed({
               const username = String(account?.slug || account?.handle || account?.username || p?.slug || '').trim();
               const avatarUrl = resolvePostAttachmentMediaUrl(account?.avatar || p?.avatar || null);
               if (!id || !name) return null;
-              return { id, name, username, avatarUrl, targetType: 'page' as const };
+              const intel = resolvePageRecoPresentation(p);
+              return {
+                id,
+                name,
+                username,
+                avatarUrl,
+                targetType: 'page' as const,
+                reasons: intel.reasons,
+                whyRecommended: intel.whyRecommended,
+                badge: intel.badge
+              };
             })
             .filter(Boolean);
           setSuggestedPages(mapped.slice(0, requestLimit));
@@ -2216,8 +2278,8 @@ export default function MobileFeed({
             }
           >
             <MemberHomeHighlightsBoard
-              title="Member Home Highlights"
-              subtitle="Scrolitha coach, live office hours, recommended opportunities, follow suggestions, and live post momentum in one place."
+              title="Professional Discovery Board"
+              subtitle="Coach, live sessions, opportunities, network, and campaigns — ranked for your mobile workspace."
               pills={highlightPills}
               items={highlightItems}
               compact
@@ -2228,10 +2290,10 @@ export default function MobileFeed({
           <section className="space-y-3 rounded-[30px] border border-slate-200 bg-white p-4 shadow-[0_18px_40px_-28px_rgba(15,23,42,0.45)]" aria-label="Recommended jobs and gigs">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-500">Opportunities</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-indigo-500">Opportunity intelligence</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-950">Featured jobs and gigs</h2>
                 <p className="mt-1 text-sm leading-6 text-slate-500">
-                  Recommended listings stay visible on member_home while the feed updates.
+                  Live listings with fit signals from your professional graph.
                 </p>
               </div>
             </div>
@@ -2516,6 +2578,14 @@ export default function MobileFeed({
                     </div>
                   ) : null}
 
+                  <FeedIntelligenceSignals
+                    ranking={post?.ranking}
+                    interactions={post?.interactions}
+                    showWhy
+                    showEngagement
+                    compact
+                  />
+
                   {showMedia && attachments.length ? (
                     <div className="relative grid gap-2">
                       <div className={shouldBlurMedia ? 'pointer-events-none blur-sm' : ''}>
@@ -2683,13 +2753,43 @@ export default function MobileFeed({
 
               {idx === 3 && showPeopleCard ? (
                 <div id="mobile-member-home-people-suggestions">
-                  <SuggestedCard data={{ kind: 'people', title: 'Suggested people', items: suggestedPeople.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'user' })) }} />
+                  <SuggestedCard
+                    data={{
+                      kind: 'people',
+                      title: 'Suggested people',
+                      items: suggestedPeople.map((p: any) => ({
+                        id: p.id,
+                        name: p.name,
+                        username: p.username,
+                        avatarUrl: p.avatarUrl,
+                        targetType: 'user' as const,
+                        reasons: p.reasons,
+                        whyRecommended: p.whyRecommended,
+                        badge: p.badge
+                      }))
+                    }}
+                  />
                 </div>
               ) : null}
 
               {idx === 5 && showPagesCard ? (
                 <div id="mobile-member-home-page-suggestions">
-                  <SuggestedCard data={{ kind: 'pages', title: 'Suggested pages', items: suggestedPages.map((p) => ({ ...p, name: p.name, username: p.username, avatarUrl: p.avatarUrl, targetType: 'page' })) }} />
+                  <SuggestedCard
+                    data={{
+                      kind: 'pages',
+                      title: 'Suggested pages',
+                      items: suggestedPages.map((p: any) => ({
+                        id: p.id,
+                        name: p.name,
+                        username: p.username,
+                        avatarUrl: p.avatarUrl,
+                        targetType: 'page' as const,
+                        reasons: p.reasons,
+                        whyRecommended: p.whyRecommended,
+                        badge: p.badge
+                      }))
+                    }}
+                  />
                 </div>
               ) : null}
             </React.Fragment>

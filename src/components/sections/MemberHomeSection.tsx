@@ -116,6 +116,13 @@ import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { CommunityClub, StructuredLocationFields } from '../../types';
 import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
+import FeedIntelligenceSignals, { RecoSignalChips } from '../feed/FeedIntelligenceSignals';
+import {
+  resolveFeedRankingPresentation,
+  resolveListingFitReasons,
+  resolvePageRecoPresentation,
+  resolvePersonRecoPresentation
+} from '../../utils/feedIntelligence';
 import { buildScrolithaPath } from '../../utils/scrolithaLaunch';
 import { writePendingProjectPrompt } from '../../utils/scrolithaDrafts';
 import EnterpriseStoryViewer from '../../features/stories/components/StoryViewer';
@@ -332,6 +339,10 @@ type ProfileCard = {
   username?: string;
   entityType?: 'freelancer' | 'client';
   viewedAt?: string;
+  /** Phase 18 — presentation-only reco explainability from existing fields. */
+  reasons?: string[];
+  whyRecommended?: string;
+  badge?: string;
 };
 
 type RecommendedPageCard = {
@@ -345,6 +356,8 @@ type RecommendedPageCard = {
   followersCount?: number;
   isFollowing?: boolean;
   followId?: string | null;
+  reasons?: string[];
+  whyRecommended?: string;
 };
 
 type SidebarAdCard = {
@@ -2261,6 +2274,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     const source = page?.account || page || {};
     const id = String(source?.id || page?.entityId || page?.id || '').trim();
     if (!id) return null;
+    const intel = resolvePageRecoPresentation(page);
     return {
       id,
       name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
@@ -2271,7 +2285,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       avatar: resolveUserAvatarUrl(source || page) || null,
       followersCount: Number(source?.followersCount || page?.followersCount || 0),
       isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
-      followId: source?.followId || page?.followId || null
+      followId: source?.followId || page?.followId || null,
+      reasons: intel.reasons,
+      whyRecommended: intel.whyRecommended
     };
   }, []);
   const storyTitle = content?.storyTitle || 'Stories';
@@ -2442,7 +2458,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             ? Number(post.ai_score)
             : null,
       interactions,
-      ranking: post.ranking || undefined,
+      ranking: (() => {
+        const raw = post.ranking || undefined;
+        if (!raw && !post.why && post.score == null && post.rankingScore == null) return undefined;
+        const presentation = resolveFeedRankingPresentation(post);
+        return {
+          mode: raw?.mode || raw?.recipeKey || undefined,
+          score:
+            raw?.score != null
+              ? Number(raw.score)
+              : post.score != null || post.rankingScore != null
+                ? Number(post.score ?? post.rankingScore)
+                : undefined,
+          primaryReason: presentation.primaryReason || raw?.primaryReason || raw?.primary_reason || null,
+          reasons:
+            presentation.reasons.length > 0
+              ? presentation.reasons
+              : Array.isArray(raw?.reasons)
+                ? raw.reasons
+                : presentation.primaryReason
+                  ? [presentation.primaryReason]
+                  : []
+        };
+      })(),
       pipelineState: post.pipelineState || undefined,
       userState: post.userState || post.user_state || {}
     };
@@ -3443,20 +3481,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         await Promise.allSettled(tasks);
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
-        ? profilesRes.value.slice(0, maxProfiles).map((p: any) => ({
-            id: (p?.account?.id || p?.entityId || p?.id || p?.userId || p?.user_id || '').toString(),
-            name: p?.account?.name || p?.name || p?.userName || 'Community member',
-            subtitle:
-              p?.account?.headline ||
-              p?.account?.category ||
-              p?.title ||
-              p?.bio ||
-              p?.tagline ||
-              'Recommended profile',
-            avatar: p?.account?.avatar || p?.avatar || p?.userAvatar,
-            username: p?.account?.username || p?.username || p?.user_name || p?.userName || '',
-            entityType: (p?.entityType || p?.account?.entityType || 'freelancer') as 'freelancer' | 'client'
-          }))
+        ? profilesRes.value.slice(0, maxProfiles).map((p: any) => {
+            const intel = resolvePersonRecoPresentation(p);
+            return {
+              id: (p?.account?.id || p?.entityId || p?.id || p?.userId || p?.user_id || '').toString(),
+              name: p?.account?.name || p?.name || p?.userName || 'Community member',
+              subtitle:
+                p?.account?.headline ||
+                p?.account?.category ||
+                p?.title ||
+                p?.bio ||
+                p?.tagline ||
+                'Recommended profile',
+              avatar: p?.account?.avatar || p?.avatar || p?.userAvatar,
+              username: p?.account?.username || p?.username || p?.user_name || p?.userName || '',
+              entityType: (String(p?.entityType || p?.account?.entityType || '').toLowerCase() === 'client' ||
+              String(p?.entityType || p?.account?.entityType || '').toLowerCase() === 'employer'
+                ? 'client'
+                : 'freelancer') as 'freelancer' | 'client',
+              reasons: intel.reasons,
+              whyRecommended: intel.whyRecommended,
+              badge: intel.badge
+            };
+          })
         : [];
 
       const viewersList =
@@ -6137,6 +6184,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               </p>
               <p className="mt-2 text-sm text-slate-600">Budget: {formatListingAmount(job?.budget)}</p>
             </Link>
+            <RecoSignalChips
+              reasons={resolveListingFitReasons(job, 'job')}
+              whyRecommended="Matched from live hiring demand for your professional graph."
+              className="mt-2"
+            />
             <div className="mt-3 rounded-2xl border border-indigo-100 bg-white/80 px-3 py-2.5">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-indigo-700">Scrolitha recommendation</p>
@@ -6241,6 +6293,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </p>
             <p className="mt-2 text-sm text-slate-600">From {formatListingAmount(gig?.price, '$0')}</p>
           </Link>
+          <RecoSignalChips
+            reasons={resolveListingFitReasons(gig, 'gig')}
+            whyRecommended="Matched from marketplace demand aligned to your network signals."
+            className="mt-2"
+          />
           <div className="mt-3 rounded-2xl border border-emerald-100 bg-white/80 px-3 py-2.5">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-700">Scrolitha recommendation</p>
@@ -7318,11 +7375,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         'Recommended people and pages are available directly on your member home.';
       items.push({
         id: 'desktop-network',
-        eyebrow: 'Follow recommendations',
+        eyebrow: 'Relationship intelligence',
         title: networkTitle,
         description: networkDescription,
         meta: `${profiles.length} people · ${recommendedPages.length} pages`,
         badge: 'Grow',
+        reason: topProfile?.whyRecommended || topPage?.whyRecommended || 'Strengthen your professional graph',
         ctaLabel: topProfile ? 'View profile' : 'Open page',
         href: topProfile ? buildProfileUrl(topProfile) : topPage ? buildPageUrl(topPage) : undefined,
         mediaUrl: topProfile?.avatar || topPage?.avatar || '',
@@ -7348,12 +7406,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     } else if (topPost) {
       items.push({
         id: `desktop-post:${topPost.id}`,
-        eyebrow: 'Feed pulse',
+        eyebrow: 'Feed intelligence',
         title: topPost.title || topPost.author?.displayName || topPost.authorName || 'Fresh from your network',
         description:
           String(topPost.content || 'Posts and community updates stay live and accessible directly from member home.').trim(),
         meta: `${feedItems.length} posts loaded`,
         badge: 'Fresh',
+        reason: topPost.ranking?.primaryReason || 'Ranked for your current professional graph',
         ctaLabel: 'Open post',
         onClick: () => openPostCard(topPost),
         mediaUrl: resolveHighlightPostMedia(topPost),
@@ -8338,8 +8397,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 }
               >
                 <MemberHomeHighlightsBoard
-                  title="Member Home Discovery Board"
-                  subtitle="Coach, live sessions, opportunities, network, and campaigns — compact for your workspace."
+                  title="Professional Discovery Board"
+                  subtitle="Intelligence across coach, live sessions, opportunities, network, and campaigns — ranked for your workspace."
                   pills={memberHomeHighlightPills}
                   items={memberHomeHighlightItems}
                   className="rise-fade-delay-1"
@@ -8363,8 +8422,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             </Suspense>
 
             <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
-              <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900">{feedTitle}</p>
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">{feedTitle}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Personalized professional graph · explainable ranking · real-time engagement signals
+                  </p>
+                </div>
+                <span className="inline-flex items-center rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+                  Feed intelligence
+                </span>
               </div>
               <div className="sticky top-24 z-10 -mx-2 sm:-mx-4 border-y border-slate-100 bg-white/95 px-2 sm:px-4 py-3 backdrop-blur">
                 <div className="flex flex-wrap items-center gap-3">
@@ -8881,11 +8948,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               <div className="flex flex-wrap gap-2 text-xs text-slate-500">
                                 {post.topic ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Topic: {post.topic}</span> : null}
                                 {post.location ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">Location: {post.location}</span> : null}
-                                {showWhyThisPost && post.ranking?.primaryReason ? (
-                                  <span className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 font-semibold text-sky-700 shadow-sm">
-                                    Why this post: {post.ranking.primaryReason}
-                                  </span>
-                                ) : null}
+                                <FeedIntelligenceSignals
+                                  ranking={post.ranking}
+                                  interactions={post.interactions}
+                                  showWhy={showWhyThisPost}
+                                  showEngagement
+                                />
                                 {showPipelineSave ? (
                                   <button
                                     type="button"
@@ -9216,26 +9284,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <p className="text-[15px] text-slate-500">No page recommendations available yet.</p>
                   ) : (
                     recommendedPages.map((page) => (
-                      <div key={page.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3.5">
-                        <div className="min-w-0">
-                          <Link to={buildPageUrl(page)} className="block truncate text-[15px] font-semibold text-slate-900 hover:text-blue-600">
-                            {page.name}
-                          </Link>
-                          <p className="truncate text-sm text-slate-500">{page.tagline || page.industry || 'Business page'}</p>
-                          <p className="text-xs text-slate-400">{page.followersCount || 0} followers</p>
+                      <div key={page.id} className="rounded-xl border border-slate-200 p-3.5">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <Link to={buildPageUrl(page)} className="block truncate text-[15px] font-semibold text-slate-900 hover:text-blue-600">
+                              {page.name}
+                            </Link>
+                            <p className="truncate text-sm text-slate-500">{page.tagline || page.industry || 'Business page'}</p>
+                            <p className="text-xs text-slate-400">{page.followersCount || 0} followers</p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={Boolean(pagesFollowBusy[page.id])}
+                            onClick={() => handlePageFollow(page)}
+                            className={`min-h-10 shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold uppercase ${
+                              page.isFollowing
+                                ? 'border-slate-300 text-slate-600'
+                                : 'border-blue-200 text-blue-600'
+                            } disabled:cursor-not-allowed disabled:opacity-60`}
+                          >
+                            {pagesFollowBusy[page.id] ? 'Please wait...' : page.isFollowing ? 'Following' : 'Follow'}
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          disabled={Boolean(pagesFollowBusy[page.id])}
-                          onClick={() => handlePageFollow(page)}
-                          className={`min-h-10 shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold uppercase ${
-                            page.isFollowing
-                              ? 'border-slate-300 text-slate-600'
-                              : 'border-blue-200 text-blue-600'
-                          } disabled:cursor-not-allowed disabled:opacity-60`}
-                        >
-                          {pagesFollowBusy[page.id] ? 'Please wait...' : page.isFollowing ? 'Following' : 'Follow'}
-                        </button>
+                        <RecoSignalChips reasons={page.reasons} whyRecommended={page.whyRecommended} />
                       </div>
                     ))
                   )}
@@ -9298,43 +9369,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <p className="text-[15px] text-slate-500">No recommendations yet.</p>
                   ) : (
                     profiles.map((profile) => (
-                      <div key={profile.id} className="flex items-center justify-between gap-3">
-                        <Link to={buildProfileUrl(profile)} className="flex min-w-0 items-center gap-3">
-                          <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
-                            {profile.avatar ? (
-                              <OptimizedImage
-                                src={resolveAssetUrl(profile.avatar)}
-                                alt={profile.name}
-                                width={96}
-                                height={96}
-                                sizes="48px"
-                                className="h-full w-full object-cover"
-                                loading="lazy"
-                                decoding="async"
-                              />
-                            ) : (
-                              <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
-                            )}
+                      <div key={profile.id} className="rounded-xl border border-slate-200/80 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <Link to={buildProfileUrl(profile)} className="flex min-w-0 items-center gap-3">
+                            <div className="h-12 w-12 overflow-hidden rounded-full bg-slate-100">
+                              {profile.avatar ? (
+                                <OptimizedImage
+                                  src={resolveAssetUrl(profile.avatar)}
+                                  alt={profile.name}
+                                  width={96}
+                                  height={96}
+                                  sizes="48px"
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              ) : (
+                                <Users className="mx-auto mt-3 h-5 w-5 text-slate-400" />
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <p className="truncate text-[15px] font-semibold text-slate-900">{profile.name}</p>
+                                {profile.badge ? (
+                                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                    {profile.badge}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="truncate text-sm text-slate-500">{profile.subtitle}</p>
+                            </div>
+                          </Link>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleFollow(profile)}
+                              className="min-h-10 rounded-full border border-slate-200 px-3.5 py-2 text-xs font-semibold uppercase text-slate-700"
+                            >
+                              {followingIds.has(profile.id) ? 'Following' : 'Follow'}
+                            </button>
+                            <button
+                              onClick={() => handleMessage(profile)}
+                              className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase text-white"
+                            >
+                              Contact
+                            </button>
                           </div>
-                          <div className="min-w-0">
-                            <p className="truncate text-[15px] font-semibold text-slate-900">{profile.name}</p>
-                            <p className="truncate text-sm text-slate-500">{profile.subtitle}</p>
-                          </div>
-                        </Link>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleFollow(profile)}
-                            className="min-h-10 rounded-full border border-slate-200 px-3.5 py-2 text-xs font-semibold uppercase text-slate-700"
-                          >
-                            {followingIds.has(profile.id) ? 'Following' : 'Follow'}
-                          </button>
-                          <button
-                            onClick={() => handleMessage(profile)}
-                            className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase text-white"
-                          >
-                            Contact
-                          </button>
                         </div>
+                        <RecoSignalChips reasons={profile.reasons} whyRecommended={profile.whyRecommended} />
                       </div>
                     ))
                   )}

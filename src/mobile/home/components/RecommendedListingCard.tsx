@@ -13,6 +13,8 @@ import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 import { resolveVerificationLevel } from '../../../utils/verification';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
+import { RecoSignalChips } from '../../../components/feed/FeedIntelligenceSignals';
+import { resolveListingFitReasons } from '../../../utils/feedIntelligence';
 
 type JobLike = {
   id: string;
@@ -242,7 +244,9 @@ export default function RecommendedListingCard({
             <span className="break-words [overflow-wrap:anywhere]">{title}</span>
             <Sparkles className="h-4 w-4 text-amber-500" aria-label="Recommended" />
           </div>
-          <div className="mt-1 text-xs text-slate-500">Picked for you based on your current mode.</div>
+          <div className="mt-1 text-xs text-slate-500">
+            Fit signals from live marketplace and hiring demand on your graph.
+          </div>
         </div>
         {seeAllHref ? (
           <Link
@@ -344,16 +348,21 @@ export default function RecommendedListingCard({
                     </div>
                   )}
                 </Link>
+                <RecoSignalChips
+                  reasons={resolveListingFitReasons(job, 'job')}
+                  whyRecommended="Matched from live hiring demand for your professional graph."
+                  className="mt-2"
+                />
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <Link
                     to={href}
-                    className="rounded-full border border-slate-200 px-2 py-1 text-center text-[11px] font-semibold uppercase text-slate-700"
+                    className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-slate-200 px-2 py-1 text-center text-[11px] font-semibold uppercase text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
                   >
                     View
                   </Link>
                   <Link
                     to={`${href}?intent=apply`}
-                    className="rounded-full bg-slate-900 px-2 py-1 text-center text-[11px] font-semibold uppercase text-white"
+                    className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-slate-900 px-2 py-1 text-center text-[11px] font-semibold uppercase text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
                   >
                     Apply
                   </Link>
@@ -361,7 +370,7 @@ export default function RecommendedListingCard({
                     type="button"
                     disabled={!canContact}
                     onClick={() => onContact?.({ kind: 'jobs', item: job })}
-                    className="rounded-full border border-slate-200 px-2 py-1 text-[11px] font-semibold uppercase text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-slate-200 px-2 py-1 text-[11px] font-semibold uppercase text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Contact
                   </button>
@@ -372,7 +381,7 @@ export default function RecommendedListingCard({
                     <button
                       type="button"
                       onClick={() => openScrolitha(buildListingScrolithaPrompt('jobs', String(job.title || ''), String(job.category || '')))}
-                      className="rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-indigo-700"
+                      className="min-h-[32px] rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
                     >
                       Enhance
                     </button>
@@ -487,16 +496,21 @@ export default function RecommendedListingCard({
                   </div>
                 )}
               </Link>
+              <RecoSignalChips
+                reasons={resolveListingFitReasons(gig, 'gig')}
+                whyRecommended="Matched from marketplace demand aligned to your network signals."
+                className="mt-2"
+              />
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <Link
                   to={href}
-                  className="rounded-full border border-slate-200 px-2 py-1 text-center text-[11px] font-semibold uppercase text-slate-700"
+                  className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-slate-200 px-2 py-1 text-center text-[11px] font-semibold uppercase text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
                 >
                   View
                 </Link>
                 <Link
                   to={`${href}?intent=buy`}
-                  className="rounded-full bg-slate-900 px-2 py-1 text-center text-[11px] font-semibold uppercase text-white"
+                  className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-slate-900 px-2 py-1 text-center text-[11px] font-semibold uppercase text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
                 >
                   Buy
                 </Link>
@@ -504,7 +518,7 @@ export default function RecommendedListingCard({
                   type="button"
                   disabled={!canContact}
                   onClick={() => onContact?.({ kind: 'gigs', item: gig })}
-                  className="rounded-full border border-slate-200 px-2 py-1 text-[11px] font-semibold uppercase text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-slate-200 px-2 py-1 text-[11px] font-semibold uppercase text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Contact
                 </button>
