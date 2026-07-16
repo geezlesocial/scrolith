@@ -203,6 +203,83 @@ test('login post-auth mobile detection no longer treats touch laptops ≤1366 as
   assert.match(loginSource, /viewportWidth < 1024/);
 });
 
+test('discovery board is compact enterprise layout with bounded Scrolitha coach mark', () => {
+  const boardSource = readFileSync(
+    join(here, '../../src/components/member-home/MemberHomeHighlightsBoard.tsx'),
+    'utf8'
+  );
+  const mobileFeedSource = readFileSync(
+    join(here, '../../src/mobile/home/components/MobileFeed.tsx'),
+    'utf8'
+  );
+
+  // 1–2: one compact header + metrics region
+  assert.match(boardSource, /data-testid="scrolith-member-home-discovery-board"/);
+  assert.match(boardSource, /data-testid="scrolith-discovery-header"/);
+  assert.match(boardSource, /data-testid="scrolith-discovery-metrics"/);
+  assert.match(boardSource, /aria-label="Discovery metrics"/);
+  assert.equal((boardSource.match(/data-testid="scrolith-discovery-header"/g) || []).length, 1);
+
+  // 3–4: coach mark + card bounded (48–56px mark container; no oversized hero)
+  assert.match(boardSource, /data-testid="scrolith-discovery-coach-card"/);
+  assert.match(boardSource, /data-testid="scrolith-discovery-coach-mark"/);
+  assert.match(boardSource, /h-12 w-12.*sm:h-14 sm:w-14|sm:h-14 sm:w-14/);
+  assert.match(boardSource, /h-8 w-8 object-contain sm:h-9 sm:w-9/);
+  assert.equal(boardSource.includes('min-h-[13rem]'), false);
+  assert.equal(boardSource.includes('2xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]'), false);
+  assert.equal(/heightClassName="h-full min-h-\[13rem\]/.test(boardSource), false);
+  assert.equal(boardSource.includes('h-40 w-40'), false);
+
+  // 5–6: Open coach exact action + capability metadata (parent-owned)
+  assert.match(memberHomeSource, /desktop-scrolitha-coach/);
+  assert.match(memberHomeSource, /ctaLabel: 'Open coach'/);
+  assert.match(memberHomeSource, /onClick: \(\) => openInsightsSection\('scrolitha-coach', 'growth'\)/);
+  assert.match(memberHomeSource, /meta: 'Posts · Gigs · Briefs'/);
+  assert.match(boardSource, /parseCapabilityChips/);
+
+  // 7–8: module grid responsive contract + secondary cards keep ActionSurface
+  assert.match(boardSource, /data-testid="scrolith-discovery-module-grid"/);
+  assert.match(boardSource, /data-testid="scrolith-discovery-module-card"/);
+  assert.match(
+    boardSource,
+    /compact \? 'grid grid-cols-1 gap-2\.5' : 'grid grid-cols-1 gap-2\.5 sm:grid-cols-2 xl:grid-cols-3'/
+  );
+  assert.match(boardSource, /const ActionSurface/);
+  assert.match(boardSource, /item\.onClick/);
+  assert.match(boardSource, /item\.href/);
+
+  // 9–12: missing media safe; empty items null; no hero / no brand logo hero
+  assert.match(boardSource, /if \(!items\.length\) return null/);
+  assert.match(boardSource, /isBrandLogoUrl/);
+  assert.match(boardSource, /never become a large module hero/);
+  assert.match(boardSource, /isScrolithaCoachHighlight/);
+
+  // 13–14: board only presentation — Member Home shell landmarks unchanged
+  assert.match(memberHomeSource, /data-testid="scrolith-member-home-left"/);
+  assert.match(memberHomeSource, /data-testid="scrolith-member-home-feed"/);
+  assert.match(memberHomeSource, /data-testid="scrolith-member-home-right"/);
+  assert.match(memberHomeSource, /MemberHomeHighlightsBoard/);
+  assert.equal(memberHomeSource.includes('enterpriseLeftColumn') === false, false);
+
+  // 15–16: mobile compact path keeps coach contract
+  assert.match(mobileFeedSource, /mobile-scrolitha-coach/);
+  assert.match(mobileFeedSource, /openInsightsSection\('scrolitha-coach', 'growth'\)/);
+  assert.match(mobileFeedSource, /ctaLabel: 'Open coach'/);
+  assert.match(mobileFeedSource, /compact/);
+
+  // 17–18: a11y — section labelled, focus rings, aria-label on actions
+  assert.match(boardSource, /aria-labelledby=\{headingId\}/);
+  assert.match(boardSource, /focus-visible:ring-2/);
+  assert.match(boardSource, /aria-label=\{item\.ctaLabel \|\| item\.title\}/);
+  assert.match(boardSource, /alt="Scrolitha"/);
+
+  // Pure presentation: no fetch/socket/BroadcastChannel in board
+  assert.equal(boardSource.includes('fetch('), false);
+  assert.equal(boardSource.includes('WebSocket'), false);
+  assert.equal(boardSource.includes('BroadcastChannel'), false);
+  assert.equal(boardSource.includes('setInterval'), false);
+});
+
 test('profile identity card overlaps circular avatar on cover without clipping', () => {
   assert.match(memberHomeSource, /data-testid="scrolith-member-home-profile-card"/);
   assert.match(memberHomeSource, /data-testid="scrolith-member-home-profile-avatar"/);

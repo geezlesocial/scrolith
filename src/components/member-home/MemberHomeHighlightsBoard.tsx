@@ -1,9 +1,16 @@
-import React from 'react';
+import React, { useId, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Sparkles } from 'lucide-react';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
 import { resolveResponsiveAssetUrl } from '../../utils/assetUrl';
+import {
+  enterpriseCtaPrimary,
+  enterprisePanel,
+  enterpriseWidgetBody,
+  enterpriseWidgetMeta,
+  enterpriseWidgetTitle
+} from '../enterprise/enterpriseClasses';
 
 type HighlightTone = 'slate' | 'blue' | 'emerald' | 'amber' | 'violet' | 'rose';
 
@@ -31,40 +38,65 @@ export type MemberHomeHighlightItem = {
 };
 
 const BRAND_LOGO_URL = '/logo.png';
+
 const isVideoUrl = (value?: string | null) => {
   const normalized = String(value || '').trim().toLowerCase();
   if (!normalized) return false;
   return /\.(mp4|webm|mov|m4v|ogg)(?:$|[?#])/.test(normalized);
 };
 
+const isBrandLogoUrl = (value?: string | null) => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return (
+    normalized === BRAND_LOGO_URL ||
+    normalized.endsWith('/logo.png') ||
+    normalized.includes('/logo.png?') ||
+    normalized.includes('scrolith-logo')
+  );
+};
+
+/** Coach / Scrolitha primary assistant card detection — preserves existing item ids. */
+export const isScrolithaCoachHighlight = (item: MemberHomeHighlightItem) => {
+  const id = String(item.id || '').toLowerCase();
+  const eyebrow = String(item.eyebrow || '').toLowerCase();
+  const title = String(item.title || '').toLowerCase();
+  return (
+    id.includes('scrolitha') ||
+    eyebrow.includes('scrolitha') ||
+    eyebrow.includes('coach') ||
+    title.includes('scrolitha coach')
+  );
+};
+
 const toneClasses: Record<HighlightTone, { ring: string; badge: string; icon: string }> = {
   slate: {
-    ring: 'border-slate-200 bg-white',
+    ring: 'border-slate-200/90 bg-white',
     badge: 'bg-slate-100 text-slate-700',
     icon: 'bg-slate-100 text-slate-700'
   },
   blue: {
-    ring: 'border-blue-200 bg-gradient-to-br from-blue-50 via-white to-indigo-50',
+    ring: 'border-blue-200/90 bg-white',
     badge: 'bg-blue-100 text-blue-700',
     icon: 'bg-blue-100 text-blue-700'
   },
   emerald: {
-    ring: 'border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50',
+    ring: 'border-emerald-200/90 bg-white',
     badge: 'bg-emerald-100 text-emerald-700',
     icon: 'bg-emerald-100 text-emerald-700'
   },
   amber: {
-    ring: 'border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50',
+    ring: 'border-amber-200/90 bg-white',
     badge: 'bg-amber-100 text-amber-700',
     icon: 'bg-amber-100 text-amber-700'
   },
   violet: {
-    ring: 'border-violet-200 bg-gradient-to-br from-violet-50 via-white to-fuchsia-50',
+    ring: 'border-violet-200/90 bg-white',
     badge: 'bg-violet-100 text-violet-700',
     icon: 'bg-violet-100 text-violet-700'
   },
   rose: {
-    ring: 'border-rose-200 bg-gradient-to-br from-rose-50 via-white to-pink-50',
+    ring: 'border-rose-200/90 bg-white',
     badge: 'bg-rose-100 text-rose-700',
     icon: 'bg-rose-100 text-rose-700'
   }
@@ -72,18 +104,20 @@ const toneClasses: Record<HighlightTone, { ring: string; badge: string; icon: st
 
 const ActionSurface = ({
   item,
-  children
+  children,
+  className = ''
 }: {
   item: MemberHomeHighlightItem;
   children: React.ReactNode;
+  className?: string;
 }) => {
+  const surfaceClass = ['group flex h-full w-full flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2', className]
+    .filter(Boolean)
+    .join(' ');
+
   if (item.onClick) {
     return (
-      <button
-        type="button"
-        onClick={item.onClick}
-        className="group flex h-full w-full flex-col text-left"
-      >
+      <button type="button" onClick={item.onClick} className={surfaceClass} aria-label={item.ctaLabel || item.title}>
         {children}
       </button>
     );
@@ -91,64 +125,73 @@ const ActionSurface = ({
 
   if (item.href) {
     return (
-      <Link to={item.href} className="group flex h-full w-full flex-col text-left">
+      <Link to={item.href} className={surfaceClass} aria-label={item.ctaLabel || item.title}>
         {children}
       </Link>
     );
   }
 
-  return <div className="flex h-full w-full flex-col text-left">{children}</div>;
+  return <div className={['flex h-full w-full flex-col text-left', className].filter(Boolean).join(' ')}>{children}</div>;
 };
 
-const HighlightMedia = ({
+const parseCapabilityChips = (meta?: string) =>
+  String(meta || '')
+    .split(/[·|/,]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+
+const ModuleThumb = ({
   item,
-  compact,
-  showMarginTop = true,
-  containerClassName = '',
-  heightClassName,
-  imageWidth,
-  imageHeight,
-  loading = 'lazy',
-  fetchPriority = 'auto'
+  compact
 }: {
   item: MemberHomeHighlightItem;
   compact: boolean;
-  showMarginTop?: boolean;
-  containerClassName?: string;
-  heightClassName?: string;
-  imageWidth?: number;
-  imageHeight?: number;
-  loading?: 'lazy' | 'eager';
-  fetchPriority?: 'high' | 'low' | 'auto';
 }) => {
-  const fallbackMediaUrl = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
+  const fallbackMediaUrl = String(item.fallbackMediaUrl || '').trim();
   const initialSrc = String(item.mediaUrl || '').trim();
   const videoUrl = String(item.videoUrl || '').trim();
   const posterUrl = String(item.posterUrl || '').trim();
-  const [src, setSrc] = React.useState(initialSrc || fallbackMediaUrl || '');
-  const [hidden, setHidden] = React.useState(!initialSrc && !fallbackMediaUrl);
+  const [src, setSrc] = React.useState(initialSrc);
+  const [hidden, setHidden] = React.useState(!initialSrc && !videoUrl);
 
   React.useEffect(() => {
     const nextSrc = String(item.mediaUrl || '').trim();
-    const nextFallback = String(item.fallbackMediaUrl || BRAND_LOGO_URL).trim();
-    setSrc(nextSrc || nextFallback || '');
-    setHidden(!nextSrc && !nextFallback);
-  }, [item.fallbackMediaUrl, item.mediaUrl]);
+    setSrc(nextSrc);
+    setHidden(!nextSrc && !String(item.videoUrl || '').trim());
+  }, [item.mediaUrl, item.videoUrl]);
 
-  if (hidden || !src) return null;
+  // Brand logo must never become a large module hero — icon badge handles identity.
+  if (isBrandLogoUrl(src) || isBrandLogoUrl(initialSrc)) {
+    return null;
+  }
 
-  const isBrandFallback = src === BRAND_LOGO_URL || src === fallbackMediaUrl && fallbackMediaUrl === BRAND_LOGO_URL;
+  if (hidden && !item.icon) return null;
+  if (hidden && item.icon) {
+    const tone = toneClasses[item.tone || 'slate'];
+    return (
+      <span
+        className={[
+          'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12',
+          tone.icon
+        ].join(' ')}
+        aria-hidden
+      >
+        {item.icon}
+      </span>
+    );
+  }
+
+  if (hidden || (!src && !videoUrl)) return null;
+
+  const size = compact ? 44 : 48;
   const shouldRenderVideo = Boolean(
-    videoUrl &&
-      (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
+    videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
-  const resolvedHeightClassName = heightClassName || (compact ? 'h-24 w-full' : 'h-28 w-full');
-  const resolvedImageWidth = imageWidth || (compact ? 320 : 384);
-  const resolvedImageHeight = imageHeight || (compact ? 144 : 192);
   const optimizedPosterUrl = shouldRenderVideo
     ? resolveResponsiveAssetUrl(posterUrl || src || fallbackMediaUrl || undefined, {
-        width: resolvedImageWidth,
-        height: resolvedImageHeight,
+        width: size * 2,
+        height: size * 2,
         fit: 'cover',
         quality: 68
       })
@@ -156,13 +199,8 @@ const HighlightMedia = ({
 
   return (
     <div
-      className={[
-        'relative overflow-hidden rounded-2xl border border-white/70 bg-white/80',
-        showMarginTop ? 'mt-3' : '',
-        containerClassName
-      ]
-        .filter(Boolean)
-        .join(' ')}
+      className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50 sm:h-12 sm:w-12"
+      aria-hidden
     >
       {shouldRenderVideo ? (
         <InlineAutoplayVideo
@@ -171,33 +209,29 @@ const HighlightMedia = ({
           controls={false}
           loop
           autoplayEnabled
-          threshold={0.2}
-          rootMargin="0px 0px 12% 0px"
+          threshold={0.25}
+          rootMargin="0px 0px 8% 0px"
           showMuteToggle={false}
           loadingLabel={false}
-          containerClassName="w-full"
-          className={[resolvedHeightClassName, 'object-cover'].join(' ')}
+          containerClassName="h-full w-full"
+          className="h-full w-full object-cover"
           overlay={null}
-          preloadRootMargin="320px 0px 320px 0px"
+          preloadRootMargin="160px 0px 160px 0px"
         />
       ) : (
         <OptimizedImage
           src={src}
-          fallbackSrc={fallbackMediaUrl}
-          alt={item.title}
-          width={resolvedImageWidth}
-          height={resolvedImageHeight}
-          sizes={compact ? '(max-width: 768px) 100vw, 20rem' : '(max-width: 1536px) 100vw, 35rem'}
-          fit={isBrandFallback ? 'contain' : 'cover'}
+          fallbackSrc={fallbackMediaUrl || undefined}
+          alt=""
+          width={size * 2}
+          height={size * 2}
+          sizes={`${size}px`}
+          fit="cover"
           quality={68}
-          loading={loading}
-          fetchPriority={fetchPriority}
-          className={[
-            resolvedHeightClassName,
-            isBrandFallback ? 'object-contain bg-slate-50 p-4' : 'object-cover'
-          ].join(' ')}
+          loading="lazy"
+          className="h-full w-full object-cover"
           onError={() => {
-            if (src !== fallbackMediaUrl && fallbackMediaUrl) {
+            if (src !== fallbackMediaUrl && fallbackMediaUrl && !isBrandLogoUrl(fallbackMediaUrl)) {
               setSrc(fallbackMediaUrl);
               return;
             }
@@ -205,6 +239,198 @@ const HighlightMedia = ({
           }}
         />
       )}
+    </div>
+  );
+};
+
+const CoachBrandMark = ({
+  mediaUrl,
+  icon
+}: {
+  mediaUrl?: string | null;
+  icon?: React.ReactNode;
+}) => {
+  const src = String(mediaUrl || BRAND_LOGO_URL).trim() || BRAND_LOGO_URL;
+  return (
+    <div
+      className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-violet-200/80 bg-gradient-to-br from-violet-50 to-white shadow-sm sm:h-14 sm:w-14"
+      data-testid="scrolith-discovery-coach-mark"
+    >
+      <OptimizedImage
+        src={src}
+        fallbackSrc={BRAND_LOGO_URL}
+        alt="Scrolitha"
+        width={56}
+        height={56}
+        sizes="56px"
+        fit="contain"
+        quality={72}
+        loading="eager"
+        fetchPriority="high"
+        className="h-8 w-8 object-contain sm:h-9 sm:w-9"
+      />
+      {icon ? (
+        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-violet-600 text-white shadow-sm">
+          {icon}
+        </span>
+      ) : (
+        <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border border-white bg-violet-600 text-white shadow-sm">
+          <Sparkles className="h-3 w-3" aria-hidden />
+        </span>
+      )}
+    </div>
+  );
+};
+
+const CoachCard = ({
+  item,
+  compact
+}: {
+  item: MemberHomeHighlightItem;
+  compact: boolean;
+}) => {
+  const chips = parseCapabilityChips(item.meta);
+  const tone = toneClasses[item.tone || 'violet'];
+
+  return (
+    <div
+      className={[
+        'rounded-2xl border p-3.5 shadow-sm sm:p-4',
+        tone.ring,
+        'bg-gradient-to-r from-violet-50/80 via-white to-white'
+      ].join(' ')}
+      data-testid="scrolith-discovery-coach-card"
+    >
+      <ActionSurface
+        item={item}
+        className="!flex-col !items-stretch gap-3 sm:!flex-row sm:!items-center sm:gap-4"
+      >
+        <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+          <CoachBrandMark mediaUrl={item.mediaUrl || BRAND_LOGO_URL} icon={item.icon} />
+
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {item.eyebrow ? (
+                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-600">
+                  {item.eyebrow}
+                </span>
+              ) : null}
+              {item.badge ? (
+                <span
+                  className={[
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    tone.badge
+                  ].join(' ')}
+                >
+                  {item.badge}
+                </span>
+              ) : null}
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
+                title="Assistant available in Member Home"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+                Ready
+              </span>
+            </div>
+
+            <h3
+              className={[
+                'mt-1 font-semibold leading-snug text-slate-900',
+                compact ? 'text-[15px]' : 'text-base sm:text-[17px]'
+              ].join(' ')}
+            >
+              {item.title}
+            </h3>
+            <p className={['mt-0.5 line-clamp-2', enterpriseWidgetBody].join(' ')}>{item.description}</p>
+
+            {chips.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Coach capabilities">
+                {chips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="rounded-full border border-slate-200/90 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {item.ctaLabel ? (
+          <span
+            className={[
+              enterpriseCtaPrimary,
+              'w-full shrink-0 justify-center gap-1.5 px-3.5 py-2 text-xs sm:w-auto sm:self-center sm:text-sm'
+            ].join(' ')}
+          >
+            {item.ctaLabel}
+            <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden />
+          </span>
+        ) : null}
+      </ActionSurface>
+    </div>
+  );
+};
+
+const ModuleCard = ({
+  item,
+  compact
+}: {
+  item: MemberHomeHighlightItem;
+  compact: boolean;
+}) => {
+  const tone = toneClasses[item.tone || 'slate'];
+
+  return (
+    <div
+      className={[
+        'rounded-2xl border p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md sm:p-3.5',
+        tone.ring
+      ].join(' ')}
+      data-testid="scrolith-discovery-module-card"
+    >
+      <ActionSurface item={item}>
+        <div className="flex items-start gap-3">
+          <ModuleThumb item={item} compact={compact} />
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {item.eyebrow ? (
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{item.eyebrow}</p>
+              ) : null}
+              {item.badge ? (
+                <span
+                  className={[
+                    'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                    tone.badge
+                  ].join(' ')}
+                >
+                  {item.badge}
+                </span>
+              ) : null}
+            </div>
+            <h3 className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 line-clamp-2 sm:text-[15px]">
+              {item.title}
+            </h3>
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-5">
+              {item.description}
+            </p>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className={['truncate', enterpriseWidgetMeta].join(' ')}>
+                {item.meta || 'Live on member home'}
+              </span>
+              {item.ctaLabel ? (
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-slate-900 sm:text-sm">
+                  {item.ctaLabel}
+                  <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" aria-hidden />
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </ActionSurface>
     </div>
   );
 };
@@ -224,297 +450,99 @@ export default function MemberHomeHighlightsBoard({
   compact?: boolean;
   className?: string;
 }) {
+  const headingId = useId();
+
+  const { coachItem, moduleItems } = useMemo(() => {
+    const list = Array.isArray(items) ? items.filter(Boolean) : [];
+    const coach = list.find((item) => isScrolithaCoachHighlight(item)) || null;
+    const modules = list.filter((item) => !coach || item.id !== coach.id);
+    return { coachItem: coach, moduleItems: modules };
+  }, [items]);
+
   if (!items.length) return null;
 
-  if (!compact) {
-    const featuredItem = items[0];
-    const spotlightItems = items.slice(1, 3);
-    const gridItems = items.slice(3, 6);
-    const featuredTone = toneClasses[featuredItem.tone || 'slate'];
-
-    return (
-      <section className={['overflow-hidden rounded-[2rem] border border-white/80 bg-white p-5 shadow-sm sm:p-6', className].join(' ')}>
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500">Discover</p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{title}</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{subtitle}</p>
-            </div>
-            {pills?.length ? (
-              <div className="flex flex-wrap gap-2 lg:max-w-[28rem] lg:justify-end">
-                {pills.slice(0, 5).map((pill) => (
-                  <div
-                    key={`${pill.label}:${pill.value}`}
-                    className="rounded-full border border-slate-200 bg-slate-50/90 px-3 py-1.5"
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-                      {pill.label}: <span className="text-slate-900">{pill.value}</span>
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(18rem,0.85fr)]">
-            <div className={['overflow-hidden rounded-[1.75rem] border p-5 shadow-sm', featuredTone.ring].join(' ')}>
-              <ActionSurface item={featuredItem}>
-                <div className="flex flex-col gap-5 2xl:grid 2xl:grid-cols-[minmax(0,1fr)_18rem] 2xl:items-stretch">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {featuredItem.eyebrow ? (
-                        <span className="rounded-full bg-white/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                          {featuredItem.eyebrow}
-                        </span>
-                      ) : null}
-                      {featuredItem.badge ? (
-                        <span
-                          className={[
-                            'rounded-full px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em]',
-                            featuredTone.badge
-                          ].join(' ')}
-                        >
-                          {featuredItem.badge}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-4 flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <h3 className="text-2xl font-semibold leading-tight text-slate-950 line-clamp-2">{featuredItem.title}</h3>
-                        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600 line-clamp-3">{featuredItem.description}</p>
-                      </div>
-                      {featuredItem.icon ? (
-                        <span
-                          className={[
-                            'hidden h-12 w-12 shrink-0 items-center justify-center rounded-2xl lg:inline-flex',
-                            featuredTone.icon
-                          ].join(' ')}
-                        >
-                          {featuredItem.icon}
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <div className="mt-5 flex flex-wrap items-center gap-3">
-                      {featuredItem.meta ? (
-                        <span className="rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-slate-500">
-                          {featuredItem.meta}
-                        </span>
-                      ) : null}
-                      {featuredItem.ctaLabel ? (
-                        <span className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
-                          {featuredItem.ctaLabel}
-                          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <HighlightMedia
-                    item={featuredItem}
-                    compact={false}
-                    showMarginTop={false}
-                    containerClassName="h-full rounded-[1.5rem]"
-                    heightClassName="h-full min-h-[13rem] w-full"
-                    imageWidth={560}
-                    imageHeight={336}
-                    loading="eager"
-                    fetchPriority="high"
-                  />
-                </div>
-              </ActionSurface>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-1">
-              {spotlightItems.map((item) => {
-                const tone = toneClasses[item.tone || 'slate'];
-                return (
-                  <div
-                    key={item.id}
-                    className={['overflow-hidden rounded-[1.5rem] border p-4 shadow-sm transition hover:shadow-md', tone.ring].join(' ')}
-                  >
-                    <ActionSurface item={item}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          {item.eyebrow ? (
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">{item.eyebrow}</p>
-                          ) : null}
-                          <h3 className="mt-1 text-base font-semibold leading-6 text-slate-950 line-clamp-2">{item.title}</h3>
-                        </div>
-                        {item.badge ? (
-                          <span className={['shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide', tone.badge].join(' ')}>
-                            {item.badge}
-                          </span>
-                        ) : item.icon ? (
-                          <span className={['inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl', tone.icon].join(' ')}>
-                            {item.icon}
-                          </span>
-                        ) : null}
-                      </div>
-                      <HighlightMedia
-                        item={item}
-                        compact={false}
-                        heightClassName="h-32 w-full"
-                        imageWidth={384}
-                        imageHeight={192}
-                      />
-                      <p className="mt-3 text-sm leading-6 text-slate-600 line-clamp-3">{item.description}</p>
-                      <div className="mt-4 flex items-center justify-between gap-3">
-                        <span className="text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta || 'Live on member home'}</span>
-                        {item.ctaLabel ? (
-                          <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                            {item.ctaLabel}
-                            <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                          </span>
-                        ) : null}
-                      </div>
-                    </ActionSurface>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {gridItems.length ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {gridItems.map((item) => {
-                const tone = toneClasses[item.tone || 'slate'];
-                return (
-                  <div
-                    key={item.id}
-                    className={['overflow-hidden rounded-[1.5rem] border p-4 shadow-sm transition hover:shadow-md', tone.ring].join(' ')}
-                  >
-                    <ActionSurface item={item}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          {item.eyebrow ? (
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">{item.eyebrow}</p>
-                          ) : null}
-                          <h3 className="mt-1 text-base font-semibold leading-6 text-slate-950 line-clamp-2">{item.title}</h3>
-                        </div>
-                        {item.icon ? (
-                          <span className={['inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl', tone.icon].join(' ')}>
-                            {item.icon}
-                          </span>
-                        ) : null}
-                      </div>
-                      {item.badge ? (
-                        <span className={['mt-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide', tone.badge].join(' ')}>
-                          {item.badge}
-                        </span>
-                      ) : null}
-                      {item.meta ? <p className="mt-3 text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta}</p> : null}
-                      <p className="mt-3 text-sm leading-6 text-slate-600 line-clamp-3">{item.description}</p>
-                      {item.ctaLabel ? (
-                        <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-950">
-                          <span>{item.ctaLabel}</span>
-                          <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                        </div>
-                      ) : null}
-                    </ActionSurface>
-                  </div>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      </section>
-    );
-  }
+  const visiblePills = (pills || []).slice(0, compact ? 4 : 6);
 
   return (
     <section
       className={[
-        'rounded-3xl border border-white/70 bg-white p-4 shadow-sm',
-        compact ? 'space-y-3' : 'space-y-4 sm:p-5',
+        enterprisePanel,
+        'p-4 sm:p-5',
         className
-      ].join(' ')}
+      ]
+        .filter(Boolean)
+        .join(' ')}
+      data-testid="scrolith-member-home-discovery-board"
+      aria-labelledby={headingId}
     >
-      <div className={compact ? 'space-y-3' : 'flex flex-wrap items-start justify-between gap-4'}>
+      {/* A. Compact discovery header */}
+      <header
+        className={
+          compact
+            ? 'space-y-2.5'
+            : 'flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4'
+        }
+        data-testid="scrolith-discovery-header"
+      >
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-indigo-500">Discover</p>
-          <h2 className={compact ? 'mt-1 text-lg font-semibold text-slate-900' : 'mt-1 text-xl font-semibold text-slate-900'}>
+          <p className={enterpriseWidgetTitle}>Discover</p>
+          <h2
+            id={headingId}
+            className={[
+              'mt-1 font-semibold tracking-tight text-slate-900',
+              compact ? 'text-lg' : 'text-lg sm:text-xl'
+            ].join(' ')}
+          >
             {title}
           </h2>
-          <p className={compact ? 'mt-1 text-sm text-slate-500' : 'mt-2 max-w-2xl text-sm text-slate-500'}>
-            {subtitle}
-          </p>
+          <p className={['mt-1 max-w-2xl line-clamp-2', enterpriseWidgetBody].join(' ')}>{subtitle}</p>
         </div>
-        {pills?.length ? (
-          <div className="flex flex-wrap gap-2">
-            {pills.slice(0, compact ? 3 : 5).map((pill) => (
+
+        {visiblePills.length ? (
+          <div
+            className="flex flex-wrap gap-1.5 sm:max-w-[22rem] sm:justify-end"
+            data-testid="scrolith-discovery-metrics"
+            aria-label="Discovery metrics"
+          >
+            {visiblePills.map((pill) => (
               <div
                 key={`${pill.label}:${pill.value}`}
-                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600"
+                className="rounded-full border border-slate-200/90 bg-slate-50 px-2.5 py-1"
               >
-                {pill.label}: {pill.value}
+                <p className="text-[11px] font-semibold tabular-nums text-slate-700">
+                  <span className="uppercase tracking-wide text-slate-500">{pill.label}</span>
+                  <span className="mx-1 text-slate-300" aria-hidden>
+                    ·
+                  </span>
+                  <span className="text-slate-900">{pill.value}</span>
+                </p>
               </div>
             ))}
           </div>
         ) : null}
-      </div>
+      </header>
 
-      <div className={compact ? 'grid grid-cols-1 gap-3' : 'grid gap-3 md:grid-cols-2 xl:grid-cols-3'}>
-        {items.map((item) => {
-          const tone = toneClasses[item.tone || 'slate'];
-          return (
-            <div
-              key={item.id}
-              className={[
-                'overflow-hidden rounded-3xl border p-4 shadow-sm transition hover:shadow-md',
-                tone.ring
-              ].join(' ')}
-            >
-              <ActionSurface item={item}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    {item.eyebrow ? (
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        {item.eyebrow}
-                      </p>
-                    ) : null}
-                    <h3 className="mt-1 text-base font-semibold text-slate-900 break-words [overflow-wrap:anywhere]">
-                      {item.title}
-                    </h3>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    {item.badge ? (
-                      <span className={['rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide', tone.badge].join(' ')}>
-                        {item.badge}
-                      </span>
-                    ) : null}
-                    {item.icon ? (
-                      <span className={['inline-flex h-10 w-10 items-center justify-center rounded-2xl', tone.icon].join(' ')}>
-                        {item.icon}
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
+      {/* B. Scrolitha Coach primary card — compact, no hero media */}
+      {coachItem ? (
+        <div className="mt-3.5 sm:mt-4">
+          <CoachCard item={coachItem} compact={compact} />
+        </div>
+      ) : null}
 
-                 <HighlightMedia
-                   item={item}
-                   compact={compact}
-                   imageWidth={compact ? 320 : 384}
-                   imageHeight={compact ? 160 : 192}
-                 />
-
-                <p className="mt-3 text-sm leading-6 text-slate-600 break-words [overflow-wrap:anywhere]">
-                  {item.description}
-                </p>
-                {item.meta ? <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-400">{item.meta}</p> : null}
-                {item.ctaLabel ? (
-                  <div className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-                    <span>{item.ctaLabel}</span>
-                    <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                  </div>
-                ) : null}
-              </ActionSurface>
-            </div>
-          );
-        })}
-      </div>
+      {/* C. Secondary discovery modules */}
+      {moduleItems.length ? (
+        <div
+          className={[
+            'mt-3.5 sm:mt-4',
+            compact ? 'grid grid-cols-1 gap-2.5' : 'grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'
+          ].join(' ')}
+          data-testid="scrolith-discovery-module-grid"
+        >
+          {moduleItems.map((item) => (
+            <ModuleCard key={item.id} item={item} compact={compact} />
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
