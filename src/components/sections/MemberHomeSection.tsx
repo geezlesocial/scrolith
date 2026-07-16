@@ -7558,47 +7558,70 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
         <div className={enterpriseMemberHomeGrid} data-testid="scrolith-member-home-grid">
           <aside className={enterpriseLeftColumn} aria-label="Profile and shortcuts" data-testid="scrolith-member-home-left">
-            <div className={`${enterprisePanel} rise-fade-delay-1`}>
-              <div className="relative h-24 overflow-hidden bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600 sm:h-28">
-                {selfProfileCover ? (
-                  // Plain img (same as FreelancerProfile) so cover reuses the browser-cached
-                  // content URL. OptimizedImage adds ?w=&h= variants that miss cache and can 404.
-                  <img
-                    src={selfProfileCover}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    loading="eager"
-                    decoding="async"
-                    onError={() => setSelfProfileCover('')}
-                  />
-                ) : null}
-                <div className="pointer-events-none absolute inset-0 bg-slate-900/35" />
-              </div>
-              <div className={enterprisePanelPadding}>
-                <div className="-mt-12 flex items-end gap-3 sm:-mt-14">
-                  <div className="h-[4.5rem] w-[4.5rem] shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-4 ring-white sm:h-20 sm:w-20">
-                    {resolvedUserAvatar ? (
-                      <OptimizedImage
-                        src={resolvedUserAvatar}
-                        alt={user.name || 'User'}
-                        width={160}
-                        height={160}
-                        sizes="80px"
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                        decoding="async"
-                      />
-                    ) : (
-                      <Users className="mx-auto mt-6 h-7 w-7 text-slate-400" />
-                    )}
-                  </div>
-                  <div className="min-w-0 pb-1">
-                    <p className="truncate text-[17px] font-semibold leading-snug text-slate-900">{user?.name || user?.username || 'Community member'}</p>
-                    <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-slate-600">{userHeadline}</p>
-                    {userLocation && <p className="mt-0.5 truncate text-sm text-slate-500">{userLocation}</p>}
-                  </div>
+            {/*
+              Profile identity card: cover stays clipped; panel allows overflow so the
+              centered avatar can sit 40% over the cover bottom edge without clipping.
+            */}
+            <div
+              className="rise-fade-delay-1 overflow-visible rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05),0_8px_24px_-18px_rgba(15,23,42,0.18)]"
+              data-testid="scrolith-member-home-profile-card"
+            >
+              <div className="relative">
+                <div className="relative h-24 overflow-hidden rounded-t-2xl bg-gradient-to-r from-slate-900 via-slate-700 to-slate-600 sm:h-28">
+                  {selfProfileCover ? (
+                    // Plain img (same as FreelancerProfile) so cover reuses the browser-cached
+                    // content URL. OptimizedImage adds ?w=&h= variants that miss cache and can 404.
+                    <img
+                      src={selfProfileCover}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="eager"
+                      decoding="async"
+                      onError={() => setSelfProfileCover('')}
+                    />
+                  ) : null}
+                  <div className="pointer-events-none absolute inset-0 bg-slate-900/35" />
                 </div>
-                <div className="mt-5 space-y-2 text-sm text-slate-600">
+                {/*
+                  top-full + -translate-y-[40%] pins the avatar to the cover bottom edge
+                  with ~40% of the avatar over the cover (proportional on all breakpoints).
+                */}
+                <div
+                  className="absolute left-1/2 top-full z-20 h-[4.5rem] w-[4.5rem] -translate-x-1/2 -translate-y-[40%] overflow-hidden rounded-full bg-slate-100 shadow-[0_4px_14px_rgba(15,23,42,0.18)] ring-[5px] ring-white sm:h-20 sm:w-20"
+                  data-testid="scrolith-member-home-profile-avatar"
+                  aria-hidden={!resolvedUserAvatar}
+                >
+                  {resolvedUserAvatar ? (
+                    <OptimizedImage
+                      src={resolvedUserAvatar}
+                      alt={user.name || 'User'}
+                      width={160}
+                      height={160}
+                      sizes="80px"
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-slate-100">
+                      <Users className="h-7 w-7 text-slate-400" />
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/*
+                Reserve space for the avatar portion that hangs below the cover (~60% of
+                avatar height) plus name breathing room so content never sits under the face.
+              */}
+              <div className={`${enterprisePanelPadding} pt-[3.15rem] text-center sm:pt-[3.35rem]`}>
+                <div className="min-w-0">
+                  <p className="truncate text-[17px] font-semibold leading-snug text-slate-900">
+                    {user?.name || user?.username || 'Community member'}
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-slate-600">{userHeadline}</p>
+                  {userLocation ? <p className="mt-0.5 truncate text-sm text-slate-500">{userLocation}</p> : null}
+                </div>
+                <div className="mt-5 space-y-2 text-left text-sm text-slate-600">
                   <div className="flex items-center justify-between">
                     <span>Profile strength</span>
                     <span className="font-semibold text-slate-800">72%</span>

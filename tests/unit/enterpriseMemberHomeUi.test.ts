@@ -202,3 +202,47 @@ test('login post-auth mobile detection no longer treats touch laptops ≤1366 as
   assert.equal(loginSource.includes('viewportWidth <= 1366'), false);
   assert.match(loginSource, /viewportWidth < 1024/);
 });
+
+test('profile identity card overlaps circular avatar on cover without clipping', () => {
+  assert.match(memberHomeSource, /data-testid="scrolith-member-home-profile-card"/);
+  assert.match(memberHomeSource, /data-testid="scrolith-member-home-profile-avatar"/);
+
+  const cardIdx = memberHomeSource.indexOf('data-testid="scrolith-member-home-profile-card"');
+  const avatarIdx = memberHomeSource.indexOf('data-testid="scrolith-member-home-profile-avatar"');
+  const leftIdx = memberHomeSource.indexOf('data-testid="scrolith-member-home-left"');
+  assert.ok(leftIdx > 0 && cardIdx > leftIdx && avatarIdx > cardIdx);
+
+  // Single identity card + avatar mount in the left rail
+  assert.equal((memberHomeSource.match(/data-testid="scrolith-member-home-profile-card"/g) || []).length, 1);
+  assert.equal((memberHomeSource.match(/data-testid="scrolith-member-home-profile-avatar"/g) || []).length, 1);
+
+  // Cover media clips; card shell must allow overflow for the hang/overlap
+  assert.match(memberHomeSource, /overflow-visible rounded-2xl border border-slate-200\/90 bg-white/);
+  assert.match(memberHomeSource, /relative h-24 overflow-hidden rounded-t-2xl/);
+  assert.match(memberHomeSource, /sm:h-28/);
+
+  // Centered proportional overlap: top of cover bottom + 40% translate
+  assert.match(memberHomeSource, /absolute left-1\/2 top-full/);
+  assert.match(memberHomeSource, /-translate-x-1\/2/);
+  assert.match(memberHomeSource, /-translate-y-\[40%\]/);
+  assert.match(memberHomeSource, /z-20/);
+
+  // Circular white ring + elevation
+  assert.match(memberHomeSource, /rounded-full/);
+  assert.match(memberHomeSource, /ring-\[5px\] ring-white/);
+  assert.match(memberHomeSource, /shadow-\[0_4px_14px_rgba\(15,23,42,0\.18\)\]/);
+
+  // Content reserved below hanging avatar so strength/CTA clear the face
+  assert.match(memberHomeSource, /pt-\[3\.15rem\].*sm:pt-\[3\.35rem\]|pt-\[3\.15rem\] text-center sm:pt-\[3\.35rem\]/);
+  assert.match(memberHomeSource, /Profile strength/);
+  assert.match(memberHomeSource, /View profile/);
+
+  // Fallbacks: cover optional (onError clears), avatar optional (Users icon)
+  assert.match(memberHomeSource, /selfProfileCover/);
+  assert.match(memberHomeSource, /resolvedUserAvatar/);
+  assert.match(memberHomeSource, /onError=\{\(\) => setSelfProfileCover\(''\)\}/);
+  assert.match(memberHomeSource, /<Users className="h-7 w-7 text-slate-400"/);
+
+  // Meaningful alt when avatar present
+  assert.match(memberHomeSource, /alt=\{user\.name \|\| 'User'\}/);
+});
