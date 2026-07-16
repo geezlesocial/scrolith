@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../services/scrolitha/scrolitha.audit';
+import { sendScrolithaPublicError } from '../services/scrolitha/scrolitha.http';
 import {
   getScrolithaCommunicationRecords,
   getScrolithaKnowledgeForActor,
@@ -38,16 +39,10 @@ export const scrolithaChatController = async (req: Request, res: Response) => {
       message: 'Scrolitha response ready'
     });
   } catch (error: any) {
-    const msg = String(error?.message || 'Scrolitha chat failed');
-    const lower = msg.toLowerCase();
-    const status =
-      lower.includes('required') || lower.includes('invalid') || lower.includes('forbidden')
-        ? 400
-        : lower.includes('rate limit')
-          ? 429
-          : 500;
-    console.error('[scrolitha] chat error', error);
-    return res.status(status).json({ success: false, message: 'Scrolitha chat failed', error: msg });
+    return sendScrolithaPublicError(res, 'Scrolitha chat failed', error, {
+      statusMode: 'chat',
+      logLabel: 'chat error'
+    });
   }
 };
 
@@ -71,16 +66,10 @@ export const scrolithaExecuteController = async (req: Request, res: Response) =>
       message: data?.success ? 'Action executed' : 'Action pending confirmation'
     });
   } catch (error: any) {
-    const msg = String(error?.message || 'Scrolitha execution failed');
-    const lower = msg.toLowerCase();
-    const status =
-      lower.includes('required') || lower.includes('invalid') || lower.includes('not allowed')
-        ? 400
-        : lower.includes('rate limit')
-          ? 429
-          : 500;
-    console.error('[scrolitha] execute error', error);
-    return res.status(status).json({ success: false, message: 'Scrolitha execution failed', error: msg });
+    return sendScrolithaPublicError(res, 'Scrolitha execution failed', error, {
+      statusMode: 'execute',
+      logLabel: 'execute error'
+    });
   }
 };
 
@@ -91,11 +80,8 @@ export const scrolithaHistoryController = async (req: Request, res: Response) =>
     const data = await scrolithaHistory(actor, req.query.limit);
     return res.json({ success: true, data, message: 'Scrolitha history loaded' });
   } catch (error: any) {
-    console.error('[scrolitha] history error', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load Scrolitha history',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load Scrolitha history', error, {
+      logLabel: 'history error'
     });
   }
 };
@@ -110,11 +96,8 @@ export const scrolithaRecordsController = async (req: Request, res: Response) =>
     });
     return res.json({ success: true, data, message: 'Scrolitha communication records loaded' });
   } catch (error: any) {
-    console.error('[scrolitha] records error', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load Scrolitha communication records',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load Scrolitha communication records', error, {
+      logLabel: 'records error'
     });
   }
 };
@@ -128,11 +111,8 @@ export const scrolithaKnowledgeController = async (req: Request, res: Response) 
     });
     return res.json({ success: true, data, message: 'Scrolitha knowledge context loaded' });
   } catch (error: any) {
-    console.error('[scrolitha] knowledge error', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load Scrolitha knowledge context',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load Scrolitha knowledge context', error, {
+      logLabel: 'knowledge error'
     });
   }
 };
@@ -152,10 +132,10 @@ export const scrolithaFeedbackController = async (req: Request, res: Response) =
 
     return res.json({ success: true, data, message: 'Scrolitha feedback recorded' });
   } catch (error: any) {
-    const msg = String(error?.message || 'Failed to save feedback');
-    const status = msg.toLowerCase().includes('required') || msg.toLowerCase().includes('rating') ? 400 : 500;
-    console.error('[scrolitha] feedback error', error);
-    return res.status(status).json({ success: false, message: 'Failed to save feedback', error: msg });
+    return sendScrolithaPublicError(res, 'Failed to save feedback', error, {
+      statusMode: 'feedback',
+      logLabel: 'feedback error'
+    });
   }
 };
 
@@ -164,10 +144,9 @@ export const scrolithaWidgetConfigController = async (_req: Request, res: Respon
     const data = await getScrolithaWidgetConfigPublic();
     return res.json({ success: true, data, message: 'Scrolitha widget config loaded' });
   } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load Scrolitha widget config',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load Scrolitha widget config', error, {
+      logLabel: 'widget config error',
+      recordFailure: false
     });
   }
 };
@@ -185,10 +164,10 @@ export const scrolithaWorkOsPlanController = async (req: Request, res: Response)
     );
     return res.json({ success: true, data, message: 'Scrolitha Work OS plan ready' });
   } catch (error: any) {
-    const message = String(error?.message || 'Failed to build Scrolitha Work OS plan');
-    const status = message.toLowerCase().includes('required') ? 400 : 500;
-    if (status >= 500) console.error('[scrolitha] work os plan error', error);
-    return res.status(status).json({ success: false, message: 'Scrolitha Work OS plan failed', error: message });
+    return sendScrolithaPublicError(res, 'Scrolitha Work OS plan failed', error, {
+      statusMode: 'workos',
+      logLabel: 'work os plan error'
+    });
   }
 };
 
@@ -577,10 +556,9 @@ export const scrolithaDiagnosticsController = async (req: Request, res: Response
     return res.json({ success: true, data, message: 'Scrolitha enterprise diagnostics' });
   } catch (error: any) {
     const status = Number(error?.statusCode) || 500;
-    return res.status(status).json({
-      success: false,
-      message: 'Failed to load diagnostics',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load diagnostics', error, {
+      status,
+      logLabel: 'diagnostics error'
     });
   }
 };
@@ -605,10 +583,8 @@ export const scrolithaHealthController = async (req: Request, res: Response) => 
       message: 'Scrolitha operational health'
     });
   } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load health',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load health', error, {
+      logLabel: 'health error'
     });
   }
 };
@@ -624,10 +600,8 @@ export const scrolithaRolloutController = async (req: Request, res: Response) =>
     const data = await getRolloutSummary();
     return res.json({ success: true, data, message: 'Scrolitha rollout configuration' });
   } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load rollout',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load rollout', error, {
+      logLabel: 'rollout error'
     });
   }
 };
@@ -652,10 +626,8 @@ export const scrolithaAnalyticsController = async (req: Request, res: Response) 
       message: 'Scrolitha analytics snapshot'
     });
   } catch (error: any) {
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to load analytics',
-      error: String(error?.message || 'Unknown error')
+    return sendScrolithaPublicError(res, 'Failed to load analytics', error, {
+      logLabel: 'analytics error'
     });
   }
 };

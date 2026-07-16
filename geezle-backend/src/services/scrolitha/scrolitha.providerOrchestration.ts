@@ -8,6 +8,9 @@ import {
   type ScrolithaLlmRuntime
 } from './scrolitha.ollama';
 import { enterpriseCache } from './scrolitha.enterpriseCache';
+import { logScrolithaWarn } from './scrolitha.errors';
+import { withTimeout } from './scrolitha.performance';
+import { recordOpsCounter } from './scrolitha.opsMetrics';
 import type { ScrolithaScope } from './scrolitha.types';
 
 export type ProviderId = 'core' | 'ollama' | 'backup' | 'disabled' | string;
@@ -124,9 +127,7 @@ export const getProviderHealth = async (scope: ScrolithaScope = 'user'): Promise
     // Shallow tags probe — frequent health paths must not run full READY chat.
     live = await getScrolithaRuntimeHealth(scope, { runtime, deep: false });
   } catch (error: any) {
-    console.warn('[scrolitha] live provider health probe failed', {
-      error: String(error?.message || error || '').slice(0, 180)
-    });
+    logScrolithaWarn('live provider health probe failed', error, { scope });
   }
 
   const latencyMs = Date.now() - started;
@@ -231,16 +232,11 @@ export const executeWithProviderOrchestration = async <T>(input: {
     for (let attempt = 1; attempt <= decision.maxRetries; attempt += 1) {
       const started = Date.now();
       try {
-        const result = await Promise.race([
+        const result = await withTimeout(
           input.attemptFn(provider, attempt),
-          new Promise<T>((_, reject) => {
-            const t = setTimeout(
-              () => reject(new Error(`Provider ${provider} timed out after ${decision.timeoutMs}ms`)),
-              decision.timeoutMs
-            );
-            (t as any).unref?.();
-          })
-        ]);
+          decision.timeoutMs,
+          `Provider ${provider}`
+        );
         attempts.push({
           provider,
           attempt,
@@ -257,6 +253,14 @@ export const executeWithProviderOrchestration = async <T>(input: {
           latencyMs: Date.now() - started,
           error: String(error?.message || 'error').slice(0, 200)
         });
+        // Count only when another attempt will run for this provider
+        if (attempt < decision.maxRetries) {
+          try {
+            recordOpsCounter('retries', 1);
+          } catch {
+            // metrics must never break orchestration
+          }
+        }
         // brief backoff
         await new Promise((r) => setTimeout(r, Math.min(250 * attempt, 800)));
       }
