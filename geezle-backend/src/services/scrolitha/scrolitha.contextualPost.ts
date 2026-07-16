@@ -141,16 +141,21 @@ const hashKey = (parts: string[]) =>
     .digest('hex')
     .slice(0, 32);
 
-export const resolveContextualFeatureFlags = async (): Promise<ContextualFeatureFlags> => {
+export const resolveContextualFeatureFlags = async (actor?: {
+  id?: string | null;
+  role?: string | null;
+  email?: string | null;
+  isAdmin?: boolean;
+} | null): Promise<ContextualFeatureFlags> => {
   try {
-    // Global rollout gates: user-facing AI stays OFF unless explicitly enabled.
+    // Rollout gates: public master OR internal allowlist/staff.
     let rolloutProactiveOk = false;
     try {
       const { isCapabilityEnabled } = await import('./scrolitha.rollout');
-      const masterOk = await isCapabilityEnabled('master');
-      const contextualOk = await isCapabilityEnabled('contextualIntelligence');
-      const repliesOk = await isCapabilityEnabled('aiReplies');
-      rolloutProactiveOk = await isCapabilityEnabled('proactiveSuggestions');
+      const masterOk = await isCapabilityEnabled('master', actor);
+      const contextualOk = await isCapabilityEnabled('contextualIntelligence', actor);
+      const repliesOk = await isCapabilityEnabled('aiReplies', actor);
+      rolloutProactiveOk = await isCapabilityEnabled('proactiveSuggestions', actor);
       if (!masterOk || !contextualOk || !repliesOk) {
         return { ...DEFAULT_FLAGS, enabled: false, proactiveSuggestions: false };
       }
@@ -1164,7 +1169,8 @@ const releaseGlobalSlot = () => {
  */
 export const processContextualPostRequest = async (input: ContextualPostRequestInput) => {
   const startedWall = Date.now();
-  const flags = await resolveContextualFeatureFlags();
+  const accessActor = { id: input.invokingUserId };
+  const flags = await resolveContextualFeatureFlags(accessActor);
   const platform = await ensureScrolithaPlatformUser();
   // Stable key for first attempt; retries may pass a unique idempotencyKey but still de-dupe via DB.
   const stableKey = hashKey([input.postId, input.commentId, input.invokingUserId, 'mention']);
@@ -1577,9 +1583,12 @@ export const maybeQueueScrolithaMentionReply = (input: {
   setImmediate(() => {
     void (async () => {
       try {
-        const { isCapabilityEnabled } = await import('./scrolitha.rollout');
-        const repliesOn = await isCapabilityEnabled('aiReplies');
-        const contextualOn = await isCapabilityEnabled('contextualIntelligence');
+        const { isCapabilityEnabled, isScrolithaUserFacingAccessAllowed } = await import('./scrolitha.rollout');
+        // Mentions only fire for approved internal (or public master) invokers.
+        const accessActor = { id: input.authorId };
+        if (!(await isScrolithaUserFacingAccessAllowed(accessActor))) return;
+        const repliesOn = await isCapabilityEnabled('aiReplies', accessActor);
+        const contextualOn = await isCapabilityEnabled('contextualIntelligence', accessActor);
         if (!repliesOn || !contextualOn) return;
 
         const platform = await ensureScrolithaPlatformUser();

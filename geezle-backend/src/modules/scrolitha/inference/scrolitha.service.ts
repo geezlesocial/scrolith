@@ -9,6 +9,7 @@ import {
   detectPromptInjectionAttempt,
   ensureScrolithaConfig
 } from '../../../services/scrolitha/scrolitha.policy';
+import { assertScrolithaAccess } from '../../../services/scrolitha/scrolitha.rollout';
 import type { ScrolithaActor, ScrolithaScope } from '../../../services/scrolitha/scrolitha.types';
 import { incrementMinuteCounter, scrolithaCache } from '../../../services/scrolitha/scrolitha.cache';
 import { writeScrolithaAuditLog } from '../../../services/scrolitha/scrolitha.audit';
@@ -211,6 +212,8 @@ export const ScrolithaService = {
   }> {
     const prompt = String(input.prompt || '').trim();
     if (!prompt) throw new Error('Prompt is required.');
+    // Fail-closed for public accounts while master is off; internal allowlist/staff may proceed.
+    await assertScrolithaAccess(input.actor, 'Scrolitha generation');
     const routeKey = String(input.routeKey || 'scrolitha_generate').trim() || 'scrolitha_generate';
     const promptHash = hashPrompt(prompt);
     const startedAt = Date.now();

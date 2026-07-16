@@ -1,5 +1,5 @@
 import express from 'express';
-import { authMiddleware } from '../middleware/auth.middleware';
+import { authMiddleware, optionalAuthMiddleware } from '../middleware/auth.middleware';
 import {
   scrolithaChatController,
   scrolithaContextualAskController,
@@ -48,7 +48,8 @@ import {
 
 const router = express.Router();
 
-router.get('/widget-config', scrolithaWidgetConfigController);
+// Optional auth so approved internal accounts can receive enabled=true; others stay dark.
+router.get('/widget-config', optionalAuthMiddleware, scrolithaWidgetConfigController);
 router.get('/platform-identity', scrolithaPlatformIdentityController);
 
 router.use(authMiddleware);
