@@ -7210,13 +7210,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       id: 'desktop-scrolitha-coach',
       eyebrow: 'Scrolitha coach',
       title: 'Improve posts, gigs, and briefs faster',
-      description: 'Use Scrolitha inside member_home to polish drafts before you publish, package, or match.',
+      // Compact coach copy — presentation uses a small brand mark, not a hero image.
+      description: 'Polish drafts before you publish, package, or match.',
       meta: 'Posts · Gigs · Briefs',
       badge: 'AI',
       ctaLabel: 'Open coach',
       onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
       mediaUrl: '/logo.png',
-      icon: <Sparkles className="h-4 w-4" />,
+      icon: <Sparkles className="h-3 w-3" />,
       tone: 'violet'
     });
 
@@ -8337,7 +8338,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               >
                 <MemberHomeHighlightsBoard
                   title="Member Home Discovery Board"
-                  subtitle="Surface the best of Scrolith in one place: Scrolitha coach, live office hours, featured opportunities, follow recommendations, and sponsored campaigns."
+                  subtitle="Coach, live sessions, opportunities, network, and campaigns — compact for your workspace."
                   pills={memberHomeHighlightPills}
                   items={memberHomeHighlightItems}
                   className="rise-fade-delay-1"

@@ -884,13 +884,14 @@ export default function MobileFeed({
       id: 'mobile-scrolitha-coach',
       eyebrow: 'Scrolitha coach',
       title: 'Improve posts, gigs, and briefs faster',
-      description: 'Open Scrolitha coach inside member_home to tighten your next post, listing, or brief.',
+      // Compact coach copy — board uses a small brand mark, not a hero image.
+      description: 'Polish drafts before you publish, package, or match.',
       meta: 'Posts · Gigs · Briefs',
       badge: 'AI',
       ctaLabel: 'Open coach',
       onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
       mediaUrl: '/logo.png',
-      icon: <Sparkles className="h-4 w-4" />,
+      icon: <Sparkles className="h-3 w-3" />,
       tone: 'violet'
     });
 
