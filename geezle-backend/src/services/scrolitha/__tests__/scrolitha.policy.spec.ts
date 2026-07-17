@@ -25,6 +25,7 @@ describe('sanitizeScrolithaMetadata', () => {
       }
     });
 
+    // Production clamp ceiling is 240_000ms; unsafe input 999999 must clamp there.
     expect(metadata.llm).toEqual(
       expect.objectContaining({
         provider: 'core',
@@ -36,10 +37,12 @@ describe('sanitizeScrolithaMetadata', () => {
         ollamaModel: 'qwen3:14b',
         sidecarMode: true,
         coreSidecarMode: true,
+        enabled: true,
+        enableStreaming: false,
         maxTokens: 8192,
         temperature: 1.5,
         topP: 0.05,
-        timeoutMs: 120000,
+        timeoutMs: 240000,
         allowGeminiFallback: false
       })
     );

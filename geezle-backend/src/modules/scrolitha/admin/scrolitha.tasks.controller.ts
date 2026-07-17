@@ -1,37 +1,17 @@
 import { Request, Response } from 'express';
 import { resolveActorFromRequest } from '../../../services/scrolitha/scrolitha.audit';
-import { sanitizeScrolithaUserMessage } from '../../../services/scrolitha/scrolitha.ollama';
+import {
+  asText,
+  buildRewriteDataPayload,
+  buildScrolithaMeta,
+  parseLineList,
+  sendScrolithaError
+} from '../../../services/scrolitha/scrolitha.http';
 import { ScrolithaService } from '../inference/scrolitha.service';
 import { enhancePostDraftWithAi, isValidPostEnhanceMode } from '../../../services/postAi.service';
 
-const asText = (value: unknown, fallback = '') => String(value ?? fallback).trim();
-
-const parseList = (source: string, fallback: string[] = []) => {
-  const cleaned = String(source || '')
-    .split(/\r?\n/)
-    .map((line) => line.replace(/^\s*[-*\d.]+\s*/, '').trim())
-    .filter(Boolean);
-  if (cleaned.length) return cleaned.slice(0, 12);
-  return fallback;
-};
-
 const withError = (res: Response, message: string, error: any, status = 500) =>
-  res.status(status).json({
-    success: false,
-    data: null,
-    message,
-    error: sanitizeScrolithaUserMessage(String(error?.message || 'Unknown error'))
-  });
-
-const asScrolithaModelLabel = (_value?: any) => 'Scrolitha';
-
-const buildScrolithaMeta = (result: any) => ({
-  provider: 'scrolitha',
-  model: asScrolithaModelLabel(result?.model),
-  usedFallback: Boolean(result?.usedFallback ?? result?.fallbackUsed),
-  warning: result?.warning || null,
-  warningCode: result?.warningCode || null
-});
+  sendScrolithaError(res, message, error, { status, logLabel: message });
 
 export const scrolithaRewriteController = async (req: Request, res: Response) => {
   try {
@@ -54,11 +34,7 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
       return res.json({
         success: true,
         data: {
-          rewrittenText: result.enhancedText,
-          enhancedText: result.enhancedText,
-          rewrite: result.enhancedText,
-          text: result.enhancedText,
-          mode: result.mode,
+          ...buildRewriteDataPayload(result.enhancedText, { mode: result.mode }),
           ...buildScrolithaMeta(result)
         },
         message: 'Rewrite completed'
@@ -75,10 +51,7 @@ export const scrolithaRewriteController = async (req: Request, res: Response) =>
     return res.json({
       success: true,
       data: {
-        rewrittenText: result.text,
-        enhancedText: result.text,
-        rewrite: result.text,
-        text: result.text,
+        ...buildRewriteDataPayload(result.text),
         ...buildScrolithaMeta(result)
       },
       message: 'Rewrite completed'
@@ -104,7 +77,7 @@ export const scrolithaHashtagsController = async (req: Request, res: Response) =
         'Return a plain list of hashtags only. One per line. Avoid duplicates. Include niche and broad tags where useful.'
     });
 
-    const hashtags = parseList(result.text)
+    const hashtags = parseLineList(result.text)
       .map((entry) => (entry.startsWith('#') ? entry : `#${entry.replace(/^#+/, '')}`))
       .slice(0, 10);
 
@@ -137,7 +110,7 @@ export const scrolithaCommentSuggestionsController = async (req: Request, res: R
         'Provide concise, respectful comments that encourage discussion. Output list items only, one per line.'
     });
 
-    const suggestions = parseList(result.text).slice(0, 6);
+    const suggestions = parseLineList(result.text).slice(0, 6);
     return res.json({
       success: true,
       data: {
@@ -192,14 +165,16 @@ export const scrolithaGigImproveController = async (req: Request, res: Response)
     const actor = resolveActorFromRequest(req);
     const title = asText(req.body?.title);
     const description = asText(req.body?.description);
-    if (!title && !description) {
+    // Also accept `text` from FE Insights coach gig-improve path
+    const text = asText(req.body?.text);
+    if (!title && !description && !text) {
       return res.status(400).json({ success: false, data: null, message: 'title or description is required' });
     }
 
     const result = await ScrolithaService.generate({
       scope: actor.scope,
       actor,
-      prompt: `Improve this gig listing for conversion.\nTitle: ${title}\nDescription: ${description}`,
+      prompt: `Improve this gig listing for conversion.\nTitle: ${title}\nDescription: ${description || text}`,
       system:
         'Improve clarity, outcomes, and buyer confidence. Return a markdown-like structure with sections: title, summary, highlights.'
     });

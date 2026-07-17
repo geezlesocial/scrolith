@@ -7,6 +7,8 @@ export type ScrolithaActor = {
   role: string;
   scope: ScrolithaScope;
   isAdmin: boolean;
+  /** Optional identity for internal allowlist matching (never required for public master). */
+  email?: string | null;
   ipAddress?: string | null;
   userAgent?: string | null;
 };

@@ -5,6 +5,7 @@
     "dist",
     "tests",
     "src/__tests__",
+    "src/**/__tests__/**",
     "src/**/*.test.ts",
     "src/**/*.spec.ts",
     "scripts/__tests__"

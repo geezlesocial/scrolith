@@ -30,6 +30,16 @@ export const scrolithaCache = {
   set<T>(key: string, value: T, ttlMs: number) {
     cache.set(key, { value, expiresAt: now() + Math.max(250, ttlMs) });
   },
+  /**
+   * Atomic set-if-absent for single-process locks.
+   * Returns true when this caller won the lock.
+   */
+  setIfAbsent<T>(key: string, value: T, ttlMs: number): boolean {
+    const existing = this.get<T>(key);
+    if (existing !== null && existing !== undefined) return false;
+    cache.set(key, { value, expiresAt: now() + Math.max(250, ttlMs) });
+    return true;
+  },
   delete(key: string) {
     cache.delete(key);
   },

@@ -931,6 +931,9 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
   const accountContext = buildAccountContextSummary(actor, input.context);
   if (!message) throw new Error('message is required.');
 
+  const { assertScrolithaAccess } = await import('./scrolitha.rollout');
+  await assertScrolithaAccess(actor, 'Scrolitha chat');
+
   const config = await ensureScrolithaConfig(actor.scope);
   const limitCheck = enforceActionRateLimits({ actor, config, channel: 'chat' });
   if (!limitCheck.allowed) throw new Error(limitCheck.reason || 'Rate limit exceeded.');
@@ -1097,6 +1100,9 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
 export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: ScrolithaActor, app?: any) => {
   const actionId = text(input.actionId);
   if (!actionId) throw new Error('actionId is required.');
+
+  const { assertScrolithaAccess } = await import('./scrolitha.rollout');
+  await assertScrolithaAccess(actor, 'Scrolitha execute');
 
   const actionPlan = await prisma.scrolithaActionPlan.findUnique({ where: { id: actionId } });
   if (!actionPlan) throw new Error('Action plan not found.');

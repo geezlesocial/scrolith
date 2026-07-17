@@ -131,11 +131,92 @@ const isLocalEndpoint = (value: unknown) => {
 const isSelfHostedProvider = (provider: ScrolithaLlmRuntime['provider']) =>
   provider === 'core' || provider === 'ollama';
 
-const isSidecarRuntimeAllowed = (runtime: Pick<ScrolithaLlmRuntime, 'host' | 'sidecarMode'>) =>
-  !isLocalEndpoint(runtime.host) || Boolean(runtime.sidecarMode) || !isProductionRuntime();
+/**
+ * Localhost/sidecar is valid for local dev and true co-located sidecars.
+ * On production Cloud Run the backend and scrolitha-core are separate services —
+ * a local endpoint is never reachable unless explicitly opted in.
+ */
+const isSidecarRuntimeAllowed = (runtime: Pick<ScrolithaLlmRuntime, 'host' | 'sidecarMode'>) => {
+  if (!isLocalEndpoint(runtime.host)) return true;
+  if (!isProductionRuntime()) return true;
+  if (asBool(process.env.SCROLITHA_CORE_ALLOW_LOCAL_SIDECAR, false)) {
+    return Boolean(runtime.sidecarMode);
+  }
+  // Cloud Run multi-service: local loopback cannot reach scrolitha-core.
+  if (isRunningOnCloudRun()) return false;
+  return Boolean(runtime.sidecarMode);
+};
 
 const isSelfHostedRuntimeUsable = (runtime: Pick<ScrolithaLlmRuntime, 'provider' | 'runtimeConfigured' | 'host' | 'sidecarMode'>) =>
   isSelfHostedProvider(runtime.provider) && runtime.runtimeConfigured && isSidecarRuntimeAllowed(runtime);
+
+/** Safe, non-secret connectivity classification for diagnostics/ops. */
+export type ScrolithaConnectivityClass =
+  | 'remote_configured'
+  | 'local_sidecar_allowed'
+  | 'local_blocked_cloud_run'
+  | 'local_production_sidecar'
+  | 'missing_endpoint'
+  | 'disabled';
+
+export const classifyScrolithaConnectivity = (
+  runtime: Pick<ScrolithaLlmRuntime, 'provider' | 'enabled' | 'host' | 'sidecarMode' | 'runtimeConfigured'>
+): {
+  class: ScrolithaConnectivityClass;
+  usable: boolean;
+  productionSafe: boolean;
+  message: string;
+} => {
+  if (!runtime.enabled || runtime.provider === 'disabled') {
+    return {
+      class: 'disabled',
+      usable: false,
+      productionSafe: true,
+      message: 'Scrolitha LLM provider is disabled by configuration.'
+    };
+  }
+  if (!runtime.host) {
+    return {
+      class: 'missing_endpoint',
+      usable: false,
+      productionSafe: false,
+      message: SCROLITHA_PRODUCTION_ENDPOINT_WARNING
+    };
+  }
+  if (!isLocalEndpoint(runtime.host)) {
+    return {
+      class: 'remote_configured',
+      usable: isSelfHostedRuntimeUsable({ ...runtime, runtimeConfigured: true }),
+      productionSafe: true,
+      message: 'Remote Scrolitha Core endpoint is configured.'
+    };
+  }
+  if (isProductionRuntime() && isRunningOnCloudRun() && !asBool(process.env.SCROLITHA_CORE_ALLOW_LOCAL_SIDECAR, false)) {
+    return {
+      class: 'local_blocked_cloud_run',
+      usable: false,
+      productionSafe: false,
+      message:
+        'Local Scrolitha Core endpoint is not reachable from Cloud Run. Set SCROLITHA_CORE_ENDPOINT to the scrolitha-core service URL.'
+    };
+  }
+  if (isProductionRuntime() && Boolean(runtime.sidecarMode)) {
+    return {
+      class: 'local_production_sidecar',
+      usable: isSidecarRuntimeAllowed(runtime),
+      productionSafe: isSidecarRuntimeAllowed(runtime),
+      message: isSidecarRuntimeAllowed(runtime)
+        ? 'Production local sidecar mode is explicitly allowed.'
+        : SCROLITHA_PRODUCTION_ENDPOINT_WARNING
+    };
+  }
+  return {
+    class: 'local_sidecar_allowed',
+    usable: isSidecarRuntimeAllowed(runtime),
+    productionSafe: !isProductionRuntime(),
+    message: 'Local sidecar/dev endpoint configuration.'
+  };
+};
 
 const shouldAutoPullModel = (runtime: Pick<ScrolithaLlmRuntime, 'provider' | 'host' | 'sidecarMode'>) =>
   !isProductionRuntime() || (isSelfHostedProvider(runtime.provider) && Boolean(runtime.sidecarMode) && isLocalEndpoint(runtime.host));
@@ -530,10 +611,43 @@ export const resolveScrolithaLlmRuntime = async (scope: ScrolithaScope): Promise
 
   const hostConfigured = Boolean(runtime.host);
   const modelConfigured = Boolean(runtime.model);
-  const runtimeConfigured = isSelfHostedProvider(runtime.provider) && runtime.enabled && hostConfigured && modelConfigured;
+  const sidecarAllowed = isSidecarRuntimeAllowed(runtime);
+  const runtimeConfigured =
+    isSelfHostedProvider(runtime.provider) &&
+    runtime.enabled &&
+    hostConfigured &&
+    modelConfigured &&
+    sidecarAllowed;
   const enabled = runtime.provider !== 'disabled' && runtime.enabled;
   const acceleratorActive = Boolean(runtime.sidecarMode) && runtimeConfigured && isLocalEndpoint(runtime.host);
-  const status = !enabled ? 'disabled' : runtimeConfigured ? 'operational' : 'degraded';
+  const connectivity = classifyScrolithaConnectivity({
+    ...runtime,
+    enabled,
+    runtimeConfigured
+  });
+  const status = !enabled
+    ? 'disabled'
+    : runtimeConfigured && connectivity.usable
+      ? 'operational'
+      : 'degraded';
+
+  if (
+    isProductionRuntime() &&
+    isRunningOnCloudRun() &&
+    isSelfHostedProvider(runtime.provider) &&
+    enabled &&
+    (!runtimeConfigured || connectivity.class === 'local_blocked_cloud_run' || connectivity.class === 'missing_endpoint')
+  ) {
+    console.warn('[scrolitha] production core endpoint misconfiguration detected', {
+      connectivityClass: connectivity.class,
+      productionSafe: connectivity.productionSafe,
+      message: connectivity.message,
+      hasHost: hostConfigured,
+      modelConfigured,
+      // never log full endpoint secrets; only local-vs-remote class
+      endpointClass: runtime.host ? (isLocalEndpoint(runtime.host) ? 'local' : 'remote') : 'missing'
+    });
+  }
 
   return { ...runtime, enabled, runtimeConfigured, acceleratorActive, status };
 };
@@ -1041,8 +1155,23 @@ export const ensureScrolithaRuntimeModel = async (scope: ScrolithaScope) => {
   };
 };
 
-const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
-  const cacheKey = [runtime.provider, runtime.host, runtime.model, runtime.sidecarMode ? 'sidecar' : 'remote'].join('::');
+type SelfHostedProbeOptions = {
+  /** deep=true runs a short READY chat after /api/tags; shallow tags-only is used by frequent health paths */
+  deep?: boolean;
+};
+
+const probeSelfHostedRuntimeHealth = async (
+  runtime: ScrolithaLlmRuntime,
+  options: SelfHostedProbeOptions = {}
+) => {
+  const deep = options.deep !== false;
+  const cacheKey = [
+    runtime.provider,
+    runtime.host,
+    runtime.model,
+    runtime.sidecarMode ? 'sidecar' : 'remote',
+    deep ? 'deep' : 'shallow'
+  ].join('::');
   const now = Date.now();
   const cached = selfHostedHealthCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
@@ -1051,6 +1180,9 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
 
   const lastCheckedAt = new Date(now).toISOString();
   const backupEngineStatus = getBackupEngineStatus(runtime);
+  const tagsTimeoutMs = deep
+    ? Math.min(10_000, Math.max(2_000, runtime.timeoutMs || 8_000))
+    : Math.min(3_500, Math.max(1_500, Math.floor((runtime.timeoutMs || 8_000) / 4)));
 
   const base = {
     ok: true,
@@ -1060,7 +1192,8 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
     host: runtime.host || null,
     model: 'scrolitha-core',
     backupEngineStatus,
-    lastCheckedAt
+    lastCheckedAt,
+    probeDepth: deep ? 'deep' : 'shallow'
   };
 
   if (!runtime.runtimeConfigured) {
@@ -1104,13 +1237,13 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
   }
 
   try {
-    const models = await ollamaListModels(runtime.host, Math.min(10_000, runtime.timeoutMs));
+    const models = await ollamaListModels(runtime.host, tagsTimeoutMs);
     const modelPresent = hasOllamaModel(models, runtime.model);
     if (!modelPresent) {
       const value = {
         ...base,
         status: 'degraded',
-        availability: 'unavailable',
+        availability: models.length ? 'unavailable' : 'unavailable',
         models,
         modelPresent: false,
         autoPulled: false,
@@ -1120,7 +1253,30 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
           runtime: runtime.provider,
           endpoint: runtime.host,
           configuredModel: runtime.model || null,
-          error: 'Configured Scrolitha Core model is not available on the engine.'
+          error: models.length
+            ? 'Configured Scrolitha Core model is not available on the engine.'
+            : 'Scrolitha Core /api/tags probe failed or returned no models.'
+        }
+      };
+      selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
+      return value;
+    }
+
+    // Shallow probe: tags + model presence is enough for orchestration/health dashboards.
+    if (!deep) {
+      const value = {
+        ...base,
+        status: 'operational',
+        availability: 'online',
+        models,
+        modelPresent: true,
+        autoPulled: false,
+        endpointConfigured: true,
+        note: 'Scrolitha Core is reachable (tags probe).',
+        diagnostics: {
+          runtime: runtime.provider,
+          endpoint: runtime.host,
+          configuredModel: runtime.model || null
         }
       };
       selfHostedHealthCache.set(cacheKey, { expiresAt: now + SELF_HOSTED_HEALTH_CACHE_TTL_MS, value });
@@ -1184,10 +1340,26 @@ const probeSelfHostedRuntimeHealth = async (runtime: ScrolithaLlmRuntime) => {
   }
 };
 
-export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
-  const runtime = await resolveScrolithaLlmRuntime(scope);
+export type ScrolithaRuntimeHealthOptions = {
+  /** Prefer a pre-resolved runtime to avoid duplicate config lookups. */
+  runtime?: ScrolithaLlmRuntime;
+  /**
+   * deep (default): tags + READY chat for admin model health.
+   * shallow: tags-only for frequent provider/orchestration health.
+   */
+  deep?: boolean;
+};
+
+export const getScrolithaRuntimeHealth = async (
+  scope: ScrolithaScope,
+  options: ScrolithaRuntimeHealthOptions = {}
+) => {
+  const runtime = options.runtime || (await resolveScrolithaLlmRuntime(scope));
   const lastCheckedAt = new Date().toISOString();
   const backupEngineStatus = getBackupEngineStatus(runtime);
+  const connectivity = classifyScrolithaConnectivity(runtime);
+  const deep = options.deep !== false;
+
   if (!runtime.enabled) {
     return {
       ok: false,
@@ -1200,13 +1372,17 @@ export const getScrolithaRuntimeHealth = async (scope: ScrolithaScope) => {
       model: runtime.model || null,
       backupEngineStatus,
       lastCheckedAt,
+      connectivity,
+      probeDepth: deep ? 'deep' : 'shallow',
       error: 'Scrolitha is disabled by configuration.'
     };
   }
 
   if (!isSelfHostedProvider(runtime.provider)) {
-    return probeCoreRuntimeHealth(runtime);
+    const coreHealth = await probeCoreRuntimeHealth(runtime);
+    return { ...coreHealth, connectivity, probeDepth: deep ? 'deep' : 'shallow' };
   }
 
-  return probeSelfHostedRuntimeHealth(runtime);
+  const selfHosted = await probeSelfHostedRuntimeHealth(runtime, { deep });
+  return { ...selfHosted, connectivity };
 };

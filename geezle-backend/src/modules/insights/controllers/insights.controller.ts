@@ -616,7 +616,28 @@ export const setFeedModeController = async (req: Request, res: Response) => {
     if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
     const mode = req.body?.mode;
     const row = await setUserFeedMode(userId, mode);
-    return res.json({ success: true, data: row, message: 'Feed mode updated' });
+    const { buildNormalizedViewerFeedPreference } = await import(
+      '../../../services/intelligence/viewerPreference'
+    );
+    const roleLike = (req as any)?.user?.role || (req as any)?.user?.userType || (req as any)?.user?.accountType;
+    const normalized = buildNormalizedViewerFeedPreference({
+      insightsMode: row?.mode || mode,
+      roleLike,
+      source: 'insights'
+    });
+    return res.json({
+      success: true,
+      data: {
+        ...row,
+        mode: row?.mode || mode,
+        feedIntent: normalized.feedIntent,
+        source: normalized.source,
+        personalizationEnabled: normalized.personalizationEnabled,
+        version: normalized.version,
+        mapped: normalized.mapped
+      },
+      message: 'Feed mode updated'
+    });
   } catch (error) {
     return fail(res, 'Failed to update feed mode', error);
   }
@@ -627,10 +648,42 @@ export const getFeedModeController = async (req: Request, res: Response) => {
     const userId = getUserId(req);
     if (!userId) return res.status(401).json({ success: false, data: null, message: 'Unauthorized' });
     const mode = await getUserFeedMode(userId);
-    return res.json({ success: true, data: { mode }, message: 'Feed mode loaded' });
+    // Phase 19.1: additive normalized viewer preference (no schema change).
+    const { buildNormalizedViewerFeedPreference } = await import(
+      '../../../services/intelligence/viewerPreference'
+    );
+    const roleLike = (req as any)?.user?.role || (req as any)?.user?.userType || (req as any)?.user?.accountType;
+    const normalized = buildNormalizedViewerFeedPreference({
+      insightsMode: mode,
+      roleLike,
+      source: 'insights'
+    });
+    return res.json({
+      success: true,
+      data: {
+        mode,
+        feedIntent: normalized.feedIntent,
+        source: normalized.source,
+        personalizationEnabled: normalized.personalizationEnabled,
+        version: normalized.version,
+        mapped: normalized.mapped
+      },
+      message: 'Feed mode loaded'
+    });
   } catch (error) {
     if (isInsightsSchemaUnavailable(error, ['feedmodepreference'])) {
-      return res.json({ success: true, data: { mode: 'growth' }, message: 'Feed mode loaded' });
+      return res.json({
+        success: true,
+        data: {
+          mode: 'growth',
+          feedIntent: 'for_you',
+          source: 'default',
+          personalizationEnabled: true,
+          version: '19.1.0',
+          mapped: { insightsMode: 'growth', memberFeedIntent: 'for_you' }
+        },
+        message: 'Feed mode loaded'
+      });
     }
     return fail(res, 'Failed to load feed mode', error);
   }
