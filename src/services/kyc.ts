@@ -32,10 +32,17 @@ const mapDocument = (doc: any): KYCDocument => ({
   id: doc.id,
   type: doc.type,
   fileId: doc.file_id ?? doc.fileId,
-  fileUrl: doc.file_url ?? doc.fileUrl,
+  // Phase 20.2: file URLs are never public for KYC; keep null
+  fileUrl: doc.file_url ?? doc.fileUrl ?? null,
   status: doc.status,
   rejectionReason: doc.rejection_reason ?? doc.rejectionReason,
-  uploadedAt: doc.uploaded_at ?? doc.uploadedAt
+  uploadedAt: doc.uploaded_at ?? doc.uploadedAt,
+  scanStatus: doc.scan_status ?? doc.scanStatus ?? null,
+  quarantineStatus: doc.quarantine_status ?? doc.quarantineStatus ?? null,
+  secureView: Boolean(doc.secure_view ?? doc.secureView),
+  contentType: doc.content_type ?? doc.contentType ?? null,
+  sizeBytes: doc.size_bytes ?? doc.sizeBytes ?? null,
+  metadataStripped: Boolean(doc.metadata_stripped ?? doc.metadataStripped)
 });
 
 const mapSubmission = (submission: any): KYCSubmission => ({
@@ -48,6 +55,9 @@ const mapSubmission = (submission: any): KYCSubmission => ({
   rejectionReason: submission.rejection_reason ?? submission.rejectionReason,
   documents: Array.isArray(submission.documents) ? submission.documents.map(mapDocument) : [],
   personalInfo: submission.personal_info ?? submission.personalInfo,
+  consentPolicyVersion: submission.consent_policy_version ?? submission.consentPolicyVersion,
+  consentAcceptedAt: submission.consent_accepted_at ?? submission.consentAcceptedAt,
+  resubmissionCount: Number(submission.resubmission_count ?? submission.resubmissionCount ?? 0),
   createdAt: submission.created_at ?? submission.createdAt,
   updatedAt: submission.updated_at ?? submission.updatedAt
 });
@@ -55,8 +65,14 @@ const mapSubmission = (submission: any): KYCSubmission => ({
 const toSubmissionPayload = (data: CreateKYCSubmissionData | Partial<CreateKYCSubmissionData>) => ({
   personal_info: data.personalInfo,
   documents: Array.isArray(data.documents)
-    ? data.documents.map((doc) => ({ type: doc.type, file_id: doc.fileId }))
-    : undefined
+    ? data.documents.map((doc) => ({
+        type: doc.type,
+        document_id: doc.documentId || doc.fileId
+      }))
+    : undefined,
+  consent_accepted: data.consentAccepted === true,
+  consent_policy_version: data.consentPolicyVersion,
+  source_surface: data.sourceSurface || 'kyc_form'
 });
 
 export type KYCStatus = 'not_submitted' | 'pending' | 'under_review' | 'approved' | 'rejected' | 'requires_updates';
@@ -71,18 +87,27 @@ export interface KYCSubmission {
   rejectionReason?: string;
   documents: KYCDocument[];
   personalInfo: PersonalInfo;
+  consentPolicyVersion?: string;
+  consentAcceptedAt?: string;
+  resubmissionCount?: number;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface KYCDocument {
   id: string;
-  type: 'passport' | 'drivers_license' | 'national_id' | 'utility_bill' | 'bank_statement' | 'address_proof' | 'selfie_with_id';
+  type: 'passport' | 'drivers_license' | 'national_id' | 'utility_bill' | 'bank_statement' | 'address_proof' | 'selfie_with_id' | string;
   fileId: string;
-  fileUrl: string;
-  status: 'pending' | 'approved' | 'rejected';
+  fileUrl?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | string;
   rejectionReason?: string;
   uploadedAt: string;
+  scanStatus?: string | null;
+  quarantineStatus?: string | null;
+  secureView?: boolean;
+  contentType?: string | null;
+  sizeBytes?: number | null;
+  metadataStripped?: boolean;
 }
 
 export interface PersonalInfo {
@@ -98,15 +123,42 @@ export interface PersonalInfo {
     country: string;
   };
   phoneNumber: string;
-  email: string;
+  email?: string;
 }
 
 export interface CreateKYCSubmissionData {
   personalInfo: PersonalInfo;
   documents: {
     type: KYCDocument['type'] | string;
-    fileId: string;
+    /** Secure KYC document id from POST /kyc/uploads */
+    documentId?: string;
+    /** @deprecated use documentId — kept only for type compatibility */
+    fileId?: string;
   }[];
+  consentAccepted: boolean;
+  consentPolicyVersion: string;
+  sourceSurface?: string;
+}
+
+export interface KYCSecureUploadResult {
+  documentId: string;
+  type: string;
+  status: string;
+  quarantineStatus?: string;
+  scanStatus?: string;
+  contentType?: string;
+  sizeBytes?: number;
+  metadataStripped?: boolean;
+  correlationId?: string;
+}
+
+export interface KYCSecureViewResult {
+  documentId: string;
+  contentType?: string;
+  expiresInSeconds?: number;
+  signedUrl?: string | null;
+  streamPath?: string | null;
+  download?: boolean;
 }
 
 export type KYCPersonalFieldKey =
@@ -162,9 +214,21 @@ export interface KYCFormConfig {
     documentsSectionTitle: string;
     submitLabel: string;
     updateLabel: string;
+    consentLabel?: string;
   };
   personalFields: KYCPersonalFieldConfig[];
   documentGroups: KYCDocumentGroupConfig[];
+  consent?: {
+    policyVersion: string;
+    purpose: string;
+    required: boolean;
+  };
+  security?: {
+    biometricsEnabled?: boolean;
+    automatedFinalApproval?: boolean;
+    maxFilesPerSubmission?: number;
+    maxResubmissions?: number;
+  };
 }
 
 const DEFAULT_KYC_FORM_CONFIG: KYCFormConfig = {
@@ -242,7 +306,11 @@ const normalizeKycFormConfig = (raw: any): KYCFormConfig => {
     addressSectionTitle: String(copy.addressSectionTitle ?? DEFAULT_KYC_FORM_CONFIG.copy.addressSectionTitle),
     documentsSectionTitle: String(copy.documentsSectionTitle ?? DEFAULT_KYC_FORM_CONFIG.copy.documentsSectionTitle),
     submitLabel: String(copy.submitLabel ?? DEFAULT_KYC_FORM_CONFIG.copy.submitLabel),
-    updateLabel: String(copy.updateLabel ?? DEFAULT_KYC_FORM_CONFIG.copy.updateLabel)
+    updateLabel: String(copy.updateLabel ?? DEFAULT_KYC_FORM_CONFIG.copy.updateLabel),
+    consentLabel: String(
+      copy.consentLabel ??
+        'I confirm that the information and documents I provide are accurate, that they will be reviewed by authorized administrators, and that automated security checks may be performed. Final approval is issued only by an authorized administrator.'
+    )
   };
   const personalFields = asArray<KYCPersonalFieldConfig>(raw?.personalFields).length
     ? asArray<KYCPersonalFieldConfig>(raw?.personalFields)
@@ -256,14 +324,15 @@ const normalizeKycFormConfig = (raw: any): KYCFormConfig => {
     personalFields: personalFields
       .map((field, index) => {
         const fallback = DEFAULT_KYC_FORM_CONFIG.personalFields[index] || DEFAULT_KYC_FORM_CONFIG.personalFields[0];
+        const key = String(field?.key ?? fallback?.key ?? '');
         return {
-          key: String(field?.key ?? fallback?.key ?? ''),
+          key,
           section: String(field?.section ?? fallback?.section ?? 'personal'),
           label: String(field?.label ?? fallback?.label ?? 'Field'),
           type: String(field?.type ?? fallback?.type ?? 'text'),
           placeholder: String(field?.placeholder ?? fallback?.placeholder ?? ''),
-          required: Boolean(field?.required ?? fallback?.required),
-          enabled: Boolean(field?.enabled ?? fallback?.enabled ?? true),
+          required: key === 'email' ? false : Boolean(field?.required ?? fallback?.required),
+          enabled: key === 'email' ? Boolean(field?.enabled) : Boolean(field?.enabled ?? fallback?.enabled ?? true),
           order: Number(field?.order ?? fallback?.order ?? 0)
         };
       })
@@ -295,7 +364,18 @@ const normalizeKycFormConfig = (raw: any): KYCFormConfig => {
             .filter((option) => option.key)
         };
       })
-      .filter((group) => group.key && group.options.length > 0)
+      .filter((group) => group.key && group.options.length > 0),
+    consent: {
+      policyVersion: String(raw?.consent?.policyVersion || 'kyc-consent-v1'),
+      purpose: String(raw?.consent?.purpose || 'identity_verification_review'),
+      required: true
+    },
+    security: {
+      biometricsEnabled: false,
+      automatedFinalApproval: false,
+      maxFilesPerSubmission: Number(raw?.security?.maxFilesPerSubmission || 12),
+      maxResubmissions: Number(raw?.security?.maxResubmissions || 8)
+    }
   };
 };
 
@@ -321,12 +401,48 @@ export const kycApi = {
     return mapSubmission(payload);
   },
 
-  uploadDocument: async (type: KYCDocument['type'], fileId: string): Promise<{ documentId: string }> => {
-    const response = await api.post<ApiResponse<{ documentId: string }>>('/kyc/documents', {
-      type,
-      file_id: fileId,
+  /** Phase 20.2 private KYC upload — never uses generic public media upload. */
+  uploadSecureDocument: async (
+    type: string,
+    file: File | Blob,
+    filename?: string
+  ): Promise<KYCSecureUploadResult> => {
+    const form = new FormData();
+    form.append('type', type);
+    form.append('file', file, filename || (file as File).name || 'document');
+    const response = await api.post<ApiResponse<KYCSecureUploadResult>>('/kyc/uploads', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000
     });
     return handleApiResponse(response);
+  },
+
+  /** @deprecated retired — use uploadSecureDocument */
+  uploadDocument: async (_type: KYCDocument['type'], _fileId: string): Promise<{ documentId: string }> => {
+    throw new Error('Generic KYC media attachment is retired. Use secure KYC upload.');
+  },
+
+  viewDocumentSecure: async (documentId: string): Promise<KYCSecureViewResult> => {
+    const response = await api.get<ApiResponse<KYCSecureViewResult>>(
+      `/admin/kyc/documents/${encodeURIComponent(documentId)}/view`
+    );
+    return handleApiResponse(response);
+  },
+
+  updateKYCStatus: async (
+    id: string,
+    status: string,
+    reason: string,
+    reasonCode?: string
+  ): Promise<KYCSubmission> => {
+    const response = await api.post<ApiResponse<KYCSubmission>>(`/admin/kyc/${id}/status`, {
+      status,
+      notes: reason,
+      reason,
+      reason_code: reasonCode
+    });
+    const payload = handleApiResponse<any>(response);
+    return mapSubmission(payload);
   },
 
   getDocumentTypes: async (): Promise<{

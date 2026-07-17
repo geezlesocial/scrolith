@@ -14,7 +14,6 @@ import { useUser } from '../../context/UserContext';
 import { StatusBadge } from './StatusBadge';
 import { Skeleton } from './Skeleton';
 import { ConfirmModal } from './ConfirmModal';
-import { FilePickerModal } from './FilePickerModal';
 import {
   ShieldCheck,
   Upload,
@@ -113,7 +112,6 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
 
   // Form states
   const [showForm, setShowForm] = useState(false);
-  const [showFilePicker, setShowFilePicker] = useState(false);
   const [selectedDocumentType, setSelectedDocumentType] = useState<string | null>(null);
   const [selectedDocumentConfig, setSelectedDocumentConfig] = useState<KYCDocumentOptionConfig | null>(null);
 
@@ -135,9 +133,14 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
 
   const [documents, setDocuments] = useState<{
     type: string;
-    fileId: string;
-    fileUrl?: string;
+    documentId: string;
+    fileId?: string;
+    fileUrl?: string | null;
+    scanStatus?: string | null;
   }[]>([]);
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const secureFileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const sortedPersonalFields = useMemo(
     () =>
@@ -247,14 +250,30 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
       // Pre-fill form if there's existing submission
       if (data.submission) {
         setPersonalInfo({
-          ...data.submission.personalInfo,
-          email: user.email || data.submission.personalInfo.email,
+          firstName: data.submission.personalInfo?.firstName || '',
+          lastName: data.submission.personalInfo?.lastName || '',
+          dateOfBirth: data.submission.personalInfo?.dateOfBirth || '',
+          nationality: data.submission.personalInfo?.nationality || '',
+          phoneNumber: data.submission.personalInfo?.phoneNumber || '',
+          email: '',
+          address: {
+            street: data.submission.personalInfo?.address?.street || '',
+            city: data.submission.personalInfo?.address?.city || '',
+            state: data.submission.personalInfo?.address?.state || '',
+            postalCode: data.submission.personalInfo?.address?.postalCode || '',
+            country: data.submission.personalInfo?.address?.country || ''
+          }
         });
-        setDocuments(data.submission.documents.map(doc => ({
-          type: doc.type,
-          fileId: doc.fileId,
-          fileUrl: doc.fileUrl,
-        })));
+        setDocuments(
+          data.submission.documents.map((doc) => ({
+            type: doc.type,
+            documentId: doc.id,
+            fileId: doc.fileId,
+            fileUrl: null,
+            scanStatus: doc.scanStatus
+          }))
+        );
+        setConsentAccepted(false);
       }
     } catch (error: any) {
       console.error('Failed to load KYC status:', error);
@@ -297,38 +316,62 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
     return () => window.removeEventListener('kyc.updated', handler as EventListener);
   }, [user?.id, updateUser, showNotification]);
 
-  const handleFileSelect = (picked: any[] | any) => {
-    const file = Array.isArray(picked) ? picked[0] : picked;
-    if (selectedDocumentType && file) {
-      const fileId = file.id || file.fileId;
-      const fileUrl = file.url || file.fileUrl;
-      const existingDocIndex = documents.findIndex(doc => doc.type === selectedDocumentType);
+  const friendlyUploadError = (error: any) => {
+    const code = String(error?.response?.data?.code || error?.code || '').toUpperCase();
+    const message = String(error?.response?.data?.error || error?.message || 'Upload failed');
+    if (code === 'MALWARE_DETECTED') return 'File failed security scanning and cannot be accepted.';
+    if (code === 'SCANNER_UNAVAILABLE') return 'Security scanner is temporarily unavailable. Please try again later.';
+    if (code === 'FILE_TOO_LARGE') return 'File is too large. Maximum size is 10MB.';
+    if (code === 'UNSUPPORTED_TYPE' || code === 'MIME_MAGIC_MISMATCH') return 'Unsupported file type. Use JPEG, PNG, WEBP, or PDF.';
+    if (code === 'DOCUMENT_OWNERSHIP') return 'Document ownership validation failed.';
+    if (code === 'CONSENT_REQUIRED') return 'You must accept the KYC consent statement before submitting.';
+    if (code === 'RATE_LIMIT') return 'Too many attempts. Please wait and try again.';
+    return message;
+  };
 
-      if (existingDocIndex >= 0) {
-        // Update existing document
-        const updatedDocs = [...documents];
-        updatedDocs[existingDocIndex] = {
-          type: selectedDocumentType,
-          fileId,
-          fileUrl,
-        };
-        setDocuments(updatedDocs);
-      } else {
-        // Add new document
-        setDocuments([...documents, {
-          type: String(selectedDocumentType),
-          fileId,
-          fileUrl,
-        }]);
-      }
+  const handleSecureFileChosen = async (fileList: FileList | null) => {
+    const file = fileList?.[0];
+    const type = selectedDocumentType;
+    if (!file || !type) return;
+    setUploadingType(type);
+    try {
+      const uploaded = await kycApi.uploadSecureDocument(type, file, file.name);
+      const next = {
+        type,
+        documentId: uploaded.documentId,
+        scanStatus: uploaded.scanStatus
+      };
+      setDocuments((prev) => {
+        const idx = prev.findIndex((doc) => doc.type === type);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = next;
+          return copy;
+        }
+        return [...prev, next];
+      });
+      showNotification('success', 'Upload complete', 'Document passed security checks and is ready to attach.');
+    } catch (error: any) {
+      showNotification('error', 'Upload failed', friendlyUploadError(error));
+    } finally {
+      setUploadingType(null);
+      setSelectedDocumentType(null);
+      setSelectedDocumentConfig(null);
+      if (secureFileInputRef.current) secureFileInputRef.current.value = '';
     }
-    setShowFilePicker(false);
-    setSelectedDocumentType(null);
-    setSelectedDocumentConfig(null);
+  };
+
+  const openSecureUpload = (type: string, option?: KYCDocumentOptionConfig) => {
+    setSelectedDocumentType(type);
+    setSelectedDocumentConfig(option || null);
+    // Prefer native file input for private KYC path (not generic FilePicker public media)
+    window.setTimeout(() => secureFileInputRef.current?.click(), 0);
   };
 
   const handleSubmitKYC = async () => {
-    const requiredFields = sortedPersonalFields.filter((field) => field.enabled !== false && field.required);
+    const requiredFields = sortedPersonalFields.filter(
+      (field) => field.enabled !== false && field.required && String(field.key) !== 'email'
+    );
     for (const field of requiredFields) {
       const value = getPersonalFieldValue(String(field.key));
       if (!String(value || '').trim()) {
@@ -357,31 +400,46 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
       }
     }
 
+    if (!consentAccepted) {
+      showNotification('error', 'Consent required', 'Please accept the KYC consent statement before submitting.');
+      return;
+    }
+
     setSubmitting(true);
     try {
+      const policyVersion = formConfig?.consent?.policyVersion || 'kyc-consent-v1';
       const submissionData: CreateKYCSubmissionData = {
-        personalInfo,
-        documents: documents.map(doc => ({
+        personalInfo: {
+          firstName: personalInfo.firstName,
+          lastName: personalInfo.lastName,
+          dateOfBirth: personalInfo.dateOfBirth,
+          nationality: personalInfo.nationality,
+          phoneNumber: personalInfo.phoneNumber,
+          address: personalInfo.address
+        },
+        documents: documents.map((doc) => ({
           type: doc.type as any,
-          fileId: doc.fileId,
+          documentId: doc.documentId
         })),
+        consentAccepted: true,
+        consentPolicyVersion: policyVersion,
+        sourceSurface: 'kyc_form'
       };
 
       if (kycStatus?.submission) {
-        // Update existing submission
         await kycApi.updateKYC(kycStatus.submission.id, submissionData);
         showNotification('success', 'KYC Updated', 'Your KYC information has been updated successfully');
       } else {
-        // Create new submission
         await kycApi.submitKYC(submissionData);
         showNotification('success', 'KYC Submitted', 'Your KYC verification has been submitted successfully');
       }
 
       updateUser?.({ kycStatus: 'pending', kyc_status: 'pending', isVerified: false, is_verified: false });
       setShowForm(false);
+      setConsentAccepted(false);
       loadKYCStatus();
     } catch (error: any) {
-      showNotification('error', 'Submission Failed', error.message || 'Failed to submit KYC verification');
+      showNotification('error', 'Submission Failed', friendlyUploadError(error));
     } finally {
       setSubmitting(false);
     }
@@ -753,23 +811,26 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
                         return (
                           <button
                             key={option.key}
-                            onClick={() => {
-                              setSelectedDocumentType(String(option.key));
-                              setSelectedDocumentConfig(option);
-                              setShowFilePicker(true);
-                            }}
+                            type="button"
+                            disabled={Boolean(uploadingType)}
+                            onClick={() => openSecureUpload(String(option.key), option)}
                             className={`p-3 border rounded-lg text-left transition-colors ${
                               existingDoc ? 'border-green-300 bg-green-50' : 'border-gray-300 hover:border-gray-400'
-                            }`}
+                            } disabled:opacity-60`}
                           >
                             <div className="flex items-center space-x-2">
-                              {existingDoc ? (
+                              {uploadingType === String(option.key) ? (
+                                <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                              ) : existingDoc ? (
                                 <CheckCircle className="w-4 h-4 text-green-600" />
                               ) : (
                                 <Upload className="w-4 h-4 text-gray-400" />
                               )}
                               <span className="text-sm font-medium">{option.label}</span>
                             </div>
+                            {existingDoc?.scanStatus === 'CLEAN' ? (
+                              <p className="mt-2 text-xs text-green-700">Security scan passed</p>
+                            ) : null}
                             {option.cameraOnly ? (
                               <p className="mt-2 text-xs text-amber-700">Camera-only capture required</p>
                             ) : null}
@@ -782,24 +843,36 @@ export const KYCVerification: React.FC<KYCVerificationProps> = ({ role = 'freela
               })}
             </div>
           </div>
+
+          {/* Mandatory consent — not pre-checked, not marketing */}
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-4">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                checked={consentAccepted}
+                onChange={(event) => setConsentAccepted(event.target.checked)}
+              />
+              <span className="text-sm text-gray-800">
+                {formConfig?.copy?.consentLabel ||
+                  'I confirm that the information and documents I provide are accurate, that they will be reviewed by authorized administrators, and that automated security checks may be performed. Final approval is issued only by an authorized administrator.'}
+                <span className="block mt-1 text-xs text-gray-500">
+                  Policy version: {formConfig?.consent?.policyVersion || 'kyc-consent-v1'}
+                </span>
+              </span>
+            </label>
+          </div>
         </div>
       </ConfirmModal>
 
-      {/* File Picker Modal */}
-      <FilePickerModal
-        isOpen={showFilePicker}
-        onClose={() => {
-          setShowFilePicker(false);
-          setSelectedDocumentType(null);
-          setSelectedDocumentConfig(null);
-        }}
-        onSelect={handleFileSelect}
-        title={selectedDocumentConfig ? `Upload ${selectedDocumentConfig.label}` : `Upload ${selectedDocumentType?.replace('_', ' ')}`}
-        acceptedTypes={selectedDocumentConfig?.accept || 'image/*,application/pdf'}
-        allowCamera={Boolean(selectedDocumentConfig?.cameraOnly)}
-        allowUpload={!selectedDocumentConfig?.cameraOnly}
-        allowLibrarySelection={!selectedDocumentConfig?.cameraOnly}
-        cameraCapture={selectedDocumentConfig?.cameraOnly ? 'user' : 'environment'}
+      {/* Private KYC file input — never generic public media upload */}
+      <input
+        ref={secureFileInputRef}
+        type="file"
+        className="hidden"
+        accept={selectedDocumentConfig?.accept || 'image/jpeg,image/png,image/webp,application/pdf'}
+        capture={selectedDocumentConfig?.cameraOnly ? 'user' : undefined}
+        onChange={(event) => void handleSecureFileChosen(event.target.files)}
       />
     </div>
   );
