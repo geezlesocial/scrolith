@@ -4247,6 +4247,52 @@ model CommunityPostReaction {
   @@index([postId, type])
 }
 
+/// Phase 20.2.4 — server-authoritative mention records (additive; does not replace CommunityPost.mentions[]).
+model Mention {
+  id             String   @id @default(cuid())
+  authorId       String
+  sourceType     String // POST | COMMENT
+  sourceId       String
+  postId         String?
+  commentId      String?
+  clubId         String?
+  kind           String // USER | EVERYONE | MODERATORS | ADMINS | SCROLITHA | RESERVED
+  rawToken       String
+  targetUserId   String?
+  status         String   @default("ACTIVE")
+  recipientCount Int      @default(0)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  recipients MentionRecipient[]
+
+  @@index([authorId, createdAt])
+  @@index([sourceType, sourceId])
+  @@index([postId])
+  @@index([commentId])
+  @@index([kind, createdAt])
+  @@index([targetUserId])
+  @@index([status])
+}
+
+model MentionRecipient {
+  id             String    @id @default(cuid())
+  mentionId      String
+  recipientId    String
+  notificationId String?
+  status         String    @default("PENDING") // PENDING | NOTIFIED | SKIPPED | FAILED
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  mention Mention @relation(fields: [mentionId], references: [id], onDelete: Cascade)
+
+  @@unique([mentionId, recipientId])
+  @@index([recipientId, createdAt])
+  @@index([status])
+  @@index([notificationId])
+}
+
 model ScrollVideo {
   id                             String    @id @default(cuid())
   authorId                       String
