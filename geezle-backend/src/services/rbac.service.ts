@@ -110,8 +110,21 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'procurement.manage', label: 'Manage procurement workflows', groupName: 'Enterprise Governance' },
   { key: 'budgets.read', label: 'Read budget controls', groupName: 'Enterprise Governance' },
   { key: 'budgets.manage', label: 'Manage budget controls', groupName: 'Enterprise Governance' },
-  { key: 'kyc.read', label: 'Read KYC governance data', groupName: 'Enterprise Governance' },
-  { key: 'kyc.review', label: 'Review KYC decisions', groupName: 'Enterprise Governance' },
+  { key: 'kyc.read', label: 'Read KYC governance data (legacy)', groupName: 'Enterprise Governance' },
+  { key: 'kyc.review', label: 'Review KYC decisions (legacy)', groupName: 'Enterprise Governance' },
+  // Phase 20.2 least-privilege KYC permissions
+  { key: 'kyc.case.read', label: 'Read KYC cases and queue', groupName: 'KYC Identity' },
+  { key: 'kyc.document.view', label: 'View KYC identity documents', groupName: 'KYC Identity' },
+  { key: 'kyc.review.recommend', label: 'Recommend KYC outcomes without final decision', groupName: 'KYC Identity' },
+  { key: 'kyc.decision.approve', label: 'Approve KYC verification', groupName: 'KYC Identity' },
+  { key: 'kyc.decision.reject', label: 'Reject KYC verification', groupName: 'KYC Identity' },
+  { key: 'kyc.decision.resubmit', label: 'Request KYC resubmission', groupName: 'KYC Identity' },
+  { key: 'kyc.decision.revoke', label: 'Revoke KYC verification', groupName: 'KYC Identity' },
+  { key: 'kyc.config.read', label: 'Read KYC form configuration', groupName: 'KYC Identity' },
+  { key: 'kyc.config.write', label: 'Update KYC form configuration', groupName: 'KYC Identity' },
+  { key: 'kyc.audit.read', label: 'Read KYC audit events', groupName: 'KYC Identity' },
+  { key: 'kyc.export', label: 'Export KYC data under policy control', groupName: 'KYC Identity' },
+  { key: 'kyc.delete', label: 'Delete KYC data under policy control', groupName: 'KYC Identity' },
   { key: 'live.read', label: 'Read live governance data', groupName: 'Enterprise Governance' },
   { key: 'live.manage', label: 'Manage live governance actions', groupName: 'Enterprise Governance' },
   { key: 'cms.read', label: 'Read enterprise CMS governance data', groupName: 'Enterprise Governance' },
@@ -292,6 +305,15 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'disputes.manage',
       'kyc.read',
       'kyc.review',
+      'kyc.case.read',
+      'kyc.document.view',
+      'kyc.review.recommend',
+      'kyc.decision.approve',
+      'kyc.decision.reject',
+      'kyc.decision.resubmit',
+      'kyc.decision.revoke',
+      'kyc.config.read',
+      'kyc.audit.read',
       'invoices.read',
       'compliance.read',
       'appeals.read',
@@ -299,6 +321,18 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'audit.read',
       'settings.read',
       'security.alerts.read'
+    ]
+  },
+  {
+    name: 'KYC Reviewer',
+    description: 'Reviews KYC cases and documents; cannot issue final approval by default',
+    isSystemRole: true,
+    permissionKeys: [
+      'kyc.case.read',
+      'kyc.document.view',
+      'kyc.review.recommend',
+      'kyc.config.read',
+      'kyc.audit.read'
     ]
   },
   {

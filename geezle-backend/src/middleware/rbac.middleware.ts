@@ -154,3 +154,45 @@ export const requirePermission = (permissionKey: string) => {
     }
   };
 };
+
+/** Allow access if staff has any of the listed permissions (or is admin). */
+export const requireAnyPermission = (...permissionKeys: string[]) => {
+  const keys = permissionKeys.map((k) => String(k || '').trim()).filter(Boolean);
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user?.id) return unauthorized(res);
+
+      const context = await resolveStaffContext(req);
+      if (!context) return forbidden(res);
+      if (context.isAdmin) return next();
+
+      if (!context.staffId) {
+        await safeWriteDeniedDecision(req, keys[0] || 'unknown', 'Missing staff profile', context);
+        return forbidden(res);
+      }
+      if (context.status !== 'ACTIVE') {
+        await safeWriteDeniedDecision(req, keys[0] || 'unknown', 'Staff account is not active', context);
+        return forbidden(res, 'Staff account is not active');
+      }
+      if (!context.roleActive) {
+        await safeWriteDeniedDecision(req, keys[0] || 'unknown', 'Assigned role is inactive', context);
+        return forbidden(res, 'Assigned role is inactive');
+      }
+      const allowed = keys.some((key) => context.permissions.has(key));
+      if (!allowed) {
+        await safeWriteDeniedDecision(
+          req,
+          keys.join('|'),
+          `Missing permission: one of ${keys.join(', ')}`,
+          context
+        );
+        return forbidden(res, `Missing permission: one of ${keys.join(', ')}`);
+      }
+
+      return next();
+    } catch (error) {
+      console.error('[rbac] requireAnyPermission error', error);
+      return res.status(500).json({ success: false, error: 'Failed to validate permission', code: 'ERR_INTERNAL' });
+    }
+  };
+};
