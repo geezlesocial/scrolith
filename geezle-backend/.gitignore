@@ -19,3 +19,9 @@ uploads/
 
 npx
 
+
+.tmp-p202t-creds/
+.tmp-p202s-creds/
+.tmp-p202s-fixtures/
+.tmp-p202s-results/
+
