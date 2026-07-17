@@ -130,6 +130,40 @@ describe('Phase 19.2 intelligence feedback fabric', () => {
     expect(res.status).toBe(401);
   });
 
+  test('does not invoke storage when viewer authentication is missing', async () => {
+    const store = jest.fn(async () => ({ stored: true, duplicate: false, id: 'should-not-store' }));
+    const service = new FeedbackFabricService({
+      rateLimiter: new FeedbackRateLimiter({ maxEvents: 10 }),
+      store
+    });
+
+    await expect(
+      service.submit({
+        viewerId: null,
+        events: [{ entityType: 'post', entityId: 'post-1', action: 'impression' }]
+      })
+    ).rejects.toMatchObject({ statusCode: 401, code: 'UNAUTHORIZED' });
+    expect(store).not.toHaveBeenCalled();
+  });
+
+  test('maps database pool timeouts to controlled internal failure without false success', async () => {
+    const service = new FeedbackFabricService({
+      rateLimiter: new FeedbackRateLimiter({ maxEvents: 10 }),
+      store: async () => {
+        throw Object.assign(new Error('Timed out fetching a new connection from the connection pool'), {
+          code: 'P2024'
+        });
+      }
+    });
+
+    await expect(
+      service.submit({
+        viewerId: 'user-1',
+        events: [{ entityType: 'post', entityId: 'post-1', action: 'impression' }]
+      })
+    ).rejects.toMatchObject({ code: 'P2024' });
+  });
+
   test('metrics expose aggregate counters only', async () => {
     const service = new FeedbackFabricService({
       rateLimiter: new FeedbackRateLimiter({ maxEvents: 10 }),

@@ -19,6 +19,7 @@ const ALWAYS_ALLOW_PREFIXES = [
   '/api/admin',
   '/api/auth',
   '/api/cms',
+  '/api/intelligence/feedback',
   '/api/marketing',
   '/api/public/preloader'
 ];
