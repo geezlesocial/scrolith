@@ -202,6 +202,11 @@ export type FetchMemberFeedParams = {
   region?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /**
+   * Phase 19.1: when true, 401/403 rethrow so callers can keep session handling.
+   * Soft transport failures still return null for legacy fallback.
+   */
+  hardFailAuth?: boolean;
 };
 
 /**
@@ -226,7 +231,31 @@ export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promis
 
   const data = extractData<any>(response) || {};
   const items = Array.isArray(data.items) ? (data.items as UnifiedFeedItem[]) : [];
-  const partitioned = partitionUnifiedFeedItems(items);
+  // Preserve additive intelligence envelope onto post-like payloads during partition.
+  const partitioned = partitionUnifiedFeedItems(
+    items.map((item) => {
+      if (!item || typeof item !== 'object') return item;
+      const payload =
+        item.payload && typeof item.payload === 'object'
+          ? {
+              ...item.payload,
+              intelligence: (item as any).intelligence || item.payload.intelligence,
+              ranking:
+                item.payload.ranking ||
+                ((item as any).intelligence
+                  ? {
+                      score: item.score ?? item.rankingScore,
+                      primaryReason: (item as any).intelligence?.primaryReason ?? item.why ?? null,
+                      reasons: (item as any).intelligence?.reasons || [],
+                      reasonCodes: (item as any).intelligence?.reasonCodes || [],
+                      mode: (item as any).intelligence?.rankMode || data.mode
+                    }
+                  : undefined)
+            }
+          : item.payload;
+      return { ...item, payload };
+    })
+  );
   const nextCursor = clean(data.nextCursor || data.next_cursor || '') || null;
   const hasMore =
     typeof data.hasMore === 'boolean'
@@ -257,11 +286,15 @@ export async function tryFetchMemberFeedPage(
     return await fetchMemberFeedPage(params);
   } catch (error: any) {
     const status = Number(error?.response?.status || 0);
+    // Phase 19.1: auth failures must not look like ordinary soft fallbacks when requested.
+    if (params.hardFailAuth && (status === 401 || status === 403)) {
+      throw error;
+    }
     // Soft-fail for missing endpoint or server errors so Phase 1 continuous feed remains primary safety net.
     if (!status || status === 404 || status === 405 || status === 501 || status >= 500 || status === 0) {
       return null;
     }
-    // Auth/validation: still fall back rather than blank the feed.
+    // Auth/validation on desktop: still fall back rather than blank the feed.
     console.warn('[MemberFeedService] orchestrated feed failed; Phase 1 fallback will be used', {
       status,
       message: error?.message

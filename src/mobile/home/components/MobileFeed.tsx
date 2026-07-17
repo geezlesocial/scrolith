@@ -54,6 +54,11 @@ import {
   resolvePageRecoPresentation,
   resolvePersonRecoPresentation
 } from '../../../utils/feedIntelligence';
+import { MemberFeedService } from '../../../services/memberFeed';
+import {
+  buildNormalizedViewerFeedPreference,
+  normalizeMemberFeedIntent
+} from '../../../utils/viewerFeedPreference';
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -1126,6 +1131,9 @@ export default function MobileFeed({
   const loadInFlightRef = useRef(false);
   const postsRef = useRef<any[]>([]);
   const rateLimitUntilRef = useRef<number>(0);
+  const feedAbortRef = useRef<AbortController | null>(null);
+  const feedLoadRequestIdRef = useRef(0);
+  const mobileFeedTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
@@ -1463,6 +1471,7 @@ export default function MobileFeed({
     if (loadInFlightRef.current) return;
     loadInFlightRef.current = true;
     const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
+    const requestId = ++feedLoadRequestIdRef.current;
 
     try {
       if (mode === 'initial') {
@@ -1476,6 +1485,84 @@ export default function MobileFeed({
       let nextPosts: any[] = [];
       let nextCursor: string | null = null;
       let usedPostsFallback = false;
+
+      // Phase 19.1: try member-feed orchestrator first (desktop Member Home parity).
+      // Soft-fail → existing community/legacy path. Auth 401/403 rethrow for session handling.
+      const isAuthenticated = Boolean(user?.id);
+      if (isAuthenticated) {
+        try {
+          feedAbortRef.current?.abort();
+          const controller = new AbortController();
+          feedAbortRef.current = controller;
+          const roleLike =
+            (user as any)?.role ||
+            (user as any)?.userType ||
+            (user as any)?.accountType ||
+            (user as any)?.type;
+          const pref = buildNormalizedViewerFeedPreference({
+            feedIntent: normalizeMemberFeedIntent((user as any)?.feedIntent || (user as any)?.preferredFeedMode, 'for_you'),
+            roleLike,
+            source: 'member_home'
+          });
+          // Prefer explicit stored insights mapping when available later; default for_you is safe.
+          const orchestratedMode = pref.feedIntent || 'for_you';
+          const orchestrated = await MemberFeedService.tryFetchPage({
+            surface: 'member_home',
+            mode: orchestratedMode,
+            limit: feedLimit,
+            cursor: mode === 'more' ? cursorRef.current || undefined : undefined,
+            signal: controller.signal,
+            timeoutMs: constrainedForFeed ? 12000 : 18000,
+            hardFailAuth: true
+          });
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          if (orchestrated && Array.isArray(orchestrated.posts) && (orchestrated.posts.length > 0 || orchestrated.hasMore)) {
+            mobileFeedTransportRef.current = 'orchestrated';
+            nextPosts = orchestrated.posts;
+            nextCursor = orchestrated.nextCursor;
+            usedPostsFallback = false;
+            // Skip legacy collectors when orchestrator produced a usable page.
+            const shouldPreserveExistingFeed =
+              mode === 'initial' && nextPosts.length === 0 && postsRef.current.length > 0;
+            rateLimitUntilRef.current = 0;
+            setRateLimitUntil(null);
+            setError(null);
+            setStatusMessage(null);
+            cursorRef.current = nextCursor;
+            const mergedPosts = shouldPreserveExistingFeed
+              ? postsRef.current
+              : mode === 'more'
+                ? [...postsRef.current, ...nextPosts]
+                : nextPosts;
+            commitVisiblePosts(mergedPosts, nextCursor, mode);
+            if (mergedPosts.length > 0) {
+              try {
+                localStorage.setItem(
+                  feedCacheKey,
+                  JSON.stringify({
+                    ts: Date.now(),
+                    cursor: nextCursor,
+                    items: postsRef.current.slice(0, 80)
+                  })
+                );
+              } catch {
+                // Ignore cache write errors.
+              }
+            }
+            return;
+          }
+          mobileFeedTransportRef.current = 'legacy';
+        } catch (orchError: any) {
+          if (requestId !== feedLoadRequestIdRef.current) return;
+          const status = Number(orchError?.response?.status || 0);
+          if (status === 401 || status === 403) {
+            throw orchError;
+          }
+          // Timeout / soft failure → legacy path below.
+          mobileFeedTransportRef.current = 'legacy';
+        }
+      }
+
       if (mode === 'initial') {
         const feedRequest = withFastFail(
           CommunityService.getFeed({
@@ -1693,7 +1780,7 @@ export default function MobileFeed({
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [commitVisiblePosts, constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount]);
+  }, [commitVisiblePosts, constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount, user]);
 
   useEffect(() => {
     void load('initial');
