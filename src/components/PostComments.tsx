@@ -8,6 +8,7 @@ import { FileService } from '../services/files';
 import { ReactionsService } from '../services/reactions';
 import ReactionBar from '../community/components/ReactionBar';
 import MentionText from '../community/components/MentionText';
+import MentionHashtagTextarea from '../community/components/MentionHashtagTextarea';
 import { UploadedFile } from '../types';
 import CommentAiAssist from './post/CommentAiAssist';
 import EmojiPhraseSuggestionBar from '../community/components/EmojiPhraseSuggestionBar';
@@ -54,6 +55,8 @@ type CommentSortMode = 'relevant' | 'newest' | 'oldest';
 
 type PostCommentsProps = {
   postId: string;
+  /** Optional club/community scope for @moderators / @admins autocomplete. */
+  clubId?: string | null;
   authorId?: string;
   commentPolicy?: string | null;
   initialCount?: number;
@@ -278,6 +281,7 @@ const markCommentDeleted = (items: PostComment[], commentId: string): { items: P
 
 const PostComments: React.FC<PostCommentsProps> = ({
   postId,
+  clubId = null,
   authorId,
   commentPolicy,
   initialCount = 0,
@@ -1083,28 +1087,14 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   disabled={submitting}
                   scopeLabel="reply"
                 />
-                <textarea
+                <MentionHashtagTextarea
                   value={replyDraft}
-                  onChange={(event) => {
-                    setReplyDraft(event.target.value);
-                    setReplyCaret(
-                      typeof event.target.selectionStart === 'number'
-                        ? event.target.selectionStart
-                        : event.target.value.length
-                    );
-                  }}
-                  onSelect={(event) => {
-                    const el = event.currentTarget;
-                    setReplyCaret(typeof el.selectionStart === 'number' ? el.selectionStart : replyDraft.length);
-                  }}
-                  onKeyUp={(event) => {
-                    const el = event.currentTarget;
-                    setReplyCaret(typeof el.selectionStart === 'number' ? el.selectionStart : replyDraft.length);
-                  }}
-                  onClick={(event) => {
-                    const el = event.currentTarget;
-                    setReplyCaret(typeof el.selectionStart === 'number' ? el.selectionStart : replyDraft.length);
-                  }}
+                  onChange={setReplyDraft}
+                  onCaretChange={setReplyCaret}
+                  clubId={clubId}
+                  mentionsEnabled
+                  hashtagsEnabled={false}
+                  minQueryLength={0}
                   placeholder={`Reply as ${user?.name || user?.username || 'you'}...`}
                   className="mt-3 min-h-[88px] w-full rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 outline-none transition focus:border-slate-300"
                 />
@@ -1207,33 +1197,19 @@ const PostComments: React.FC<PostCommentsProps> = ({
             disabled={commentsDisabled || submitting}
             scopeLabel="comment"
           />
-          <textarea
+          <MentionHashtagTextarea
             ref={draftRef}
             value={draft}
-            onChange={(event) => {
-              setDraft(event.target.value);
-              setDraftCaret(
-                typeof event.target.selectionStart === 'number'
-                  ? event.target.selectionStart
-                  : event.target.value.length
-              );
-            }}
-            onSelect={(event) => {
-              const el = event.currentTarget;
-              setDraftCaret(typeof el.selectionStart === 'number' ? el.selectionStart : draft.length);
-            }}
-            onKeyUp={(event) => {
-              const el = event.currentTarget;
-              setDraftCaret(typeof el.selectionStart === 'number' ? el.selectionStart : draft.length);
-            }}
-            onClick={(event) => {
-              const el = event.currentTarget;
-              setDraftCaret(typeof el.selectionStart === 'number' ? el.selectionStart : draft.length);
-            }}
+            onChange={setDraft}
+            onCaretChange={setDraftCaret}
+            clubId={clubId}
+            mentionsEnabled
+            hashtagsEnabled={false}
+            minQueryLength={0}
             placeholder={
               commentsDisabled
                 ? 'Comments are disabled for this post.'
-                : `Comment as ${user?.name || user?.username || 'you'}`
+                : `Comment as ${user?.name || user?.username || 'you'} — type @ to mention`
             }
             disabled={commentsDisabled || submitting}
             className="mt-3 min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100"

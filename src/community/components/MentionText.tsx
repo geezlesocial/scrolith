@@ -10,7 +10,8 @@ type MentionTextProps = {
   preserveWhitespace?: boolean;
 };
 
-const MENTION_REGEX = /@([a-zA-Z0-9_.]{3,30})/g;
+// Phase 20.2.4: allow 2+ chars so @ai / specials render as links when applicable.
+const MENTION_REGEX = /@([a-zA-Z0-9_.]{2,30})/g;
 
 const normalizeToken = (value?: string | null) => String(value || '').trim().replace(/^@+/, '').toLowerCase();
 

@@ -12,6 +12,37 @@ export type ActiveToken = {
 
 const MAX_QUERY_LEN = 30;
 
+/** Phase 20.2.4 special tokens shown in autocomplete (server validates fan-out). */
+export const MENTION_SPECIAL_SUGGESTIONS = [
+  { username: 'everyone', name: 'Everyone (your followers)', mentionKind: 'EVERYONE' },
+  { username: 'moderators', name: 'Community moderators', mentionKind: 'MODERATORS' },
+  { username: 'admins', name: 'Community admins', mentionKind: 'ADMINS' },
+  { username: 'Scrolitha', name: 'Scrolitha AI', mentionKind: 'SCROLITHA' }
+] as const;
+
+const RECENT_MENTIONS_KEY = 'scrolith.mentions.recent.v1';
+
+export const loadRecentMentions = (): string[] => {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = JSON.parse(localStorage.getItem(RECENT_MENTIONS_KEY) || '[]');
+    return Array.isArray(raw) ? raw.map((v) => String(v || '')).filter(Boolean).slice(0, 12) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const rememberRecentMention = (username: string) => {
+  const value = String(username || '').replace(/^@+/, '').trim();
+  if (!value || typeof localStorage === 'undefined') return;
+  try {
+    const prev = loadRecentMentions().filter((u) => u.toLowerCase() !== value.toLowerCase());
+    localStorage.setItem(RECENT_MENTIONS_KEY, JSON.stringify([value, ...prev].slice(0, 12)));
+  } catch {
+    /* ignore */
+  }
+};
+
 /** Detect an in-progress @mention or #tag token at the caret. */
 export const findActiveToken = (
   value: string,
@@ -20,7 +51,7 @@ export const findActiveToken = (
 ): ActiveToken | null => {
   const before = value.slice(0, caret);
 
-  // Mentions: @username (letters/numbers/underscore/dot). Keep conservative to avoid triggering in emails/URLs.
+  // Mentions: @token (letters/numbers/underscore/dot). 0–30 chars so bare @ opens picker.
   const mentionMatch = before.match(/(^|[\s([{>])@([a-zA-Z0-9_.]{0,30})$/);
   if (mentionMatch && opts.mentionsEnabled) {
     const query = String(mentionMatch[2] || '').slice(0, MAX_QUERY_LEN);

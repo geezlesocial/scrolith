@@ -1612,11 +1612,18 @@ class CommunityService {
     return Array.isArray(data) ? data : [];
   }
 
-  static async searchUserMentions(q: string): Promise<any[]> {
+  static async searchUserMentions(
+    q: string,
+    opts?: { clubId?: string | null; limit?: number }
+  ): Promise<any[]> {
     if (!q) return [];
     const query = String(q || '').trim().replace(/^@+/, '');
     if (!query) return [];
-    const data = await this.get(`/community/mentions/users?q=${encodeURIComponent(query)}`);
+    const params = new URLSearchParams();
+    params.set('q', query);
+    if (opts?.clubId) params.set('clubId', String(opts.clubId));
+    if (opts?.limit) params.set('limit', String(opts.limit));
+    const data = await this.get(`/community/mentions/users?${params.toString()}`);
     return Array.isArray(data) ? data : [];
   }
 
