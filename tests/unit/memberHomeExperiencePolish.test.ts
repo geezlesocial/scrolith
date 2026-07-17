@@ -42,6 +42,15 @@ test('discovery board supports series hover preview and single active preview', 
   assert.match(src, /isSeriesPlaylistHighlight/);
   assert.match(src, /InlineAutoplayVideo/);
   assert.match(src, /member-home-module-thumb-large|member-home-series-preview-thumb/);
+  // Muted loop preview; no native controls.
+  assert.match(src, /muted/);
+  assert.match(src, /loop/);
+  assert.match(src, /controls=\{false\}|controls={false}/);
+  assert.match(src, /handlePointerLeave|onMouseLeave/);
+  assert.match(src, /onBlur=\{handlePointerLeave\}/);
+  // Unmount cleanup clears timers and active token.
+  assert.match(src, /clearTimeout|window\.clearTimeout/);
+  assert.match(src, /previewListeners\.delete/);
 });
 
 test('module thumbs for listings use large media sizes', () => {
