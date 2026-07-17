@@ -7911,19 +7911,31 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           );
                           const price = formatListingAmount(listing.price, listing.currency || 'USD');
                           const location = String(listing.location || '').trim();
+                          const listingTitle = listing.title || 'Marketplace item';
                           return (
                             <Link
                               key={listing.id}
                               to={resolveMarketplaceListingUrl(listing)}
-                              className="group flex items-center gap-3.5 rounded-2xl border border-white/80 bg-white/95 px-3 py-3 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm sm:gap-4 sm:px-3.5 sm:py-3.5"
+                              className="group flex flex-col rounded-2xl border border-white/80 bg-white/95 px-3 py-3 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm sm:px-3.5 sm:py-3.5"
                               data-testid="member-home-marketplace-reco-card"
                             >
-                              {/* Desktop ~112px square product image; scales down on narrow viewports */}
-                              <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-emerald-100/80 bg-slate-100 sm:h-28 sm:w-28">
+                              {/* Title above image: ~30ch/line, max 2 lines, word-break + ellipsis */}
+                              <div className="flex items-start justify-between gap-2">
+                                <strong className="min-w-0 max-w-[30ch] break-words text-sm font-semibold leading-snug text-slate-900 line-clamp-2 sm:text-[15px]">
+                                  {listingTitle}
+                                </strong>
+                                <ChevronRight
+                                  className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-emerald-600"
+                                  aria-hidden
+                                />
+                              </div>
+
+                              {/* Square product image (~96–112px); object-fit cover preserved */}
+                              <div className="mx-auto mt-2.5 h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-emerald-100/80 bg-slate-100 sm:mt-3 sm:h-28 sm:w-28">
                                 {image ? (
                                   <OptimizedImage
                                     src={resolveAssetUrl(image)}
-                                    alt={listing.title || 'Marketplace item'}
+                                    alt={listingTitle}
                                     width={224}
                                     height={224}
                                     sizes="(max-width: 640px) 96px, 112px"
@@ -7934,33 +7946,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     decoding="async"
                                   />
                                 ) : (
-                                  <div className="flex h-full w-full items-center justify-center">
+                                  <div className="flex h-full w-full items-center justify-center" aria-hidden>
                                     <ShoppingBag className="h-7 w-7 text-slate-400" />
                                   </div>
                                 )}
                               </div>
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <p className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900 sm:text-[15px]">
-                                  {listing.title || 'Marketplace item'}
-                                </p>
-                                <p className="truncate text-sm font-semibold text-emerald-700">
+
+                              {/* Recommended badge centered directly below image */}
+                              <div className="mt-2.5 flex flex-col items-center gap-1 sm:mt-3">
+                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                                  Recommended
+                                </span>
+                                <p className="max-w-full truncate text-center text-sm font-semibold text-emerald-700">
                                   {price}
                                   {location ? (
                                     <span className="font-medium text-slate-500">{` · ${location}`}</span>
                                   ) : null}
                                 </p>
-                                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                                    Recommended
+                                {listing.brand ? (
+                                  <span className="max-w-full truncate text-center text-[10px] font-medium uppercase tracking-wide text-slate-400">
+                                    {listing.brand}
                                   </span>
-                                  {listing.brand ? (
-                                    <span className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                                      {listing.brand}
-                                    </span>
-                                  ) : null}
-                                </div>
+                                ) : null}
                               </div>
-                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400 transition group-hover:text-emerald-600" />
                             </Link>
                           );
                         })
