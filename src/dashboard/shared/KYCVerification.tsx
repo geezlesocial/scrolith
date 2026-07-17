@@ -55,7 +55,7 @@ const FALLBACK_KYC_FORM_CONFIG: KYCFormConfig = {
     { key: 'dateOfBirth', section: 'personal', label: 'Date of Birth', type: 'date', required: true, enabled: true, order: 30 },
     { key: 'nationality', section: 'personal', label: 'Nationality', type: 'text', required: false, enabled: true, order: 40 },
     { key: 'phoneNumber', section: 'contact', label: 'Phone Number', type: 'tel', required: false, enabled: true, order: 50 },
-    { key: 'email', section: 'contact', label: 'Email', type: 'email', required: false, enabled: true, order: 60 },
+    { key: 'email', section: 'contact', label: 'Email', type: 'email', required: false, enabled: false, order: 60 },
     { key: 'address.street', section: 'address', label: 'Street Address', type: 'text', required: false, enabled: true, order: 70 },
     { key: 'address.city', section: 'address', label: 'City', type: 'text', required: false, enabled: true, order: 80 },
     { key: 'address.state', section: 'address', label: 'State/Province', type: 'text', required: false, enabled: true, order: 90 },
