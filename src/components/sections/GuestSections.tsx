@@ -8,6 +8,10 @@ import { listMarketplaceListings } from "../../services/marketplace";
 import OptimizedImage from "../media/OptimizedImage";
 import { getApiBaseUrl } from "../../utils/apiBase";
 import { resolveAssetUrl, resolveResponsiveAssetUrl } from "../../utils/assetUrl";
+import { resolveGuestMarketplaceListingImage, resolveMediaUrl } from "../../utils/guestMarketplaceMedia";
+import {
+  BriefcaseIcon as Briefcase
+} from "../icons/ShellIcons";
 import {
   FooterCtaStripContent,
   GuestCommunityPreviewContent,
@@ -117,17 +121,8 @@ const isPaymentsTab = (tab: any): boolean => {
 };
 
 const getGigImage = (gig: any): string => {
-  const candidates = [
-    gig?.coverImage,
-    gig?.cover_image,
-    gig?.cardImage,
-    gig?.card_image,
-    gig?.thumbnail,
-    gig?.image,
-    Array.isArray(gig?.images) ? gig.images[0] : "",
-    Array.isArray(gig?.media) ? gig.media[0] : "",
-  ];
-  return String(candidates.find((candidate) => String(candidate || "").trim()) || "").trim();
+  // Phase 18.3: never String() object-shaped media (produces "[object Object]").
+  return resolveGuestMarketplaceListingImage(gig) || "";
 };
 
 const getGigPrice = (gig: any): string => {
@@ -197,7 +192,8 @@ type GuestMarketplacePreviewItem = {
   seller: string;
   category: string;
   price?: number;
-  image?: string;
+  /** Normalized image URL only — never object-coerced text. */
+  image?: string | null;
   slug?: string;
 };
 
@@ -230,20 +226,15 @@ const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewIt
   const rows = ensureArray<any>(data?.items ?? data?.listings ?? data?.data ?? data);
   return rows
     .map((item, index) => {
+      // Prefer first non-video media object when media is an array of objects.
+      const preferredMedia = Array.isArray(item?.media)
+        ? item.media.find((entry: any) => String(entry?.type || entry?.mimeType || entry?.mime_type || 'image').toLowerCase().indexOf('video') === -1) ||
+          item.media[0]
+        : item?.media;
       const image =
-        resolveAssetUrl(String(
-          item?.coverImage ||
-          item?.cover_image ||
-          item?.thumbnail ||
-          item?.thumbnailUrl ||
-          item?.thumbnail_url ||
-          item?.image ||
-          item?.imageUrl ||
-          item?.image_url ||
-          (Array.isArray(item?.images) ? item.images[0]?.url || item.images[0] : '') ||
-          (Array.isArray(item?.media) ? item.media.find((entry: any) => (entry?.type || 'image') !== 'video')?.url : '') ||
-          ''
-        ).trim());
+        resolveGuestMarketplaceListingImage(item) ||
+        resolveMediaUrl(preferredMedia) ||
+        null;
 
       return {
         id: String(item?.id || item?.slug || `marketplace-preview-${index}`),
@@ -251,7 +242,7 @@ const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewIt
         seller: String(item?.sellerName || item?.seller_name || item?.authorName || item?.author?.displayName || 'Scrolith seller'),
         category: String(item?.categoryName || item?.category_name || item?.category || 'Marketplace'),
         price: Number(item?.price?.amount ?? item?.price ?? item?.startingPrice ?? item?.budget ?? 0) || undefined,
-        image,
+        image: image || undefined,
         slug: String(item?.slug || item?.id || '')
       };
     })
@@ -333,16 +324,29 @@ const scheduleGuestIdleTask = (callback: () => void, timeout = 1200) => {
 };
 
 const MarketplacePreviewImage: React.FC<{
-  image: string;
+  image?: string | null;
   title: string;
 }> = ({ image, title }) => {
   const [failed, setFailed] = React.useState(false);
-  const resolvedImage = !failed && image ? image : "";
+  // Guard against residual object-coercion artifacts and non-string props.
+  const safeImage = resolveMediaUrl(image);
+  const resolvedImage = !failed && safeImage ? safeImage : "";
+  const altText = String(title || "Marketplace listing").replace(/\[object Object\]/gi, "").trim() || "Marketplace listing";
 
   if (!resolvedImage) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-xs font-semibold text-slate-500">
-        Service preview
+      <div
+        className="flex h-full min-h-[6rem] w-full flex-col items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-blue-50 px-3 text-center"
+        role="img"
+        aria-label="Image unavailable"
+      >
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm">
+          <Briefcase className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          Marketplace listing
+        </span>
+        <span className="text-[10px] font-medium text-slate-400">Image unavailable</span>
       </div>
     );
   }
@@ -350,7 +354,7 @@ const MarketplacePreviewImage: React.FC<{
   return (
     <OptimizedImage
       src={resolvedImage}
-      alt={title || "Marketplace service"}
+      alt={altText}
       width={360}
       height={216}
       fit="cover"
@@ -359,7 +363,7 @@ const MarketplacePreviewImage: React.FC<{
       decoding="async"
       sizes="(min-width: 1280px) 18vw, (min-width: 768px) 28vw, 92vw"
       onError={() => setFailed(true)}
-      className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+      className="h-full w-full object-cover transition duration-500 group-hover:scale-105 motion-reduce:transition-none motion-reduce:group-hover:scale-100"
     />
   );
 };
