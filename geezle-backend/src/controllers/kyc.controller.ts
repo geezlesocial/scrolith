@@ -330,7 +330,13 @@ export const kycUploadRateLimiter = rateLimit({
   max: KYC_UPLOAD_RATE_MAX,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => String((req as any).user?.id || req.ip || 'anon'),
+  // Prefer authenticated user id; fall back to IP string without IPv6 validation warning.
+  keyGenerator: (req) => {
+    const userId = String((req as any).user?.id || '').trim();
+    if (userId) return `user:${userId}`;
+    return `ip:${String(req.ip || req.socket?.remoteAddress || 'anon')}`;
+  },
+  validate: { keyGeneratorIpFallback: false },
   message: { success: false, error: 'Too many KYC upload attempts. Please try again later.', code: 'RATE_LIMIT' }
 });
 
@@ -339,7 +345,12 @@ export const kycSubmitRateLimiter = rateLimit({
   max: KYC_SUBMIT_RATE_MAX,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => String((req as any).user?.id || req.ip || 'anon'),
+  keyGenerator: (req) => {
+    const userId = String((req as any).user?.id || '').trim();
+    if (userId) return `user:${userId}`;
+    return `ip:${String(req.ip || req.socket?.remoteAddress || 'anon')}`;
+  },
+  validate: { keyGeneratorIpFallback: false },
   message: { success: false, error: 'Too many KYC submissions. Please try again later.', code: 'RATE_LIMIT' }
 });
 
