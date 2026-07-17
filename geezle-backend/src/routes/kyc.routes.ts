@@ -8,7 +8,7 @@ import {
   uploadKycSecureDocument,
   getKycDocumentTypes,
   getKycFormConfig,
-  kycUploadMulter,
+  kycUploadMulterMiddleware,
   kycUploadRateLimiter,
   kycSubmitRateLimiter
 } from '../controllers/kyc.controller';
@@ -22,10 +22,11 @@ router.post('/submit', kycSubmitRateLimiter, submitKyc);
 router.put('/:id', kycSubmitRateLimiter, updateKyc);
 
 // Phase 20.2: private KYC upload — client cannot set visibility
+// Phase 20.2T: multer LIMIT_* mapped to controlled 400 (not 500)
 router.post(
   '/uploads',
   kycUploadRateLimiter,
-  kycUploadMulter.single('file'),
+  kycUploadMulterMiddleware,
   uploadKycSecureDocument
 );
 

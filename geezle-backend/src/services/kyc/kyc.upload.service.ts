@@ -205,7 +205,31 @@ export const processKycSecureUpload = async (input: ProcessKycUploadInput) => {
   let metadataStripped = false;
 
   if (validated.mime.startsWith('image/')) {
-    const normalized = await normalizeKycImage(input.buffer, validated.mime);
+    let normalized;
+    try {
+      normalized = await normalizeKycImage(input.buffer, validated.mime);
+    } catch (error: any) {
+      // Mark document rejected; do not leave CLEAN for invalid content
+      await prisma.kYCDocument.update({
+        where: { id: pendingDoc.id },
+        data: {
+          quarantineStatus: 'REJECTED',
+          scanStatus: scan.clean ? 'CLEAN' : 'SCAN_FAILED',
+          status: 'rejected',
+          rejectionReason: 'INVALID_FILE_CONTENT'
+        }
+      });
+      await writeKycAuditEvent({
+        documentId: pendingDoc.id,
+        actorType: 'SYSTEM',
+        action: KYC_AUDIT_ACTIONS.UPLOAD_VALIDATION_FAILED,
+        reasonCode: error?.code || 'INVALID_FILE_CONTENT',
+        resultingState: 'REJECTED',
+        correlationId,
+        metadata: { documentId: pendingDoc.id, errorCode: error?.code || 'INVALID_FILE_CONTENT' }
+      });
+      throw error;
+    }
     finalBuffer = normalized.buffer;
     finalMime = normalized.contentType;
     width = normalized.width;

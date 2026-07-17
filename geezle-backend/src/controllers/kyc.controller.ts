@@ -35,6 +35,7 @@ import {
   KYC_UPLOAD_RATE_MAX,
   KYC_UPLOAD_RATE_WINDOW_MS
 } from '../services/kyc/kyc.constants';
+import { sendMappedKycError, wrapKycMulterSingle } from '../services/kyc/kyc.uploadErrors';
 
 const KYC_FORM_SCOPE = 'kyc_form';
 
@@ -309,13 +310,8 @@ const mapSubmission = (submission: any) => ({
   updated_at: submission.updatedAt ? new Date(submission.updatedAt).toISOString() : null
 });
 
-const sendError = (res: Response, error: any, fallback: string) => {
-  if (error instanceof KycValidationError || error instanceof KycDecisionError) {
-    return res.status(error.status).json({ success: false, error: error.message, code: error.code });
-  }
-  console.error('[kyc]', fallback, error?.code || error?.message || 'error');
-  return res.status(500).json({ success: false, error: fallback });
-};
+const sendError = (res: Response, error: any, fallback: string) =>
+  sendMappedKycError(res, error, fallback);
 
 export const kycUploadMulter = multer({
   storage: multer.memoryStorage(),
@@ -324,6 +320,9 @@ export const kycUploadMulter = multer({
     files: 1
   }
 });
+
+/** Multer wrapper that maps LIMIT_* to controlled 400 responses. */
+export const kycUploadMulterMiddleware = wrapKycMulterSingle(kycUploadMulter);
 
 export const kycUploadRateLimiter = rateLimit({
   windowMs: KYC_UPLOAD_RATE_WINDOW_MS,
