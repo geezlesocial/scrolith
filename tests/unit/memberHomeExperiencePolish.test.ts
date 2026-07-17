@@ -19,12 +19,33 @@ const insights = () => read('src/components/insights/InsightsQuickPanel.tsx');
 test('marketplace recommendation images are large square (~100–112px)', () => {
   const src = memberHome();
   assert.match(src, /member-home-marketplace-reco-card/);
-  // Card markup pairs the test id with a large square image frame.
+  // Card markup pairs the test id with a large square image frame (title sits above image).
   assert.match(
     src,
-    /member-home-marketplace-reco-card[\s\S]{0,400}h-24 w-24[\s\S]{0,120}sm:h-28 sm:w-28/
+    /member-home-marketplace-reco-card[\s\S]{0,1600}h-24 w-24[\s\S]{0,160}sm:h-28 sm:w-28/
   );
   assert.match(src, /96px, 112px/);
+});
+
+test('marketplace reco card: title above image, Recommended below image, 2-line title clamp', () => {
+  const src = memberHome();
+  const cardIdx = src.indexOf('member-home-marketplace-reco-card');
+  assert.ok(cardIdx >= 0);
+  // Include preceding className (vertical flex-col card).
+  const slice = src.slice(Math.max(0, cardIdx - 280), cardIdx + 2800);
+  assert.match(slice, /flex flex-col/);
+  // Title uses ~30ch max width and line-clamp-2 for truncation.
+  assert.match(slice, /max-w-\[30ch\]/);
+  assert.match(slice, /line-clamp-2/);
+  assert.match(slice, /break-words/);
+  const titleIdx = slice.search(/<strong[\s\S]{0,240}line-clamp-2/);
+  const imageIdx = slice.search(/h-24 w-24/);
+  const badgeIdx = slice.search(/>[\s\r\n]*Recommended[\s\r\n]*</);
+  assert.ok(titleIdx >= 0 && imageIdx >= 0 && badgeIdx >= 0, 'title, image, badge present');
+  assert.ok(titleIdx < imageIdx, 'title appears above image markup');
+  assert.ok(imageIdx < badgeIdx, 'Recommended badge appears below image markup');
+  // Badge is centered under the image.
+  assert.match(slice, /items-center[\s\S]{0,400}Recommended/);
 });
 
 test('series highlight includes videoUrl and posterUrl for previews', () => {
