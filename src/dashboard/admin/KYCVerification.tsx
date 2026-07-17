@@ -22,10 +22,13 @@ const normalizeDocument = (doc: any): KYCDocument => ({
   id: doc.id,
   type: doc.type,
   fileId: doc.fileId ?? doc.file_id,
-  fileUrl: doc.fileUrl ?? doc.file_url,
+  fileUrl: null,
   status: doc.status,
   rejectionReason: doc.rejectionReason ?? doc.rejection_reason,
-  uploadedAt: doc.uploadedAt ?? doc.uploaded_at
+  uploadedAt: doc.uploadedAt ?? doc.uploaded_at,
+  secureView: Boolean(doc.secureView ?? doc.secure_view),
+  scanStatus: doc.scanStatus ?? doc.scan_status,
+  quarantineStatus: doc.quarantineStatus ?? doc.quarantine_status
 });
 
 const normalizeSubmission = (raw: any): KYCRequest => ({
@@ -239,44 +242,100 @@ const KYCTab = () => {
     }
   };
 
-  const handleApprove = async (submission: KYCRequest) => {
+  const [approving, setApproving] = useState<KYCRequest | null>(null);
+  const [approveReason, setApproveReason] = useState('');
+  const [resubmitting, setResubmitting] = useState<KYCRequest | null>(null);
+  const [resubmitReason, setResubmitReason] = useState('');
+  const [viewingDocId, setViewingDocId] = useState<string | null>(null);
+
+  const runDecision = async (
+    submission: KYCRequest,
+    status: 'approved' | 'rejected' | 'requires_updates',
+    reason: string
+  ) => {
+    const trimmed = String(reason || '').trim();
+    if (trimmed.length < 3) {
+      showNotification('error', 'Reason required', 'A decision reason of at least 3 characters is required.');
+      return;
+    }
     setActionLoading(true);
     try {
-      await CMSService.updateKYCStatus(submission.id, 'approved');
+      await kycApi.updateKYCStatus(submission.id, status, trimmed);
       setRequests((prev) =>
         prev.map((item) =>
           item.id === submission.id
-            ? { ...item, status: 'approved', rejectionReason: null }
+            ? {
+                ...item,
+                status,
+                rejectionReason: status === 'approved' ? undefined : trimmed
+              }
             : item
         )
       );
-      showNotification('success', 'Approved', 'KYC submission approved.');
+      showNotification('success', 'Decision recorded', `KYC submission marked ${status.replace(/_/g, ' ')}.`);
+      setApproving(null);
+      setApproveReason('');
+      setRejecting(null);
+      setRejectReason('');
+      setResubmitting(null);
+      setResubmitReason('');
     } catch (error: any) {
-      showNotification('error', 'Action Failed', error?.message || 'Unable to approve submission.');
+      const message =
+        error?.response?.data?.error || error?.message || 'Unable to update KYC decision.';
+      showNotification('error', 'Action Failed', message);
     } finally {
       setActionLoading(false);
     }
   };
 
+  const handleApprove = async () => {
+    if (!approving) return;
+    await runDecision(approving, 'approved', approveReason);
+  };
+
   const handleReject = async () => {
     if (!rejecting) return;
-    setActionLoading(true);
+    await runDecision(rejecting, 'rejected', rejectReason);
+  };
+
+  const handleResubmit = async () => {
+    if (!resubmitting) return;
+    await runDecision(resubmitting, 'requires_updates', resubmitReason);
+  };
+
+  const handleSecureView = async (documentId: string) => {
+    setViewingDocId(documentId);
     try {
-      await CMSService.updateKYCStatus(rejecting.id, 'rejected', rejectReason || undefined);
-      setRequests((prev) =>
-        prev.map((item) =>
-          item.id === rejecting.id
-            ? { ...item, status: 'rejected', rejectionReason: rejectReason || item.rejectionReason }
-            : item
-        )
-      );
-      showNotification('success', 'Rejected', 'KYC submission rejected.');
-      setRejecting(null);
-      setRejectReason('');
+      const view = await kycApi.viewDocumentSecure(documentId);
+      if (view.signedUrl) {
+        // Short-lived URL only in memory; open and do not persist
+        window.open(view.signedUrl, '_blank', 'noopener,noreferrer');
+      } else if (view.streamPath) {
+        // Authenticated stream path relative to API — open via API base not public media
+        showNotification(
+          'info',
+          'Secure stream',
+          'Signed URL unavailable; use stream mode from an authorized session.'
+        );
+      } else {
+        showNotification('error', 'Unavailable', 'Document is not available through the secure viewer.');
+      }
     } catch (error: any) {
-      showNotification('error', 'Action Failed', error?.message || 'Unable to reject submission.');
+      const status = Number(error?.response?.status || 0);
+      const code = String(error?.response?.data?.code || '');
+      if (status === 403 || code === 'FORBIDDEN') {
+        showNotification('error', 'Permission denied', 'You do not have permission to view KYC documents.');
+      } else if (code === 'LEGACY_DOCUMENT') {
+        showNotification(
+          'error',
+          'Legacy document',
+          'This document was uploaded before private KYC storage. Ask the user to re-upload securely.'
+        );
+      } else {
+        showNotification('error', 'View failed', error?.response?.data?.error || error?.message || 'Unable to view document.');
+      }
     } finally {
-      setActionLoading(false);
+      setViewingDocId(null);
     }
   };
 
@@ -376,7 +435,10 @@ const KYCTab = () => {
                     {status === 'pending' || status === 'under_review' || status === 'requires_updates' ? (
                       <>
                         <button
-                          onClick={() => handleApprove(submission)}
+                          onClick={() => {
+                            setApproving(submission);
+                            setApproveReason('');
+                          }}
                           disabled={actionLoading}
                           className="text-green-600 hover:bg-green-50 px-2 py-1 rounded disabled:opacity-50"
                         >
@@ -391,6 +453,16 @@ const KYCTab = () => {
                           className="text-red-600 hover:bg-red-50 px-2 py-1 rounded disabled:opacity-50"
                         >
                           Reject
+                        </button>
+                        <button
+                          onClick={() => {
+                            setResubmitting(submission);
+                            setResubmitReason('');
+                          }}
+                          disabled={actionLoading}
+                          className="text-orange-600 hover:bg-orange-50 px-2 py-1 rounded disabled:opacity-50"
+                        >
+                          Resubmit
                         </button>
                       </>
                     ) : null}
@@ -802,17 +874,17 @@ const KYCTab = () => {
                         <div className="font-medium text-gray-900">{prettifyType(doc.type)}</div>
                         <div className="text-xs text-gray-500">{doc.status}</div>
                       </div>
-                      {doc.fileUrl ? (
-                        <a
-                          href={doc.fileUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-600 hover:underline text-xs"
+                      {doc.secureView || doc.id ? (
+                        <button
+                          type="button"
+                          disabled={viewingDocId === doc.id}
+                          onClick={() => void handleSecureView(doc.id)}
+                          className="text-blue-600 hover:underline text-xs disabled:opacity-50"
                         >
-                          View file
-                        </a>
+                          {viewingDocId === doc.id ? 'Opening…' : 'Secure view'}
+                        </button>
                       ) : (
-                        <span className="text-xs text-gray-400">No file</span>
+                        <span className="text-xs text-gray-400">No secure file</span>
                       )}
                     </div>
                   ))}
@@ -833,9 +905,55 @@ const KYCTab = () => {
       )}
 
       <ConfirmModal
+        isOpen={Boolean(approving)}
+        title="Approve KYC Submission"
+        message="Provide a mandatory decision reason. Final approval is recorded in the KYC audit trail."
+        confirmLabel="Approve"
+        cancelLabel="Cancel"
+        variant="info"
+        loading={actionLoading}
+        onConfirm={handleApprove}
+        onCancel={() => {
+          setApproving(null);
+          setApproveReason('');
+        }}
+      >
+        <textarea
+          className="mt-3 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+          rows={3}
+          value={approveReason}
+          onChange={(event) => setApproveReason(event.target.value)}
+          placeholder="Decision reason (required)"
+        />
+      </ConfirmModal>
+
+      <ConfirmModal
+        isOpen={Boolean(resubmitting)}
+        title="Request KYC Resubmission"
+        message="Provide a mandatory reason so the user knows what to correct."
+        confirmLabel="Request resubmission"
+        cancelLabel="Cancel"
+        variant="info"
+        loading={actionLoading}
+        onConfirm={handleResubmit}
+        onCancel={() => {
+          setResubmitting(null);
+          setResubmitReason('');
+        }}
+      >
+        <textarea
+          className="mt-3 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+          rows={3}
+          value={resubmitReason}
+          onChange={(event) => setResubmitReason(event.target.value)}
+          placeholder="Resubmission reason (required)"
+        />
+      </ConfirmModal>
+
+      <ConfirmModal
         isOpen={Boolean(rejecting)}
         title="Reject KYC Submission"
-        message="Provide a reason for rejection (optional). The user will see this feedback."
+        message="Provide a mandatory reason for rejection. The user will see this feedback."
         confirmLabel="Reject"
         cancelLabel="Cancel"
         variant="danger"
