@@ -19,6 +19,7 @@ import {
   resolveDirectMediaUrl,
   resolveFileBaseUrl
 } from '../utils/mediaUrl';
+import { mapOrchestratedItemsWithIntelligence } from './intelligence/intelligence.contract';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -62,6 +63,8 @@ export type OrchestratedFeedItem = {
   visibility: string;
   /** Client-safe short reason only (never private signals). */
   why?: string | null;
+  /** Phase 19.1 additive intelligence envelope (optional). */
+  intelligence?: Record<string, any> | null;
   payload: any;
 };
 
@@ -1574,7 +1577,9 @@ export const getOrchestratedMemberFeed = async (input: {
       ? encodeMemberFeedCursor({ v: 1, k: nextSeen, w: watermark })
       : null;
 
-  const items: OrchestratedFeedItem[] = diversified.map(({ _source, _authorKey, ...item }) => item);
+  // Strip internal collector fields, then attach additive intelligence envelope (no sort change).
+  const stripped: OrchestratedFeedItem[] = diversified.map(({ _source, _authorKey, ...item }) => item);
+  const items: OrchestratedFeedItem[] = mapOrchestratedItemsWithIntelligence(stripped, mode);
 
   const result: MemberFeedResult = {
     items,
