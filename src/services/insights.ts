@@ -856,7 +856,14 @@ class InsightsService {
     return extractData<any>(response);
   }
 
-  static async getFeedMode(): Promise<{ mode: FeedMode }> {
+  static async getFeedMode(): Promise<{
+    mode: FeedMode;
+    feedIntent?: string;
+    source?: string;
+    personalizationEnabled?: boolean;
+    version?: string;
+    mapped?: { insightsMode?: string; memberFeedIntent?: string };
+  }> {
     const response = await api.get('/insights/feed-mode');
     return extractData<{ mode: FeedMode }>(response);
   }
