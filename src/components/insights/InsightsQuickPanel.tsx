@@ -649,6 +649,31 @@ export default function InsightsQuickPanel({
     }, group ? 120 : 0);
   }, []);
 
+  // Desktop rail: respond to Open Coach / section focus without full page reload.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onOpenSection = (event: Event) => {
+      const detail = (event as CustomEvent<{ section?: string }>).detail || {};
+      const sectionId = String(detail.section || '').trim();
+      if (!sectionId) return;
+      window.setTimeout(() => {
+        const target = document.querySelector(
+          `[data-insights-section="${CSS.escape(sectionId)}"]`
+        ) as HTMLElement | null;
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        try {
+          target.setAttribute('tabindex', '-1');
+          target.focus({ preventScroll: true });
+        } catch {
+          /* ignore */
+        }
+      }, 80);
+    };
+    window.addEventListener('insights:open_section', onOpenSection as EventListener);
+    return () => window.removeEventListener('insights:open_section', onOpenSection as EventListener);
+  }, []);
+
   // Hydrate Scrolitha coach drafts once per session (survives refresh / route return)
   useEffect(() => {
     if (coachDraftHydratedRef.current) return;

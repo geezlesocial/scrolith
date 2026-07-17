@@ -1,4 +1,4 @@
-import React, { useId, useMemo } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Sparkles } from 'lucide-react';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
@@ -11,6 +11,14 @@ import {
   enterpriseWidgetMeta,
   enterpriseWidgetTitle
 } from '../enterprise/enterpriseClasses';
+
+/** Only one discovery preview may autoplay at a time. */
+let activePreviewToken: symbol | null = null;
+const previewListeners = new Set<(token: symbol | null) => void>();
+const setActivePreviewToken = (token: symbol | null) => {
+  activePreviewToken = token;
+  previewListeners.forEach((listener) => listener(token));
+};
 
 type HighlightTone = 'slate' | 'blue' | 'emerald' | 'amber' | 'violet' | 'rose';
 
@@ -71,6 +79,36 @@ export const isScrolithaCoachHighlight = (item: MemberHomeHighlightItem) => {
   );
 };
 
+export const isSeriesPlaylistHighlight = (item: MemberHomeHighlightItem) => {
+  const id = String(item.id || '').toLowerCase();
+  const eyebrow = String(item.eyebrow || '').toLowerCase();
+  const badge = String(item.badge || '').toLowerCase();
+  return (
+    id.includes('series') ||
+    id.includes('playlist') ||
+    eyebrow.includes('series') ||
+    eyebrow.includes('playlist') ||
+    badge.includes('series') ||
+    badge.includes('playlist') ||
+    Boolean(item.videoUrl)
+  );
+};
+
+export const isMarketplaceOrListingHighlight = (item: MemberHomeHighlightItem) => {
+  const id = String(item.id || '').toLowerCase();
+  const eyebrow = String(item.eyebrow || '').toLowerCase();
+  return (
+    id.includes('job') ||
+    id.includes('gig') ||
+    id.includes('marketplace') ||
+    id.includes('listing') ||
+    eyebrow.includes('job') ||
+    eyebrow.includes('gig') ||
+    eyebrow.includes('marketplace') ||
+    eyebrow.includes('featured')
+  );
+};
+
 const toneClasses: Record<HighlightTone, { ring: string; badge: string; icon: string }> = {
   slate: {
     ring: 'border-slate-200/90 bg-white',
@@ -113,13 +151,28 @@ const ActionSurface = ({
   children: React.ReactNode;
   className?: string;
 }) => {
-  const surfaceClass = ['group flex h-full w-full flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2', className]
+  const surfaceClass = [
+    'group flex h-full w-full flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-slate-400 focus-visible:ring-offset-2',
+    className
+  ]
     .filter(Boolean)
     .join(' ');
 
   if (item.onClick) {
     return (
-      <button type="button" onClick={item.onClick} className={surfaceClass} aria-label={item.ctaLabel || item.title}>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          item.onClick?.();
+        }}
+        className={surfaceClass}
+        aria-label={item.ctaLabel || item.title}
+        data-testid={
+          isScrolithaCoachHighlight(item) ? 'member-home-open-coach-action' : undefined
+        }
+      >
         {children}
       </button>
     );
@@ -127,7 +180,15 @@ const ActionSurface = ({
 
   if (item.href) {
     return (
-      <Link to={item.href} className={surfaceClass} aria-label={item.ctaLabel || item.title}>
+      <Link
+        to={item.href}
+        className={surfaceClass}
+        aria-label={item.ctaLabel || item.title}
+        onClick={(event) => {
+          // Keep SPA routing; never force full document navigation.
+          event.stopPropagation();
+        }}
+      >
         {children}
       </Link>
     );
@@ -145,23 +206,67 @@ const parseCapabilityChips = (meta?: string) =>
 
 const ModuleThumb = ({
   item,
-  compact
+  compact,
+  large = false,
+  hoverPreview = false
 }: {
   item: MemberHomeHighlightItem;
   compact: boolean;
+  large?: boolean;
+  hoverPreview?: boolean;
 }) => {
   const fallbackMediaUrl = String(item.fallbackMediaUrl || '').trim();
   const initialSrc = String(item.mediaUrl || '').trim();
   const videoUrl = String(item.videoUrl || '').trim();
   const posterUrl = String(item.posterUrl || '').trim();
-  const [src, setSrc] = React.useState(initialSrc);
-  const [hidden, setHidden] = React.useState(!initialSrc && !videoUrl);
+  const [src, setSrc] = useState(initialSrc);
+  const [hidden, setHidden] = useState(!initialSrc && !videoUrl);
+  const [hoverActive, setHoverActive] = useState(false);
+  const [previewAllowed, setPreviewAllowed] = useState(false);
+  const hoverTimerRef = useRef<number | null>(null);
+  const tokenRef = useRef(Symbol(item.id || 'preview'));
 
-  React.useEffect(() => {
+  useEffect(() => {
     const nextSrc = String(item.mediaUrl || '').trim();
     setSrc(nextSrc);
     setHidden(!nextSrc && !String(item.videoUrl || '').trim());
   }, [item.mediaUrl, item.videoUrl]);
+
+  useEffect(() => {
+    const token = tokenRef.current;
+    const onActiveChange = (active: symbol | null) => {
+      setPreviewAllowed(active === token);
+    };
+    previewListeners.add(onActiveChange);
+    onActiveChange(activePreviewToken);
+    return () => {
+      previewListeners.delete(onActiveChange);
+      if (activePreviewToken === token) setActivePreviewToken(null);
+      if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+
+  const handlePointerEnter = () => {
+    if (!hoverPreview || !videoUrl) return;
+    clearHoverTimer();
+    hoverTimerRef.current = window.setTimeout(() => {
+      setActivePreviewToken(tokenRef.current);
+      setHoverActive(true);
+    }, 280);
+  };
+
+  const handlePointerLeave = () => {
+    clearHoverTimer();
+    setHoverActive(false);
+    if (activePreviewToken === tokenRef.current) setActivePreviewToken(null);
+  };
 
   // Brand logo must never become a large module hero — icon badge handles identity.
   if (isBrandLogoUrl(src) || isBrandLogoUrl(initialSrc)) {
@@ -174,7 +279,9 @@ const ModuleThumb = ({
     return (
       <span
         className={[
-          'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12',
+          large
+            ? 'inline-flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl sm:h-28 sm:w-28'
+            : 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12',
           tone.icon
         ].join(' ')}
         aria-hidden
@@ -186,50 +293,73 @@ const ModuleThumb = ({
 
   if (hidden || (!src && !videoUrl)) return null;
 
-  const size = compact ? 44 : 48;
+  // large ≈ 100–112px for marketplace / series product media
+  const size = large ? (compact ? 96 : 112) : compact ? 44 : 48;
   const shouldRenderVideo = Boolean(
     videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
+  const playVideo = shouldRenderVideo && (!hoverPreview || (hoverActive && previewAllowed));
   const optimizedPosterUrl = shouldRenderVideo
     ? resolveResponsiveAssetUrl(posterUrl || src || fallbackMediaUrl || undefined, {
         width: size * 2,
         height: size * 2,
         fit: 'cover',
-        quality: 68
+        quality: 72
       })
     : '';
 
   return (
     <div
-      className="relative h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-slate-200/80 bg-slate-50 sm:h-12 sm:w-12"
-      aria-hidden
+      className={[
+        'relative shrink-0 overflow-hidden border border-slate-200/80 bg-slate-50',
+        large
+          ? 'h-24 w-24 rounded-2xl sm:h-28 sm:w-28'
+          : 'h-11 w-11 rounded-xl sm:h-12 sm:w-12'
+      ].join(' ')}
+      aria-hidden={!shouldRenderVideo}
+      onMouseEnter={handlePointerEnter}
+      onMouseLeave={handlePointerLeave}
+      onFocus={handlePointerEnter}
+      onBlur={handlePointerLeave}
+      data-testid={
+        large
+          ? 'member-home-module-thumb-large'
+          : hoverPreview
+            ? 'member-home-series-preview-thumb'
+            : 'member-home-module-thumb'
+      }
     >
-      {shouldRenderVideo ? (
+      {playVideo ? (
         <InlineAutoplayVideo
           src={videoUrl}
           poster={optimizedPosterUrl || undefined}
           controls={false}
           loop
+          muted
+          defaultMuted
           autoplayEnabled
-          threshold={0.25}
+          // Desktop hover path forces play via hoverActive; mobile uses visibility.
+          active={hoverPreview ? hoverActive && previewAllowed : true}
+          threshold={0.35}
           rootMargin="0px 0px 8% 0px"
           showMuteToggle={false}
           loadingLabel={false}
           containerClassName="h-full w-full"
           className="h-full w-full object-cover"
           overlay={null}
-          preloadRootMargin="160px 0px 160px 0px"
+          preload="metadata"
+          preloadRootMargin="120px 0px 120px 0px"
         />
       ) : (
         <OptimizedImage
-          src={src}
+          src={src || optimizedPosterUrl || posterUrl}
           fallbackSrc={fallbackMediaUrl || undefined}
           alt=""
           width={size * 2}
           height={size * 2}
           sizes={`${size}px`}
           fit="cover"
-          quality={68}
+          quality={large ? 78 : 68}
           loading="lazy"
           className="h-full w-full object-cover"
           onError={() => {
@@ -385,22 +515,31 @@ const ModuleCard = ({
   compact: boolean;
 }) => {
   const tone = toneClasses[item.tone || 'slate'];
+  const seriesLike = isSeriesPlaylistHighlight(item);
+  const listingLike = isMarketplaceOrListingHighlight(item);
+  const largeThumb = seriesLike || listingLike;
 
   return (
     <div
       className={[
-        'rounded-2xl border p-3 shadow-sm transition hover:border-slate-300 hover:shadow-md sm:p-3.5',
+        'rounded-2xl border p-2.5 shadow-sm transition hover:border-slate-300 hover:shadow-md sm:p-3',
         tone.ring
       ].join(' ')}
       data-testid="scrolith-discovery-module-card"
+      data-module-kind={seriesLike ? 'series' : listingLike ? 'listing' : 'generic'}
     >
       <ActionSurface item={item}>
-        <div className="flex items-start gap-3">
-          <ModuleThumb item={item} compact={compact} />
+        <div className="flex items-start gap-2.5 sm:gap-3">
+          <ModuleThumb
+            item={item}
+            compact={compact}
+            large={largeThumb}
+            hoverPreview={seriesLike}
+          />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               {item.eyebrow ? (
-                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{item.eyebrow}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{item.eyebrow}</p>
               ) : null}
               {item.badge ? (
                 <span
@@ -416,7 +555,7 @@ const ModuleCard = ({
             <h3 className="mt-0.5 text-sm font-semibold leading-snug text-slate-900 line-clamp-2 sm:text-[15px]">
               {item.title}
             </h3>
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-sm sm:leading-5">
+            <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600 sm:text-[13px] sm:leading-5">
               {item.description}
             </p>
             {item.reason ? (
@@ -424,7 +563,7 @@ const ModuleCard = ({
                 Why: {item.reason}
               </p>
             ) : null}
-            <div className="mt-2 flex items-center justify-between gap-2">
+            <div className="mt-1.5 flex items-center justify-between gap-2">
               <span className={['truncate', enterpriseWidgetMeta].join(' ')}>
                 {item.meta || 'Live on member home'}
               </span>
@@ -531,22 +670,24 @@ export default function MemberHomeHighlightsBoard({
 
       {/* B. Scrolitha Coach primary card — compact, no hero media */}
       {coachItem ? (
-        <div className="mt-3.5 sm:mt-4">
+        <div className="mt-3 sm:mt-3.5">
           <CoachCard item={coachItem} compact={compact} />
         </div>
       ) : null}
 
-      {/* C. Secondary discovery modules */}
+      {/* C. Secondary discovery modules — tighter grid spacing */}
       {moduleItems.length ? (
         <div
           className={[
-            'mt-3.5 sm:mt-4',
-            compact ? 'grid grid-cols-1 gap-2.5' : 'grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3'
+            'mt-3 sm:mt-3.5',
+            compact ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-2.5 xl:grid-cols-3'
           ].join(' ')}
           data-testid="scrolith-discovery-module-grid"
         >
           {moduleItems.map((item) => (
-            <ModuleCard key={item.id} item={item} compact={compact} />
+            <React.Fragment key={item.id}>
+              <ModuleCard item={item} compact={compact} />
+            </React.Fragment>
           ))}
         </div>
       ) : null}
