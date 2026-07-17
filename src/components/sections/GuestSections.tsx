@@ -8,6 +8,7 @@ import { listMarketplaceListings } from "../../services/marketplace";
 import OptimizedImage from "../media/OptimizedImage";
 import { getApiBaseUrl } from "../../utils/apiBase";
 import { resolveAssetUrl, resolveResponsiveAssetUrl } from "../../utils/assetUrl";
+import { resolveGuestMarketplaceCategoryLabel } from "../../utils/guestCategoryLabel";
 import { resolveGuestMarketplaceListingImage, resolveMediaUrl } from "../../utils/guestMarketplaceMedia";
 import {
   BriefcaseIcon as Briefcase
@@ -240,7 +241,8 @@ const extractMarketplacePreviewItems = (payload: any): GuestMarketplacePreviewIt
         id: String(item?.id || item?.slug || `marketplace-preview-${index}`),
         title: String(item?.title || item?.name || 'Marketplace listing').trim(),
         seller: String(item?.sellerName || item?.seller_name || item?.authorName || item?.author?.displayName || 'Scrolith seller'),
-        category: String(item?.categoryName || item?.category_name || item?.category || 'Marketplace'),
+        // Phase 18.5: category may be object-shaped ({ name, slug, ... }); never String(object).
+        category: resolveGuestMarketplaceCategoryLabel(item),
         price: Number(item?.price?.amount ?? item?.price ?? item?.startingPrice ?? item?.budget ?? 0) || undefined,
         image: image || undefined,
         slug: String(item?.slug || item?.id || '')
@@ -1265,7 +1267,7 @@ export const GuestFeatureShowcaseSection: React.FC<{ content: GuestFeatureShowca
                               <div className="relative h-24 overflow-hidden bg-slate-100 sm:h-28">
                                 <MarketplacePreviewImage image={image} title={gig.title || "Marketplace service"} />
                                 <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm">
-                                  {gig.category || gig.subcategory || "Service"}
+                                  {resolveGuestMarketplaceCategoryLabel(gig)}
                                 </div>
                               </div>
                               <div className="p-3">
