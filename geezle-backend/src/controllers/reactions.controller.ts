@@ -660,6 +660,58 @@ export const upsertReaction = async (req: Request, res: Response) => {
       }
     }
 
+    // Phase 20.2.3: notify comment authors when someone reacts to their comment.
+    if (targetType === 'COMMENT' && userReaction !== null && createdOrChanged) {
+      try {
+        const comment = await prisma.communityPostComment.findUnique({
+          where: { id: targetId },
+          select: { id: true, authorId: true, postId: true, status: true }
+        });
+        if (comment && comment.status !== 'deleted' && comment.authorId !== userId) {
+          const actor = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, name: true, username: true }
+          });
+          const actorName = actor?.name || actor?.username || 'Someone';
+          await createEngagementNotification({
+            recipientId: comment.authorId,
+            actorId: userId,
+            type: 'reaction_on_comment',
+            title: 'New reaction',
+            message: `${actorName} reacted ${reactionKey} to your comment.`,
+            actionUrl: comment.postId ? `/post/${comment.postId}?commentId=${comment.id}` : undefined,
+            metadata: {
+              commentId: comment.id,
+              postId: comment.postId,
+              actorId: userId,
+              reactionType: reactionKey
+            },
+            dedupeWindowMinutes: 20,
+            dedupeMetaKeys: ['commentId', 'actorId']
+          });
+        }
+      } catch (notifyError) {
+        console.warn('[reactions] reaction_on_comment notification failed', notifyError);
+      }
+    }
+
+    // Dual-write CommunityPostReaction so legacy feed bars stay consistent with unified Reaction.
+    if (targetType === 'POST') {
+      try {
+        if (userReaction) {
+          await prisma.communityPostReaction.upsert({
+            where: { postId_userId: { postId: targetId, userId } },
+            create: { postId: targetId, userId, type: userReaction },
+            update: { type: userReaction }
+          });
+        } else {
+          await prisma.communityPostReaction.deleteMany({ where: { postId: targetId, userId } });
+        }
+      } catch (syncError) {
+        console.warn('[reactions] CommunityPostReaction dual-write failed', syncError);
+      }
+    }
+
     const counts = await rebuildSummary(targetType, targetId);
     if (targetType === 'SCROLL') {
       await syncScrollReactionMetrics(req, access.scrollId || targetId, counts, userId);
@@ -675,6 +727,25 @@ export const upsertReaction = async (req: Request, res: Response) => {
       conversationId: access.conversationId,
       participantUserIds: access.participantUserIds
     });
+
+    // Compatibility event for PostEngagementBar listeners.
+    if (targetType === 'POST') {
+      try {
+        const io = getAppIo(req);
+        const legacyPayload = {
+          postId: targetId,
+          post_id: targetId,
+          reactions: counts,
+          userReaction,
+          actorId: userId,
+          userId
+        };
+        io?.emit?.('community:post_reaction_updated', { data: legacyPayload });
+        realtime.emitToPost(targetId, 'community:post_reaction_updated', { data: legacyPayload });
+      } catch (legacyEmitError) {
+        console.warn('[reactions] legacy post reaction emit failed', legacyEmitError);
+      }
+    }
 
     return res.json({
       success: true,

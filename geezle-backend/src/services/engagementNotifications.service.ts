@@ -11,6 +11,7 @@ export type EngagementNotificationType =
   | 'followed_you'
   | 'comment_on_post'
   | 'reaction_on_post'
+  | 'reaction_on_comment'
   | 'repost'
   | 'job_application_created'
   | 'proposal_opened'
@@ -160,7 +161,7 @@ const isPlatformNotificationEnabled = (type: EngagementNotificationType) => {
   if (type === 'followed_new_post') return settings.enableFollowedPostNotifications;
   if (type === 'followed_you') return settings.enableFollowNotifications;
   if (type === 'comment_on_post') return settings.enableCommentNotifications;
-  if (type === 'reaction_on_post') return settings.enableReactionNotifications;
+  if (type === 'reaction_on_post' || type === 'reaction_on_comment') return settings.enableReactionNotifications;
   if (type === 'job_application_created') return settings.enableJobApplicationNotifications;
   if (type === 'proposal_opened') return settings.enableProposalOpenedNotifications;
   if (type === 'proposal_reply') return settings.enableProposalReplyNotifications;
@@ -174,8 +175,7 @@ const getUserPreferenceField = (type: EngagementNotificationType): keyof UserSet
   if (type === 'followed_new_post') return 'notifyFollowedPosts';
   if (type === 'followed_you') return 'notifyFollowedYou';
   if (type === 'comment_on_post') return 'notifyCommentsOnPosts';
-  if (type === 'reaction_on_post') return 'notifyReactionsOnPosts';
-  if (type === 'job_application_created') return 'notifyJobApplications';
+  if (type === 'reaction_on_post' || type === 'reaction_on_comment') return 'notifyReactionsOnPosts';  if (type === 'job_application_created') return 'notifyJobApplications';
   if (type === 'proposal_opened' || type === 'proposal_reply' || type === 'proposal_top_applicant' || type === 'proposal_interview_scheduled') {
     return 'notifyApplicationUpdates';
   }
