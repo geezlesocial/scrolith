@@ -1,5 +1,5 @@
-/**
- * Phase 20.2T — one-time synthetic privileged KYC staff seed.
+﻿/**
+ * Phase 20.2T â€” one-time synthetic privileged KYC staff seed.
  *
  * Creates least-privilege StaffRoles + Users + StaffUsers for security matrix.
  * Does NOT mint JWTs. Does NOT print passwords/tokens.
@@ -8,7 +8,7 @@
  *   DATABASE_URL
  * Optional:
  *   SYNTH_PASSWORD  (if unset, generates ephemeral password written only to SYNTH_CREDS_OUT)
- *   SYNTH_CREDS_OUT (default: .tmp-p202t-creds/staff.json — gitignored path)
+ *   SYNTH_CREDS_OUT (default: .tmp-p202t-creds/staff.json â€” gitignored path)
  *
  * Run:
  *   npx ts-node --transpile-only scripts/phase202t_seed_synthetic_kyc_staff.ts
@@ -127,7 +127,7 @@ async function ensureRole(name: string, description: string, permissionKeys: str
 
 async function upsertStaffAccount(spec: AccountSpec, password: string) {
   const hash = await bcrypt.hash(password, 12);
-  const role = await ensureRole(spec.roleName, `Phase 20.2T synthetic — ${spec.key}`, spec.permissionKeys);
+  const role = await ensureRole(spec.roleName, `Phase 20.2T synthetic â€” ${spec.key}`, spec.permissionKeys);
 
   // Non-admin User.role so getStaffContext does not grant ALL_PERMISSION_KEYS
   const user = await prisma.user.upsert({
@@ -136,14 +136,14 @@ async function upsertStaffAccount(spec: AccountSpec, password: string) {
       email: spec.email,
       name: spec.name,
       passwordHash: hash,
-      role: 'STAFF',
+      role: 'FREELANCER',
       isActive: true,
       kycStatus: 'PENDING'
     },
     update: {
       name: spec.name,
       passwordHash: hash,
-      role: 'STAFF',
+      role: 'FREELANCER',
       isActive: true
     }
   });
@@ -229,13 +229,13 @@ async function main() {
   );
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = process.env.SYNTH_CREDS_OUT || path.join(outDir, 'staff.json');
-  // Write credentials once — caller must not print
+  // Write credentials once â€” caller must not print
   fs.writeFileSync(
     outFile,
     JSON.stringify(
       {
         createdAt: new Date().toISOString(),
-        note: 'Phase 20.2T synthetic staff — delete after matrix',
+        note: 'Phase 20.2T synthetic staff â€” delete after matrix',
         accounts: results.map((r) => ({
           key: r.key,
           email: r.email,
@@ -281,3 +281,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
