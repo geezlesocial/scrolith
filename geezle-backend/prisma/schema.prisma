@@ -123,6 +123,8 @@ model User {
   communityMessages     CommunityMessage[]
   kycSubmissions        KYCSubmission[]
   kycDocuments          KYCDocument[]
+  kycConsents           KYCConsent[]
+  kycAuditEvents        KYCAuditEvent[] @relation("KYCAuditActorUser")
 
   // Direct messaging
   conversations         ConversationParticipant[]
@@ -690,41 +692,127 @@ model Review {
 }
 
 model KYCSubmission {
-  id              String              @id @default(cuid())
-  userId          String
-  status          KYCSubmissionStatus @default(PENDING)
-  personalInfo    Json
-  reviewedAt      DateTime?
-  reviewedBy      String?
-  rejectionReason String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  id                   String              @id @default(cuid())
+  userId               String
+  status               KYCSubmissionStatus @default(PENDING)
+  personalInfo         Json
+  reviewedAt           DateTime?
+  reviewedBy           String?
+  rejectionReason      String?
+  decisionReasonCode   String?
+  consentPolicyVersion String?
+  consentAcceptedAt    DateTime?
+  resubmissionCount    Int                 @default(0)
+  // Retention placeholders — final durations require legal approval (Phase 20.2)
+  retentionPolicyKey   String?
+  retainUntil          DateTime?
+  legalHold            Boolean             @default(false)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   documents KYCDocument[]
+  consents  KYCConsent[]
+  auditEvents KYCAuditEvent[]
 
   @@index([userId])
   @@index([status])
+  @@index([retainUntil])
 }
 
 model KYCDocument {
-  id              String   @id @default(cuid())
-  submissionId    String?
-  userId          String
-  type            String
-  fileId          String
-  fileUrl         String
-  status          String   @default("pending")
-  rejectionReason String?
-  uploadedAt      DateTime @default(now())
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                        String    @id @default(cuid())
+  submissionId              String?
+  userId                    String
+  type                      String
+  fileId                    String
+  /// Legacy public media URL. Phase 20.2 private KYC docs store empty string; objectKey is SSOT.
+  fileUrl                   String    @default("")
+  status                    String    @default("pending")
+  rejectionReason           String?
+  purpose                   String    @default("kyc")
+  storageClass              String    @default("LEGACY")
+  objectKey                 String?
+  quarantineObjectKey       String?
+  quarantineStatus          String    @default("UNKNOWN")
+  scanStatus                String?
+  scanEngine                String?
+  scanDefinitionVersion     String?
+  scannedAt                 DateTime?
+  normalizedAt              DateTime?
+  sha256                    String?
+  contentType               String?
+  sizeBytes                 BigInt?
+  originalFilenameSanitized String?
+  metadataStripped          Boolean   @default(false)
+  visibility                String    @default("PRIVATE")
+  promotedAt                DateTime?
+  width                     Int?
+  height                    Int?
+  // Retention-ready placeholders (legal approval required for durations)
+  retainUntil               DateTime?
+  deletedAt                 DateTime?
+  uploadedAt                DateTime  @default(now())
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   submission KYCSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
   user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([submissionId])
   @@index([userId])
+  @@index([objectKey])
+  @@index([sha256])
+  @@index([quarantineStatus])
+  @@index([purpose])
+}
+
+/// Explicit KYC consent evidence (not marketing consent).
+model KYCConsent {
+  id            String   @id @default(cuid())
+  userId        String
+  submissionId  String?
+  policyVersion String
+  purpose       String   @default("identity_verification_review")
+  acceptedAt    DateTime @default(now())
+  sourceSurface String
+  createdAt     DateTime @default(now())
+
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submission KYCSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([submissionId])
+  @@index([policyVersion])
+  @@index([acceptedAt])
+}
+
+/// Append-only KYC audit trail. Metadata is allowlist-only (no identity payloads).
+model KYCAuditEvent {
+  id              String   @id @default(cuid())
+  submissionId    String?
+  documentId      String?
+  actorType       String
+  actorId         String?
+  actorUserId     String?
+  action          String
+  reasonCode      String?
+  priorState      String?
+  resultingState  String?
+  correlationId   String?
+  serviceIdentity String?
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  submission KYCSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  actorUser  User?          @relation("KYCAuditActorUser", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([submissionId])
+  @@index([documentId])
+  @@index([action])
+  @@index([actorType])
+  @@index([createdAt])
+  @@index([correlationId])
 }
 
 // Application-level settings storage for scoped JSON config

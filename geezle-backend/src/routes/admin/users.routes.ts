@@ -183,16 +183,31 @@ router.put('/:id', async (req, res) => {
     if (avatar !== undefined) updates.avatar = avatar;
     if (profilePhotoFileId !== undefined) updates.profilePhotoFileId = profilePhotoFileId || null;
     if (role) updates.role = role.toString().toUpperCase();
-    if (isVerified !== undefined) updates.isVerified = Boolean(isVerified);
 
+    // Phase 20.2: block side-channel KYC / verification mutations.
+    // Final KYC decisions must go through POST /api/admin/kyc/:id/status.
     const normalizedKycStatus = normalizeKycStatus(kycStatus);
-    if (normalizedKycStatus) {
-      updates.kycStatus = normalizedKycStatus;
-      updates.isVerified = normalizedKycStatus === 'VERIFIED';
-    } else if (isVerified === true) {
-      updates.kycStatus = 'VERIFIED';
-    } else if (isVerified === false) {
-      updates.kycStatus = 'PENDING';
+    const attemptsKycBypass =
+      normalizedKycStatus !== null ||
+      isVerified !== undefined;
+    if (attemptsKycBypass) {
+      try {
+        const { blockSideChannelKycMutation } = require('../../services/kyc/kyc.decision.service');
+        await blockSideChannelKycMutation({
+          targetUserId: userId,
+          actorUserId: (req as any).user?.id || null,
+          attemptedKycStatus: normalizedKycStatus,
+          attemptedIsVerified: isVerified === undefined ? null : Boolean(isVerified)
+        });
+      } catch {
+        /* audit best-effort */
+      }
+      return res.status(403).json({
+        success: false,
+        error:
+          'KYC verification status cannot be changed via generic user update. Use the KYC decision workflow.',
+        code: 'KYC_SIDE_CHANNEL_BLOCKED'
+      });
     }
 
     if (status !== undefined || isActive !== undefined) {
