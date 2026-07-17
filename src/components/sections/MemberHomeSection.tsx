@@ -7219,11 +7219,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       );
     }
     if (typeof document === 'undefined') return;
+    // Smooth in-page focus only — never assign window.location (full reload).
     window.setTimeout(() => {
-      document.querySelector(`[data-insights-section="${sectionId}"]`)?.scrollIntoView({
+      const target = document.querySelector(
+        `[data-insights-section="${CSS.escape(String(sectionId || ''))}"]`
+      ) as HTMLElement | null;
+      if (!target) return;
+      target.scrollIntoView({
         behavior: 'smooth',
         block: 'start'
       });
+      try {
+        target.focus({ preventScroll: true });
+      } catch {
+        /* optional focus */
+      }
     }, group ? 120 : 0);
   }, []);
 
@@ -7273,7 +7283,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       meta: 'Posts · Gigs · Briefs',
       badge: 'AI',
       ctaLabel: 'Open coach',
-      onClick: () => openInsightsSection('scrolitha-coach', 'growth'),
+      // SPA navigation via React Router — never full document reload.
+      onClick: () => {
+        openInsightsSection('scrolitha-coach', 'growth');
+        openScrolithaFromMemberHome(
+          'Help me improve my next post, gig package, or project brief with Scrolitha coach.'
+        );
+      },
       mediaUrl: '/logo.png',
       icon: <Sparkles className="h-3 w-3" />,
       tone: 'violet'
@@ -7330,6 +7346,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
     if (topSeries) {
       const featuredScroll = topSeries.featuredScroll || topSeries.previewItems?.[0] || topSeries.items?.[0]?.scroll || null;
+      const media = featuredScroll?.media || (featuredScroll as any)?.Media || null;
+      const poster =
+        String(media?.thumbnailUrl || media?.thumbnail_url || media?.posterUrl || media?.poster_url || '').trim();
+      const videoCandidate = String(
+        media?.playbackUrl ||
+          media?.playback_url ||
+          media?.streamUrl ||
+          media?.stream_url ||
+          media?.url ||
+          media?.src ||
+          ''
+      ).trim();
+      const looksLikeVideo =
+        Boolean(videoCandidate) &&
+        (/\.(mp4|webm|mov|m4v|ogg)(?:$|[?#])/i.test(videoCandidate) ||
+          videoCandidate.includes('/api/files/content/') ||
+          String(media?.type || media?.mimeType || media?.mime_type || '').toLowerCase().includes('video'));
       items.push({
         id: `desktop-series:${topSeries.id}`,
         eyebrow: 'Series / playlists',
@@ -7343,7 +7376,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         badge: 'Series',
         ctaLabel: 'Open series',
         href: buildSeriesUrl(topSeries.id),
-        mediaUrl: featuredScroll?.media?.thumbnailUrl || featuredScroll?.media?.url || '',
+        mediaUrl: poster || videoCandidate || '',
+        videoUrl: looksLikeVideo ? videoCandidate : null,
+        posterUrl: poster || null,
         icon: <Video className="h-4 w-4" />,
         tone: 'rose'
       });
@@ -7439,6 +7474,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     openPostCard,
     officeHours,
     openInsightsSection,
+    openScrolithaFromMemberHome,
     profiles,
     recommendedPages
   ]);
@@ -7861,9 +7897,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
                     <div className="mt-3 space-y-2">
                       {marketplacePreviewLoading ? (
-                        <div className="space-y-2">
-                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
-                          <div className="h-20 rounded-2xl bg-white/80 animate-pulse" />
+                        <div className="space-y-2.5">
+                          <div className="h-28 rounded-2xl bg-white/80 animate-pulse" />
+                          <div className="h-28 rounded-2xl bg-white/80 animate-pulse" />
                         </div>
                       ) : marketplacePreviewListings.length > 0 ? (
                         marketplacePreviewListings.map((listing) => {
@@ -7879,33 +7915,41 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             <Link
                               key={listing.id}
                               to={resolveMarketplaceListingUrl(listing)}
-                              className="group flex items-center gap-3 rounded-2xl border border-white/80 bg-white/90 px-3 py-2.5 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm"
+                              className="group flex items-center gap-3.5 rounded-2xl border border-white/80 bg-white/95 px-3 py-3 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-sm sm:gap-4 sm:px-3.5 sm:py-3.5"
+                              data-testid="member-home-marketplace-reco-card"
                             >
-                              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-slate-100">
+                              {/* Desktop ~112px square product image; scales down on narrow viewports */}
+                              <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl border border-emerald-100/80 bg-slate-100 sm:h-28 sm:w-28">
                                 {image ? (
                                   <OptimizedImage
                                     src={resolveAssetUrl(image)}
                                     alt={listing.title || 'Marketplace item'}
-                                    width={960}
-                                    height={720}
-                                    sizes="(max-width: 768px) 100vw, 320px"
-                                    className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.03]"
+                                    width={224}
+                                    height={224}
+                                    sizes="(max-width: 640px) 96px, 112px"
+                                    fit="cover"
+                                    quality={78}
+                                    className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.04]"
                                     loading="lazy"
                                     decoding="async"
                                   />
                                 ) : (
                                   <div className="flex h-full w-full items-center justify-center">
-                                    <ShoppingBag className="h-5 w-5 text-slate-400" />
+                                    <ShoppingBag className="h-7 w-7 text-slate-400" />
                                   </div>
                                 )}
                               </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold text-slate-900">{listing.title || 'Marketplace item'}</p>
-                                <p className="mt-0.5 truncate text-xs text-slate-500">
-                                  {price}
-                                  {location ? ` · ${location}` : ''}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <p className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900 sm:text-[15px]">
+                                  {listing.title || 'Marketplace item'}
                                 </p>
-                                <div className="mt-1 flex items-center gap-2">
+                                <p className="truncate text-sm font-semibold text-emerald-700">
+                                  {price}
+                                  {location ? (
+                                    <span className="font-medium text-slate-500">{` · ${location}`}</span>
+                                  ) : null}
+                                </p>
+                                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                                   <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
                                     Recommended
                                   </span>
