@@ -12,6 +12,7 @@ import { useContent } from '../../context/ContentContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
 import { postOptionsApi } from '../../services/postOptions';
+import { ReactionsService } from '../../services/reactions';
 import PostComments from '../../components/PostComments';
 import SendGcoinModal from '../../components/SendGcoinModal';
 import PostShareModal from './PostShareModal';
@@ -253,7 +254,7 @@ const PostEngagementBar: React.FC<Props> = ({
   }, [postId, initialInterestSignal]);
 
   useEffect(() => {
-    const onUpdated = (event: Event) => {
+    const onLegacyUpdated = (event: Event) => {
       const raw = (event as CustomEvent).detail;
       const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
       if (!detail) return;
@@ -268,6 +269,21 @@ const PostEngagementBar: React.FC<Props> = ({
         setUserReaction(mine || null);
       }
     };
+    // Phase 20.2.3: unified reaction bus (server + ReactionBar).
+    const onUnifiedUpdated = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (!detail) return;
+      if (String(detail.targetType || '').toUpperCase() !== 'POST') return;
+      if (String(detail.targetId || '') !== String(postId)) return;
+      if (detail.counts && typeof detail.counts === 'object' && !Array.isArray(detail.counts)) {
+        setCounts(detail.counts as Record<string, number>);
+      }
+      const actorId = String(detail.actorUserId || detail.actorId || detail.userId || '').trim();
+      if (actorId && user?.id && actorId === String(user.id) && Object.prototype.hasOwnProperty.call(detail, 'userReaction')) {
+        const mine = String(detail.userReaction || '').trim().toLowerCase();
+        setUserReaction(mine || null);
+      }
+    };
     const onGcoinDonated = (event: Event) => {
       const raw = (event as CustomEvent).detail;
       const detail = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
@@ -276,10 +292,12 @@ const PostEngagementBar: React.FC<Props> = ({
       if (!eventPostId || eventPostId !== String(postId)) return;
       setDashTotal(Number(detail.dashGcoinTotal || detail.dash_gcoin_total || 0));
     };
-    window.addEventListener('community:post_reaction_updated', onUpdated as EventListener);
+    window.addEventListener('community:post_reaction_updated', onLegacyUpdated as EventListener);
+    window.addEventListener('reactions:updated', onUnifiedUpdated as EventListener);
     window.addEventListener('community:gcoin_donated', onGcoinDonated as EventListener);
     return () => {
-      window.removeEventListener('community:post_reaction_updated', onUpdated as EventListener);
+      window.removeEventListener('community:post_reaction_updated', onLegacyUpdated as EventListener);
+      window.removeEventListener('reactions:updated', onUnifiedUpdated as EventListener);
       window.removeEventListener('community:gcoin_donated', onGcoinDonated as EventListener);
     };
   }, [postId, user?.id]);
@@ -340,12 +358,25 @@ const PostEngagementBar: React.FC<Props> = ({
     setUserReaction(toggledOff ? null : normalized);
     setPickerOpen(false);
     try {
-      const result = toggledOff ? await CommunityService.removePostReaction(postId) : await CommunityService.reactToPost(postId, normalized);
-      if (result?.reactions && typeof result.reactions === 'object' && !Array.isArray(result.reactions)) setCounts(result.reactions);
-      if (Object.prototype.hasOwnProperty.call(result || {}, 'userReaction')) {
-        const mine = String(result?.userReaction || '').trim().toLowerCase();
-        setUserReaction(mine || null);
+      // Phase 20.2.3: always use unified /api/reactions (one reaction per user per post).
+      // Backend dual-writes CommunityPostReaction for legacy feed compatibility.
+      const summary = await ReactionsService.react('POST', postId, normalized);
+      if (summary?.counts && typeof summary.counts === 'object' && !Array.isArray(summary.counts)) {
+        setCounts(summary.counts);
       }
+      const mine = String(summary?.userReaction || '').trim().toLowerCase();
+      setUserReaction(mine || null);
+      window.dispatchEvent(
+        new CustomEvent('reactions:updated', {
+          detail: {
+            targetType: 'POST',
+            targetId: postId,
+            counts: summary?.counts || {},
+            userReaction: summary?.userReaction || null,
+            actorUserId: user?.id || null
+          }
+        })
+      );
     } catch (error: any) {
       setCounts(prevCounts);
       setUserReaction(prevReaction);

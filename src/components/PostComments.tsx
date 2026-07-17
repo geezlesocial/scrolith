@@ -10,6 +10,7 @@ import ReactionBar from '../community/components/ReactionBar';
 import MentionText from '../community/components/MentionText';
 import { UploadedFile } from '../types';
 import CommentAiAssist from './post/CommentAiAssist';
+import EmojiPhraseSuggestionBar from '../community/components/EmojiPhraseSuggestionBar';
 
 type CommentAuthor = {
   id?: string;
@@ -292,8 +293,10 @@ const PostComments: React.FC<PostCommentsProps> = ({
   const [loading, setLoading] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [draftCaret, setDraftCaret] = useState(0);
   const [replyToId, setReplyToId] = useState<string | null>(null);
   const [replyDraft, setReplyDraft] = useState('');
+  const [replyCaret, setReplyCaret] = useState(0);
   const [draftAttachments, setDraftAttachments] = useState<PendingAttachment[]>([]);
   const [replyAttachments, setReplyAttachments] = useState<PendingAttachment[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1082,9 +1085,37 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 />
                 <textarea
                   value={replyDraft}
-                  onChange={(event) => setReplyDraft(event.target.value)}
+                  onChange={(event) => {
+                    setReplyDraft(event.target.value);
+                    setReplyCaret(
+                      typeof event.target.selectionStart === 'number'
+                        ? event.target.selectionStart
+                        : event.target.value.length
+                    );
+                  }}
+                  onSelect={(event) => {
+                    const el = event.currentTarget;
+                    setReplyCaret(typeof el.selectionStart === 'number' ? el.selectionStart : replyDraft.length);
+                  }}
+                  onKeyUp={(event) => {
+                    const el = event.currentTarget;
+                    setReplyCaret(typeof el.selectionStart === 'number' ? el.selectionStart : replyDraft.length);
+                  }}
+                  onClick={(event) => {
+                    const el = event.currentTarget;
+                    setReplyCaret(typeof el.selectionStart === 'number' ? el.selectionStart : replyDraft.length);
+                  }}
                   placeholder={`Reply as ${user?.name || user?.username || 'you'}...`}
                   className="mt-3 min-h-[88px] w-full rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 outline-none transition focus:border-slate-300"
+                />
+                <EmojiPhraseSuggestionBar
+                  value={replyDraft}
+                  caret={replyCaret}
+                  disabled={submitting}
+                  onInsert={(nextValue, nextCaret) => {
+                    setReplyDraft(nextValue);
+                    setReplyCaret(nextCaret);
+                  }}
                 />
                 {renderPendingAttachments(replyAttachments, 'reply')}
                 {uploadingAttachmentCount > 0 ? (
@@ -1179,7 +1210,26 @@ const PostComments: React.FC<PostCommentsProps> = ({
           <textarea
             ref={draftRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              setDraftCaret(
+                typeof event.target.selectionStart === 'number'
+                  ? event.target.selectionStart
+                  : event.target.value.length
+              );
+            }}
+            onSelect={(event) => {
+              const el = event.currentTarget;
+              setDraftCaret(typeof el.selectionStart === 'number' ? el.selectionStart : draft.length);
+            }}
+            onKeyUp={(event) => {
+              const el = event.currentTarget;
+              setDraftCaret(typeof el.selectionStart === 'number' ? el.selectionStart : draft.length);
+            }}
+            onClick={(event) => {
+              const el = event.currentTarget;
+              setDraftCaret(typeof el.selectionStart === 'number' ? el.selectionStart : draft.length);
+            }}
             placeholder={
               commentsDisabled
                 ? 'Comments are disabled for this post.'
@@ -1187,6 +1237,25 @@ const PostComments: React.FC<PostCommentsProps> = ({
             }
             disabled={commentsDisabled || submitting}
             className="mt-3 min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100"
+          />
+          <EmojiPhraseSuggestionBar
+            value={draft}
+            caret={draftCaret}
+            disabled={commentsDisabled || submitting}
+            onInsert={(nextValue, nextCaret) => {
+              setDraft(nextValue);
+              setDraftCaret(nextCaret);
+              requestAnimationFrame(() => {
+                const el = draftRef.current;
+                if (!el) return;
+                el.focus();
+                try {
+                  el.setSelectionRange(nextCaret, nextCaret);
+                } catch {
+                  /* ignore */
+                }
+              });
+            }}
           />
           {renderPendingAttachments(draftAttachments, 'draft')}
           {uploadingAttachmentCount > 0 ? (
