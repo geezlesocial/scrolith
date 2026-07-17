@@ -231,6 +231,15 @@ export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promis
 
   const data = extractData<any>(response) || {};
   const items = Array.isArray(data.items) ? (data.items as UnifiedFeedItem[]) : [];
+  void import('./intelligenceFeedback')
+    .then(({ recordMemberFeedPageFeedback }) =>
+      recordMemberFeedPageFeedback({
+        items,
+        surface: data.surface || params.surface,
+        mode: data.mode || params.mode || 'for_you'
+      })
+    )
+    .catch(() => undefined);
   // Preserve additive intelligence envelope onto post-like payloads during partition.
   const partitioned = partitionUnifiedFeedItems(
     items.map((item) => {
