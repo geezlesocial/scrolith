@@ -4,6 +4,7 @@ import { CommunityService } from '../../services/community';
 import {
   applyMentionOrTagSuggestion,
   findActiveToken,
+  rememberRecentMention,
   type ActiveToken
 } from './mentionHashtagTokens';
 
@@ -18,6 +19,11 @@ type Suggestion =
       name?: string | null;
       avatar?: string | null;
       isVerified?: boolean;
+      mentionKind?: string;
+      isSpecial?: boolean;
+      isMutual?: boolean;
+      isFollowing?: boolean;
+      isScrolitha?: boolean;
     }
   | {
       kind: 'tag';
@@ -35,6 +41,9 @@ export type MentionHashtagTextareaProps = {
   mentionsEnabled?: boolean;
   hashtagsEnabled?: boolean;
   minQueryLength?: number;
+  /** Optional club/community scope for @moderators / @admins ranking. */
+  clubId?: string | null;
+  onCaretChange?: (caret: number) => void;
 };
 
 const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHashtagTextareaProps>(
@@ -47,7 +56,9 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
       disabled,
       mentionsEnabled = true,
       hashtagsEnabled = true,
-      minQueryLength = 1
+      minQueryLength = 0,
+      clubId = null,
+      onCaretChange
     },
     forwardedRef
   ) => {
@@ -125,7 +136,10 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
       const timeout = window.setTimeout(async () => {
         try {
           if (active.kind === 'mention') {
-            const raw = await CommunityService.searchUserMentions(active.query);
+            const raw = await CommunityService.searchUserMentions(active.query, {
+              clubId,
+              limit: 14
+            });
             const next: Suggestion[] = (Array.isArray(raw) ? raw : [])
               .map((row: any) => {
                 const id = String(row?.id || '').trim();
@@ -137,11 +151,16 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
                   username,
                   name: row?.name ? String(row.name) : null,
                   avatar: row?.avatar ? String(row.avatar) : null,
-                  isVerified: Boolean(row?.isVerified)
+                  isVerified: Boolean(row?.isVerified || row?.isScrolitha),
+                  mentionKind: row?.mentionKind ? String(row.mentionKind) : 'USER',
+                  isSpecial: Boolean(row?.isSpecial),
+                  isMutual: Boolean(row?.isMutual),
+                  isFollowing: Boolean(row?.isFollowing),
+                  isScrolitha: Boolean(row?.isScrolitha || row?.mentionKind === 'SCROLITHA')
                 } as Suggestion;
               })
               .filter(Boolean) as Suggestion[];
-            if (!cancelled) setItems(next.slice(0, 10));
+            if (!cancelled) setItems(next.slice(0, 14));
           } else {
             const raw = await CommunityService.searchTags(active.query, 10);
             const next: Suggestion[] = (Array.isArray(raw) ? raw : [])
@@ -164,7 +183,7 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
         cancelled = true;
         window.clearTimeout(timeout);
       };
-    }, [active, canQuery]);
+    }, [active, canQuery, clubId]);
 
     const applySuggestion = useCallback(
       (suggestion: Suggestion) => {
@@ -178,6 +197,8 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
           tokenBody
         });
         onChange(nextValue);
+        if (suggestion.kind === 'mention') rememberRecentMention(suggestion.username);
+        onCaretChange?.(caret);
 
         // Single post-selection frame only — restore caret after controlled value flush.
         window.setTimeout(() => {
@@ -193,7 +214,7 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
 
         close();
       },
-      [active, close, onChange, value]
+      [active, close, onCaretChange, onChange, value]
     );
 
     const onKeyDown = useCallback(
@@ -249,11 +270,24 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
             const nextValue = e.target.value;
             const caret = typeof e.target.selectionStart === 'number' ? e.target.selectionStart : nextValue.length;
             onChange(nextValue);
+            onCaretChange?.(caret);
             setActiveFrom(nextValue, caret);
           }}
           onKeyDown={onKeyDown}
-          onKeyUp={updateFromCaret}
-          onClick={updateFromCaret}
+          onKeyUp={(e) => {
+            updateFromCaret();
+            const el = e.currentTarget;
+            onCaretChange?.(typeof el.selectionStart === 'number' ? el.selectionStart : value.length);
+          }}
+          onClick={(e) => {
+            updateFromCaret();
+            const el = e.currentTarget;
+            onCaretChange?.(typeof el.selectionStart === 'number' ? el.selectionStart : value.length);
+          }}
+          onSelect={(e) => {
+            const el = e.currentTarget;
+            onCaretChange?.(typeof el.selectionStart === 'number' ? el.selectionStart : value.length);
+          }}
           onFocus={updateFromCaret}
           placeholder={placeholder}
           disabled={disabled}
@@ -322,8 +356,22 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
                           ) : null}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-semibold text-slate-900">{label}</div>
-                          <div className="truncate text-xs text-slate-500">@{item.username}</div>
+                          <div className="flex items-center gap-1.5 truncate font-semibold text-slate-900">
+                            <span className="truncate">{label}</span>
+                            {item.isVerified ? (
+                              <span className="rounded bg-sky-100 px-1 text-[10px] font-bold text-sky-700">✓</span>
+                            ) : null}
+                            {item.isScrolitha ? (
+                              <span className="rounded bg-violet-100 px-1 text-[10px] font-bold text-violet-700">AI</span>
+                            ) : null}
+                          </div>
+                          <div className="truncate text-xs text-slate-500">
+                            @{item.username}
+                            {item.isMutual ? ' · Mutual' : item.isFollowing ? ' · Following' : ''}
+                            {item.isSpecial && item.mentionKind && item.mentionKind !== 'USER'
+                              ? ` · ${item.mentionKind}`
+                              : ''}
+                          </div>
                         </div>
                       </button>
                     );
