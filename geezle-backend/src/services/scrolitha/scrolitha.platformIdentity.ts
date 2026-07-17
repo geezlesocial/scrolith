@@ -182,11 +182,19 @@ export const isScrolithaPlatformUserId = async (userId: string | null | undefine
   return id === platformId;
 };
 
-export const isScrolithaUsername = (username: string | null | undefined): boolean =>
-  String(username || '')
+/** Phase 20.2.4: accept @Scrolitha, @scrolitha, and @AI aliases. */
+export const isScrolithaUsername = (username: string | null | undefined): boolean => {
+  const normalized = String(username || '')
     .trim()
     .toLowerCase()
-    .replace(/^@/, '') === SCROLITHA_PLATFORM_USERNAME;
+    .replace(/^@/, '');
+  return (
+    normalized === SCROLITHA_PLATFORM_USERNAME ||
+    normalized === 'ai' ||
+    normalized === 'scrolitha_ai' ||
+    normalized === 'scrolitha-bot'
+  );
+};
 
 /** Usernames that normal accounts cannot claim. */
 export const isReservedScrolithaUsername = (username: string | null | undefined): boolean => {
@@ -196,6 +204,7 @@ export const isReservedScrolithaUsername = (username: string | null | undefined)
     .replace(/^@/, '');
   return (
     normalized === SCROLITHA_PLATFORM_USERNAME ||
+    normalized === 'ai' ||
     normalized === 'scrolitha_ai' ||
     normalized === 'scrolitha-bot' ||
     normalized === 'official_scrolitha'

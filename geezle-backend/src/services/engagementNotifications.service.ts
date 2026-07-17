@@ -328,12 +328,30 @@ export const createEngagementNotification = async (input: CreateEngagementNotifi
 
 export const extractMentionUsernames = (content: string) => {
   const text = String(content || '');
-  const regex = /(^|[^@\w])@([a-zA-Z0-9_.]{3,30})/g;
+  // Phase 20.2.4: allow 2+ chars so @ai resolves; collective tokens filtered by consumers.
+  const regex = /(^|[^@\w])@([a-zA-Z0-9_.]{2,30})/g;
   const usernames = new Set<string>();
   let match: RegExpExecArray | null = regex.exec(text);
   while (match) {
     const username = String(match[2] || '').toLowerCase().trim();
-    if (username) usernames.add(username);
+    if (!username) {
+      match = regex.exec(text);
+      continue;
+    }
+    // Collective / reserved tokens are not usernames.
+    if (
+      username === 'everyone' ||
+      username === 'moderators' ||
+      username === 'mods' ||
+      username === 'admins' ||
+      username === 'admin' ||
+      username === 'verified' ||
+      username === 'staff'
+    ) {
+      match = regex.exec(text);
+      continue;
+    }
+    usernames.add(username);
     match = regex.exec(text);
   }
   return Array.from(usernames);

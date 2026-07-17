@@ -15,6 +15,12 @@ import {
   resolveMentionedUserIds
 } from '../services/engagementNotifications.service';
 import {
+  resolveMentionFanout,
+  persistMentionRecords,
+  notifyMentionRecipients,
+  searchMentionUsers
+} from '../services/mentions/mentions.enterprise.service';
+import {
   decidePostInsightEnabled,
   queuePostInsightGeneration,
   resolvePostAiSettings
@@ -2911,32 +2917,17 @@ export const getUserMentions = async (req: Request, res: Response) => {
     const q = qRaw.replace(/^@+/, '');
     if (!q) return res.json({ success: true, data: [] });
 
-    const blocked = await getBlockedAuthorIdsForViewer(actorId);
-    const excluded = Array.from(new Set([actorId, ...blocked]));
+    const clubId = String(req.query.clubId || req.query.communityId || '').trim() || null;
+    const limitRaw = Number(req.query.limit || 12);
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(30, Math.trunc(limitRaw))) : 12;
 
-    const users = await prisma.user.findMany({
-      where: {
-        id: excluded.length ? { notIn: excluded } : undefined,
-        OR: [
-          { username: { contains: q, mode: 'insensitive' } },
-          { name: { contains: q, mode: 'insensitive' } }
-        ]
-      },
-      take: 10,
-      orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
-      select: { id: true, username: true, name: true, avatar: true, role: true, isVerified: true, kycStatus: true }
+    // Phase 20.2.4: ranked autocomplete (followers, community members, specials).
+    const data = await searchMentionUsers({
+      actorId,
+      query: q,
+      clubId,
+      limit
     });
-
-    const data = users
-      .filter((u: any) => String(u?.username || '').trim())
-      .map((u: any) => ({
-        id: u.id,
-        username: u.username,
-        name: u.name,
-        avatar: u.avatar,
-        role: u.role,
-        isVerified: Boolean((u as any).isVerified || isKycVerifiedStatus((u as any).kycStatus))
-      }));
 
     return res.json({ success: true, data });
   } catch (error: any) {
@@ -4298,7 +4289,15 @@ export const createPostComment = async (req: Request, res: Response) => {
 
     const post = await prisma.communityPost.findUnique({
       where: { id: postId },
-      select: { id: true, authorId: true, commentPolicy: true, status: true, visibility: true, mentions: true }
+      select: {
+        id: true,
+        authorId: true,
+        commentPolicy: true,
+        status: true,
+        visibility: true,
+        mentions: true,
+        clubId: true
+      }
     });
     if (!post || post.status === 'deleted') {
       return res.status(404).json({ success: false, error: 'Post not found' });
@@ -4340,6 +4339,23 @@ export const createPostComment = async (req: Request, res: Response) => {
       )
     );
     const mentionedUserIds = await filterMentionTargetsForActor(userId, rawMentionedUserIds);
+
+    // Phase 20.2.4: enterprise fan-out for @everyone / @moderators / @admins (+ persist).
+    const enterpriseResolved = await resolveMentionFanout({
+      authorId: userId,
+      content: commentContent,
+      postId,
+      clubId: post.clubId || null,
+      isPostAuthor: post.authorId === userId
+    });
+    const enterpriseRecipientIds = Array.from(
+      new Set(
+        enterpriseResolved
+          .filter((r) => r.kind !== 'SCROLITHA' && r.kind !== 'USER')
+          .flatMap((r) => r.recipientIds)
+      )
+    );
+    const mergedMentionUserIds = Array.from(new Set([...mentionedUserIds, ...enterpriseRecipientIds]));
 
     const comment = await prisma.communityPostComment.create({
       data: {
@@ -4459,42 +4475,47 @@ export const createPostComment = async (req: Request, res: Response) => {
         });
       }
 
-      if (mentionedUserIds.length) {
-        const mentionRecipients = await filterRecipientsForNotification('mention_comment', mentionedUserIds);
-        for (const mentionedUserId of mentionRecipients) {
-          const canView = await canUserViewPostForNotification(
-            {
-              authorId: post.authorId,
-              visibility: post.visibility,
-              mentions: post.mentions
-            },
-            mentionedUserId
-          );
-          if (!canView) continue;
+      // Phase 20.2.4: persist + notify enterprise mentions (includes USER + collectives).
+      const mentionRecords = await persistMentionRecords({
+        authorId: userId,
+        sourceType: 'COMMENT',
+        sourceId: comment.id,
+        postId,
+        commentId: comment.id,
+        clubId: post.clubId || null,
+        resolved: enterpriseResolved
+      });
 
-          await createEngagementNotification({
-            recipientId: mentionedUserId,
-            actorId: userId,
-            type: 'mention_comment',
-            title: 'You were mentioned',
-            message: `${actorName} mentioned you in a comment.`,
-            actionUrl: `${actionUrl}&mention=${encodeURIComponent(mentionedUserId)}`,
-            metadata: {
-              postId,
-              commentId: comment.id,
-              actorId: userId,
-              mentionedUserId,
-              snippet
-            },
-            skipRecipientChecks: true
-          });
-        }
-      }
+      // USER mentions from legacy path + collective expansion (deduped).
+      const userResolved = enterpriseResolved.filter((r) => r.kind === 'USER' || r.kind === 'EVERYONE' || r.kind === 'MODERATORS' || r.kind === 'ADMINS');
+      // Ensure classic username resolves are included even if enterprise resolve missed inactive edge.
+      const extraUserTargets = mergedMentionUserIds
+        .filter((id) => !userResolved.some((r) => r.recipientIds.includes(id)))
+        .map((id) => ({
+          kind: 'USER' as const,
+          rawToken: '@user',
+          targetUserId: id,
+          recipientIds: [id]
+        }));
+      await notifyMentionRecipients({
+        authorId: userId,
+        actorName,
+        post: {
+          id: postId,
+          authorId: post.authorId,
+          visibility: post.visibility,
+          mentions: post.mentions
+        },
+        commentId: comment.id,
+        content: commentContent,
+        resolved: [...userResolved, ...extraUserTargets],
+        mentionRecords
+      });
     } catch (notifyError) {
       console.warn('[community.createPostComment] notification fanout failed', notifyError);
     }
 
-    // Non-blocking: @Scrolitha mention triggers contextual AI reply after user comment is already saved.
+    // Non-blocking: @Scrolitha / @AI mention triggers contextual AI reply after user comment is already saved.
     try {
       maybeQueueScrolithaMentionReply({
         postId,
