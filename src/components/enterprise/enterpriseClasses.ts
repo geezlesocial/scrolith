@@ -110,3 +110,21 @@ export const enterpriseLeftColumn =
  */
 export const enterpriseRightColumn =
   `scrolith-mh-right min-w-0 w-full space-y-4 ${enterpriseStickyRailRight}`;
+
+/* Phase 18 — feed intelligence chips (presentation-only) */
+export const enterpriseIntelRail = 'flex flex-wrap gap-1.5';
+
+export const enterpriseIntelChip =
+  'inline-flex max-w-full items-center truncate rounded-full border border-slate-200/90 bg-slate-50 px-2.5 py-1 ' +
+  'text-[11px] font-semibold text-slate-600';
+
+export const enterpriseIntelChipWhy =
+  'inline-flex max-w-full items-center truncate rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 ' +
+  'text-[11px] font-semibold text-sky-800';
+
+export const enterpriseIntelChipMatch =
+  'inline-flex max-w-full items-center truncate rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 ' +
+  'text-[11px] font-semibold text-indigo-800';
+
+export const enterpriseIntelChipEngagement =
+  'inline-flex max-w-full items-center truncate rounded-full border px-2.5 py-1 text-[11px] font-semibold';

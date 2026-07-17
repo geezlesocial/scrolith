@@ -97,8 +97,17 @@ export const toPostLikePayload = (item: UnifiedFeedItem): any | null => {
       (item.score != null || item.rankingScore != null || item.why
         ? {
             score: Number(item.score ?? item.rankingScore ?? 0),
-            primaryReason: item.why || null,
-            reasons: item.why ? [item.why] : []
+            primaryReason: Array.isArray(item.why)
+              ? item.why[0] || null
+              : item.why || null,
+            // Preserve multi-reason arrays when orchestrator provides them (presentation-only).
+            reasons: Array.isArray(item.why)
+              ? item.why
+              : item.why
+                ? [item.why]
+                : Array.isArray(payload?.ranking?.reasons)
+                  ? payload.ranking.reasons
+                  : []
           }
         : undefined),
     createdAt: payload.createdAt || item.createdAt || new Date().toISOString(),

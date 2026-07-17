@@ -40,6 +40,7 @@ import StaticPreviewText from '../components/common/StaticPreviewText';
 import ContentOfferTags from '../components/commerce/ContentOfferTags';
 import PostHeader from './components/PostHeader';
 import PostEngagementBar from './components/PostEngagementBar';
+import FeedIntelligenceSignals from '../components/feed/FeedIntelligenceSignals';
 import MentionText from './components/MentionText';
 import MentionHashtagTextarea from './components/MentionHashtagTextarea';
 import FollowButton from './components/FollowButton';
@@ -3685,6 +3686,13 @@ const CommunityHome = () => {
                               </div>
                             </GraphicWarningGate>
                           )}
+                          <FeedIntelligenceSignals
+                            ranking={post.ranking}
+                            interactions={post.interactions}
+                            showWhy
+                            showEngagement
+                            className="mb-2"
+                          />
                           <PostEngagementBar
                             postId={post.id}
                             postTitle={post.title}
