@@ -243,7 +243,9 @@ export const savePost = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('[posts.savePost] error:', error);
     const status = Number(error?.statusCode || error?.status || 500);
-    return fail(res, status, 'Failed to save post', error?.message);
+    // Avoid leaking internal Prisma/driver details on unexpected failures.
+    const detail = status >= 500 ? undefined : error?.message;
+    return fail(res, status, 'Failed to save post', detail);
   }
 };
 
@@ -280,7 +282,7 @@ export const unsavePost = async (req: Request, res: Response) => {
     return ok(res, 'Post removed from saved', { saved: false });
   } catch (error: any) {
     console.error('[posts.unsavePost] error:', error);
-    return fail(res, 500, 'Failed to unsave post', error?.message);
+    return fail(res, 500, 'Failed to unsave post');
   }
 };
 
@@ -305,7 +307,7 @@ export const hidePost = async (req: Request, res: Response) => {
     return ok(res, 'Post hidden', { hidden: true });
   } catch (error: any) {
     console.error('[posts.hidePost] error:', error);
-    return fail(res, 500, 'Failed to hide post', error?.message);
+    return fail(res, 500, 'Failed to hide post');
   }
 };
 
@@ -336,7 +338,7 @@ export const markInterested = async (req: Request, res: Response) => {
     return ok(res, 'Sounds good! Expect more Posts like this coming your way.', { signal: row.signal });
   } catch (error: any) {
     console.error('[posts.markInterested] error:', error);
-    return fail(res, 500, 'Failed to record feedback', error?.message);
+    return fail(res, 500, 'Failed to record feedback');
   }
 };
 
@@ -374,7 +376,7 @@ export const markNotInterested = async (req: Request, res: Response) => {
     return ok(res, "Sounds good! We'll show you fewer posts like this for now.", { signal: row.signal, hidden: true });
   } catch (error: any) {
     console.error('[posts.markNotInterested] error:', error);
-    return fail(res, 500, 'Failed to record feedback', error?.message);
+    return fail(res, 500, 'Failed to record feedback');
   }
 };
 
@@ -404,10 +406,14 @@ export const reportPost = async (req: Request, res: Response) => {
     try { realtime.emitToRoom('community:admin', 'community:post_report_submitted', payload); } catch {}
     try { realtime.emitToRoom('community:global', 'community:post_report_submitted', payload); } catch {}
 
-    return ok(res, 'Report submitted', { reportId: report.id, status: report.status });
+    return ok(
+      res,
+      'Report submitted. Our moderation team will review it while you continue using Scrolith.',
+      { reportId: report.id, status: report.status || 'pending', reviewState: 'queued' }
+    );
   } catch (error: any) {
     console.error('[posts.reportPost] error:', error);
-    return fail(res, 500, 'Failed to submit report', error?.message);
+    return fail(res, 500, 'Failed to submit report');
   }
 };
 
@@ -484,7 +490,7 @@ export const followAuthor = async (req: Request, res: Response) => {
     return ok(res, 'Following page', { isFollowing: true, targetType: 'page', targetId: target.targetId });
   } catch (error: any) {
     console.error('[posts.followAuthor] error:', error);
-    return fail(res, 500, 'Failed to follow author', error?.message);
+    return fail(res, 500, 'Failed to follow author');
   }
 };
 
@@ -526,7 +532,7 @@ export const unfollowAuthor = async (req: Request, res: Response) => {
     return ok(res, 'Unfollowed page', { isFollowing: false, targetType: 'page', targetId: target.targetId });
   } catch (error: any) {
     console.error('[posts.unfollowAuthor] error:', error);
-    return fail(res, 500, 'Failed to unfollow author', error?.message);
+    return fail(res, 500, 'Failed to unfollow author');
   }
 };
 
@@ -587,7 +593,7 @@ export const toggleNotifications = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[posts.toggleNotifications] error:', error);
-    return fail(res, 500, 'Failed to toggle notifications', error?.message);
+    return fail(res, 500, 'Failed to toggle notifications');
   }
 };
 
@@ -686,7 +692,7 @@ export const whyThisPost = async (req: Request, res: Response) => {
     return ok(res, 'Why you are seeing this post', { primary, reasons });
   } catch (error: any) {
     console.error('[posts.whyThisPost] error:', error);
-    return fail(res, 500, 'Failed to explain this post', error?.message);
+    return fail(res, 500, 'Failed to explain this post');
   }
 };
 
@@ -751,7 +757,7 @@ export const getPostOptionsState = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[posts.getPostOptionsState] error:', error);
-    return fail(res, 500, 'Failed to load post options state', error?.message);
+    return fail(res, 500, 'Failed to load post options state');
   }
 };
 
@@ -775,7 +781,7 @@ export const listPostCollections = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[posts.listPostCollections] error:', error);
-    return fail(res, 500, 'Failed to load collections', error?.message);
+    return fail(res, 500, 'Failed to load collections');
   }
 };
 
@@ -816,6 +822,6 @@ export const createPostCollection = async (req: Request, res: Response) => {
     });
   } catch (error: any) {
     console.error('[posts.createPostCollection] error:', error);
-    return fail(res, 500, 'Failed to create collection', error?.message);
+    return fail(res, 500, 'Failed to create collection');
   }
 };

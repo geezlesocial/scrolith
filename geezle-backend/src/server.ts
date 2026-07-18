@@ -6,7 +6,7 @@ import cors from 'cors';
 import http from 'http';
 import { Server } from 'socket.io';
 import helmet from 'helmet';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import prisma, { ensurePrismaReady, getPrismaConnectionState } from './utils/prismaClient';
 import fs from 'fs';
 import jwt from 'jsonwebtoken'; // Ensure jwt import exists
@@ -2486,6 +2486,15 @@ app.use(helmet({
   }
 }));
 
+// Request correlation id (additive; accepts client x-request-id or generates one)
+app.use((req, res, next) => {
+  const incoming = String(req.headers['x-request-id'] || req.headers['x-correlation-id'] || '').trim();
+  const requestId = incoming || randomUUID();
+  (req as any).requestId = requestId;
+  res.setHeader('x-request-id', requestId);
+  next();
+});
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -2952,6 +2961,41 @@ const healthHandler = (req: Request, res: Response) => {
 // Health check endpoint
 app.head('/api/health', healthHandler);
 app.get('/api/health', healthHandler);
+
+// Readiness probe (additive; does not change /api/health status codes)
+const readinessHandler = (req: Request, res: Response) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const dbState = getPrismaConnectionState();
+    const ready = dbState !== 'degraded';
+    const payload = {
+      status: ready ? 'READY' : 'NOT_READY',
+      database: { status: dbState },
+      timestamp: new Date().toISOString(),
+      requestId: (req as any).requestId || null
+    };
+    if (req.method === 'HEAD') {
+      res.status(ready ? 200 : 503).end();
+      return;
+    }
+    res.status(ready ? 200 : 503).json(payload);
+  } catch (error) {
+    console.error('Readiness check error:', error);
+    if (req.method === 'HEAD') {
+      res.status(503).end();
+      return;
+    }
+    res.status(503).json({
+      status: 'NOT_READY',
+      error: 'Readiness check failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+app.head('/api/readyz', readinessHandler);
+app.get('/api/readyz', readinessHandler);
+app.head('/api/health/ready', readinessHandler);
+app.get('/api/health/ready', readinessHandler);
 
 // Prometheus metrics endpoint (optional)
 app.get('/metrics', async (req: Request, res: Response) => {
