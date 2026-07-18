@@ -126,27 +126,42 @@ const normalizeMessage = (raw: any): Message => {
   return normalized;
 };
 
-const normalizeParticipant = (participant: any) => ({
-  id: safeString(participant?.id ?? participant?.userId ?? participant?.user_id),
-  name: safeString(participant?.name, 'Unknown'),
-  avatar: safeString(participant?.avatar ?? participant?.avatar_url),
-  username: safeString(participant?.username),
-  gender: safeString(participant?.gender),
-  profile_url: safeString(participant?.profile_url ?? participant?.profileUrl),
-  profileUrl: safeString(participant?.profileUrl ?? participant?.profile_url),
-  role: participant?.role ?? participant?.userRole,
-  label: safeString(participant?.label, 'other'),
-  is_starred: Boolean(participant?.isStarred ?? participant?.is_starred ?? false),
-  isStarred: Boolean(participant?.isStarred ?? participant?.is_starred ?? false),
-  is_muted: Boolean(participant?.isMuted ?? participant?.is_muted ?? false),
-  isMuted: Boolean(participant?.isMuted ?? participant?.is_muted ?? false),
-  is_archived: Boolean(participant?.isArchived ?? participant?.is_archived ?? false),
-  isArchived: Boolean(participant?.isArchived ?? participant?.is_archived ?? false),
-  is_online: Boolean(participant?.isOnline ?? participant?.is_online ?? false),
-  isOnline: Boolean(participant?.isOnline ?? participant?.is_online ?? false),
-  last_seen_at: safeString(participant?.lastSeenAt ?? participant?.last_seen_at ?? ''),
-  lastSeenAt: safeString(participant?.lastSeenAt ?? participant?.last_seen_at ?? '')
-});
+const normalizeParticipant = (participant: any) => {
+  const isScrolitha = Boolean(
+    participant?.isScrolitha ??
+      participant?.is_scrolitha ??
+      String(participant?.username || '').toLowerCase() === 'scrolitha'
+  );
+  return {
+    id: safeString(participant?.id ?? participant?.userId ?? participant?.user_id),
+    name: safeString(participant?.name, 'Unknown'),
+    avatar: safeString(
+      participant?.avatar ?? participant?.avatar_url ?? (isScrolitha ? 'https://scrolith.com/icon-192.png' : '')
+    ),
+    username: safeString(participant?.username),
+    gender: safeString(participant?.gender),
+    profile_url: safeString(participant?.profile_url ?? participant?.profileUrl),
+    profileUrl: safeString(participant?.profileUrl ?? participant?.profile_url),
+    role: participant?.role ?? participant?.userRole,
+    label: safeString(participant?.label, 'other'),
+    is_starred: Boolean(participant?.isStarred ?? participant?.is_starred ?? false),
+    isStarred: Boolean(participant?.isStarred ?? participant?.is_starred ?? false),
+    is_muted: Boolean(participant?.isMuted ?? participant?.is_muted ?? false),
+    isMuted: Boolean(participant?.isMuted ?? participant?.is_muted ?? false),
+    is_archived: Boolean(participant?.isArchived ?? participant?.is_archived ?? false),
+    isArchived: Boolean(participant?.isArchived ?? participant?.is_archived ?? false),
+    is_online: isScrolitha ? true : Boolean(participant?.isOnline ?? participant?.is_online ?? false),
+    isOnline: isScrolitha ? true : Boolean(participant?.isOnline ?? participant?.is_online ?? false),
+    last_seen_at: safeString(participant?.lastSeenAt ?? participant?.last_seen_at ?? ''),
+    lastSeenAt: safeString(participant?.lastSeenAt ?? participant?.last_seen_at ?? ''),
+    is_scrolitha: isScrolitha,
+    isScrolitha,
+    is_verified: Boolean(participant?.isVerified ?? participant?.is_verified ?? isScrolitha),
+    isVerified: Boolean(participant?.isVerified ?? participant?.is_verified ?? isScrolitha),
+    system_label: isScrolitha ? 'AI assistant' : undefined,
+    systemLabel: isScrolitha ? 'AI assistant' : undefined
+  };
+};
 
 const normalizeConversation = (raw: any): Conversation => {
   const participants = safeArray<any>(raw?.participants).map(normalizeParticipant);
@@ -158,18 +173,27 @@ const normalizeConversation = (raw: any): Conversation => {
     raw?.lastMessageAt ?? raw?.last_message_at ?? lastMessageAtFromMessages
   );
   const unreadCount = safeNumber(raw?.unreadCount ?? raw?.unread_count);
+  const isScrolitha = Boolean(
+    raw?.isScrolitha ??
+      raw?.is_scrolitha ??
+      participants.some((p: any) => p?.isScrolitha || p?.is_scrolitha)
+  );
 
   return {
     id: safeString(raw?.id ?? raw?._id),
     type: raw?.type === 'group' ? 'group' : 'direct',
     participants,
     label: safeString(raw?.label, 'other'),
-    is_starred: Boolean(raw?.isStarred ?? raw?.is_starred ?? false),
-    isStarred: Boolean(raw?.isStarred ?? raw?.is_starred ?? false),
+    is_starred: isScrolitha ? true : Boolean(raw?.isStarred ?? raw?.is_starred ?? false),
+    isStarred: isScrolitha ? true : Boolean(raw?.isStarred ?? raw?.is_starred ?? false),
     is_muted: Boolean(raw?.isMuted ?? raw?.is_muted ?? false),
     isMuted: Boolean(raw?.isMuted ?? raw?.is_muted ?? false),
     is_archived: Boolean(raw?.isArchived ?? raw?.is_archived ?? false),
     isArchived: Boolean(raw?.isArchived ?? raw?.is_archived ?? false),
+    is_scrolitha: isScrolitha,
+    isScrolitha,
+    is_pinned: isScrolitha || Boolean(raw?.isPinned ?? raw?.is_pinned ?? false),
+    isPinned: isScrolitha || Boolean(raw?.isPinned ?? raw?.is_pinned ?? false),
     messages,
     last_message: lastMessage,
     last_message_at: lastMessageAt,
@@ -541,6 +565,35 @@ export const MessagingService = {
       const message = error?.response?.data?.error || error?.message || 'Failed to create conversation';
       throw new Error(message);
     }
+  },
+
+  /**
+   * Phase 20.7 — ensure exactly one private conversation with official Scrolitha assistant.
+   */
+  ensureScrolithaConversation: async (): Promise<{
+    conversation: Conversation;
+    conversationId: string;
+    created?: boolean;
+    messagingAssistantEnabled?: boolean;
+    promptChips?: string[];
+    platformUser?: any;
+  }> => {
+    const response = await api.post('/messages/scrolitha/ensure');
+    const data = extractData<any>(response) || {};
+    const conversation = normalizeConversation(data) || data;
+    const conversationId = safeString(
+      conversation?.id || data?.id || data?.conversationId || data?.conversation_id
+    );
+    // Invalidate conversation cache so inbox picks up the pinned assistant.
+    conversationCache.clear();
+    return {
+      conversation,
+      conversationId,
+      created: Boolean(data?.created),
+      messagingAssistantEnabled: data?.messagingAssistantEnabled !== false,
+      promptChips: Array.isArray(data?.promptChips) ? data.promptChips : undefined,
+      platformUser: data?.platformUser || null
+    };
   },
 
   deleteMessage: async (
