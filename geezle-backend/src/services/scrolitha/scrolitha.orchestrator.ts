@@ -1117,6 +1117,22 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
   const config = await ensureScrolithaConfig(actor.scope);
   const allowed = canUseTool(actor, tool, config);
   if (!allowed.allowed) throw new Error(allowed.reason || 'Tool is blocked by policy.');
+
+  // Phase 20.7.1 — independent tool risk rollout gates
+  try {
+    const { isToolActivationAllowed } = await import('./scrolitha.tools');
+    const activation = await isToolActivationAllowed(tool, actor, { surface: 'execute' });
+    if (!activation.allowed) {
+      throw Object.assign(new Error(activation.reason || 'Tool disabled by rollout'), {
+        statusCode: 403,
+        code: 'SCROLITHA_TOOL_DISABLED'
+      });
+    }
+  } catch (activationError: any) {
+    if (activationError?.code === 'SCROLITHA_TOOL_DISABLED') throw activationError;
+    // If gate module fails open only when not a policy denial
+    if (activationError?.statusCode === 403) throw activationError;
+  }
   const agentToolKeys = Array.isArray(agentMeta?.steps)
     ? agentMeta.steps
         .map((step: any) => text(step?.toolKey).toUpperCase())
@@ -1157,11 +1173,64 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
       confirmationStatus: 'pending'
     });
 
+    // Phase 20.7.1: mint scoped confirmation token when capability enabled
+    let confirmationToken: string | null = null;
+    try {
+      const { isCapabilityEnabled } = await import('./scrolitha.rollout');
+      if (await isCapabilityEnabled('confirmationTokens', actor)) {
+        const { mintConfirmationToken } = await import('./scrolitha.confirmationTokens');
+        const minted = mintConfirmationToken({
+          userId: actor.id,
+          toolKey: actionPlan.toolKey,
+          actionId: actionPlan.id,
+          payload: actionPlan.paramsPreview || {}
+        });
+        confirmationToken = minted.token;
+      }
+    } catch {
+      confirmationToken = null;
+    }
+
     return {
       success: false,
       needsConfirmation: true,
-      message: 'Confirmation is required for this action.'
+      message: 'Confirmation is required for this action.',
+      confirmationToken,
+      actionId: actionPlan.id
     };
+  }
+
+  // When confirmationTokens capability is on, require a valid single-use token for confirmed writes.
+  if (requiresConfirmation && confirmed) {
+    try {
+      const { isCapabilityEnabled } = await import('./scrolitha.rollout');
+      if (await isCapabilityEnabled('confirmationTokens', actor)) {
+        const token = String((input as any).confirmationToken || (input.params as any)?.confirmationToken || '').trim();
+        if (!token) {
+          throw Object.assign(new Error('confirmationToken is required for this action.'), {
+            statusCode: 400,
+            code: 'CONFIRMATION_TOKEN_REQUIRED'
+          });
+        }
+        const { consumeConfirmationToken } = await import('./scrolitha.confirmationTokens');
+        const consumed = consumeConfirmationToken({
+          token,
+          userId: actor.id,
+          toolKey: actionPlan.toolKey,
+          actionId: actionPlan.id
+        });
+        if (!consumed.ok) {
+          throw Object.assign(new Error(consumed.message), {
+            statusCode: 403,
+            code: consumed.code
+          });
+        }
+      }
+    } catch (tokenError: any) {
+      if (tokenError?.code) throw tokenError;
+      // If capability module fails closed only when token was expected
+      throw tokenError;
+    }
   }
 
   const mergedParams = {

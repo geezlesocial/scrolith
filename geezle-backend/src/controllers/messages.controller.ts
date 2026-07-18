@@ -812,6 +812,185 @@ export const ensureScrolithaMessagingConversation = async (req: Request, res: Re
   }
 };
 
+/**
+ * Phase 20.7.1 — Unified Scrolitha turn (SupportWidget / Messages / Dock write-through).
+ * Persists user + assistant messages into the canonical DirectMessage conversation.
+ */
+export const postScrolithaUnifiedTurn = async (req: Request, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const text = String(req.body?.message || req.body?.text || '').trim();
+    if (!text) {
+      return res.status(400).json({ success: false, error: 'message is required' });
+    }
+
+    const clientRequestId = String(req.body?.clientRequestId || req.body?.requestId || '').trim() || null;
+    const attachmentFileIds = Array.isArray(req.body?.attachmentFileIds)
+      ? req.body.attachmentFileIds.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 5)
+      : [];
+    const preferStream = Boolean(req.body?.stream);
+    const source = String(req.body?.source || 'unified_api').slice(0, 80);
+
+    const { resolveActorFromRequest } = await import('../services/scrolitha/scrolitha.audit');
+    const actor = resolveActorFromRequest(req);
+    const { processScrolithaUnifiedTurn } = await import('../services/scrolitha/scrolitha.messagingBridge');
+
+    const result = await processScrolithaUnifiedTurn({
+      userId,
+      userText: text,
+      actor,
+      app: req.app,
+      clientRequestId,
+      attachmentFileIds,
+      source,
+      preferStream,
+      emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
+    });
+
+    if (result.skipped && result.reason === 'messaging_assistant_disabled') {
+      return res.status(403).json({
+        success: false,
+        error: 'Scrolitha messaging assistant is currently disabled',
+        code: 'SCROLITHA_MESSAGING_DISABLED'
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        conversationId: result.conversationId,
+        userMessageId: result.userMessageId,
+        assistantMessageId: result.assistantMessageId,
+        reply: result.reply,
+        suggestedActions: result.suggestedActions || [],
+        followUpPrompts: result.followUpPrompts || [],
+        cards: result.cards || [],
+        scrolithaConversationId: result.scrolithaConversationId,
+        clientRequestId: result.clientRequestId || clientRequestId,
+        streamingMode: result.streamingMode || 'none',
+        messagingAssistantEnabled: result.messagingAssistantEnabled !== false
+      }
+    });
+  } catch (error: any) {
+    console.error('Scrolitha unified turn error:', error);
+    const status = Number(error?.statusCode || 500);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Failed to process Scrolitha turn'
+    });
+  }
+};
+
+/**
+ * Phase 20.7.1 — SSE streaming unified turn (provider-independent chunk_fallback).
+ * User message is persisted first; final assistant message is persisted once.
+ */
+export const postScrolithaUnifiedTurnStream = async (req: Request, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const { isCapabilityEnabled } = await import('../services/scrolitha/scrolitha.rollout');
+    const { resolveActorFromRequest } = await import('../services/scrolitha/scrolitha.audit');
+    const actor = resolveActorFromRequest(req);
+    const streamAllowed = await isCapabilityEnabled('messagingStream', actor);
+    if (!streamAllowed) {
+      return res.status(403).json({
+        success: false,
+        error: 'Scrolitha messaging stream is currently disabled',
+        code: 'SCROLITHA_STREAM_DISABLED'
+      });
+    }
+
+    const text = String(req.body?.message || req.body?.text || '').trim();
+    if (!text) {
+      return res.status(400).json({ success: false, error: 'message is required' });
+    }
+
+    const clientRequestId =
+      String(req.body?.clientRequestId || req.body?.requestId || '').trim() ||
+      `sse_${userId}_${Date.now()}`;
+    const attachmentFileIds = Array.isArray(req.body?.attachmentFileIds)
+      ? req.body.attachmentFileIds.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 5)
+      : [];
+    const source = String(req.body?.source || 'unified_stream').slice(0, 80);
+
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const writeEvent = (event: string, data: Record<string, unknown>) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    writeEvent('start', { requestId: clientRequestId, streamingMode: 'chunk_fallback' });
+
+    const { processScrolithaUnifiedTurn } = await import('../services/scrolitha/scrolitha.messagingBridge');
+    const result = await processScrolithaUnifiedTurn({
+      userId,
+      userText: text,
+      actor,
+      app: req.app,
+      clientRequestId,
+      attachmentFileIds,
+      source,
+      preferStream: true,
+      emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body),
+      onStreamEvent: async (evt) => {
+        writeEvent(evt.type, {
+          requestId: evt.requestId,
+          text: evt.text,
+          index: evt.index,
+          messageId: evt.messageId,
+          streamingMode: evt.streamingMode || 'chunk_fallback'
+        });
+      }
+    });
+
+    if (result.skipped && result.reason === 'messaging_assistant_disabled') {
+      writeEvent('error', {
+        requestId: clientRequestId,
+        error: 'messaging_assistant_disabled',
+        code: 'SCROLITHA_MESSAGING_DISABLED'
+      });
+      res.end();
+      return;
+    }
+
+    writeEvent('final', {
+      requestId: clientRequestId,
+      conversationId: result.conversationId,
+      userMessageId: result.userMessageId,
+      assistantMessageId: result.assistantMessageId,
+      reply: result.reply,
+      cards: result.cards || [],
+      suggestedActions: result.suggestedActions || [],
+      followUpPrompts: result.followUpPrompts || [],
+      streamingMode: result.streamingMode || 'chunk_fallback'
+    });
+    writeEvent('done', { requestId: clientRequestId });
+    res.end();
+  } catch (error: any) {
+    console.error('Scrolitha unified stream error:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        success: false,
+        error: error?.message || 'Failed to stream Scrolitha turn'
+      });
+    }
+    try {
+      res.write(`event: error\ndata: ${JSON.stringify({ error: error?.message || 'stream_failed' })}\n\n`);
+      res.end();
+    } catch {
+      // ignore
+    }
+  }
+};
+
 export const listConversations = async (req: Request, res: Response) => {
   try {
     const role = resolveRole(req);

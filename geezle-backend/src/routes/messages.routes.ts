@@ -14,7 +14,9 @@ import {
   deleteMessage,
   editMessage,
   copyMessage,
-  ensureScrolithaMessagingConversation
+  ensureScrolithaMessagingConversation,
+  postScrolithaUnifiedTurn,
+  postScrolithaUnifiedTurnStream
 } from '../controllers/messages.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
@@ -24,6 +26,9 @@ const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 
 router.get('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
 router.post('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
+// Phase 20.7.1 — conversation unification + streaming
+router.post('/scrolitha/turn', authMiddleware, postScrolithaUnifiedTurn);
+router.post('/scrolitha/turn/stream', authMiddleware, postScrolithaUnifiedTurnStream);
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
 router.get('/conversations/:id', authMiddleware, getConversation);

@@ -58,7 +58,8 @@ export const scrolithaExecuteController = async (req: Request, res: Response) =>
       {
         actionId: req.body?.actionId,
         confirmed: req.body?.confirmed,
-        params: req.body?.params
+        params: req.body?.params,
+        confirmationToken: req.body?.confirmationToken
       },
       actor,
       req.app
