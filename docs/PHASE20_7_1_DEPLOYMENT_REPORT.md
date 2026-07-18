@@ -20,7 +20,37 @@
 
 ## Post-deploy revisions
 
-_Filled after deploy commands complete._
+| Service | Revision | Image / tag | Traffic |
+|---|---|---|---|
+| Backend | **scrolith-backend-00122-taj** | `p2071-a7c52a6f` / tags p2071 (+ LATEST) | **100%** |
+| Backend rollback | scrolith-backend-00089-f5h | prior production | 0% |
+| Frontend | **scrolith-frontend-00153-qid** | `p2073-85499340` / tag **p2073** | **100%** |
+| Frontend rollback | scrolith-frontend-00151-fin | p2072 | 0% |
+
+### Builds
+
+| Image | Build ID | Status |
+|---|---|---|
+| scrolith-backend:p2071-a7c52a6f | 9cb58b42-f568-4fc7-a07f-fa39afa2081a | SUCCESS |
+| scrolith-frontend:p2073-85499340 | d70282ef-eb6c-4d9f-911f-7caa182c47be | SUCCESS |
+
+### PRs / commits
+
+| PR | Merge | Branch |
+|---|---|---|
+| #85 BE | a7c52a6f | feat/phase20-7-1-scrolitha-capabilities-be → release/backend-production |
+| #86 FE | 85499340 | feat/phase20-7-1-scrolitha-capabilities-fe → main |
+
+### Smoke (post-traffic)
+
+| Check | Result |
+|---|---|
+| FE tag URL p2073 | 200 |
+| /messages | 200 |
+| POST ensure unauth | 401 No token |
+| Platform identity | 200 scrolitha verified |
+| New capability env flags | **unset** (default false) |
+| MESSAGING_ASSISTANT | true (unchanged) |
 
 ## New env vars (optional)
 
