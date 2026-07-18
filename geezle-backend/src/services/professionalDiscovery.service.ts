@@ -304,11 +304,13 @@ const loadBlogs = async (signals: ViewerSignals, limit: number): Promise<Profess
           reasons.push('Career-relevant content');
         }
         const slug = coerce(post.slug || post.id);
+        const authorName = coerce(post.authorName || post.author || post.author_name || 'Scrolith Author');
+        if (authorName) reasons.push(`By ${authorName}`);
         return {
           id: String(post.id || slug),
           type: 'blog' as const,
           title,
-          subtitle: coerce(post.category) || 'Blog',
+          subtitle: coerce(post.category) || authorName || 'Blog',
           description: coerce(post.excerpt || post.summary || post.content).slice(0, 180),
           imageUrl: post.coverImage || post.featuredImage || post.image || null,
           url: slug ? `/blog/${encodeURIComponent(slug)}` : '/blog',
@@ -317,7 +319,9 @@ const loadBlogs = async (signals: ViewerSignals, limit: number): Promise<Profess
           meta: {
             slug,
             readingTime: post.readingTime || post.readTime,
-            author: post.authorName || post.author
+            author: authorName,
+            authorId: post.authorId || post.author_id || null,
+            authorAvatar: post.authorAvatar || post.author_avatar || null
           }
         };
       })

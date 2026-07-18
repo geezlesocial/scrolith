@@ -17,12 +17,15 @@ freelancerResumeRoutes.use(authMiddleware);
 freelancerResumeRoutes.get('/profile-source', ResumeController.profileSource);
 freelancerResumeRoutes.get('/', ResumeController.listResumes);
 freelancerResumeRoutes.post('/generate', ResumeController.generateResume);
+freelancerResumeRoutes.post('/import-snapshot', ResumeController.importSnapshot);
 freelancerResumeRoutes.get('/:id', ResumeController.getResume);
 freelancerResumeRoutes.patch('/:id', ResumeController.updateResume);
 freelancerResumeRoutes.post('/:id/regenerate', ResumeController.regenerateResume);
 freelancerResumeRoutes.post('/:id/render-pdf', ResumeController.renderPdf);
 freelancerResumeRoutes.get('/:id/download', ResumeController.downloadResume);
 freelancerResumeRoutes.get('/:id/events', ResumeController.resumeEvents);
+freelancerResumeRoutes.get('/:id/versions', ResumeController.listVersions);
+freelancerResumeRoutes.post('/:id/share', ResumeController.setShare);
 freelancerResumeRoutes.delete('/:id', ResumeController.deleteResume);
 
 export const clientResumeReviewRoutes = express.Router();
@@ -36,3 +39,4 @@ clientResumeReviewRoutes.delete('/:id', ResumeController.deleteReview);
 
 export const resumePublicRoutes = express.Router();
 resumePublicRoutes.get('/info', ResumeController.publicInfo);
+resumePublicRoutes.get('/shared/:token', ResumeController.getShared);
