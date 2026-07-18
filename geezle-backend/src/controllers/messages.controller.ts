@@ -1904,85 +1904,186 @@ export const deleteConversationForUser = async (req: Request, res: Response) => 
   }
 };
 
+/**
+ * Phase 20.7.5 — Messages search (people / username / conversation / message text).
+ * Scoped to the authenticated user's conversations only.
+ */
 export const searchMessages = async (req: Request, res: Response) => {
   try {
     const role = resolveRole(req);
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
 
-    if (!admin && !userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    const q = String(req.query?.q || '').trim();
-    if (q.length < 2) return res.status(400).json({ success: false, error: 'Query too short' });
+    const q = String(req.query?.q || '').replace(/\s+/g, ' ').trim();
+    if (q.length < 2) {
+      return res.status(400).json({ success: false, error: 'Query too short' });
+    }
+    if (q.length > 80) {
+      return res.status(400).json({ success: false, error: 'Query too long' });
+    }
 
-    const scope = String(req.query?.scope || '').trim();
-    if (scope === 'admin' && !admin) return res.status(403).json({ success: false, error: 'Forbidden' });
+    const scope = String(req.query?.scope || '').trim().toLowerCase();
+    if (scope === 'admin' && !admin) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
 
-    // Try to find conversation participant username/name matches first
-    const convWhere: any = {
-      AND: [
-        { participants: { some: { userId: userId, deletedAt: null } } },
-        { participants: { some: { userId: { not: userId } } } },
-        {
-          OR: [
-            { participants: { some: { user: { username: { contains: q, mode: 'insensitive' } } } } },
-            { participants: { some: { user: { name: { contains: q, mode: 'insensitive' } } } } }
-          ]
-        }
-      ]
-    };
+    const limit = Math.max(1, Math.min(50, Number(req.query?.limit || 20) || 20));
+    const qLower = q.toLowerCase();
+
+    // Conversations the current user can see (not soft-deleted for them)
+    const membership = await prisma.conversationParticipant.findMany({
+      where: { userId, deletedAt: null, isArchived: false },
+      select: { conversationId: true },
+      take: 500
+    });
+    const allowedIds = membership.map((m) => m.conversationId);
+    if (!allowedIds.length) {
+      return res.json({
+        success: true,
+        data: { results: [], nextCursor: null, hasMore: false },
+        pagination: { hasMore: false }
+      });
+    }
+
+    const scrolithaHit =
+      'scrolitha'.includes(qLower) ||
+      'ai assistant'.includes(qLower) ||
+      qLower.includes('scrolith') ||
+      qLower === 'ai';
 
     const convs = await prisma.conversation.findMany({
-      where: convWhere as any,
+      where: {
+        id: { in: allowedIds },
+        OR: [
+          {
+            participants: {
+              some: {
+                userId: { not: userId },
+                user: {
+                  OR: [
+                    { username: { contains: q, mode: 'insensitive' } },
+                    { name: { contains: q, mode: 'insensitive' } }
+                  ]
+                }
+              }
+            }
+          },
+          ...(scrolithaHit
+            ? [
+                {
+                  participants: {
+                    some: {
+                      OR: [
+                        { label: { in: ['scrolitha', 'system'] } },
+                        { user: { username: { equals: 'scrolitha', mode: 'insensitive' as const } } }
+                      ]
+                    }
+                  }
+                }
+              ]
+            : [])
+        ]
+      },
       include: {
         participants: { select: conversationParticipantSelect },
-        messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, true)
-      }
-    } as any);
+        messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, false)
+      },
+      orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+      take: limit
+    });
 
+    const seen = new Set<string>();
     const results: any[] = [];
-    if (Array.isArray(convs) && convs.length) {
-      convs.forEach((conv: any) => {
-        const other = (conv.participants || []).find((p: any) => String(p.userId) !== String(userId));
-        results.push({
-          conversationId: conv.id,
-          matchType: 'username',
-          participant: other?.user ? { username: other.user.username, id: other.user.id } : { username: other?.username || '' },
-          conversation: buildConversationPayload(conv, userId)
-        });
+
+    for (const conv of convs) {
+      if (seen.has(conv.id)) continue;
+      seen.add(conv.id);
+      const payload = await buildConversationPayloadWithAttachments(conv, userId);
+      const other = (payload.participants || []).find(
+        (p: any) => String(p.id || p.userId) !== String(userId)
+      );
+      const isAi = Boolean(payload.isScrolitha || payload.is_scrolitha || other?.isScrolitha);
+      results.push({
+        conversationId: conv.id,
+        conversation: payload,
+        matchType: isAi ? 'user' : other?.username ? 'username' : 'user',
+        participant: other || null,
+        participants: payload.participants,
+        lastMessage: payload.lastMessage || payload.last_message || '',
+        unreadCount: payload.unreadCount || payload.unread_count || 0,
+        updatedAt: payload.lastMessageAt || payload.last_message_at || null,
+        searchScope: scope === 'admin' && admin ? 'admin' : 'user'
       });
-      return res.json({ success: true, data: results });
     }
 
-    // Fallback: search message text
-    const msgs = await prisma.directMessage.findMany({
-      where: { text: { contains: q } } as any,
-      include: {
-        conversation: {
-          include: {
-            participants: { select: conversationParticipantSelect },
-            messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, true)
-          }
+    // Message-content search (scoped to user's conversations only)
+    if (results.length < limit) {
+      const remaining = limit - results.length;
+      const msgs = await prisma.directMessage.findMany({
+        where: {
+          conversationId: { in: allowedIds },
+          deletedAt: null,
+          text: { contains: q, mode: 'insensitive' }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: Math.min(remaining * 3, 60),
+        select: {
+          id: true,
+          text: true,
+          conversationId: true,
+          createdAt: true
+        }
+      });
+
+      for (const m of msgs) {
+        if (seen.has(m.conversationId)) continue;
+        if (results.length >= limit) break;
+        seen.add(m.conversationId);
+        try {
+          const conv = await prisma.conversation.findUnique({
+            where: { id: m.conversationId },
+            include: {
+              participants: { select: conversationParticipantSelect },
+              messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, false)
+            }
+          });
+          if (!conv) continue;
+          const payload = await buildConversationPayloadWithAttachments(conv, userId);
+          results.push({
+            conversationId: conv.id,
+            conversation: payload,
+            matchType: 'message',
+            matchedMessageId: m.id,
+            matchedMessageSnippet: String(m.text || '').slice(0, 160),
+            participants: payload.participants,
+            lastMessage: payload.lastMessage || payload.last_message || '',
+            unreadCount: payload.unreadCount || 0,
+            updatedAt: payload.lastMessageAt || null,
+            searchScope: scope === 'admin' && admin ? 'admin' : 'user'
+          });
+        } catch {
+          // skip broken conversation
         }
       }
-    } as any);
-
-    if (Array.isArray(msgs) && msgs.length) {
-      msgs.forEach((m: any) => {
-        results.push({
-          conversationId: m.conversation?.id,
-          matchType: 'message',
-          matchedMessageId: m.id,
-          matchedMessageSnippet: String(m.text || '').slice(0, 160),
-          conversation: buildConversationPayload(m.conversation, userId)
-        });
-      });
     }
 
-    return res.json({ success: true, data: results });
+    return res.json({
+      success: true,
+      data: {
+        results,
+        nextCursor: null,
+        hasMore: false
+      },
+      pagination: { hasMore: false, count: results.length }
+    });
   } catch (error: any) {
     console.error('Search messages error:', error);
-    return res.status(500).json({ success: false, error: error?.message || 'Failed to search messages' });
+    return res.status(500).json({
+      success: false,
+      error: 'Search is temporarily unavailable. Please try again.'
+    });
   }
 };
 
