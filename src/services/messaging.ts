@@ -596,6 +596,52 @@ export const MessagingService = {
     };
   },
 
+  /**
+   * Phase 20.7.1 — unified Scrolitha turn: persists user + assistant into canonical DM.
+   */
+  scrolithaUnifiedTurn: async (payload: {
+    message: string;
+    clientRequestId?: string;
+    attachmentFileIds?: string[];
+    source?: string;
+    stream?: boolean;
+  }): Promise<{
+    conversationId: string;
+    userMessageId?: string;
+    assistantMessageId?: string;
+    reply: string;
+    suggestedActions?: any[];
+    followUpPrompts?: string[];
+    cards?: any[];
+    scrolithaConversationId?: string | null;
+    clientRequestId?: string | null;
+    streamingMode?: string;
+    messagingAssistantEnabled?: boolean;
+  }> => {
+    const response = await api.post('/messages/scrolitha/turn', {
+      message: payload.message,
+      clientRequestId: payload.clientRequestId,
+      attachmentFileIds: payload.attachmentFileIds || [],
+      source: payload.source || 'support_widget',
+      stream: Boolean(payload.stream)
+    });
+    const data = extractData<any>(response) || {};
+    conversationCache.clear();
+    return {
+      conversationId: safeString(data?.conversationId || data?.conversation_id),
+      userMessageId: data?.userMessageId ? safeString(data.userMessageId) : undefined,
+      assistantMessageId: data?.assistantMessageId ? safeString(data.assistantMessageId) : undefined,
+      reply: safeString(data?.reply || ''),
+      suggestedActions: Array.isArray(data?.suggestedActions) ? data.suggestedActions : [],
+      followUpPrompts: Array.isArray(data?.followUpPrompts) ? data.followUpPrompts : [],
+      cards: Array.isArray(data?.cards) ? data.cards : [],
+      scrolithaConversationId: data?.scrolithaConversationId || null,
+      clientRequestId: data?.clientRequestId || payload.clientRequestId || null,
+      streamingMode: data?.streamingMode || 'none',
+      messagingAssistantEnabled: data?.messagingAssistantEnabled !== false
+    };
+  },
+
   deleteMessage: async (
     conversationId: string,
     messageId: string,

@@ -3,6 +3,7 @@
  * Prefer importing from this barrel for new call sites.
  */
 export { default as ScrolithaResponseCard } from './ScrolithaResponseCard';
+export { default as ScrolithaEntityCards } from './ScrolithaEntityCards';
 export { normalizeScrolithaResponseText } from './scrolithaResponseFormat';
 /** @deprecated Compatibility alias — use SupportWidget from App mount. */
 export { default as ScrolithaWidget } from './ScrolithaWidget';

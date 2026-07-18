@@ -31,6 +31,8 @@ import AcceptProposalContractModal from '../components/contracts/AcceptProposalC
 import { getRecoverableActionMessage } from '../mobile/runtime/requestRecovery';
 import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDialog';
 import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
+import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
+import ScrolithaService from '../services/scrolitha';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
 import {
   buildThreadTimeline,
@@ -3657,6 +3659,30 @@ const Messages = () => {
                                                 {msg.text || ''}
                                             </p>
                                         )}
+                                        {!isDeleted && msg.senderId !== user?.id && Array.isArray((msg as any)?.metadata?.cards) && (msg as any).metadata.cards.length > 0 ? (
+                                            <div className="mt-1" onClick={(e) => e.stopPropagation()}>
+                                                <ScrolithaEntityCards
+                                                    cards={(msg as any).metadata.cards}
+                                                    onConfirm={async (action) => {
+                                                        if (!action.actionId) return;
+                                                        try {
+                                                            await ScrolithaService.execute({
+                                                                actionId: String(action.actionId),
+                                                                confirmed: true,
+                                                                confirmationToken: action.confirmationToken || undefined
+                                                            });
+                                                            showNotification('success', 'Scrolitha', 'Action confirmed.');
+                                                        } catch (err: any) {
+                                                            showNotification(
+                                                                'warning',
+                                                                'Scrolitha',
+                                                                err?.response?.data?.error || err?.message || 'Could not confirm action.'
+                                                            );
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        ) : null}
                                         {attachmentList.length > 0 && !isDeleted ? (
                                             <MessageAttachmentsList
                                                 attachments={attachmentList}
