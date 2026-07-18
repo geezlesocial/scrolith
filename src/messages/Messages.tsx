@@ -44,6 +44,7 @@ import {
   subscribeMessagingEvent,
   trackOutgoingMessage
 } from '../services/messagingEngine';
+import { computeComposerTextareaHeight } from './messagesWorkspaceLayout';
 import {
   buildClientSendId,
   createLocalPendingAttachment,
@@ -403,12 +404,14 @@ const Messages = () => {
       const textarea = composerTextareaRef.current;
       if (!textarea) return;
       const keyboardOpen = isMobileViewport && mobileKeyboardInset > 96;
-      const minHeight = isMobileViewport ? (keyboardOpen ? 56 : 68) : 108;
-      const maxHeight = isMobileViewport ? (keyboardOpen ? 112 : 136) : 220;
       textarea.style.height = '0px';
-      const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
-      textarea.style.height = `${nextHeight}px`;
-      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+      const { height, overflowY } = computeComposerTextareaHeight({
+          scrollHeight: textarea.scrollHeight,
+          isMobile: isMobileViewport,
+          keyboardOpen
+      });
+      textarea.style.height = `${height}px`;
+      textarea.style.overflowY = overflowY;
   }, [isMobileViewport, mobileKeyboardInset]);
 
   const syncMobileComposerHostHeight = useCallback(() => {
@@ -2973,11 +2976,12 @@ const Messages = () => {
     >
     <div
         ref={layoutShellRef}
-        className="mx-auto max-w-6xl px-2 py-3 sm:px-4 sm:py-6 md:h-[calc(100vh-64px)]"
+        className="mx-auto flex max-w-6xl min-h-0 flex-col px-2 py-3 sm:px-4 sm:py-4 md:h-[calc(100dvh-4rem)] md:max-h-[calc(100dvh-4rem)] md:py-4"
         style={isMobileViewport && mobileComposerHostHeight ? { height: `${mobileComposerHostHeight}px` } : undefined}
+        data-testid="messages-workspace-shell"
     >
-        <div className="h-full overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
-        <div className="flex h-full min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-lg">
+        <div className="flex min-h-0 flex-1">
             {/* Sidebar */}
             <div className={`w-full md:w-1/3 min-w-0 border-r border-gray-200 flex min-h-0 flex-col ${activeConvo ? 'hidden md:flex' : 'flex'}`}>
                 <div className="p-4 border-b border-gray-200 bg-gray-50 space-y-3">
@@ -3218,9 +3222,9 @@ const Messages = () => {
                 </ul>
             </div>
             
-            {/* Chat Area */}
+            {/* Chat Area — flex column: header | history (flex-1 scroll) | composer (content-sized) */}
             <div
-                className={`flex-1 min-w-0 min-h-0 flex flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${
+                className={`flex min-h-0 min-w-0 flex-1 flex-col bg-gradient-to-b from-gray-50 to-gray-100 ${
                     !activeConvo ? 'hidden md:flex' : 'flex'
                 } ${
                     isMobileConversationMode
@@ -3228,16 +3232,18 @@ const Messages = () => {
                         : ''
                 }`}
                 style={mobileConversationViewportStyle}
+                data-testid="messages-conversation-panel"
             >
                 {activeConvo ? (
                     <>
-                        {/* Chat Header */}
+                        {/* Chat Header — fixed row, not sticky overlay */}
                         <div
-                            className={`z-10 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur md:px-4 ${
+                            className={`z-10 shrink-0 border-b border-gray-200 bg-white/95 shadow-sm backdrop-blur md:px-4 ${
                                 isMobileConversationMode
-                                    ? 'shrink-0 px-3 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]'
-                                    : 'sticky top-0 px-3 py-3'
+                                    ? 'px-3 pb-3 pt-[max(0.875rem,env(safe-area-inset-top))]'
+                                    : 'px-3 py-3'
                             }`}
+                            data-testid="messages-conversation-header"
                         >
                             <div className="flex items-center justify-between gap-2">
                             <div className="flex min-w-0 items-center">
@@ -3443,13 +3449,14 @@ const Messages = () => {
                             </div>
                         </div>
 
-                        {/* Messages List */}
+                        {/* Messages List — owns remaining height; independent scroll */}
                         <div
-                            className={`flex-1 min-w-0 space-y-3 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3 pb-5 md:space-y-4 md:p-6 ${
+                            className={`min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3 pb-4 md:space-y-4 md:p-6 ${
                                 isMobileConversationMode ? 'bg-gradient-to-b from-gray-50 to-gray-100' : ''
                             }`}
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
+                            data-testid="messages-history-viewport"
                         >
                             {showJumpToUnread ? (
                                 <div className="sticky top-2 z-10 flex justify-center">
@@ -3787,12 +3794,10 @@ const Messages = () => {
                             <div ref={messagesEndRef} />
                         </div>
 
-                        {/* Input Area */}
+                        {/* Composer — content-sized flex row (never sticky/fixed overlay) */}
                         <div
                             ref={composerDockRef}
-                            className={`border-t border-gray-200 bg-white/95 p-2.5 backdrop-blur md:p-4 ${
-                                isMobileConversationMode ? 'shrink-0' : 'sticky bottom-0'
-                            }`}
+                            className="shrink-0 border-t border-gray-200 bg-white/95 p-2 backdrop-blur md:p-3"
                             style={
                                 isMobileViewport
                                     ? {
@@ -3802,13 +3807,21 @@ const Messages = () => {
                                       }
                                     : undefined
                             }
+                            data-testid="messages-composer-region"
+                            data-scrolitha-composer={isActiveScrolithaConversation ? 'true' : 'false'}
                         >
                             {isActiveScrolithaConversation ? (
-                                <div className="mb-3 space-y-2" role="region" aria-label="Scrolitha suggested prompts">
+                                <div
+                                    className="mb-2 space-y-1.5"
+                                    role="region"
+                                    aria-label="Scrolitha suggested prompts"
+                                    data-testid="scrolitha-prompt-chips"
+                                >
                                     <p className="text-[11px] font-medium text-indigo-700">
                                         Scrolitha · official AI assistant · responses are AI-generated
                                     </p>
-                                    <div className="flex flex-wrap gap-1.5">
+                                    {/* Single-row horizontal scroll keeps vertical height compact */}
+                                    <div className="flex max-w-full flex-nowrap gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         {scrolithaPromptChips.map((chip) => (
                                             <button
                                                 key={chip}
@@ -3819,7 +3832,7 @@ const Messages = () => {
                                                         composerTextareaRef.current?.focus();
                                                     });
                                                 }}
-                                                className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500"
+                                                className="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500"
                                             >
                                                 {chip}
                                             </button>
@@ -3928,15 +3941,15 @@ const Messages = () => {
 
                             <form
                                 onSubmit={handleSendMessage}
-                                className={`rounded-[26px] border border-gray-200 bg-white/95 p-2.5 shadow-[0_18px_48px_-28px_rgba(15,23,42,0.45)] md:rounded-[28px] md:p-3 ${
-                                    isMobileKeyboardOpen ? 'space-y-2.5' : ''
+                                className={`rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-sm md:rounded-[22px] md:p-2.5 ${
+                                    isMobileKeyboardOpen ? 'space-y-2' : ''
                                 }`}
                             >
-                                <div className="rounded-[22px] border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1.5 transition focus-within:border-blue-300 focus-within:ring-4 focus-within:ring-blue-100/70 md:rounded-[24px]">
+                                <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1 transition focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100/70 md:rounded-2xl">
                                     <textarea
                                         ref={composerTextareaRef}
                                         className={`w-full resize-none border-0 bg-transparent px-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 ${
-                                            isMobileKeyboardOpen ? 'py-2' : 'py-2.5 md:py-3'
+                                            isMobileKeyboardOpen ? 'py-1.5' : 'py-2'
                                         }`}
                                         placeholder={
                                             isActiveScrolithaConversation
@@ -3949,10 +3962,11 @@ const Messages = () => {
                                         onFocus={() => scrollComposerIntoView('auto')}
                                         onClick={() => scrollComposerIntoView('auto')}
                                         rows={1}
+                                        data-testid="messages-composer-textarea"
                                     />
                                 </div>
 
-                                <div className={`mt-3 ${isMobileKeyboardOpen ? 'space-y-2' : 'space-y-2.5'}`}>
+                                <div className={`mt-2 ${isMobileKeyboardOpen ? 'space-y-1.5' : 'space-y-2'}`}>
                                     <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         <input
                                             ref={uploadInputRef}
