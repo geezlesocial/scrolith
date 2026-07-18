@@ -1570,7 +1570,7 @@ export const postMessage = async (req: Request, res: Response) => {
                 abortController.signal.aborted
               ) {
                 const fallbackText =
-                  'Scrolitha is temporarily unable to respond. Please try again.';
+                  "Scrolitha couldn't finish that reply just now. Please try again.";
                 const platformUser = await ensureScrolithaPlatformUser();
                 // Prefer existing assistant for this clientRequestId if turn partially finished.
                 let assistantId = turnResult.assistantMessageId as string | undefined;

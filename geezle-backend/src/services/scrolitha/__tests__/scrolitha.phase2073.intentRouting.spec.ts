@@ -40,10 +40,10 @@ test('Find jobs for me is JOB_SEARCH even for admin — not employer growth', ()
     const r = routeScrolithaIntent({ message: 'Find jobs for me', actor });
     assert.equal(r.intent, 'JOB_SEARCH', actor.role);
     assert.equal(r.suggestions.length, 0);
-    assert.match(r.userFacingReply, /job/i);
+    assert.match(r.userFacingReply, /role|remote|hybrid|onsite/i);
     assert.doesNotMatch(
       r.userFacingReply,
-      /membership|wallet funding|ad performance|referrals|retention|prepared one action/i
+      /membership|wallet funding|ad performance|referrals|retention|prepared one action|\*\*/i
     );
   }
 });
