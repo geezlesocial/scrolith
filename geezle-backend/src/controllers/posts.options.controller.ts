@@ -404,7 +404,11 @@ export const reportPost = async (req: Request, res: Response) => {
     try { realtime.emitToRoom('community:admin', 'community:post_report_submitted', payload); } catch {}
     try { realtime.emitToRoom('community:global', 'community:post_report_submitted', payload); } catch {}
 
-    return ok(res, 'Report submitted', { reportId: report.id, status: report.status });
+    return ok(
+      res,
+      'Report submitted. Our moderation team will review it while you continue using Scrolith.',
+      { reportId: report.id, status: report.status || 'pending', reviewState: 'queued' }
+    );
   } catch (error: any) {
     console.error('[posts.reportPost] error:', error);
     return fail(res, 500, 'Failed to submit report', error?.message);
