@@ -182,6 +182,7 @@ const participantUserSelect: any = {
   isOnline: true,
   lastSeenAt: true,
   username: true,
+  isVerified: true,
   profile: {
     select: {
       gender: true
@@ -245,20 +246,27 @@ const mapAttachments = (fileIds: string[], fileMap: Map<string, any>) => {
 const formatParticipant = (participant: any) => {
   const pro = resolveUserProStatus(participant.user);
   const isPro = Boolean(pro.freelancerIsPro || pro.employerIsPro);
+  const username = String(participant.user?.username || '').trim();
+  const email = String(participant.user?.email || '').trim().toLowerCase();
+  // Identity is based on the platform user account — not the human participant label.
+  const isScrolitha =
+    username.toLowerCase() === 'scrolitha' ||
+    email === 'scrolitha@system.scrolith.internal' ||
+    String(participant.label || '').toLowerCase() === 'system';
   const profileUrl = participant.user?.username
     ? `/u/${participant.user.username}`
     : `/profile/${participant.user.id}`;
   return {
     id: participant.user.id,
     name: participant.user.name || participant.user.email || 'User',
-    avatar: participant.user.avatar || '',
+    avatar: participant.user.avatar || (isScrolitha ? 'https://scrolith.com/icon-192.png' : ''),
     username: participant.user.username || '',
     gender: normalizeGender(participant.user?.profile?.gender),
     profile_url: profileUrl,
     profileUrl,
     role: participant.user.role,
-    is_online: Boolean(participant.user.isOnline),
-    isOnline: Boolean(participant.user.isOnline),
+    is_online: isScrolitha ? true : Boolean(participant.user.isOnline),
+    isOnline: isScrolitha ? true : Boolean(participant.user.isOnline),
     last_seen_at: participant.user.lastSeenAt ? participant.user.lastSeenAt.toISOString() : undefined,
     lastSeenAt: participant.user.lastSeenAt ? participant.user.lastSeenAt.toISOString() : undefined,
     is_pro: isPro,
@@ -273,7 +281,13 @@ const formatParticipant = (participant: any) => {
     is_muted: Boolean(participant.isMuted),
     isMuted: Boolean(participant.isMuted),
     is_archived: Boolean(participant.isArchived),
-    isArchived: Boolean(participant.isArchived)
+    isArchived: Boolean(participant.isArchived),
+    is_scrolitha: isScrolitha,
+    isScrolitha,
+    is_verified: Boolean(participant.user?.isVerified) || isScrolitha,
+    isVerified: Boolean(participant.user?.isVerified) || isScrolitha,
+    system_label: isScrolitha ? 'AI assistant' : undefined,
+    systemLabel: isScrolitha ? 'AI assistant' : undefined
   };
 };
 
@@ -349,6 +363,12 @@ const formatConversationMessage = (
   const messageType = normalizedMessageType || 'text';
   const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
   const voiceNoteMetadata = metadata?.voiceNote && typeof metadata.voiceNote === 'object' ? metadata.voiceNote : null;
+  const isScrolithaMessage = Boolean(
+    message?.isSystem ||
+      (metadata as any)?.scrolitha ||
+      (metadata as any)?.kind === 'assistant_reply' ||
+      (metadata as any)?.kind === 'welcome'
+  );
 
   return {
     id: message.id,
@@ -356,6 +376,8 @@ const formatConversationMessage = (
     sender_id: message.senderId,
     receiver_id: receiverId,
     text: message.text,
+    is_scrolitha: isScrolithaMessage,
+    isScrolitha: isScrolithaMessage,
     timestamp: message.createdAt ? message.createdAt.toISOString() : nowIso(),
     is_read: Boolean(isRead),
     is_deleted: Boolean(message.deletedAt),
@@ -454,6 +476,10 @@ const buildConversationPayload = (
       }
     : undefined;
 
+  const isScrolithaConversation = participants.some(
+    (p: any) => Boolean(p?.isScrolitha || p?.is_scrolitha)
+  );
+
   return {
     id: conversation.id,
     type: conversation.type === 'GROUP' ? 'group' : 'direct',
@@ -462,6 +488,14 @@ const buildConversationPayload = (
     last_message_at: lastMessageAt,
     unread_count: unreadCount,
     ...(participantState ? participantState : {}),
+    // Official AI assistant threads stay pinned / starred in the inbox.
+    is_starred: isScrolithaConversation ? true : Boolean(participantState?.is_starred),
+    isStarred: isScrolithaConversation ? true : Boolean(participantState?.isStarred),
+    is_scrolitha: isScrolithaConversation,
+    isScrolitha: isScrolithaConversation,
+    is_pinned: isScrolithaConversation,
+    isPinned: isScrolithaConversation,
+    assistant_kind: isScrolithaConversation ? 'scrolitha' : undefined,
     messages
   };
 };
@@ -732,6 +766,52 @@ const getDeletedForMeMessageMap = async (userId: string, conversationIds: string
   return map;
 };
 
+/**
+ * Phase 20.7 — Ensure exactly one private conversation with Scrolitha and return it.
+ */
+export const ensureScrolithaMessagingConversation = async (req: Request, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const {
+      ensureScrolithaDirectConversation,
+      getDefaultScrolithaPromptChips
+    } = await import('../services/scrolitha/scrolitha.messagingBridge');
+
+    const ensured = await ensureScrolithaDirectConversation(userId, { seedWelcome: true });
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: ensured.conversationId },
+      include: {
+        participants: { select: conversationParticipantSelect },
+        messages: buildMessagesRelationSelect(DEFAULT_CONVERSATION_PREVIEW_LIMIT, false)
+      }
+    });
+    if (!conversation) {
+      return res.status(500).json({ success: false, error: 'Failed to load Scrolitha conversation' });
+    }
+    const payload = await buildConversationPayloadWithAttachments(conversation, userId);
+    return res.json({
+      success: true,
+      data: {
+        ...payload,
+        created: ensured.created,
+        welcomeSeeded: ensured.welcomeSeeded,
+        messagingAssistantEnabled: ensured.messagingAssistantEnabled,
+        platformUser: ensured.platformUser,
+        promptChips: getDefaultScrolithaPromptChips()
+      }
+    });
+  } catch (error: any) {
+    console.error('Ensure Scrolitha messaging conversation error:', error);
+    const status = Number(error?.statusCode || 500);
+    return res.status(status).json({
+      success: false,
+      error: error?.message || 'Failed to ensure Scrolitha conversation'
+    });
+  }
+};
+
 export const listConversations = async (req: Request, res: Response) => {
   try {
     const role = resolveRole(req);
@@ -740,6 +820,18 @@ export const listConversations = async (req: Request, res: Response) => {
 
     if (!admin && !userId) {
       return res.json({ success: true, data: [] });
+    }
+
+    // Best-effort: ensure official assistant DM exists before listing (non-blocking on failure).
+    if (!admin && userId) {
+      try {
+        const { ensureScrolithaDirectConversation } = await import(
+          '../services/scrolitha/scrolitha.messagingBridge'
+        );
+        await ensureScrolithaDirectConversation(userId, { seedWelcome: true });
+      } catch (ensureError) {
+        console.warn('[messages] ensure Scrolitha conversation skipped', ensureError);
+      }
     }
 
     const where = admin
@@ -1228,6 +1320,39 @@ export const postMessage = async (req: Request, res: Response) => {
       console.warn('Failed to send message notifications', notifyError);
     });
 
+    // Phase 20.7: if this is the official Scrolitha DM and the human sent text, run orchestration.
+    if (text && senderId === userId && !admin) {
+      void (async () => {
+        try {
+          const {
+            conversationIncludesScrolitha,
+            processScrolithaMessagingTurn
+          } = await import('../services/scrolitha/scrolitha.messagingBridge');
+          const isScrolithaDm = await conversationIncludesScrolitha(conversation.id);
+          if (!isScrolithaDm) return;
+          // Never generate AI replies to Scrolitha's own messages.
+          const { getScrolithaPlatformUserId } = await import(
+            '../services/scrolitha/scrolitha.platformIdentity'
+          );
+          const platformId = await getScrolithaPlatformUserId();
+          if (senderId === platformId) return;
+
+          const { resolveActorFromRequest } = await import('../services/scrolitha/scrolitha.audit');
+          const actor = resolveActorFromRequest(req);
+          await processScrolithaMessagingTurn({
+            userId: senderId,
+            conversationId: conversation.id,
+            userText: text,
+            actor,
+            app: req.app,
+            emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
+          });
+        } catch (bridgeError) {
+          console.warn('[messages] scrolitha messaging bridge failed', bridgeError);
+        }
+      })();
+    }
+
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     console.error('Post message error:', error);
@@ -1535,7 +1660,18 @@ export const reportBlockConversation = async (req: Request, res: Response) => {
       .filter((id) => id !== userId);
 
     if (shouldBlock && targetUserIds.length) {
+      const { getScrolithaPlatformUserId } = await import(
+        '../services/scrolitha/scrolitha.platformIdentity'
+      );
+      const platformId = await getScrolithaPlatformUserId();
       for (const blockedId of targetUserIds) {
+        // Official Scrolitha system identity cannot be blocked by normal users.
+        if (blockedId === platformId) {
+          return res.status(403).json({
+            success: false,
+            error: 'Scrolitha is a protected system assistant and cannot be blocked.'
+          });
+        }
         await prisma.userBlock.upsert({
           where: {
             blockerId_blockedId: {

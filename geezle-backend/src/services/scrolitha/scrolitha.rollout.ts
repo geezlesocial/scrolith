@@ -23,7 +23,9 @@ export type ScrolithaCapability =
   | 'persistentMemory'
   | 'personalization'
   | 'trustVerification'
-  | 'learningLoop';
+  | 'learningLoop'
+  /** Phase 20.7: official messaging assistant DM surface */
+  | 'messagingAssistant';
 
 export type ScrolithaRolloutFlags = Record<ScrolithaCapability, boolean>;
 
@@ -59,7 +61,8 @@ const DEFAULT_FLAGS: ScrolithaRolloutFlags = {
   persistentMemory: false,
   personalization: false,
   trustVerification: false,
-  learningLoop: false
+  learningLoop: false,
+  messagingAssistant: false
 };
 
 /**
@@ -84,7 +87,8 @@ const INTERNAL_CAPABILITY_DEFAULTS: ScrolithaRolloutFlags = {
   persistentMemory: true,
   personalization: true,
   trustVerification: true,
-  learningLoop: true
+  learningLoop: true,
+  messagingAssistant: true
 };
 
 const ENV_MAP: Partial<Record<ScrolithaCapability, string>> = {
@@ -105,7 +109,8 @@ const ENV_MAP: Partial<Record<ScrolithaCapability, string>> = {
   persistentMemory: 'SCROLITHA_ROLLOUT_MEMORY',
   personalization: 'SCROLITHA_ROLLOUT_PERSONALIZATION',
   trustVerification: 'SCROLITHA_ROLLOUT_TRUST',
-  learningLoop: 'SCROLITHA_ROLLOUT_LEARNING'
+  learningLoop: 'SCROLITHA_ROLLOUT_LEARNING',
+  messagingAssistant: 'SCROLITHA_ROLLOUT_MESSAGING_ASSISTANT'
 };
 
 const asBool = (value: unknown, fallback: boolean) => {

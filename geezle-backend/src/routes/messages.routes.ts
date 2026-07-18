@@ -13,7 +13,8 @@ import {
   toggleReaction,
   deleteMessage,
   editMessage,
-  copyMessage
+  copyMessage,
+  ensureScrolithaMessagingConversation
 } from '../controllers/messages.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
@@ -21,6 +22,8 @@ import { authMiddleware } from '../middleware/auth.middleware';
 const router = express.Router();
 const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 
+router.get('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
+router.post('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
 router.get('/conversations/:id', authMiddleware, getConversation);
