@@ -389,47 +389,47 @@ const buildFollowUpPrompts = (input: {
   return uniqueStrings(prompts, 5);
 };
 
+/**
+ * Phase 20.7.3 — User-facing fallback only.
+ * Never inject role/scope/route/account context or platform-policy boilerplate.
+ * Internal context stays in audit logs and system prompts (LLM only).
+ */
 const buildFallbackReply = (input: {
   page?: string | null;
   accountContext?: string | null;
   safeMode: boolean;
-  actionPlans: Array<{ summary?: string; requiresConfirmation?: boolean }>;
+  actionPlans: Array<{ summary?: string; requiresConfirmation?: boolean; toolKey?: string }>;
   knowledgeHighlights: string[];
   classifiedReply: string;
+  intent?: string;
+  allowPreparedActionPhrase?: boolean;
 }) => {
-  const sections: string[] = [];
-  const pageContext = formatPageContext(input.page);
+  const { sanitizeUserFacingReply } = require('./scrolitha.intentRouter') as typeof import('./scrolitha.intentRouter');
+  const classified = sanitizeUserFacingReply(input.classifiedReply);
 
+  // Prefer deterministic intent reply over "I prepared one action" boilerplate.
+  if (!input.allowPreparedActionPhrase || !input.actionPlans.length) {
+    return classified;
+  }
+
+  // Only mention a prepared action when it is high-confidence and matches intent routing.
   if (input.actionPlans.length === 1) {
     const action = input.actionPlans[0];
-    sections.push(
-      `I prepared one secure next step: ${String(action.summary || 'action ready')}${action.requiresConfirmation ? ' It will wait for confirmation before any change is made.' : '.'}`
+    const summary = String(action.summary || '').trim();
+    if (!summary) return classified;
+    const confirmNote = action.requiresConfirmation
+      ? ' Confirm before any change is applied.'
+      : '';
+    return sanitizeUserFacingReply(`${classified}\n\nSuggested next step: ${summary}.${confirmNote}`);
+  }
+
+  if (input.actionPlans.length > 1) {
+    return sanitizeUserFacingReply(
+      `${classified}\n\nI have ${input.actionPlans.length} optional next steps ready — tell me which to use.`
     );
-  } else if (input.actionPlans.length > 1) {
-    sections.push(`I prepared ${input.actionPlans.length} secure next steps. Review the prepared actions and run the one that matches your goal.`);
-  } else {
-    sections.push(input.classifiedReply);
   }
 
-  if (pageContext) {
-    sections.push(`Current context: ${pageContext}. I can tailor guidance and safe actions for this surface.`);
-  }
-
-  if (input.accountContext) {
-    sections.push(`Account context:\n${input.accountContext}`);
-  }
-
-  if (input.knowledgeHighlights.length) {
-    sections.push(`Relevant help:\n- ${input.knowledgeHighlights.join('\n- ')}`);
-  }
-
-  sections.push(
-    input.safeMode
-      ? 'Safe mode is active, so I will avoid risky actions and keep changes confirmation-based.'
-      : 'I will keep actions inside approved platform tools and only execute confirmed changes.'
-  );
-
-  return sections.join('\n\n');
+  return classified;
 };
 
 const buildScrolithaSystemPrompt = (params: {
@@ -449,24 +449,30 @@ const buildScrolithaSystemPrompt = (params: {
     .join('\n');
 
   return [
-    `You are Scrolitha, the embedded assistant for the Scrolith platform.`,
-    `Rules:`,
+    `You are Scrolitha, Scrolith's helpful AI platform assistant.`,
+    `User-facing reply rules:`,
+    `- Answer naturally and concisely. Prefer a direct answer, one helpful next step, then optional clarification.`,
+    `- Do NOT reveal internal fields: role, scope, surface, route, rollout flags, tool traces, or policy boilerplate.`,
+    `- Do NOT start with "I prepared one action" or "Current context" or "Account context".`,
+    `- Do NOT claim an action was prepared unless planned actions below are non-empty and clearly match the user request.`,
     `- Do NOT ask for secrets, API keys, passwords, or private tokens.`,
-    `- Do NOT claim to have executed an action unless a tool result explicitly confirms it.`,
-    `- Keep replies concise, professional, and actionable.`,
-    `- If user intent is unclear, ask a single clarifying question.`,
-    `- If there are planned actions, summarize them and ask the user which one to execute (or confirm).`,
-    `- Safety mode: ${params.safeMode ? 'ON (avoid risky guidance and do not suggest destructive actions).' : 'OFF'}`,
+    `- Do NOT claim you executed a change unless a tool result confirms it.`,
+    `- If the user greets you, greet back and offer help — never invent a file or admin workflow.`,
+    `- If the user asks for jobs, stay on job discovery guidance — never switch to employer retention, ads, or wallet.`,
+    `- Safety mode: ${params.safeMode ? 'ON (avoid risky/destructive guidance).' : 'OFF'}`,
     ``,
-    `Actor scope: ${scope}`,
-    `Actor role: ${role}`,
-    params.pageContext ? `Current page: ${params.pageContext}` : '',
-    params.accountContext ? `Account context:\n${params.accountContext}` : '',
-    actions ? `Planned actions:\n${actions}` : `Planned actions: (none)`,
-    ``,
-    params.knowledgeContext ? `Scrolith platform knowledge:\n${params.knowledgeContext}` : '',
-    params.learningContext ? `Adaptive user learning context:\n${params.learningContext}` : ''
-  ].join('\n');
+    // Internal-only context for the model — sanitizeUserFacingReply strips echoes
+    `[INTERNAL_CONTEXT_DO_NOT_ECHO]`,
+    `actor_scope=${scope}; actor_role=${role}`,
+    params.pageContext ? `page=${params.pageContext}` : '',
+    params.accountContext ? params.accountContext : '',
+    actions ? `planned_actions:\n${actions}` : 'planned_actions: none',
+    params.knowledgeContext ? `knowledge:\n${params.knowledgeContext}` : '',
+    params.learningContext ? `learning:\n${params.learningContext}` : '',
+    `[/INTERNAL_CONTEXT_DO_NOT_ECHO]`
+  ]
+    .filter(Boolean)
+    .join('\n');
 };
 
 const loadRecentConversationMessages = async (conversationId: string, take = 12) => {
@@ -538,142 +544,70 @@ const buildLlmReply = async (input: {
   }
 };
 
-const classifyMessage = (message: string, actor: ScrolithaActor, skills: any[], page?: string | null) => {
-  const m = message.toLowerCase();
-  const currentPage = String(page || '').toLowerCase();
-  const has = (...terms: string[]) => terms.some((term) => m.includes(term));
-  const actorRole = String(actor.role || '').toLowerCase();
-  const isEmployer = actorRole.includes('client') || actorRole.includes('employer');
-  const isFreelancer = actorRole.includes('freelancer') || actorRole.includes('seller');
-  const growthReviewKey = isFreelancer
-    ? 'freelancer_growth_review'
-    : isEmployer
-      ? 'employer_growth_review'
-      : '';
+/**
+ * Phase 20.7.3 — Intent-first classification.
+ * Explicit user text outranks role/scope/route. Greetings never select tools.
+ * Broken short-token skill matching removed (caused "Hi" → file upload skill).
+ */
+const classifyMessage = (
+  message: string,
+  actor: ScrolithaActor,
+  skills: any[],
+  page?: string | null,
+  options?: { toolsEnabled?: boolean }
+) => {
+  const {
+    routeScrolithaIntent,
+    matchSkillSuggestionSafe,
+    isConversationalIntent,
+    INTENT_TOOL_MIN_CONFIDENCE
+  } = require('./scrolitha.intentRouter') as typeof import('./scrolitha.intentRouter');
 
-  const suggestions: ScrolithaPlanSuggestion[] = [];
-  const add = (actionKey: string, toolKey: string, summary: string) => {
-    suggestions.push({ actionKey, toolKey, summary, paramsPreview: {} });
+  const routed = routeScrolithaIntent({
+    message,
+    actor,
+    page,
+    toolsEnabled: Boolean(options?.toolsEnabled)
+  });
+
+  let suggestions: ScrolithaPlanSuggestion[] = [...routed.suggestions];
+
+  // Safe skill match only when intent is unknown and confidence is low — never for greetings/jobs.
+  if (
+    !suggestions.length &&
+    routed.intent === 'UNKNOWN' &&
+    routed.confidence < INTENT_TOOL_MIN_CONFIDENCE &&
+    Array.isArray(skills) &&
+    skills.length &&
+    options?.toolsEnabled
+  ) {
+    const skillSuggestion = matchSkillSuggestionSafe(message, skills);
+    if (skillSuggestion) {
+      // Still require confidence discipline: skill match is advisory only when tools on
+      suggestions = [skillSuggestion];
+      routed.routerMeta.skillsMatchUsed = true;
+    }
+  }
+
+  // Never allow tools for pure conversation intents
+  if (isConversationalIntent(routed.intent) || !routed.allowTools) {
+    suggestions = [];
+  }
+
+  // Drop suggestions below confidence floor
+  if (routed.confidence < INTENT_TOOL_MIN_CONFIDENCE) {
+    suggestions = [];
+  }
+
+  return {
+    reply: routed.userFacingReply,
+    suggestions,
+    intent: routed.intent,
+    confidence: routed.confidence,
+    allowTools: routed.allowTools && suggestions.length > 0,
+    followUpPrompts: routed.followUpPrompts,
+    routerMeta: routed.routerMeta
   };
-
-  if (actor.scope === 'admin') {
-    if (has('search user', 'find user', 'lookup user')) add('search_users', 'SEARCH_USERS', 'Search users by query.');
-    if (has('approve monetization', 'review monetization', 'application')) {
-      add('review_monetization_application', 'REVIEW_MONETIZATION_APPLICATION', 'Review a monetization application.');
-    }
-    if (has('create role', 'new role')) add('create_role', 'CREATE_ROLE', 'Create a new staff role.');
-    if (has('update role', 'permission')) add('update_role_permissions', 'UPDATE_ROLE_PERMISSIONS', 'Update role permissions.');
-    if (has('moderate post', 'remove post', 'restore post')) add('moderate_post', 'MODERATE_POST', 'Moderate a community post.');
-    if (has('review ad', 'approve ad', 'reject ad', 'pause ad')) add('review_ads', 'REVIEW_ADS', 'Review ad status.');
-    if (has('audit log', 'scrolitha logs')) add('view_audit_logs', 'VIEW_SCROLITHA_AUDIT_LOGS', 'View Scrolitha audit logs.');
-  } else {
-    if (has('create gig', 'new gig')) add('create_gig', 'CREATE_GIG', 'Create a gig draft.');
-    if (has('submit gig', 'gig for review')) add('submit_gig_for_review', 'SUBMIT_GIG_FOR_REVIEW', 'Submit a gig draft for review.');
-    if (has('post job', 'create job', 'new job')) add('create_job', 'CREATE_JOB', 'Create a job draft.');
-    if (
-      growthReviewKey &&
-      (has(
-        'monetization',
-        'retention',
-        'growth review',
-        'growth setup',
-        'earnings setup',
-        'creator earnings',
-        'reactivate revenue'
-      ) ||
-        currentPage.includes('tab=membership') ||
-        currentPage.includes('tab=gcoin') ||
-        currentPage.includes('tab=my-ads') ||
-        currentPage.includes('/affiliate-program') ||
-        currentPage.includes('tab=affiliate-program'))
-    ) {
-      add(
-        growthReviewKey,
-        'GET_MY_MEMBERSHIP_STATUS',
-        isFreelancer
-          ? 'Review your monetization, retention, and earnings setup.'
-          : 'Review your retention, budget, and campaign growth setup.'
-      );
-    }
-    if (has('support', 'help', 'issue', 'problem', 'ticket') || currentPage.includes('/support')) {
-      add('create_ticket', 'CREATE_TICKET', 'Create a support ticket with your issue summary.');
-    }
-    if (has('uploaded files', 'my files', 'file library') || currentPage.includes('uploaded-files')) {
-      add('get_uploaded_files', 'GET_UPLOADED_FILES', 'Load your latest uploaded files.');
-    }
-    if (has('upload file', 'attach file', 'file library')) add('upload_file_to_library', 'UPLOAD_FILE_TO_LIBRARY', 'Bind a file from Uploaded Files.');
-    if (has('find orders', 'my orders', 'orders')) add('get_my_orders', 'GET_MY_ORDERS', 'Load your latest orders.');
-    if (has('notification', 'alerts')) add('fetch_notifications', 'FETCH_NOTIFICATIONS', 'Fetch recent notifications.');
-    if (has('mark read', 'read notification')) add('mark_notification_read', 'MARK_NOTIFICATION_READ', 'Mark notifications as read.');
-    if (has('block user', 'report user', 'restrict follower')) add('block_user', 'BLOCK_USER', 'Block a user account.');
-    if (has('follow user', 'follow account')) add('follow_user', 'FOLLOW_USER', 'Follow an account.');
-    if (has('project brief', 'generate brief')) add('generate_project_brief', 'GENERATE_PROJECT_BRIEF', 'Generate a project brief draft.');
-    if (has('profile', 'settings')) add('get_me_profile', 'GET_ME_PROFILE', 'Load your profile and settings context.');
-    if (
-      has('wallet', 'billing', 'payout', 'withdrawal', 'withdraw money', 'fund wallet', 'wallet balance') ||
-      currentPage.includes('tab=wallet')
-    ) {
-      add('get_my_wallet_summary', 'GET_MY_WALLET_SUMMARY', 'Load your wallet balance, payouts, and recent transactions.');
-    }
-    if (
-      has('membership', 'subscription', 'upgrade plan', 'renew plan', 'pro plan', 'pricing plan') ||
-      currentPage.includes('tab=membership')
-    ) {
-      add('get_my_membership_status', 'GET_MY_MEMBERSHIP_STATUS', 'Review your membership plan and renewal status.');
-    }
-    if (has('gcoin', 'creator reward', 'coin balance', 'rewards wallet') || currentPage.includes('tab=gcoin')) {
-      add('get_my_gcoin_summary', 'GET_MY_GCOIN_SUMMARY', 'Load your Gcoin balance and reward activity.');
-    }
-    if (
-      has('affiliate', 'referral', 'refer friend', 'invite earnings', 'partner earnings') ||
-      currentPage.includes('/affiliate-program') ||
-      currentPage.includes('tab=affiliate-program')
-    ) {
-      add('get_my_affiliate_overview', 'GET_MY_AFFILIATE_OVERVIEW', 'Review your affiliate referrals and earnings.');
-    }
-    if (
-      has('ads', 'campaign', 'promotion', 'boost post', 'ad performance', 'reactivate ad', 'campaign spend') ||
-      currentPage.includes('tab=my-ads')
-    ) {
-      add('get_my_ads_overview', 'GET_MY_ADS_OVERVIEW', 'Review your ad campaigns and recent performance.');
-    }
-    if (has('monetize', 'monetization status', 'creator program', 'eligibility', 'earnings approval')) {
-      add('get_my_monetization_status', 'GET_MY_MONETIZATION_STATUS', 'Review your monetization profile and application status.');
-    }
-  }
-
-  if (!suggestions.length && Array.isArray(skills) && skills.length) {
-    const match = skills.find((skill: any) => {
-      const hay = `${String(skill?.name || '')} ${String(skill?.description || '')}`.toLowerCase();
-      return message
-        .toLowerCase()
-        .split(/\s+/)
-        .some((token) => token && hay.includes(token));
-    });
-
-    if (match) {
-      const step = Array.isArray(match.stepsSchema)
-        ? match.stepsSchema.find((entry: any) => String(entry?.tool || '').trim())
-        : null;
-      if (step?.tool) {
-        suggestions.push({
-          actionKey: String(match.key || 'skill_task'),
-          toolKey: String(step.tool),
-          summary: String(match.description || `Run skill ${match.name || match.key}`),
-          paramsPreview: {}
-        });
-      }
-    }
-  }
-
-  let reply = 'I can help with secure platform tasks, guided support, and approved actions. Tell me the goal, and I will prepare the next safe step.';
-  if (suggestions.length === 1) {
-    reply = `I prepared one action: ${suggestions[0].summary}`;
-  } else if (suggestions.length > 1) {
-    reply = `I prepared ${suggestions.length} actions. Confirm the one you want to execute.`;
-  }
-
-  return { reply, suggestions };
 };
 
 const emitScrolithaEvents = (app: any, eventName: string, payload: any) => {
@@ -975,11 +909,21 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
   });
 
   const skills = await listSkillsForScope(actor.scope, actor.role, false);
-  const classified = classifyMessage(message, actor, skills, pageContext);
+
+  // Phase 20.7.3: tool suggestions only when toolExecution is enabled (writes still separate gate).
+  let toolsEnabled = false;
+  try {
+    const { isCapabilityEnabled } = await import('./scrolitha.rollout');
+    toolsEnabled = await isCapabilityEnabled('toolExecution', actor);
+  } catch {
+    toolsEnabled = false;
+  }
+
+  const classified = classifyMessage(message, actor, skills, pageContext, { toolsEnabled });
   const actionPlans = await createActionPlans({
     actor,
     conversationId: conversation.id,
-    suggestions: classified.suggestions,
+    suggestions: classified.allowTools ? classified.suggestions : [],
     skills,
     config
   });
@@ -989,37 +933,52 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     metadata: config.metadata
   });
   const knowledgeHighlights = summarizeKnowledgeHighlights(knowledgeContext);
-  const followUpPrompts = buildFollowUpPrompts({
-    actor,
-    page: pageContext,
-    actionPlans,
-    knowledgeHighlights
-  });
+  const followUpPrompts = Array.isArray(classified.followUpPrompts) && classified.followUpPrompts.length
+    ? classified.followUpPrompts
+    : buildFollowUpPrompts({
+        actor,
+        page: pageContext,
+        actionPlans,
+        knowledgeHighlights
+      });
 
   const plannedForPrompt = actionPlans.map((plan) => ({
     summary: String(plan.summary || ''),
     toolKey: String(plan.toolKey || ''),
     requiresConfirmation: Boolean(plan.requiresConfirmation)
   }));
-  const llmReply = await buildLlmReply({
-    actor,
-    conversationId: conversation.id,
-    userMessage: message,
-    pageContext,
-    accountContext,
-    config,
-    actionPlans: plannedForPrompt
-  });
-  const reply =
-    llmReply ||
+
+  const { sanitizeUserFacingReply, isConversationalIntent } = await import('./scrolitha.intentRouter');
+  const conversational = isConversationalIntent(classified.intent as any);
+
+  // Deterministic path for greetings/thanks/help and high-confidence domain fallbacks.
+  // Skip LLM for pure conversation — prevents policy/context leakage and tool bias.
+  let llmReply: string | null = null;
+  if (!conversational && classified.intent !== 'JOB_SEARCH' && classified.intent !== 'FREELANCER_SEARCH') {
+    llmReply = await buildLlmReply({
+      actor,
+      conversationId: conversation.id,
+      userMessage: message,
+      pageContext,
+      accountContext,
+      config,
+      actionPlans: plannedForPrompt
+    });
+  }
+
+  const rawReply =
+    (llmReply && sanitizeUserFacingReply(llmReply)) ||
     buildFallbackReply({
       page: pageContext,
       accountContext,
       safeMode: Boolean(config.safeMode),
       actionPlans,
       knowledgeHighlights,
-      classifiedReply: classified.reply
+      classifiedReply: classified.reply,
+      intent: classified.intent,
+      allowPreparedActionPhrase: Boolean(classified.allowTools && actionPlans.length)
     });
+  const reply = sanitizeUserFacingReply(rawReply);
 
   await appendConversationMessage({
     conversationId: conversation.id,
@@ -1027,7 +986,11 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     content: reply,
     metadata: {
       suggestedActionIds: actionPlans.map((entry) => entry.actionId),
-      suggestedToolKeys: actionPlans.map((entry) => entry.toolKey)
+      suggestedToolKeys: actionPlans.map((entry) => entry.toolKey),
+      // Internal routing metadata — not user-visible body
+      intent: classified.intent,
+      intentConfidence: classified.confidence,
+      routerMeta: classified.routerMeta || null
     }
   });
 
@@ -1035,11 +998,20 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     actor,
     conversationId: conversation.id,
     eventType: 'chat_planned',
-    intent: actionPlans[0]?.actionKey || 'chat',
-    requestPayload: { message },
-    redactedPayload: { message: '[REDACTED]' },
+    intent: classified.intent || actionPlans[0]?.actionKey || 'chat',
+    requestPayload: {
+      messageLength: message.length,
+      intent: classified.intent,
+      confidence: classified.confidence,
+      allowTools: classified.allowTools
+    },
+    redactedPayload: {
+      messageLength: message.length,
+      intent: classified.intent,
+      confidence: classified.confidence
+    },
     resultStatus: 'ok',
-    resultSummary: `Planned ${actionPlans.length} action(s).`
+    resultSummary: `Intent=${classified.intent} conf=${classified.confidence} actions=${actionPlans.length}`
   });
 
   let learningSnapshot: Awaited<ReturnType<typeof persistScrolithaLearningSignal>> = null;
@@ -1093,7 +1065,10 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     followUpPrompts,
     knowledgeHighlights,
     draftChanges: actionPlans[0]?.paramsPreview || null,
-    learning: learningSnapshot || null
+    learning: learningSnapshot || null,
+    // Phase 20.7.3 — structured routing for clients/tests (not rendered as body)
+    intent: classified.intent,
+    intentConfidence: classified.confidence
   };
 };
 
