@@ -26,10 +26,18 @@ import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
 import OpportunityStudioPanel from '../../components/dashboard/OpportunityStudioPanel';
 import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
+import GrowthPulseCard from '../../components/growth/GrowthPulseCard';
+import {
+  WorkspaceFocusPanel,
+  WorkspaceStatusStrip,
+  type WorkspaceFocusItem,
+  type StatusChip
+} from '../../components/workspace';
 import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
+import { buildScrolithaCareerPath } from '../../services/scrolithaCareer';
 
 const formatMoney = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 
@@ -77,6 +85,8 @@ export const Overview: React.FC = () => {
 
   const [overview, setOverview] = React.useState<FreelancerOverviewData | null>(null);
   const [activity, setActivity] = React.useState<ActivityItem[]>([]);
+  const [focusItems, setFocusItems] = React.useState<WorkspaceFocusItem[]>([]);
+  const [orderSummary, setOrderSummary] = React.useState<any>(null);
   const [proposalCount, setProposalCount] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
@@ -86,21 +96,29 @@ export const Overview: React.FC = () => {
     if (!user?.id) return;
     setLoading(true);
 
-    const [overviewResult, ordersResult, proposalsResult, contractsResult] = await Promise.allSettled([
-      freelancerApi.getOverview(),
-      OrdersService.list({ role: 'freelancer', status: 'active' }),
-      proposalsApi.getMyProposals({ limit: 5, page: 1 }),
-      ContractService.getContracts(user.id, 'freelancer')
-    ]);
+    const [overviewResult, ordersResult, proposalsResult, contractsResult, summaryResult] =
+      await Promise.allSettled([
+        freelancerApi.getOverview(),
+        OrdersService.list({ role: 'freelancer', status: 'active' }),
+        proposalsApi.getMyProposals({ limit: 5, page: 1 }),
+        ContractService.getContracts(user.id, 'freelancer'),
+        OrdersService.getMyOrderSummary()
+      ]);
 
     if (overviewResult.status === 'fulfilled') {
       setOverview(overviewResult.value);
     }
+    if (summaryResult.status === 'fulfilled') {
+      setOrderSummary(summaryResult.value);
+    }
 
     const mergedActivity: ActivityItem[] = [];
+    const nextFocus: WorkspaceFocusItem[] = [];
 
     if (ordersResult.status === 'fulfilled') {
-      ordersResult.value.slice(0, 4).forEach((order) => {
+      ordersResult.value.slice(0, 6).forEach((order) => {
+        const status = String(order.status || 'active').toLowerCase();
+        const isUrgent = status.includes('revision') || status.includes('late') || status.includes('due');
         mergedActivity.push({
           id: `order-${order.id}`,
           title: `Order ${order.status || 'active'}: ${order.gigTitle || 'Gig'}`,
@@ -110,6 +128,16 @@ export const Overview: React.FC = () => {
           status: order.status || 'active',
           href: '/freelancer/dashboard?tab=orders'
         });
+        if (isUrgent || nextFocus.length < 4) {
+          nextFocus.push({
+            id: `focus-order-${order.id}`,
+            title: order.gigTitle || 'Active order',
+            caption: `${order.buyerName || 'Client'} · ${order.status || 'active'}`,
+            href: '/freelancer/dashboard?tab=orders',
+            urgency: isUrgent ? 'high' : 'medium',
+            status: order.status || 'active'
+          });
+        }
       });
     }
 
@@ -153,11 +181,39 @@ export const Overview: React.FC = () => {
         });
     }
 
+    if (proposalsResult.status === 'fulfilled') {
+      const openProposals = (proposalsResult.value.proposals || []).filter((p) =>
+        ['pending', 'submitted', 'shortlisted', 'viewed'].includes(String(p.status || '').toLowerCase())
+      );
+      openProposals.slice(0, 2).forEach((proposal) => {
+        nextFocus.push({
+          id: `focus-proposal-${proposal.id}`,
+          title: `Follow up: ${proposal.jobTitle || 'Proposal'}`,
+          caption: `${proposal.status} · ${formatMoney(proposal.proposedAmount)}`,
+          href: '/freelancer/dashboard?tab=my-proposals',
+          urgency: 'medium',
+          status: proposal.status
+        });
+      });
+    }
+
+    if (unreadCount + unreadNotifications > 0) {
+      nextFocus.push({
+        id: 'focus-inbox',
+        title: 'Clear unread updates',
+        caption: `${unreadCount + unreadNotifications} messages / notifications waiting`,
+        href: '/freelancer/dashboard?tab=messages',
+        urgency: 'high',
+        status: 'inbox'
+      });
+    }
+
     mergedActivity.sort((a, b) => (b.sortValue || 0) - (a.sortValue || 0));
     setActivity(mergedActivity.slice(0, 8));
+    setFocusItems(nextFocus.slice(0, 6));
     setLoading(false);
     setLastRefreshedAt(new Date().toISOString());
-  }, [user?.id]);
+  }, [user?.id, unreadCount, unreadNotifications]);
 
   React.useEffect(() => {
     void loadOverview();
@@ -409,6 +465,12 @@ export const Overview: React.FC = () => {
         label: 'Optimize gig conversion',
         description: 'Improve thumbnails and packages to increase click-through.',
         href: '/freelancer/dashboard?tab=my-gigs'
+      },
+      {
+        id: 'recommend-scrolitha-growth',
+        label: 'Weekly growth plan (AI)',
+        description: 'Ask Scrolitha for a 7-day posting and pipeline plan.',
+        href: buildScrolithaCareerPath('weekly-growth')
       }
     ];
 
@@ -421,8 +483,45 @@ export const Overview: React.FC = () => {
       });
     }
 
-    return base.slice(0, 3);
+    return base.slice(0, 4);
   }, [overview]);
+
+  const statusChips: StatusChip[] = React.useMemo(() => {
+    const summary = orderSummary || {};
+    const active = Number(summary.active ?? summary.activeOrders ?? overview?.activeOrders ?? 0);
+    const revision = Number(summary.revision ?? summary.revisionOrders ?? overview?.revisionOrders ?? 0);
+    const delivered = Number(summary.delivered ?? summary.completed ?? 0);
+    return [
+      {
+        id: 'chip-active',
+        label: 'Active orders',
+        value: active,
+        href: '/freelancer/dashboard?tab=orders',
+        tone: 'indigo'
+      },
+      {
+        id: 'chip-revision',
+        label: 'In revision',
+        value: revision,
+        href: '/freelancer/dashboard?tab=orders',
+        tone: revision > 0 ? 'amber' : 'green'
+      },
+      {
+        id: 'chip-delivered',
+        label: 'Delivered',
+        value: delivered,
+        href: '/freelancer/dashboard?tab=orders',
+        tone: 'green'
+      },
+      {
+        id: 'chip-wallet',
+        label: 'Wallet',
+        value: formatMoney(overview?.walletBalance ?? 0),
+        href: '/freelancer/dashboard?tab=wallet',
+        tone: 'slate'
+      }
+    ];
+  }, [orderSummary, overview]);
 
   const railHighlights: RightRailMetric[] = React.useMemo(
     () => [
@@ -530,14 +629,28 @@ export const Overview: React.FC = () => {
           actions={heroActions}
         />
       }
-      kpiContent={<KpiGrid items={kpiItems} loading={loading && !overview} />}
+      kpiContent={
+        <div className="space-y-3">
+          <WorkspaceStatusStrip chips={statusChips} loading={loading && !overview} />
+          <KpiGrid items={kpiItems} loading={loading && !overview} />
+        </div>
+      }
       quickActionsContent={<QuickActions items={quickActions} subtitle="Fast access to your highest-impact workflows." />}
       supplementaryContent={
-        <OpportunityStudioPanel
-          audience="freelancer"
-          title="Freelancer Opportunity Studio"
-          subtitle="Use Scrolitha to reposition your offer, package services, and route toward stronger-fit work without leaving the dashboard."
-        />
+        <div className="space-y-3">
+          <WorkspaceFocusPanel
+            items={focusItems}
+            loading={loading && focusItems.length === 0}
+            scrolithaHref={buildScrolithaCareerPath('weekly-growth')}
+            emptyLabel="No urgent delivery items. Browse jobs or polish a gig to keep pipeline warm."
+          />
+          <GrowthPulseCard />
+          <OpportunityStudioPanel
+            audience="freelancer"
+            title="Freelancer Opportunity Studio"
+            subtitle="Use Scrolitha to reposition your offer, package services, and route toward stronger-fit work without leaving the dashboard."
+          />
+        </div>
       }
       activityContent={
         <ActivityPanel

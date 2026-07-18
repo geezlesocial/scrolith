@@ -15,10 +15,12 @@ import {
   Megaphone,
   Menu,
   MessageCircle,
+  Settings,
   ShieldCheck,
   ShoppingBag,
   Star,
   ThumbsUp,
+  User,
   Users,
   Wallet
 } from 'lucide-react';
@@ -299,6 +301,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           title: 'Account',
           description: 'Reputation, communication, and trust operations.',
           items: [
+            { tab: 'profile', label: 'Profile', icon: User, description: 'Identity, skills, and public positioning' },
+            { tab: 'settings', label: 'Settings', icon: Settings, description: 'Preferences, security, and notifications' },
             { tab: 'favorites', label: 'Favorites', icon: Heart, description: 'Saved items and shortlist history' },
             { tab: 'reviews', label: 'Reviews', icon: Star, description: 'Client feedback and quality signals' },
             { tab: 'likes', label: 'Likes', icon: ThumbsUp, description: 'Content engagement and reactions' },
@@ -360,6 +364,8 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           title: 'Account',
           description: 'Communication, trust, and operational support.',
           items: [
+            { tab: 'profile', label: 'Profile', icon: User, description: 'Company identity and hiring brand' },
+            { tab: 'settings', label: 'Settings', icon: Settings, description: 'Preferences, security, and notifications' },
             { tab: 'favorites', label: 'Favorites', icon: Heart, description: 'Saved talent, jobs, and working lists' },
             { tab: 'reviews', label: 'Reviews', icon: Star, description: 'Feedback quality and trust signals' },
             { tab: 'messages', label: 'Messages', icon: MessageCircle, badgeCount: unreadCount || undefined, description: 'Realtime candidate and contractor communication' },
