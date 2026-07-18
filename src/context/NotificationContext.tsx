@@ -5,6 +5,10 @@ import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
 import { NotificationService, notificationsApi } from '../services/notifications';
+import {
+  formatNotificationTitleWithCategory,
+  getNotificationCategoryMeta
+} from '../utils/notificationTaxonomy';
 
 type NotificationItem = Notification & {
   dismissed?: boolean;
@@ -19,6 +23,8 @@ type NotificationItem = Notification & {
   entityId?: string | null;
   parentId?: string | null;
   metadata?: Record<string, any>;
+  category?: string;
+  categoryLabel?: string;
 };
 
 interface NotificationContextType {
@@ -62,10 +68,24 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const normalizeNotification = useCallback((raw: any, overrides: Partial<NotificationItem> = {}): NotificationItem => {
     const id = String(raw?.id ?? overrides.id ?? `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    const title = String(raw?.title ?? raw?.subject ?? overrides.title ?? 'Notification');
-    const message = String(raw?.message ?? raw?.body ?? raw?.text ?? overrides.message ?? title ?? 'Tap to view details.');
+    const message = String(raw?.message ?? raw?.body ?? raw?.text ?? overrides.message ?? 'Tap to view details.');
     const type = (raw?.type ?? overrides.type ?? 'info') as Notification['type'];
     const metadata = (raw?.metadata && typeof raw.metadata === 'object' ? raw.metadata : raw?.meta && typeof raw.meta === 'object' ? raw.meta : {}) as Record<string, any>;
+    const categoryMeta = getNotificationCategoryMeta({
+      type,
+      category: raw?.category ?? metadata.category,
+      entityType: raw?.entityType ?? raw?.entity_type ?? metadata.entityType,
+      title: raw?.title ?? raw?.subject,
+      metadata
+    });
+    const rawTitle = String(raw?.title ?? raw?.subject ?? overrides.title ?? 'Notification');
+    const title = formatNotificationTitleWithCategory(rawTitle, {
+      type,
+      category: categoryMeta.key,
+      entityType: raw?.entityType ?? raw?.entity_type ?? metadata.entityType,
+      title: rawTitle,
+      metadata
+    });
     const actionUrl = (raw?.actionUrl ?? raw?.action_url ?? raw?.link ?? raw?.url ?? overrides.actionUrl) as string | undefined;
     const timestamp = String(raw?.timestamp ?? raw?.created_at ?? raw?.createdAt ?? raw?.created_at ?? new Date().toISOString());
     const isRead = Boolean(raw?.isRead ?? raw?.is_read ?? overrides.isRead ?? false);
@@ -85,8 +105,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       entityType: raw?.entityType ?? raw?.entity_type ?? metadata.entityType ?? null,
       entityId: raw?.entityId ?? raw?.entity_id ?? metadata.entityId ?? null,
       parentId: raw?.parentId ?? raw?.parent_id ?? metadata.parentId ?? null,
-      metadata,
-      localOnly: overrides.localOnly ?? raw?.localOnly ?? false
+      metadata: {
+        ...metadata,
+        category: categoryMeta.key,
+        categoryLabel: categoryMeta.label
+      },
+      localOnly: overrides.localOnly ?? raw?.localOnly ?? false,
+      category: categoryMeta.key,
+      categoryLabel: categoryMeta.label
     };
   }, []);
 

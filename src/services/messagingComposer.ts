@@ -25,8 +25,15 @@ export type PendingComposerAttachment = {
   fileId?: string;
   category?: UploadedFile['category'];
   localObjectUrl?: string;
-  uploadState?: 'ready' | 'uploading' | 'failed';
+  /** Local client id for optimistic upload reconciliation */
+  clientLocalId?: string;
+  uploadState?: 'ready' | 'uploading' | 'failed' | 'cancelled';
   progress?: number;
+  errorMessage?: string;
+  /** Optional width/height for image progressive layout stability */
+  width?: number;
+  height?: number;
+  durationMs?: number;
 };
 
 export type ComposerUploadProgress = {
@@ -77,8 +84,106 @@ export const uploadedFileToPending = (file: UploadedFile): PendingComposerAttach
 
 export const pendingToAttachmentIds = (items: PendingComposerAttachment[]): string[] =>
   (Array.isArray(items) ? items : [])
-    .map((item) => String(item.fileId || item.id || '').trim())
+    .filter((item) => item.uploadState !== 'failed' && item.uploadState !== 'cancelled' && item.uploadState !== 'uploading')
+    .map((item) => String(item.fileId || (item.uploadState === 'ready' ? item.id : '') || '').trim())
     .filter(Boolean);
+
+export const createLocalPendingAttachment = (file: File, nowMs = Date.now()): PendingComposerAttachment => {
+  const clientLocalId = `local-upload-${nowMs}-${Math.random().toString(36).slice(2, 9)}`;
+  const mimeType = String(file?.type || '');
+  let localObjectUrl: string | undefined;
+  try {
+    localObjectUrl = URL.createObjectURL(file);
+  } catch {
+    localObjectUrl = undefined;
+  }
+  return {
+    id: clientLocalId,
+    clientLocalId,
+    name: String(file?.name || 'Attachment'),
+    size: Number(file?.size || 0) || 0,
+    type: mimeType || inferUploadCategory(file),
+    mimeType,
+    category: inferUploadCategory(file),
+    localObjectUrl,
+    url: localObjectUrl,
+    uploadState: 'uploading',
+    progress: 0
+  };
+};
+
+export const hasPendingUploadsInFlight = (items: PendingComposerAttachment[]): boolean =>
+  (Array.isArray(items) ? items : []).some((item) => item.uploadState === 'uploading');
+
+export const hasFailedPendingUploads = (items: PendingComposerAttachment[]): boolean =>
+  (Array.isArray(items) ? items : []).some((item) => item.uploadState === 'failed');
+
+export const arePendingAttachmentsReadyToSend = (items: PendingComposerAttachment[]): boolean => {
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return true;
+  if (hasPendingUploadsInFlight(list) || hasFailedPendingUploads(list)) return false;
+  return pendingToAttachmentIds(list).length === list.filter((i) => i.uploadState !== 'cancelled').length;
+};
+
+export const updatePendingAttachment = (
+  items: PendingComposerAttachment[],
+  clientLocalId: string,
+  patch: Partial<PendingComposerAttachment>
+): PendingComposerAttachment[] => {
+  const id = String(clientLocalId || '').trim();
+  if (!id) return items;
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const key = String(item.clientLocalId || item.id || '');
+    if (key !== id) return item;
+    return { ...item, ...patch };
+  });
+};
+
+export const reconcilePendingWithUploadedFile = (
+  items: PendingComposerAttachment[],
+  clientLocalId: string,
+  file: UploadedFile
+): PendingComposerAttachment[] => {
+  const uploaded = uploadedFileToPending(file);
+  return updatePendingAttachment(items, clientLocalId, {
+    ...uploaded,
+    clientLocalId,
+    localObjectUrl: items.find((i) => String(i.clientLocalId || i.id) === clientLocalId)?.localObjectUrl,
+    uploadState: 'ready',
+    progress: 100,
+    errorMessage: undefined
+  });
+};
+
+/** Parallelism cap for background attachment uploads (mobile-friendly). */
+export const MESSAGE_UPLOAD_CONCURRENCY = 3;
+
+export const runWithConcurrency = async <T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<PromiseSettledResult<R>[]> => {
+  const list = Array.isArray(items) ? items : [];
+  const results: PromiseSettledResult<R>[] = new Array(list.length);
+  let nextIndex = 0;
+  const limit = Math.max(1, Math.min(concurrency || 1, list.length || 1));
+
+  const runNext = async (): Promise<void> => {
+    const index = nextIndex;
+    nextIndex += 1;
+    if (index >= list.length) return;
+    try {
+      const value = await worker(list[index], index);
+      results[index] = { status: 'fulfilled', value };
+    } catch (reason) {
+      results[index] = { status: 'rejected', reason };
+    }
+    await runNext();
+  };
+
+  await Promise.all(Array.from({ length: Math.min(limit, list.length) }, () => runNext()));
+  return results;
+};
 
 /** Isolate pending attachments by conversation id (no cross-thread leakage). */
 export const setPendingAttachmentsForConversation = (

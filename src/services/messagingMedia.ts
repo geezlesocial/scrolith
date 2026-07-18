@@ -41,6 +41,12 @@ export const MAX_AUTO_PRELOAD_AUDIO_BYTES = 12 * 1024 * 1024;
 /** Session cache entry count bound (LRU-ish by dropping zero-ref oldest first). */
 export const MAX_MEDIA_OBJECT_URL_CACHE_ENTRIES = 64;
 
+/** Soft memory budget for authenticated blob cache (~48MB). */
+export const MAX_MEDIA_CACHE_BYTES = 48 * 1024 * 1024;
+
+/** Prefer keeping recent conversation media longer (affinity weight in ms). */
+export const MEDIA_CACHE_CONVERSATION_AFFINITY_MS = 15 * 60 * 1000;
+
 const safeString = (value: unknown, fallback = ''): string =>
   typeof value === 'string' && value.trim() !== '' ? value.trim() : fallback;
 
@@ -357,6 +363,7 @@ type CacheEntry = {
   refCount: number;
   byteSize: number;
   lastUsedAt: number;
+  conversationId?: string;
 };
 
 /** In-memory authenticated blob cache (session only), reference-counted. */
@@ -364,6 +371,7 @@ const objectUrlCache = new Map<string, CacheEntry>();
 const inflightByKey = new Map<string, Promise<string>>();
 /** Generation bumped on full clear so stale inflight cannot repopulate cache. */
 let cacheGeneration = 0;
+let activeConversationAffinity = '';
 
 const touchEntry = (entry: CacheEntry) => {
   entry.lastUsedAt = Date.now();
@@ -378,13 +386,37 @@ const revokeEntry = (key: string, entry: CacheEntry) => {
   objectUrlCache.delete(key);
 };
 
+const totalCacheBytes = () =>
+  Array.from(objectUrlCache.values()).reduce((sum, entry) => sum + (Number(entry.byteSize) || 0), 0);
+
+/** Hint which conversation is on screen so affinity pruning prefers other threads first. */
+export const setMessagingMediaConversationAffinity = (conversationId?: string | null) => {
+  activeConversationAffinity = safeString(conversationId);
+};
+
+const pruneScore = (entry: CacheEntry, now: number) => {
+  let score = entry.lastUsedAt;
+  if (entry.conversationId && entry.conversationId === activeConversationAffinity) {
+    score += MEDIA_CACHE_CONVERSATION_AFFINITY_MS;
+  }
+  // Prefer keeping recently used; lower score evicts first.
+  return score - Math.min(entry.byteSize / 1024, 5000);
+};
+
 const pruneZeroRefEntries = () => {
-  if (objectUrlCache.size <= MAX_MEDIA_OBJECT_URL_CACHE_ENTRIES) return;
+  const now = Date.now();
+  const overCount = objectUrlCache.size > MAX_MEDIA_OBJECT_URL_CACHE_ENTRIES;
+  const overBytes = totalCacheBytes() > MAX_MEDIA_CACHE_BYTES;
+  if (!overCount && !overBytes) return;
+
   const zeroRef = Array.from(objectUrlCache.entries())
     .filter(([, entry]) => entry.refCount <= 0)
-    .sort((a, b) => a[1].lastUsedAt - b[1].lastUsedAt);
+    .sort((a, b) => pruneScore(a[1], now) - pruneScore(b[1], now));
+
   for (const [key, entry] of zeroRef) {
-    if (objectUrlCache.size <= MAX_MEDIA_OBJECT_URL_CACHE_ENTRIES) break;
+    if (objectUrlCache.size <= MAX_MEDIA_OBJECT_URL_CACHE_ENTRIES && totalCacheBytes() <= MAX_MEDIA_CACHE_BYTES) {
+      break;
+    }
     revokeEntry(key, entry);
   }
 };
@@ -454,17 +486,20 @@ export const getAuthenticatedMediaCacheDebugState = () =>
 export const __testOnlySeedAuthenticatedMediaCache = (
   cacheKey: string,
   objectUrl: string,
-  refCount = 0
+  refCount = 0,
+  byteSize = 0
 ) => {
   const key = safeString(cacheKey);
   if (!key || !objectUrl) return;
   objectUrlCache.set(key, {
     objectUrl,
     refCount: Math.max(0, refCount),
-    byteSize: 0,
+    byteSize: Math.max(0, byteSize),
     lastUsedAt: Date.now()
   });
 };
+
+export const getAuthenticatedMediaCacheByteTotal = () => totalCacheBytes();
 
 const readHeader = (headers: any, name: string): string => {
   if (!headers) return '';
@@ -498,6 +533,8 @@ export type FetchAuthenticatedMediaOptions = {
   maxBytes?: number;
   /** When true, skip retain (caller will retain explicitly). Default retains once. */
   skipRetain?: boolean;
+  /** Optional conversation affinity for smart cache eviction. */
+  conversationId?: string;
 };
 
 export const fetchAuthenticatedMediaObjectUrl = async (
@@ -603,7 +640,8 @@ export const fetchAuthenticatedMediaObjectUrl = async (
       objectUrl,
       refCount: 0,
       byteSize: blob.size,
-      lastUsedAt: Date.now()
+      lastUsedAt: Date.now(),
+      conversationId: safeString(options?.conversationId) || activeConversationAffinity || undefined
     });
     pruneZeroRefEntries();
     return objectUrl;

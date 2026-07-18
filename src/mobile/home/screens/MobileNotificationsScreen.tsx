@@ -6,6 +6,7 @@ import { useUser } from '../../../context/UserContext';
 import {
   getNotificationActionUrl,
   getNotificationBucket,
+  getNotificationCategoryLabel,
   isExternalNotificationUrl
 } from '../../../utils/notificationRouting';
 import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
@@ -217,6 +218,15 @@ export default function MobileNotificationsScreen({
             const message = String(n?.message || '');
             const ts = String(n?.timestamp || n?.createdAt || '');
             const actionUrl = getNotificationActionUrl(n);
+            const categoryLabel =
+              String(n?.categoryLabel || n?.metadata?.categoryLabel || '').trim() ||
+              getNotificationCategoryLabel({
+                type: n?.type,
+                category: n?.category || n?.metadata?.category,
+                entityType: n?.entityType || n?.metadata?.entityType,
+                title,
+                metadata: n?.metadata
+              });
             return (
               <button
                 key={id}
@@ -242,6 +252,11 @@ export default function MobileNotificationsScreen({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
+                    <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                        {categoryLabel}
+                      </span>
+                    </div>
                     <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
                     {message ? <div className="mt-1 text-sm text-slate-600 line-clamp-2">{message}</div> : null}
                     {ts ? <div className="mt-2 text-xs text-slate-400">{new Date(ts).toLocaleString()}</div> : null}

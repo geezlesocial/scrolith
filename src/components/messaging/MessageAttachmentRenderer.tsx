@@ -77,6 +77,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   const [objectUrl, setObjectUrl] = useState<string>('');
   const [directStreamUrl, setDirectStreamUrl] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [imageReady, setImageReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -257,6 +258,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
     releaseHeldUrl();
     setObjectUrl('');
     setDirectStreamUrl('');
+    setImageReady(false);
     setError(null);
     setDownloadError(null);
     setVideoMode('idle');
@@ -398,24 +400,42 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
       ) : null}
 
       {normalized.type === 'image' ? (
-        resolvedSrc ? (
-          <a href={resolvedSrc} target="_blank" rel="noreferrer" className="block" onClick={(e) => e.stopPropagation()}>
-            <img
-              src={resolvedSrc}
-              alt={normalized.name || 'Message image attachment'}
-              className="max-h-56 w-full rounded-md object-contain bg-black/5"
-              loading="lazy"
+        <div
+          className={`relative overflow-hidden rounded-md ${isOutgoing ? 'bg-white/10' : 'bg-slate-100'}`}
+          style={{ minHeight: resolvedSrc || loading ? 112 : undefined }}
+        >
+          {/* Aspect-preserving skeleton / blur placeholder to avoid layout shift */}
+          {!imageReady || loading ? (
+            <div
+              className={`absolute inset-0 animate-pulse ${isOutgoing ? 'bg-white/10' : 'bg-slate-200/80'}`}
+              aria-hidden
             />
-          </a>
-        ) : (
-          <div
-            className={`flex h-40 items-center justify-center rounded-md ${isOutgoing ? 'bg-white/10' : 'bg-slate-100'} ${mutedClass}`}
-            role="status"
-            aria-live="polite"
-          >
-            {loading ? <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading image" /> : 'Image preview unavailable'}
-          </div>
-        )
+          ) : null}
+          {resolvedSrc ? (
+            <a href={resolvedSrc} target="_blank" rel="noreferrer" className="block" onClick={(e) => e.stopPropagation()}>
+              <img
+                src={resolvedSrc}
+                alt={normalized.name || 'Message image attachment'}
+                className={[
+                  'max-h-56 w-full rounded-md object-contain transition-opacity duration-300',
+                  imageReady ? 'opacity-100' : 'opacity-0'
+                ].join(' ')}
+                loading="lazy"
+                decoding="async"
+                onLoad={() => setImageReady(true)}
+                onError={() => setImageReady(true)}
+              />
+            </a>
+          ) : (
+            <div
+              className={`flex h-40 items-center justify-center rounded-md ${mutedClass}`}
+              role="status"
+              aria-live="polite"
+            >
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading image" /> : 'Image preview unavailable'}
+            </div>
+          )}
+        </div>
       ) : null}
 
       {normalized.type === 'video' ? (
