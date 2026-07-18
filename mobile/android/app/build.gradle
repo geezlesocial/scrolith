@@ -13,8 +13,10 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 26
-        versionName "1.1.16"
+        // Play Console currently shows 24 (1.1.14). Local release artifacts already
+        // advanced through 28 (1.1.18). Phase 20.5 production must exceed both.
+        versionCode 29
+        versionName "1.1.19"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

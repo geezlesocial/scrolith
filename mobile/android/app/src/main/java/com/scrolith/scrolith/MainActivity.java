@@ -24,6 +24,16 @@ public class MainActivity extends BridgeActivity {
         if (bridge == null || bridge.getWebView() == null) {
             return;
         }
+        // Production hardening: never leave remote WebView debugging enabled in release.
+        try {
+            final boolean isDebuggable =
+                (getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0;
+            if (!isDebuggable) {
+                android.webkit.WebView.setWebContentsDebuggingEnabled(false);
+            }
+        } catch (Throwable ignored) {
+            // Best-effort only.
+        }
         bridge.getWebView().setWebChromeClient(new AppWebChromeClient());
     }
 
