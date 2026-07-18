@@ -235,6 +235,10 @@ const Messages = () => {
       blockedForCurrentUser: false
   });
   const [voiceNoteBusy, setVoiceNoteBusy] = useState(false);
+  /** Phase 20.7.2 — visible Scrolitha response lifecycle (no silent failure) */
+  const [scrolithaThinking, setScrolithaThinking] = useState(false);
+  const [scrolithaError, setScrolithaError] = useState<string | null>(null);
+  const lastScrolithaPromptRef = useRef<{ text: string; attachmentIds: string[]; replyToMessageId: string | null } | null>(null);
   const [dealFlowConfig, setDealFlowConfig] = useState(() => normalizeDealFlowSettings(null));
   const [showBriefComposer, setShowBriefComposer] = useState(false);
   const [briefComposerBusy, setBriefComposerBusy] = useState(false);
@@ -1737,6 +1741,23 @@ const Messages = () => {
               textLength: String(message.text || '').length
           });
 
+          // Clear Scrolitha thinking when an assistant message arrives for the active thread.
+          const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
+          if (
+              isFromOther &&
+              activeConvoIdRef.current === convoId &&
+              (Boolean((message as any)?.isScrolitha) ||
+                  Boolean((message as any)?.is_scrolitha) ||
+                  Boolean((payload as any)?.isScrolitha) ||
+                  Boolean((payload as any)?.is_scrolitha) ||
+                  Boolean(String(message.text || '').trim()))
+          ) {
+              setScrolithaThinking(false);
+              if (String(message.text || '').trim()) {
+                  setScrolithaError(null);
+              }
+          }
+
           setConversations(prev => {
               let found = false;
               const updated = prev.map(c => {
@@ -2430,6 +2451,12 @@ const Messages = () => {
       const attachmentIds = pendingToAttachmentIds(pendingAttachments);
       const replyToMessageId = replyToMessage?.id || null;
       const clientSendId = buildClientSendId(activeConvoId, Date.now());
+      const scrolithaThread = Boolean(
+          isActiveScrolithaConversation ||
+              activeConvo?.isScrolitha ||
+              activeConvo?.is_scrolitha ||
+              activeConvo?.participants?.some((p: any) => p?.isScrolitha || p?.is_scrolitha)
+      );
       // Capture local previews for optimistic bubble so media appears instantly.
       const optimisticAttachmentPayload = pendingAttachments
           .filter((item) => item.uploadState === 'ready' || item.fileId)
@@ -2447,7 +2474,8 @@ const Messages = () => {
           textLength: trimmed.length,
           attachmentsCount: attachmentIds.length,
           replyToMessageId,
-          clientSendId
+          clientSendId,
+          scrolitha: scrolithaThread
       });
 
       const optimistic: Message = {
@@ -2486,6 +2514,11 @@ const Messages = () => {
       setReplyToMessage(null);
       emitTypingState(false);
       resetTypingTimers();
+      if (scrolithaThread) {
+          setScrolithaThinking(true);
+          setScrolithaError(null);
+          lastScrolithaPromptRef.current = { text: trimmed, attachmentIds, replyToMessageId };
+      }
 
       try {
           const newMessage = await MessagingService.sendMessage(
@@ -2494,7 +2527,12 @@ const Messages = () => {
               trimmed,
               user.role,
               attachmentIds,
-              replyToMessageId
+              replyToMessageId,
+              {
+                  scrolitha: scrolithaThread,
+                  clientRequestId: clientSendId,
+                  timeoutMs: scrolithaThread ? 95_000 : undefined
+              }
           );
           const reconciled = {
               ...newMessage,
@@ -2507,15 +2545,87 @@ const Messages = () => {
           applyConversationMessageChanges(activeConvoId, (messages) =>
               reconcileOptimisticMessage(messages, reconciled)
           );
+
+          const scrolithaTurn = (newMessage as any)?.scrolithaTurn;
+          const assistantRaw = scrolithaTurn?.assistantMessage;
+          if (assistantRaw?.id) {
+              const assistant = {
+                  ...assistantRaw,
+                  conversationId: activeConvoId,
+                  conversation_id: activeConvoId
+              } as Message;
+              applyConversationMessageChanges(activeConvoId, (messages) =>
+                  reconcileOptimisticMessage(messages, assistant)
+              );
+              setScrolithaThinking(false);
+              setScrolithaError(null);
+          } else if (scrolithaThread) {
+              if (scrolithaTurn?.status === 'ok' && scrolithaTurn?.replyPreview) {
+                  // Assistant was persisted but envelope lacked full message — refetch.
+                  try {
+                      const full = await MessagingService.getConversationById(activeConvoId);
+                      if (full) {
+                          setConversations((prev) =>
+                              prev.map((c) => (c.id === activeConvoId ? { ...c, ...full } : c))
+                          );
+                      }
+                  } catch {
+                      // ignore; socket may still deliver
+                  }
+                  setScrolithaThinking(false);
+              } else if (scrolithaTurn?.status === 'error' || scrolithaTurn?.status === 'skipped') {
+                  const reason = String(scrolithaTurn?.reason || 'unavailable');
+                  setScrolithaError(
+                      reason === 'messaging_assistant_disabled'
+                          ? 'Scrolitha messaging assistant is currently unavailable.'
+                          : 'Scrolitha is temporarily unable to respond. Please try again.'
+                  );
+                  setScrolithaThinking(false);
+              } else {
+                  // Wait briefly for socket, then refetch as recovery.
+                  window.setTimeout(async () => {
+                      try {
+                          const full = await MessagingService.getConversationById(activeConvoId);
+                          if (full) {
+                              setConversations((prev) =>
+                                  prev.map((c) => (c.id === activeConvoId ? { ...c, ...full } : c))
+                              );
+                              const hasAssistant = (full.messages || []).some(
+                                  (m: any) =>
+                                      String(m.senderId || m.sender_id) !== String(user.id) &&
+                                      String(m.text || '').trim()
+                              );
+                              if (!hasAssistant) {
+                                  setScrolithaError(
+                                      'Scrolitha is temporarily unable to respond. Please try again.'
+                                  );
+                              }
+                          }
+                      } catch {
+                          setScrolithaError(
+                              'Scrolitha is temporarily unable to respond. Please try again.'
+                          );
+                      } finally {
+                          setScrolithaThinking(false);
+                      }
+                  }, 2500);
+              }
+          }
+
           refreshMessages();
           // Local blob previews can be released once server attachments exist.
           window.setTimeout(() => revokePendingObjectUrls(snapshotPending), 4000);
           traceClient('ui.send_message.success', {
               conversationId: activeConvoId,
               messageId: newMessage?.id || null,
-              clientSendId
+              clientSendId,
+              scrolithaStatus: scrolithaTurn?.status || null
           });
       } catch (error) {
+          if (scrolithaThread) {
+              setScrolithaThinking(false);
+              setScrolithaError('Scrolitha is temporarily unable to respond. Please try again.');
+          }
           markOutgoingState(clientSendId, 'failed', {
               error: getRecoverableActionMessage('Message send', error)
           });
@@ -3817,6 +3927,48 @@ const Messages = () => {
                                     </div>
                                 </div>
                             )}
+                            {/* Phase 20.7.2 — Scrolitha thinking / error / retry (never silent) */}
+                            {isActiveScrolithaConversation && scrolithaThinking ? (
+                                <div
+                                    className="flex justify-start animate-fade-in"
+                                    data-testid="scrolitha-thinking"
+                                    role="status"
+                                    aria-live="polite"
+                                >
+                                    <div className="flex items-center gap-2 rounded-2xl rounded-bl-none border border-indigo-100 bg-indigo-50/80 px-4 py-2.5 text-xs text-indigo-800 shadow-sm">
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                                        <span>Scrolitha is thinking…</span>
+                                    </div>
+                                </div>
+                            ) : null}
+                            {isActiveScrolithaConversation && scrolithaError && !scrolithaThinking ? (
+                                <div
+                                    className="flex justify-start animate-fade-in"
+                                    data-testid="scrolitha-error"
+                                    role="alert"
+                                >
+                                    <div className="max-w-[90%] rounded-2xl rounded-bl-none border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-950 shadow-sm md:max-w-[70%]">
+                                        <p className="font-medium">{scrolithaError}</p>
+                                        <button
+                                            type="button"
+                                            className="mt-2 inline-flex items-center gap-1 rounded-lg bg-amber-800 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-900"
+                                            onClick={() => {
+                                                const last = lastScrolithaPromptRef.current;
+                                                if (!last?.text) return;
+                                                setScrolithaError(null);
+                                                setMessageInput(last.text);
+                                                window.requestAnimationFrame(() => {
+                                                    composerTextareaRef.current?.focus();
+                                                    composerTextareaRef.current?.form?.requestSubmit();
+                                                });
+                                            }}
+                                        >
+                                            <RefreshCw className="h-3 w-3" aria-hidden />
+                                            Retry response
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
                             <div ref={messagesEndRef} />
                         </div>
 

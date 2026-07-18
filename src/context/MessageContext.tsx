@@ -813,6 +813,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         replyToMessageId?: string | null;
         attachmentIds?: string[];
         optimisticId?: string | null;
+        scrolitha?: boolean;
       }
     ): Promise<Message | null> => {
       const id = safeId(conversationId);
@@ -823,6 +824,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!id || !user?.id) return null;
       if (!trimmed && attachmentIds.length === 0) return null;
       if (sendingIdsRef.current.has(id)) return null;
+      const isScrolithaSend = Boolean(options?.scrolitha);
 
       sendingIdsRef.current.add(id);
       setSendingConversationIds((prev) => ({ ...prev, [id]: true }));
@@ -892,7 +894,12 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           trimmed,
           user.role,
           attachmentIds,
-          replyToMessageId
+          replyToMessageId,
+          {
+            scrolitha: isScrolithaSend,
+            clientRequestId: isScrolithaSend ? optimisticId : undefined,
+            timeoutMs: isScrolithaSend ? 95_000 : undefined
+          }
         );
         const serverId = safeId(serverMessage.id);
         seenMessageIdsRef.current.add(serverId);
@@ -938,6 +945,56 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           recomputeUnread(next);
           return next;
         });
+
+        // Phase 20.7.2 — inject assistant from HTTP envelope (do not rely only on socket).
+        const scrolithaTurn = (serverMessage as any)?.scrolithaTurn;
+        const assistantRaw = scrolithaTurn?.assistantMessage;
+        if (assistantRaw?.id) {
+          const assistant = {
+            ...assistantRaw,
+            conversationId: id,
+            conversation_id: id
+          } as Message;
+          const assistantId = safeId(assistant.id);
+          if (assistantId && !seenMessageIdsRef.current.has(assistantId)) {
+            seenMessageIdsRef.current.add(assistantId);
+            globalMessagingSeenIds.add(assistantId);
+          }
+          setThreadCache((prev) => {
+            const current = prev[id] || EMPTY_THREAD;
+            return {
+              ...prev,
+              [id]: touchThreadCacheEntry({
+                ...current,
+                messages: reconcileOptimisticMessage(current.messages, assistant)
+              })
+            };
+          });
+          setConversations((prev) => {
+            const next = applyIncomingPreviewUpdate(prev, assistant, {
+              currentUserId: user.id,
+              activeConversationIds: visibleConversationIdsRef.current
+            });
+            recomputeUnread(next);
+            return next;
+          });
+          publishMessagingEvent('MESSAGE_CREATED', assistant, {
+            conversationId: id,
+            messageId: assistantId,
+            source: 'api'
+          });
+        } else if (isScrolithaSend && scrolithaTurn?.status && scrolithaTurn.status !== 'ok') {
+          publishMessagingEvent(
+            'MESSAGE_FAILED',
+            {
+              conversationId: id,
+              error: String(scrolithaTurn.reason || 'scrolitha_no_reply'),
+              scrolithaTurn
+            },
+            { conversationId: id, source: 'api' }
+          );
+        }
+
         setDrafts((prev) => clearConversationDraft(prev, id));
         setReplyToByConversation((prev) => ({ ...prev, [id]: null }));
         setPendingAttachmentsByConversation((prev) => {
