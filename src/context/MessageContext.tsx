@@ -354,14 +354,17 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setError(null);
         setSyncState(options?.force ? 'retrying' : 'loading');
         try {
-          // Phase 20.7: ensure official Scrolitha assistant DM is present in the shared inbox.
+          // Phase 20.7: ensure official Scrolitha assistant DM once per force refresh path.
+          let ensured = false;
           try {
             await MessagingService.ensureScrolithaConversation();
+            ensured = true;
           } catch {
             // Rollout / network — continue with normal inbox load
           }
           const convos = await MessagingService.getAllConversations(user.id, user.role, {
-            force: true
+            // Force reload only when ensure may have created/updated the assistant row.
+            force: Boolean(options?.force || ensured)
           });
           const sorted = sortConversationsByRecent(Array.isArray(convos) ? convos : []).sort((a, b) => {
             const aAi = Number(Boolean((a as any).isScrolitha ?? (a as any).is_scrolitha));
