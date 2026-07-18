@@ -114,6 +114,19 @@ export const messageMatchesConversation = (message: any, conversation: Conversat
   return messageKey === conversationKey || messageKey.startsWith(`${conversationKey}|`);
 };
 
+const isScrolithaConversation = (conversation: Conversation) =>
+  Boolean(
+    (conversation as any)?.isScrolitha ||
+      (conversation as any)?.is_scrolitha ||
+      safeArray<any>(conversation?.participants).some(
+        (p) =>
+          Boolean(p?.isScrolitha || p?.is_scrolitha) ||
+          safeString(p?.username).toLowerCase() === 'scrolitha' ||
+          safeString(p?.label).toLowerCase() === 'scrolitha' ||
+          safeString(p?.label).toLowerCase() === 'system'
+      )
+  );
+
 export const mergeDirectConversations = (list: Conversation[]) => {
   if (!Array.isArray(list) || list.length === 0) return [];
 
@@ -121,7 +134,12 @@ export const mergeDirectConversations = (list: Conversation[]) => {
   const passthrough: Conversation[] = [];
 
   list.forEach((conversation) => {
-    const key = getConversationMergeKey(conversation);
+    // Phase 20.7.5: force all Scrolitha DMs into one defensive inbox bucket
+    // even if participant keys temporarily diverge during consolidation races.
+    let key = getConversationMergeKey(conversation);
+    if (isScrolithaConversation(conversation)) {
+      key = 'direct:scrolitha-canonical';
+    }
     if (!key) {
       passthrough.push(conversation);
       return;
