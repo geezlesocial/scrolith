@@ -50,32 +50,40 @@ const CommunityLayout = () => {
                 to="/community"
                 className="inline-flex items-center gap-2 rounded-full bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 md:bg-transparent md:px-0 md:py-0 md:text-xl md:font-bold md:tracking-tight md:text-indigo-600"
               >
-                <Users className="h-4 w-4 md:hidden" />
+                <Users className="h-4 w-4 md:hidden" aria-hidden="true" />
                 <span className="md:hidden">Community</span>
                 <span className="hidden md:inline">Scrolith Community</span>
               </Link>
 
-              <button className="relative rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-indigo-600 lg:hidden">
-                <Bell className="h-5 w-5" />
-                <span className="absolute right-2 top-2 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
+              <button
+                type="button"
+                className="relative rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-indigo-600 lg:hidden"
+                aria-label="Community notifications"
+              >
+                <Bell className="h-5 w-5" aria-hidden="true" />
+                <span className="absolute right-2 top-2 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" aria-hidden="true" />
               </button>
             </div>
 
             <div className="flex min-w-0 items-center gap-2">
-              <nav className="relative flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 no-scrollbar sm:pb-0">
+              <nav
+                className="relative flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1 no-scrollbar sm:pb-0"
+                aria-label="Community sections"
+              >
                 {navItems.map((item) => {
                   const active = isActiveRoute(item.path);
                   return (
                     <Link
                       key={item.path}
                       to={item.path}
+                      aria-current={active ? 'page' : undefined}
                       className={`inline-flex shrink-0 items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors whitespace-nowrap sm:text-sm ${
                         active
                           ? 'border-indigo-200 bg-indigo-50 text-indigo-700'
                           : 'border-transparent text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                       }`}
                     >
-                      <item.icon className={`h-4 w-4 ${active ? 'text-indigo-600' : 'text-gray-400'}`} />
+                      <item.icon className={`h-4 w-4 ${active ? 'text-indigo-600' : 'text-gray-400'}`} aria-hidden="true" />
                       <span>{item.label}</span>
                     </Link>
                   );

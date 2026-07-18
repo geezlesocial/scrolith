@@ -10,6 +10,7 @@ import {
 import Navbar from './components/Navbar';
 import ToastContainer from './components/ToastContainer';
 import OfflineBanner from './components/OfflineBanner';
+import { SkipLink, RouteAnnouncer, KeyboardShortcutsHelp } from './components/a11y';
 import { UserRole } from './types';
 import { CurrencyProvider } from './context/CurrencyContext';
 import { ContentProvider, useContent } from './context/ContentContext';
@@ -1323,12 +1324,19 @@ const AppContent = () => {
   
   return (
     <div className="flex flex-col min-h-screen relative">
+      <SkipLink />
+      <RouteAnnouncer />
       {nonCriticalUiReady && (
         <Suspense fallback={null}>
           <IntegrationsManager />
         </Suspense>
       )}
       <OfflineBanner />
+      {isAuthenticated && nonCriticalUiReady && !isMobileShellRoute && !isAdminRoute && (
+        <Suspense fallback={null}>
+          <KeyboardShortcutsHelp />
+        </Suspense>
+      )}
       {!shouldHideAppDistributionPrompt && !isMobileStandaloneRoute && nonCriticalUiReady && (
         <Suspense fallback={null}>
           <AppDistributionPrompt />
@@ -1350,7 +1358,7 @@ const AppContent = () => {
             <DesktopMessagingDock />
           </Suspense>
         )}
-      <main className="w-full min-w-0 flex-grow">
+      <main id="main-content" className="w-full min-w-0 flex-grow" tabIndex={-1}>
         {shouldRenderForcedMobileHome ? (
           <ErrorBoundary key="forced-mobile-home">
             <Suspense fallback={<RouteLoadingFallback />}>

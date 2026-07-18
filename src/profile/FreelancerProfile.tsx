@@ -18,6 +18,10 @@ import { resolveAssetUrl } from '../utils/assetUrl';
 import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextThemes } from '../community/storyStyles';
 import { getPublicAppOrigin } from '../utils/siteUrl';
+import ProfessionalIntegrationStrip from '../components/discovery/ProfessionalIntegrationStrip';
+import CreatorAnalyticsCard from '../components/insights/CreatorAnalyticsCard';
+import PeopleYouMayKnowRail from '../components/discovery/PeopleYouMayKnowRail';
+import EmptyState from '../components/ui/EmptyState';
 
 const EditProfile = lazy(() => import('./EditProfile'));
 
@@ -645,6 +649,17 @@ const FreelancerProfile = () => {
       }
   };
 
+  useEffect(() => {
+    const displayName = String(publicUser?.name || publicUser?.username || 'Member').trim();
+    const titleRole = profile?.title ? ` · ${profile.title}` : '';
+    const nextTitle = `${displayName}${titleRole} | Scrolith`;
+    const prev = document.title;
+    if (document.title !== nextTitle) document.title = nextTitle;
+    return () => {
+      if (document.title === nextTitle) document.title = prev;
+    };
+  }, [publicUser?.name, publicUser?.username, profile?.title]);
+
   return (
     <div className="bg-gray-50 min-h-screen pb-12">
         {error && (
@@ -837,33 +852,52 @@ const FreelancerProfile = () => {
                         {/* Experience */}
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
-                                <Briefcase className="w-5 h-5 mr-2 text-blue-600" /> Work Experience
+                                <Briefcase className="w-5 h-5 mr-2 text-blue-600" aria-hidden="true" /> Work Experience
                             </h3>
+                            {(profile?.experience || []).length === 0 ? (
+                              <EmptyState
+                                title="No experience listed yet"
+                                description={isOwner ? 'Add roles and achievements so clients and collaborators can evaluate your background quickly.' : 'This member has not published work experience yet.'}
+                                ctaLabel={isOwner ? 'Edit profile' : undefined}
+                                onCtaClick={isOwner ? () => setShowInlineEditor(true) : undefined}
+                                className="border-0 bg-slate-50 p-4 shadow-none"
+                              />
+                            ) : (
                             <div className="space-y-6">
-                                {(profile?.experience || []).map((exp: any) => (
-                                    <div key={exp.id} className="relative pl-8 border-l-2 border-gray-100 last:border-0">
+                                {(profile?.experience || []).map((exp: any, index: number) => (
+                                    <div key={exp.id || `exp-${index}`} className="relative pl-8 border-l-2 border-gray-100 last:border-0">
                                         <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-blue-100 border-2 border-blue-600"></div>
                                         <h4 className="text-base font-bold text-gray-900">{exp.title || 'Untitled role'}</h4>
                                         <div className="text-sm text-gray-500 mb-2">
-                                          {exp.company || 'Company'} &middot; {exp.start_date || exp.startDate || '-'} - {exp.end_date || exp.endDate || '-'}
+                                          {exp.company || 'Company'} &middot; {exp.start_date || exp.startDate || '-'} - {exp.end_date || exp.endDate || 'Present'}
                                         </div>
                                         <p className="text-sm text-gray-600">{exp.description || ''}</p>
                                     </div>
                                 ))}
                             </div>
+                            )}
                         </div>
 
                         {/* Education */}
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <h3 className="text-lg font-bold text-gray-900 mb-6 flex items-center">
-                                <GraduationCap className="w-5 h-5 mr-2 text-blue-600" /> Education
+                                <GraduationCap className="w-5 h-5 mr-2 text-blue-600" aria-hidden="true" /> Education
                             </h3>
+                            {(profile?.education || []).length === 0 ? (
+                              <EmptyState
+                                title="No education listed yet"
+                                description={isOwner ? 'Add schools and credentials to strengthen professional discovery.' : 'This member has not published education yet.'}
+                                ctaLabel={isOwner ? 'Edit profile' : undefined}
+                                onCtaClick={isOwner ? () => setShowInlineEditor(true) : undefined}
+                                className="border-0 bg-slate-50 p-4 shadow-none"
+                              />
+                            ) : (
                             <div className="space-y-4">
-                                {(profile?.education || []).map((edu: any) => (
-                                    <div key={edu.id} className="flex justify-between items-start">
+                                {(profile?.education || []).map((edu: any, index: number) => (
+                                    <div key={edu.id || `edu-${index}`} className="flex justify-between items-start">
                                         <div>
                                             <h4 className="text-base font-bold text-gray-900">{edu.school || 'School'}</h4>
-                                            <p className="text-sm text-gray-600">{edu.degree || 'Degree'}{edu.field_of_study ? `, ${edu.field_of_study}` : ''}</p>
+                                            <p className="text-sm text-gray-600">{edu.degree || 'Degree'}{edu.field_of_study || edu.fieldOfStudy ? `, ${edu.field_of_study || edu.fieldOfStudy}` : ''}</p>
                                         </div>
                                         <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
                                             {edu.start_year || edu.startYear || '-'} - {edu.end_year || edu.endYear || '-'}
@@ -871,6 +905,7 @@ const FreelancerProfile = () => {
                                     </div>
                                 ))}
                             </div>
+                            )}
                         </div>
                     </div>
 
@@ -1056,6 +1091,10 @@ const FreelancerProfile = () => {
                             </div>
                         )}
 
+                        <ProfessionalIntegrationStrip surface="profile" />
+                        {isOwner ? <CreatorAnalyticsCard compact /> : null}
+                        {!isOwner ? <PeopleYouMayKnowRail limit={4} /> : null}
+
                         {/* Stats Card */}
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-100">
@@ -1081,6 +1120,11 @@ const FreelancerProfile = () => {
                         {/* Skills */}
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <h3 className="font-bold text-gray-900 mb-4">Skills</h3>
+                            {(profile?.skills || []).length === 0 ? (
+                              <p className="text-sm text-gray-500">
+                                {isOwner ? 'Add skills in Edit Profile so clients can discover your strengths.' : 'No skills listed yet.'}
+                              </p>
+                            ) : (
                             <div className="flex flex-wrap gap-2">
                                 {(profile?.skills || []).map(skill => (
                                     <span key={skill} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium">
@@ -1088,26 +1132,33 @@ const FreelancerProfile = () => {
                                     </span>
                                 ))}
                             </div>
+                            )}
                         </div>
 
                         {/* Certifications */}
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <h3 className="font-bold text-gray-900 mb-4 flex items-center">
-                                <Award className="w-5 h-5 mr-2 text-blue-600" /> Certifications
+                                <Award className="w-5 h-5 mr-2 text-blue-600" aria-hidden="true" /> Certifications
                             </h3>
+                            {(profile?.certifications || []).length === 0 ? (
+                              <p className="text-sm text-gray-500">
+                                {isOwner ? 'Add certifications to strengthen trust signals.' : 'No certifications listed yet.'}
+                              </p>
+                            ) : (
                             <div className="space-y-4">
-                                {(profile?.certifications || []).map((cert: any) => (
-                                    <div key={cert.id} className="border border-gray-100 rounded-lg p-3 bg-gray-50">
+                                {(profile?.certifications || []).map((cert: any, index: number) => (
+                                    <div key={cert.id || `cert-${index}`} className="border border-gray-100 rounded-lg p-3 bg-gray-50">
                                         <div className="flex items-start justify-between">
                                             <div>
                                                 <div className="font-bold text-sm text-gray-900">{cert.name || 'Certification'}</div>
                                                 <div className="text-xs text-gray-500">{cert.issuer || 'Issuer'} &middot; {cert.issue_date || cert.issueDate || '-'}</div>
                                             </div>
-                                            {cert.isVerified && <CheckCircle className="w-4 h-4 text-green-500" />}
+                                            {cert.isVerified && <CheckCircle className="w-4 h-4 text-green-500" aria-hidden="true" />}
                                         </div>
                                     </div>
                                 ))}
                             </div>
+                            )}
                         </div>
                     </div>
                 </div>

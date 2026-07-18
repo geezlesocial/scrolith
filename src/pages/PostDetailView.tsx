@@ -642,6 +642,52 @@ export default function PostDetailView() {
     setDetailGraphicRevealed(false);
   }, [post?.id]);
 
+  // SEO / accessibility: page title + description for public post share surfaces
+  useEffect(() => {
+    if (!post) return;
+    const authorName = String(post?.author?.name || post?.author?.username || 'Scrolith').trim();
+    const titleText = String(post?.title || '').trim();
+    const bodyPreview = String(post?.content || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140);
+    const pageTitle = titleText
+      ? `${titleText} · ${authorName} | Scrolith`
+      : bodyPreview
+        ? `${bodyPreview}${bodyPreview.length >= 140 ? '…' : ''} · ${authorName} | Scrolith`
+        : `Post by ${authorName} | Scrolith`;
+    const prevTitle = document.title;
+    if (document.title !== pageTitle) document.title = pageTitle;
+
+    let descMeta = document.querySelector("meta[name='description']") as HTMLMetaElement | null;
+    const prevDesc = descMeta?.content || '';
+    const descContent = bodyPreview || titleText || `Post by ${authorName} on Scrolith`;
+    if (!descMeta) {
+      descMeta = document.createElement('meta');
+      descMeta.name = 'description';
+      document.head.appendChild(descMeta);
+    }
+    if (descMeta.content !== descContent) descMeta.content = descContent;
+
+    const ensureOg = (property: string, content: string) => {
+      let tag = document.querySelector(`meta[property='${property}']`) as HTMLMetaElement | null;
+      if (!tag) {
+        tag = document.createElement('meta');
+        tag.setAttribute('property', property);
+        document.head.appendChild(tag);
+      }
+      tag.content = content;
+    };
+    ensureOg('og:title', pageTitle);
+    ensureOg('og:description', descContent);
+    ensureOg('og:type', 'article');
+
+    return () => {
+      if (document.title === pageTitle) document.title = prevTitle;
+      if (descMeta && descMeta.content === descContent) descMeta.content = prevDesc;
+    };
+  }, [post?.id, post?.title, post?.content, post?.author?.name, post?.author?.username]);
+
   const loadFeed = useCallback(
     async (cursor?: string | null, replace = false) => {
       if (loadMoreRef.current) return;
@@ -1103,7 +1149,10 @@ export default function PostDetailView() {
 
   const analytics = useMemo(
     () => ({
-      reactions: Object.values(post?.interactions?.reactions || {}).reduce((sum, count) => sum + toCount(count, 0), 0),
+      reactions: Object.values(post?.interactions?.reactions || {}).reduce(
+        (sum: number, count) => sum + toCount(count, 0),
+        0
+      ),
       comments: toCount(commentCount, 0),
       reposts: toCount(post?.repostsCount ?? post?.interactions?.reposts ?? 0, 0),
       shares: toCount(post?.sharesCount ?? post?.interactions?.shares ?? 0, 0),

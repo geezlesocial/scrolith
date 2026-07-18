@@ -9,6 +9,8 @@ import { CommunityService } from '../../../services/community';
 import { useUser } from '../../../context/UserContext';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 import ProfessionalIntegrationStrip from '../../../components/discovery/ProfessionalIntegrationStrip';
+import PeopleYouMayKnowRail from '../../../components/discovery/PeopleYouMayKnowRail';
+import EmptyState from '../../../components/ui/EmptyState';
 
 type Tab = 'following' | 'followers';
 
@@ -97,9 +99,14 @@ export default function MobileNetworkScreen() {
       <div className="mb-3">
         <ProfessionalIntegrationStrip surface="mobile" compact />
       </div>
-      <div className="mb-3 flex gap-2">
+      <div className="mb-3">
+        <PeopleYouMayKnowRail limit={5} title="People you may know" />
+      </div>
+      <div className="mb-3 flex gap-2" role="tablist" aria-label="Network lists">
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'following'}
           onClick={() => setTab('following')}
           className={[
             'flex-1 rounded-full px-4 py-2 text-sm font-semibold',
@@ -110,6 +117,8 @@ export default function MobileNetworkScreen() {
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tab === 'followers'}
           onClick={() => setTab('followers')}
           className={[
             'flex-1 rounded-full px-4 py-2 text-sm font-semibold',
@@ -134,7 +143,22 @@ export default function MobileNetworkScreen() {
         </div>
       ) : null}
 
-      <div className="space-y-3">
+      <div className="space-y-3" role="tabpanel" aria-label={header}>
+        {!error && items.length === 0 ? (
+          <EmptyState
+            title={tab === 'following' ? 'You are not following anyone yet' : 'No followers yet'}
+            description={
+              tab === 'following'
+                ? 'Discover people from the suggestions above to grow your professional network.'
+                : 'Share your profile and posts so the right people can follow you.'
+            }
+            ctaLabel="Explore community"
+            onCtaClick={() => {
+              window.location.assign('/community');
+            }}
+          />
+        ) : null}
+
         {items.map((row) => {
           const followId = String(row?.followId || row?.id || '').trim();
           const isBlocked = Boolean(row?.isBlocked);
@@ -146,7 +170,7 @@ export default function MobileNetworkScreen() {
             <div key={followId || u.id} className="flex items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
               <Link to={`/u/${encodeURIComponent(u.username || u.id)}`} className="flex min-w-0 items-center gap-3 touch-manipulation">
                 <div className="h-12 w-12 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                  {u.avatar ? <img src={u.avatar} alt={u.name} className="h-full w-full object-cover" /> : null}
+                  {u.avatar ? <img src={u.avatar} alt="" className="h-full w-full object-cover" /> : null}
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-slate-900">{u.name}</div>
@@ -160,8 +184,9 @@ export default function MobileNetworkScreen() {
                     type="button"
                     className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                     onClick={() => void CommunityService.unfollowTarget(followId).then(() => load('initial')).catch(() => {})}
+                    aria-label={`Unfollow ${u.name}`}
                   >
-                    <UserMinus className="h-4 w-4" />
+                    <UserMinus className="h-4 w-4" aria-hidden="true" />
                     Unfollow
                   </button>
                 ) : null}
@@ -177,9 +202,9 @@ export default function MobileNetworkScreen() {
                       const op = isBlocked ? CommunityService.unblockUser(u.id) : CommunityService.blockUser(u.id);
                       void op.then(() => load('initial')).catch(() => {});
                     }}
-                    aria-label={isBlocked ? 'Unblock user' : 'Block user'}
+                    aria-label={isBlocked ? `Unblock ${u.name}` : `Block ${u.name}`}
                   >
-                    <Shield className="h-4 w-4" />
+                    <Shield className="h-4 w-4" aria-hidden="true" />
                     {isBlocked ? 'Unblock' : 'Block'}
                   </button>
                 ) : null}
@@ -189,8 +214,9 @@ export default function MobileNetworkScreen() {
                     type="button"
                     className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white"
                     onClick={() => void CommunityService.followTarget({ targetType: 'user', targetId: u.id }).catch(() => {})}
+                    aria-label={`Follow ${u.name} back`}
                   >
-                    <UserPlus className="h-4 w-4" />
+                    <UserPlus className="h-4 w-4" aria-hidden="true" />
                     Follow back
                   </button>
                 ) : null}
@@ -200,7 +226,7 @@ export default function MobileNetworkScreen() {
         })}
 
         {loadingMore ? (
-          <div className="py-3 text-center text-sm text-slate-600">Loading more...</div>
+          <div className="py-3 text-center text-sm text-slate-600" role="status">Loading more...</div>
         ) : null}
         <div ref={sentinelRef} className="h-6" />
         {!cursor && items.length ? <div className="py-6 text-center text-xs text-slate-500">End of list.</div> : null}

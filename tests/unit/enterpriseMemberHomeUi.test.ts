@@ -163,7 +163,9 @@ test('no second MemberHomeSection mount beside desktop branch in App', () => {
 });
 
 test('App desktop main shell can take full width', () => {
-  assert.match(appSource, /main className="w-full min-w-0 flex-grow"/);
+  // Landmark may include id/tabIndex for skip-link a11y; class contract stays full-width.
+  assert.match(appSource, /main[^>]*className="w-full min-w-0 flex-grow"/);
+  assert.match(appSource, /id="main-content"/);
 });
 
 test('post card avoids hover lift (layout shake prevention)', () => {

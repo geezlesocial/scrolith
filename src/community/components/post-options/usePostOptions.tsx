@@ -231,7 +231,12 @@ export function usePostOptions({
     void run('report', async () => {
       const reason = prompt('Report reason (optional):') || undefined;
       const resp = await postOptionsApi.report(postId, { reason });
-      showNotification('success', 'Report submitted', resp?.message || 'Thanks for helping keep Scrolith safe.');
+      showNotification(
+        'success',
+        'Report submitted',
+        resp?.message ||
+          'Thanks for helping keep Scrolith safe. Our moderation team will review this report. You can continue using the platform while we investigate.'
+      );
     });
   }, [ensureAuth, postId, run, showNotification]);
 

@@ -72,10 +72,11 @@ export default function ProfessionalIntegrationStrip({
     <section
       className={`rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/40 to-slate-50 p-4 shadow-sm ${className}`.trim()}
       data-testid={`professional-strip-${surface}`}
+      aria-label={title}
     >
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-emerald-600" />
+          <Sparkles className="h-4 w-4 text-emerald-600" aria-hidden="true" />
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
         </div>
         <Link to="/scrolitha?intent=career" className="text-[11px] font-semibold text-emerald-700 hover:underline">

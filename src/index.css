@@ -36,6 +36,54 @@ html {
   :root {
     --enterprise-transition: 0ms;
   }
+
+  /* Enterprise a11y: dampen non-essential motion site-wide (WCAG 2.3.3) */
+  html:focus-within {
+    scroll-behavior: auto !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Skip-link focus target: ensure main is focusable without layout shift */
+#main-content:focus {
+  outline: none;
+}
+
+#main-content:focus-visible {
+  outline: 2px solid rgb(16 185 129);
+  outline-offset: 4px;
+}
+
+/* Skip link: visually hidden until keyboard focus (more reliable than focus:not-sr-only) */
+.scrolith-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 10000;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  background: #0f172a;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.35);
+}
+
+.scrolith-skip-link:focus,
+.scrolith-skip-link:focus-visible {
+  left: 1rem;
+  top: 1rem;
+  outline: 2px solid #34d399;
+  outline-offset: 2px;
 }
 
 /*
