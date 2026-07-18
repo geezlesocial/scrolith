@@ -230,14 +230,20 @@ export const processScrolithaMessagingTurn = async (input: {
   /** When set, emits provider-independent stream events (socket or SSE adapter) */
   onStreamEvent?: ScrolithaStreamChunkHandler;
   preferStream?: boolean;
+  /** Phase 20.7.2 — optional abort for request budget */
+  signal?: AbortSignal;
 }): Promise<ScrolithaMessagingTurnResult> => {
   const started = Date.now();
   const userId = String(input.userId || '').trim();
   const conversationId = String(input.conversationId || '').trim();
   const userText = String(input.userText || '').trim();
   const clientRequestId = String(input.clientRequestId || '').trim() || null;
+  const isAborted = () => Boolean(input.signal?.aborted);
   if (!userId || !conversationId || !userText) {
     return { skipped: true, reason: 'missing_input' };
+  }
+  if (isAborted()) {
+    return { skipped: true, reason: 'turn_budget_exceeded' };
   }
 
   const enabled = await isMessagingAssistantEnabled(input.actor);
@@ -338,6 +344,10 @@ export const processScrolithaMessagingTurn = async (input: {
     });
   }
 
+  if (isAborted()) {
+    return { skipped: true, reason: 'turn_budget_exceeded', clientRequestId };
+  }
+
   const { scrolithaChat } = await import('./scrolitha.orchestrator');
   let chatResult: any;
   try {
@@ -359,7 +369,17 @@ export const processScrolithaMessagingTurn = async (input: {
       input.actor,
       input.app
     );
+    if (isAborted()) {
+      // Prefer returning a coherent answer if generation already finished.
+      // Only skip when we truly have no reply to persist.
+      if (!String(chatResult?.reply || '').trim()) {
+        return { skipped: true, reason: 'turn_budget_exceeded', clientRequestId };
+      }
+    }
   } catch (error: any) {
+    if (isAborted()) {
+      return { skipped: true, reason: 'turn_budget_exceeded', clientRequestId };
+    }
     const fallback =
       'I could not complete that request right now. Please try again in a moment, or rephrase your question.';
     let errorCards: any[] = [];

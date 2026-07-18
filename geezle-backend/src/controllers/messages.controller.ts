@@ -1507,39 +1507,207 @@ export const postMessage = async (req: Request, res: Response) => {
       console.warn('Failed to send message notifications', notifyError);
     });
 
-    // Phase 20.7: Scrolitha DM AI turn must be awaited (Cloud Run can drop fire-and-forget work).
-    // User message is already persisted; AI failures must not fail the user send.
-    if (text && senderId === userId && !admin) {
+    // Phase 20.7 / 20.7.2: Scrolitha DM AI turn must finish inside this request
+    // (Cloud Run drops fire-and-forget). User message already persisted.
+    // AI failures must not fail the user send.
+    // Phase 20.7.2 P1: do NOT skip admin/moderator users — that caused silent no-reply.
+    let scrolithaTurn: Record<string, unknown> | null = null;
+    if (text && senderId === userId) {
       try {
         const {
           conversationIncludesScrolitha,
           processScrolithaMessagingTurn
         } = await import('../services/scrolitha/scrolitha.messagingBridge');
         const isScrolithaDm = await conversationIncludesScrolitha(conversation.id);
-        if (isScrolithaDm) {
-          const { getScrolithaPlatformUserId } = await import(
+        if (!isScrolithaDm) {
+          scrolithaTurn = { status: 'skipped', reason: 'not_scrolitha_dm' };
+        } else {
+          const { getScrolithaPlatformUserId, ensureScrolithaPlatformUser } = await import(
             '../services/scrolitha/scrolitha.platformIdentity'
           );
           const platformId = await getScrolithaPlatformUserId();
-          if (senderId !== platformId) {
+          if (senderId === platformId) {
+            scrolithaTurn = { status: 'skipped', reason: 'bot_loop' };
+          } else {
             const { resolveActorFromRequest } = await import('../services/scrolitha/scrolitha.audit');
             const actor = resolveActorFromRequest(req);
-            await processScrolithaMessagingTurn({
-              userId: senderId,
-              conversationId: conversation.id,
-              userText: text,
-              actor,
-              app: req.app,
-              emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
-            });
+            const clientRequestId =
+              String(
+                req.body?.clientRequestId ||
+                  req.body?.client_request_id ||
+                  req.headers['x-client-request-id'] ||
+                  ''
+              ).trim() || null;
+
+            const AI_TURN_BUDGET_MS = Math.max(
+              10_000,
+              Math.min(90_000, Number(process.env.SCROLITHA_MESSAGING_TURN_BUDGET_MS || 50_000) || 50_000)
+            );
+            const abortController = new AbortController();
+            const budgetTimer = setTimeout(() => abortController.abort(), AI_TURN_BUDGET_MS);
+
+            let turnResult: any;
+            try {
+              turnResult = await processScrolithaMessagingTurn({
+                userId: senderId,
+                conversationId: conversation.id,
+                userText: text,
+                actor,
+                app: req.app,
+                clientRequestId,
+                signal: abortController.signal,
+                emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
+              });
+            } finally {
+              clearTimeout(budgetTimer);
+            }
+
+            if (turnResult?.skipped) {
+              // If aborted by budget, force a single recoverable assistant message.
+              if (
+                turnResult.reason === 'aborted' ||
+                turnResult.reason === 'turn_budget_exceeded' ||
+                abortController.signal.aborted
+              ) {
+                const fallbackText =
+                  'Scrolitha is temporarily unable to respond. Please try again.';
+                const platformUser = await ensureScrolithaPlatformUser();
+                // Prefer existing assistant for this clientRequestId if turn partially finished.
+                let assistantId = turnResult.assistantMessageId as string | undefined;
+                let assistantText = String(turnResult.reply || fallbackText);
+                if (!assistantId) {
+                  const failed = await prisma.directMessage.create({
+                    data: {
+                      conversationId: conversation.id,
+                      senderId: platformUser.id,
+                      text: fallbackText,
+                      metadata: {
+                        scrolitha: true,
+                        kind: 'error_fallback',
+                        error: turnResult.reason || 'turn_budget_exceeded',
+                        retryable: true,
+                        clientRequestId
+                      }
+                    }
+                  });
+                  await prisma.conversation.update({
+                    where: { id: conversation.id },
+                    data: {
+                      lastMessageText: fallbackText.slice(0, 240),
+                      lastMessageAt: failed.createdAt,
+                      lastMessageSenderId: platformUser.id
+                    }
+                  });
+                  assistantId = failed.id;
+                  assistantText = fallbackText;
+                  const assistantPayload = {
+                    id: failed.id,
+                    conversation_id: conversation.id,
+                    conversationId: conversation.id,
+                    sender_id: platformUser.id,
+                    senderId: platformUser.id,
+                    receiver_id: senderId,
+                    receiverId: senderId,
+                    text: fallbackText,
+                    timestamp: failed.createdAt.toISOString(),
+                    is_read: false,
+                    is_scrolitha: true,
+                    isScrolitha: true,
+                    metadata: failed.metadata
+                  };
+                  emitToUser(req, senderId, 'messages:new', assistantPayload);
+                  scrolithaTurn = {
+                    status: 'error',
+                    reason: turnResult.reason || 'turn_budget_exceeded',
+                    assistantMessageId: assistantId,
+                    replyPreview: assistantText.slice(0, 160),
+                    assistantMessage: assistantPayload,
+                    retryable: true
+                  };
+                } else {
+                  scrolithaTurn = {
+                    status: 'error',
+                    reason: turnResult.reason || 'turn_budget_exceeded',
+                    assistantMessageId: assistantId,
+                    replyPreview: assistantText.slice(0, 160),
+                    retryable: true
+                  };
+                }
+              } else {
+                console.warn('[messages] scrolitha turn skipped', {
+                  conversationId: conversation.id,
+                  reason: turnResult.reason,
+                  role,
+                  isAdmin: admin
+                });
+                scrolithaTurn = {
+                  status: 'skipped',
+                  reason: turnResult.reason || 'skipped',
+                  retryable: turnResult.reason === 'messaging_assistant_disabled'
+                };
+              }
+            } else {
+              let assistantMessage: Record<string, unknown> | null = null;
+              const assistantMessageId = turnResult?.assistantMessageId || null;
+              if (assistantMessageId) {
+                try {
+                  const row = await prisma.directMessage.findUnique({
+                    where: { id: String(assistantMessageId) }
+                  });
+                  if (row) {
+                    const platformUser = await ensureScrolithaPlatformUser();
+                    assistantMessage = {
+                      id: row.id,
+                      conversation_id: conversation.id,
+                      conversationId: conversation.id,
+                      sender_id: platformUser.id,
+                      senderId: platformUser.id,
+                      receiver_id: senderId,
+                      receiverId: senderId,
+                      text: row.text,
+                      timestamp: row.createdAt.toISOString(),
+                      is_read: false,
+                      is_scrolitha: true,
+                      isScrolitha: true,
+                      metadata: row.metadata || null
+                    };
+                  }
+                } catch {
+                  assistantMessage = null;
+                }
+              }
+              scrolithaTurn = {
+                status: 'ok',
+                reason: null,
+                assistantMessageId,
+                replyPreview: String(turnResult?.reply || '').slice(0, 160),
+                cardsCount: Array.isArray(turnResult?.cards) ? turnResult.cards.length : 0,
+                streamingMode: turnResult?.streamingMode || 'none',
+                assistantMessage,
+                skipped: false
+              };
+            }
           }
         }
-      } catch (bridgeError) {
-        console.warn('[messages] scrolitha messaging bridge failed', bridgeError);
+      } catch (bridgeError: any) {
+        console.warn('[messages] scrolitha messaging bridge failed', {
+          conversationId: conversation.id,
+          error: String(bridgeError?.message || bridgeError),
+          code: bridgeError?.code || null
+        });
+        scrolithaTurn = {
+          status: 'error',
+          reason: String(bridgeError?.code || bridgeError?.message || 'bridge_failed').slice(0, 120),
+          retryable: true
+        };
       }
     }
 
-    return res.json({ success: true, data: payload });
+    return res.json({
+      success: true,
+      data: payload,
+      ...(scrolithaTurn ? { scrolithaTurn } : {})
+    });
   } catch (error: any) {
     console.error('Post message error:', error);
     traceMessageEvent('api.post_message.error', {
