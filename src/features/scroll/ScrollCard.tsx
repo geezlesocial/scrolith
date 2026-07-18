@@ -135,8 +135,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onDelete,
   onRemix,
   onOpenSeries,
-  headlinePreviewLimit = 72,
-  descriptionPreviewLimit = 120,
+  headlinePreviewLimit = 56,
+  descriptionPreviewLimit = 90,
   interestSurveyEnabled = false,
   initialIsFollowing,
   reactionTargetType = 'SCROLL',
@@ -610,7 +610,17 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           return;
         }
         mediaLastTapAtRef.current = now;
+        // Single tap toggles immersive overlays (chrome) without double-tap like.
+        setControlsVisible((prev) => !prev);
+        setTouchOverlayMode(true);
         resumePlaybackFromGesture();
+      }}
+      onClick={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, a, input, textarea, select, label')) return;
+        // Desktop single-click also toggles chrome so metadata can recede.
+        if (touchOverlayMode) return;
+        setControlsVisible((prev) => !prev);
       }}
       onDoubleClick={(event) => {
         const target = event.target as HTMLElement | null;
@@ -656,7 +666,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               onEnded={handleVideoEnded}
               poster={media.poster}
               onContextMenu={(event) => event.preventDefault()}
-              onClick={() => resumePlaybackFromGesture()}
+              onClick={(event) => {
+                event.stopPropagation();
+                setControlsVisible((prev) => !prev);
+                setTouchOverlayMode(true);
+                resumePlaybackFromGesture();
+              }}
             />
           </GraphicWarningGate>
         </div>

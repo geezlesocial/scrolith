@@ -8633,12 +8633,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     isVerified: post.author?.isVerified,
                     isPro: post.author?.isPro
                   };
-                  const followTargetId =
-                    String(resolvedAuthor.type || '').toLowerCase() === 'user'
-                      ? String(resolvedAuthor.id || '')
-                      : '';
-                  const initialIsFollowing =
-                    followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
+                  const authorTypeNorm = String(resolvedAuthor.type || 'user').toLowerCase();
+                  const followTargetId = String(resolvedAuthor.id || '').trim();
+                  const initialIsFollowing = followTargetId
+                    ? followStateMap[followTargetId] ??
+                      post.viewer?.isFollowingAuthor ??
+                      post.viewer?.isFollowingPage
+                    : undefined;
                   return (
                     <React.Fragment key={getStableFeedReactKey(post, postIndex)}>
                       <article
@@ -8648,6 +8649,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         author={resolvedAuthor}
                         createdAt={post.createdAt}
                         currentUserId={user?.id}
+                        showFollow={Boolean(followTargetId)}
                         initialIsFollowing={initialIsFollowing}
                         onRequireLogin={() => {
                           if (confirm('Log in to follow users?')) window.location.href = '/auth/login';

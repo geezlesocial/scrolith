@@ -4,6 +4,8 @@ import { applyFollowUpdatePayload, setFollowStatus, useFollowStatus } from '../f
 
 type FollowButtonProps = {
   targetUserId?: string | null;
+  /** User or Page follow target. Pages use the same follow graph with targetType=page. */
+  targetType?: 'user' | 'page';
   currentUserId?: string | null;
   initialIsFollowing?: boolean;
   disabled?: boolean;
@@ -28,6 +30,7 @@ const getFollowErrorMessage = (error: any) => {
 
 const FollowButton: React.FC<FollowButtonProps> = ({
   targetUserId,
+  targetType = 'user',
   currentUserId,
   initialIsFollowing,
   disabled,
@@ -39,10 +42,11 @@ const FollowButton: React.FC<FollowButtonProps> = ({
 }) => {
   const [busy, setBusy] = useState(false);
   const id = String(targetUserId || '').trim();
+  const resolvedType: 'user' | 'page' = targetType === 'page' ? 'page' : 'user';
   const selfId = String(currentUserId || '').trim();
   const followStatus = useFollowStatus(id, initialIsFollowing);
   const isFollowing = followStatus === true;
-  const isSelf = Boolean(id && selfId && id === selfId);
+  const isSelf = Boolean(resolvedType === 'user' && id && selfId && id === selfId);
   const isDisabled = Boolean(disabled || busy || !id || isSelf);
 
   // If the caller didn't provide an initial follow state, lazily resolve it
@@ -112,7 +116,9 @@ const FollowButton: React.FC<FollowButtonProps> = ({
 
     try {
       if (next) {
-        await CommunityService.followTarget({ targetType: 'user', targetId: id });
+        await CommunityService.followTarget({ targetType: resolvedType, targetId: id });
+      } else if (resolvedType === 'page') {
+        await CommunityService.unfollowTarget(id);
       } else {
         await CommunityService.unfollowUser(id);
       }
@@ -122,7 +128,7 @@ const FollowButton: React.FC<FollowButtonProps> = ({
             detail: {
               actorUserId: selfId,
               targetUserId: id,
-              targetType: 'user',
+              targetType: resolvedType,
               targetId: id,
               isFollowing: next,
               action: next ? 'follow' : 'unfollow'

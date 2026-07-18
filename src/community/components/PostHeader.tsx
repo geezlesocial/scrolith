@@ -88,11 +88,11 @@ const PostHeader: React.FC<PostHeaderProps> = ({
   const authorHandle = String(author.username || '').trim().replace(/^@+/, '');
   const headline = String(author.headline || '').trim();
   const formattedCreatedAt = formatPostHeaderTimestamp(createdAt);
+  const isBusinessAuthor = authorType === 'business' || authorType === 'page' || authorType === 'company';
   const canShowFollow =
     showFollow &&
-    authorType === 'user' &&
     Boolean(author.id) &&
-    String(author.id || '') !== String(currentUserId || '');
+    (isBusinessAuthor || (authorType === 'user' && String(author.id || '') !== String(currentUserId || '')));
 
   return (
     <header className="flex min-w-0 items-start gap-3 sm:gap-3.5">
@@ -181,6 +181,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             {canShowFollow ? (
               <FollowButton
                 targetUserId={author.id}
+                targetType={isBusinessAuthor ? 'page' : 'user'}
                 currentUserId={currentUserId}
                 initialIsFollowing={initialIsFollowing}
                 onRequireLogin={onRequireLogin}

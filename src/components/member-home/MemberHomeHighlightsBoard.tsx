@@ -298,7 +298,19 @@ const ModuleThumb = ({
   const shouldRenderVideo = Boolean(
     videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
-  const playVideo = shouldRenderVideo && (!hoverPreview || (hoverActive && previewAllowed));
+  // Touch/mobile: autoplay when in view (hoverPreview still limits desktop to hover).
+  const isCoarsePointer =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const playVideo =
+    shouldRenderVideo &&
+    !prefersReducedMotion &&
+    (!hoverPreview || isCoarsePointer || (hoverActive && previewAllowed));
   const optimizedPosterUrl = shouldRenderVideo
     ? resolveResponsiveAssetUrl(posterUrl || src || fallbackMediaUrl || undefined, {
         width: size * 2,
@@ -337,9 +349,15 @@ const ModuleThumb = ({
           loop
           muted
           defaultMuted
-          autoplayEnabled
-          // Desktop hover path forces play via hoverActive; mobile uses visibility.
-          active={hoverPreview ? hoverActive && previewAllowed : true}
+          autoplayEnabled={!prefersReducedMotion}
+          // Desktop: hover-gated. Mobile/coarse pointer: play when in viewport.
+          active={
+            hoverPreview
+              ? isCoarsePointer
+                ? true
+                : hoverActive && previewAllowed
+              : true
+          }
           threshold={0.35}
           rootMargin="0px 0px 8% 0px"
           showMuteToggle={false}

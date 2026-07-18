@@ -1162,7 +1162,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
   return (
     <div
       id={`post-${postId}-comments`}
-      className="mt-4 rounded-[28px] border border-slate-100 bg-gradient-to-b from-slate-50 to-white p-4 shadow-[0_20px_60px_rgba(15,23,42,0.05)]"
+      className="mt-4 rounded-[28px] border border-slate-100 bg-gradient-to-b from-slate-50 to-white p-3 shadow-[0_20px_60px_rgba(15,23,42,0.05)] sm:p-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -1190,7 +1190,10 @@ const PostComments: React.FC<PostCommentsProps> = ({
       )}
 
       {user && (
-        <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+        <div
+          className="sticky bottom-0 z-20 mt-3 rounded-[24px] border border-slate-200 bg-white/95 p-3 shadow-[0_-8px_30px_rgba(15,23,42,0.08)] backdrop-blur sm:static sm:mt-4 sm:rounded-[28px] sm:p-4 sm:shadow-sm sm:backdrop-blur-none"
+          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+        >
           <CommentAiAssist
             value={draft}
             onReplace={setDraft}
@@ -1212,7 +1215,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 : `Comment as ${user?.name || user?.username || 'you'} — type @ to mention`
             }
             disabled={commentsDisabled || submitting}
-            className="mt-3 min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100"
+            className="mt-2 min-h-[72px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100 sm:mt-3 sm:min-h-[96px] sm:px-4 sm:py-3"
           />
           <EmojiPhraseSuggestionBar
             value={draft}
