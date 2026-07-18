@@ -1742,9 +1742,9 @@ const Messages = () => {
           });
 
           // Clear Scrolitha thinking when an assistant message arrives for the active thread.
-          const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
+          const incomingFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
           if (
-              isFromOther &&
+              incomingFromOther &&
               activeConvoIdRef.current === convoId &&
               (Boolean((message as any)?.isScrolitha) ||
                   Boolean((message as any)?.is_scrolitha) ||
@@ -1767,7 +1767,7 @@ const Messages = () => {
                   // Reconcile optimistic clientSendId rows the same way as dock.
                   const nextMessages = reconcileOptimisticMessage(c.messages || [], message);
                   const isActive = activeConvoIdRef.current === convoId;
-                  const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
+                  const isFromOther = incomingFromOther;
                   const unreadBase = Number(c.unreadCount ?? c.unread_count ?? 0) || 0;
                   // Full-page local thread state only. Shared badge unread is owned by MessageContext.
                   // Do not re-increment when the same message id is re-delivered.
