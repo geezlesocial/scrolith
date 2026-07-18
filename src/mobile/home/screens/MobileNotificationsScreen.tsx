@@ -9,6 +9,10 @@ import {
   getNotificationCategoryLabel,
   isExternalNotificationUrl
 } from '../../../utils/notificationRouting';
+import {
+  groupNotificationsForDisplay,
+  muteConversationNotifications
+} from '../../../utils/notificationExcellence';
 import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
 export default function MobileNotificationsScreen({
@@ -53,6 +57,7 @@ export default function MobileNotificationsScreen({
   }, [buckets]);
 
   const visible = tab === 'community' ? buckets.community : buckets.home;
+  const groupedVisible = useMemo(() => groupNotificationsForDisplay(visible), [visible]);
   const growthShortcuts = useMemo(() => {
     if (!isAuthenticated || !normalizedRole || normalizedRole === 'guest') return [];
     if (dashboardBasePath === '/admin/dashboard') {
@@ -207,12 +212,13 @@ export default function MobileNotificationsScreen({
         </div>
       </div>
 
-      {!visible.length ? (
+      {!groupedVisible.length ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-600">No notifications yet.</div>
       ) : (
         <div className="space-y-3">
-          {visible.map((n: any) => {
-            const id = String(n?.id || '');
+          {groupedVisible.map((group) => {
+            const n = group.latest;
+            const id = String(n?.id || group.groupKey);
             const isRead = Boolean(n?.isRead ?? n?.is_read);
             const title = String(n?.title || 'Notification');
             const message = String(n?.message || '');
@@ -227,49 +233,83 @@ export default function MobileNotificationsScreen({
                 title,
                 metadata: n?.metadata
               });
+            const conversationId = String(
+              n?.conversationId || n?.metadata?.conversationId || n?.metadata?.conversation_id || ''
+            ).trim();
             return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => {
-                  if (!isRead && id) markAsRead?.(id);
-                  const metadata =
-                    n?.metadata && typeof n.metadata === 'object' ? (n.metadata as Record<string, any>) : {};
-                  const isCampaign =
-                    String(n?.type || '').toLowerCase() === 'app_campaign' || Boolean(metadata?.campaignId);
-                  if (isCampaign) {
-                    setSelectedCampaign(n);
-                    return;
-                  }
-                  if (actionUrl) {
-                    openTarget(actionUrl);
-                  }
-                }}
+              <div
+                key={group.groupKey}
                 className={[
                   'w-full rounded-3xl border bg-white p-4 text-left shadow-sm',
                   isRead ? 'border-slate-200' : 'border-blue-200'
                 ].join(' ')}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="mb-1.5 flex flex-wrap items-center gap-2">
-                      <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                        {categoryLabel}
-                      </span>
+                <button
+                  type="button"
+                  className="w-full text-left"
+                  onClick={() => {
+                    if (!isRead && id) markAsRead?.(id);
+                    // Mark stack as read for collapsed groups.
+                    if (group.count > 1) {
+                      group.items.forEach((item: any) => {
+                        const itemId = String(item?.id || '');
+                        if (itemId && !Boolean(item?.isRead ?? item?.is_read)) markAsRead?.(itemId);
+                      });
+                    }
+                    const metadata =
+                      n?.metadata && typeof n.metadata === 'object' ? (n.metadata as Record<string, any>) : {};
+                    const isCampaign =
+                      String(n?.type || '').toLowerCase() === 'app_campaign' || Boolean(metadata?.campaignId);
+                    if (isCampaign) {
+                      setSelectedCampaign(n);
+                      return;
+                    }
+                    if (actionUrl) {
+                      openTarget(actionUrl);
+                    }
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                        <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                          {categoryLabel}
+                        </span>
+                        {group.count > 1 ? (
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                            {group.count} stacked
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
+                      {message ? <div className="mt-1 text-sm text-slate-600 line-clamp-2">{message}</div> : null}
+                      {ts ? <div className="mt-2 text-xs text-slate-400">{new Date(ts).toLocaleString()}</div> : null}
                     </div>
-                    <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
-                    {message ? <div className="mt-1 text-sm text-slate-600 line-clamp-2">{message}</div> : null}
-                    {ts ? <div className="mt-2 text-xs text-slate-400">{new Date(ts).toLocaleString()}</div> : null}
+                    {isRead ? (
+                      <div className="rounded-full border border-slate-200 bg-white p-2 text-slate-500" title="Read">
+                        <Check className="h-4 w-4" />
+                      </div>
+                    ) : (
+                      <div className="h-2.5 w-2.5 rounded-full bg-blue-600" aria-label="Unread" />
+                    )}
                   </div>
-                  {isRead ? (
-                    <div className="rounded-full border border-slate-200 bg-white p-2 text-slate-500" title="Read">
-                      <Check className="h-4 w-4" />
-                    </div>
-                  ) : (
-                    <div className="h-2.5 w-2.5 rounded-full bg-blue-600" aria-label="Unread" />
-                  )}
-                </div>
-              </button>
+                </button>
+                {conversationId ? (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        muteConversationNotifications(conversationId, 24 * 60 * 60 * 1000);
+                      }}
+                    >
+                      Mute 24h
+                    </button>
+                  </div>
+                ) : null}
+              </div>
             );
           })}
         </div>
