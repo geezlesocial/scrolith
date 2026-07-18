@@ -657,8 +657,21 @@ const Messages = () => {
               setMessageSearchResults([]);
               if (error?.response?.status === 401) {
                   setMessageSearchError('Please sign in to search messages.');
+              } else if (
+                  error?.response?.status === 404 ||
+                  /api route not found|not found/i.test(
+                      String(error?.response?.data?.error || error?.message || '')
+                  )
+              ) {
+                  // Never surface raw backend 404 text in the Messages search UI.
+                  setMessageSearchError('Search is temporarily unavailable. Please try again.');
               } else {
-                  setMessageSearchError(error?.response?.data?.error || error?.message || 'Search is temporarily unavailable.');
+                  setMessageSearchError(
+                      error?.response?.data?.error &&
+                          !/api route not found/i.test(String(error.response.data.error))
+                          ? String(error.response.data.error)
+                          : 'Search is temporarily unavailable. Please try again.'
+                  );
               }
           })
           .finally(() => {
