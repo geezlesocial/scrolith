@@ -3,6 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import prisma from '../utils/prismaClient';
 import { buildNotificationActionUrl, normalizeNotificationActionUrl } from './notificationActionUrl.service';
+import {
+  formatNotificationTitleWithCategory,
+  resolveAndroidChannelId,
+  resolveNotificationCategory,
+  getNotificationCategoryLabel
+} from './notificationAndroidChannels';
 
 export type PushNotificationPayload = {
   id?: string;
@@ -72,6 +78,7 @@ const INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
   'messaging/invalid-argument'
 ]);
+/** @deprecated Prefer resolveAndroidChannelId — kept as migration fallback */
 const SCROLITH_ANDROID_CHANNEL_ID = 'scrolith_alerts_v2';
 const SCROLITH_ANDROID_SOUND = 'scrolith';
 
@@ -312,7 +319,17 @@ const normalizeDeepLink = (raw?: string) => {
 };
 
 const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
-  const title = payload.title || 'Notification';
+  const categoryInput = {
+    type: payload.type || payload.data?.type,
+    category: payload.data?.category || payload.meta?.category,
+    entityType: payload.data?.entityType || payload.meta?.entityType,
+    title: payload.title,
+    data: payload.data,
+    meta: payload.meta
+  };
+  const category = resolveNotificationCategory(categoryInput);
+  const categoryLabel = getNotificationCategoryLabel(categoryInput);
+  const title = formatNotificationTitleWithCategory(payload.title || 'Notification', categoryInput);
   const body = payload.body || payload.message || '';
   const customData = payload.data || {};
   const fallbackLink = buildNotificationActionUrl(payload.type || 'system', {
@@ -331,10 +348,14 @@ const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
   const normalizedLink = normalizeNotificationActionUrl(rawLink) || rawLink;
   const deepLink = normalizeDeepLink(normalizedLink);
   const entityId = customData.entityId || inferEntityId(payload.meta);
+  const channelId = resolveAndroidChannelId(categoryInput);
   const data = normalizeData({
     ...customData,
     notificationId: payload.id,
     type: payload.type || customData.type || 'system',
+    category,
+    categoryLabel,
+    channelId,
     deepLink,
     link: normalizedLink,
     entityId
@@ -366,13 +387,46 @@ const matchesPushTargetPlatform = (
 const uniqueTokens = (tokens: Array<{ token: string }>) =>
   Array.from(new Set(tokens.map((token) => token.token).filter(Boolean)));
 
-const buildAndroidPushConfig = (): admin.messaging.AndroidConfig => ({
-  priority: 'high',
-  notification: {
-    channelId: SCROLITH_ANDROID_CHANNEL_ID,
-    sound: SCROLITH_ANDROID_SOUND
-  }
-});
+const buildAndroidPushConfig = (payload?: PushNotificationPayload): admin.messaging.AndroidConfig => {
+  const channelId = payload
+    ? resolveAndroidChannelId({
+        type: payload.type || payload.data?.type,
+        category: payload.data?.category || payload.meta?.category,
+        entityType: payload.data?.entityType || payload.meta?.entityType,
+        title: payload.title,
+        data: payload.data,
+        meta: payload.meta
+      })
+    : SCROLITH_ANDROID_CHANNEL_ID;
+  const category = payload
+    ? resolveNotificationCategory({
+        type: payload.type || payload.data?.type,
+        category: payload.data?.category || payload.meta?.category,
+        data: payload.data,
+        meta: payload.meta
+      })
+    : 'system';
+  // Messages + security get maximum interruption; system defaults to high for compatibility.
+  const priority: 'high' | 'normal' =
+    category === 'message' || category === 'security' || category === 'scrolitha' ? 'high' : 'high';
+  return {
+    priority,
+    notification: {
+      channelId,
+      sound: SCROLITH_ANDROID_SOUND,
+      // Tag by conversation/entity when available for notification grouping.
+      tag: String(
+        payload?.data?.conversationId ||
+          payload?.data?.conversation_id ||
+          payload?.data?.entityId ||
+          payload?.data?.entity_id ||
+          payload?.id ||
+          category ||
+          'scrolith'
+      ).slice(0, 64)
+    }
+  };
+};
 
 const loadEligibleDeviceTokens = async (
   userIds: string[],
@@ -416,7 +470,7 @@ const sendToTokens = async (
         tokens: batch,
         notification: { title: message.title, body: message.body },
         data: message.data,
-        android: buildAndroidPushConfig(),
+        android: buildAndroidPushConfig(payload),
         apns: { headers: { 'apns-priority': '10' } }
       });
 
