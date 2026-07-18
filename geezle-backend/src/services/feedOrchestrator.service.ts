@@ -1126,8 +1126,10 @@ async function collectPeoplePages(
           avatar: true,
           role: true,
           isVerified: true,
+          title: true,
+          headline: true,
           updatedAt: true
-        }
+        } as any
       }),
       prisma.communityBusinessPage.findMany({
         where: { status: 'active' } as any,
@@ -1164,8 +1166,15 @@ async function collectPeoplePages(
       .map((user) => {
         const key = buildFeedKey('PERSON_RECOMMENDATION', user.id);
         if (seen.has(key)) return null;
-        const score = 30 + (user.isVerified ? 8 : 0);
+        const titleHint = String((user as any).title || (user as any).headline || '').trim();
+        const score = 30 + (user.isVerified ? 8 : 0) + (titleHint ? 2 : 0);
         const author = mapAuthor(user);
+        // Phase 20.3 — clearer growth-oriented explanations (intelligence envelope reads `why`).
+        const why = user.isVerified
+          ? 'Verified professional to expand your network'
+          : titleHint
+            ? 'Relevant professional in your discovery graph'
+            : 'People you may want to follow';
         return {
           type: 'PERSON_RECOMMENDATION' as const,
           id: user.id,
@@ -1177,7 +1186,8 @@ async function collectPeoplePages(
           author,
           media: { url: user.avatar },
           visibility: 'public',
-          why: 'People to follow',
+          why,
+          reasons: [why, user.isVerified ? 'Verified account' : 'Active member'].filter(Boolean),
           payload: user,
           _source: 'people',
           _authorKey: authorKeyOf(author)
@@ -1190,18 +1200,22 @@ async function collectPeoplePages(
         const key = buildFeedKey('PAGE_RECOMMENDATION', page.id);
         if (seen.has(key)) return null;
         const author = mapAuthor(null, page);
+        const why = page.category
+          ? `Business page in ${String(page.category).slice(0, 40)}`
+          : 'Pages worth following for opportunities';
         return {
           type: 'PAGE_RECOMMENDATION' as const,
           id: page.id,
           sourceId: page.id,
           feedKey: key,
           createdAt: toIso(page.updatedAt),
-          score: 30,
-          rankingScore: 30,
+          score: 30 + (page.category ? 3 : 0),
+          rankingScore: 30 + (page.category ? 3 : 0),
           author,
           media: null,
           visibility: 'public',
-          why: 'Pages to follow',
+          why,
+          reasons: [why, 'Opportunity discovery'],
           payload: page,
           _source: 'pages',
           _authorKey: authorKeyOf(author)

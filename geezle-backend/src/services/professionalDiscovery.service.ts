@@ -52,6 +52,8 @@ type ViewerSignals = {
   location?: string;
   bio?: string;
   role?: string;
+  /** Phase 20.3 — feed intent from existing preference mapping (for_you/hire/sell/learn/following). */
+  feedIntent?: string;
 };
 
 const coerce = (value: unknown) => String(value ?? '').trim();
@@ -76,23 +78,31 @@ const overlapScore = (haystack: string, needles: string[]) => {
 
 const loadViewerSignals = async (userId?: string | null): Promise<ViewerSignals> => {
   if (!userId) {
-    return { userId: null, skills: [], interests: [] };
+    return { userId: null, skills: [], interests: [], feedIntent: 'for_you' };
   }
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        role: true,
-        bio: true,
-        location: true,
-        skills: true,
-        interests: true,
-        title: true,
-        headline: true
-      } as any
-    });
-    if (!user) return { userId, skills: [], interests: [] };
+    const [user, feedPref] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+          bio: true,
+          location: true,
+          skills: true,
+          interests: true,
+          title: true,
+          headline: true
+        } as any
+      }),
+      prisma.feedModePreference
+        .findUnique({
+          where: { userId },
+          select: { mode: true }
+        })
+        .catch(() => null)
+    ]);
+    if (!user) return { userId, skills: [], interests: [], feedIntent: 'for_you' };
     const skillsRaw = (user as any).skills;
     const interestsRaw = (user as any).interests;
     const skills = Array.isArray(skillsRaw)
@@ -102,16 +112,26 @@ const loadViewerSignals = async (userId?: string | null): Promise<ViewerSignals>
       ? interestsRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean)
       : tokenize(coerce(interestsRaw));
     const bio = coerce((user as any).bio || (user as any).headline || (user as any).title);
+    const role = coerce((user as any).role);
+    // Lightweight intent map (mirrors viewerPreference without hard import cycles).
+    const mode = lower((feedPref as any)?.mode || 'growth');
+    let feedIntent = 'for_you';
+    if (mode === 'opportunity') {
+      feedIntent = /freelance|creator|seller|talent|worker/.test(lower(role)) ? 'sell' : 'hire';
+    } else if (mode === 'network') feedIntent = 'following';
+    else if (mode === 'learning') feedIntent = 'learn';
+    else feedIntent = 'for_you';
     return {
       userId,
       skills,
       interests,
       location: coerce((user as any).location),
       bio,
-      role: coerce((user as any).role)
+      role,
+      feedIntent
     };
   } catch {
-    return { userId, skills: [], interests: [] };
+    return { userId, skills: [], interests: [], feedIntent: 'for_you' };
   }
 };
 
@@ -119,7 +139,8 @@ const rankItem = (
   base: number,
   text: string,
   signals: ViewerSignals,
-  reasons: string[]
+  reasons: string[],
+  entityType?: ProfessionalDiscoveryItem['type']
 ): number => {
   let score = base;
   const skillHits = overlapScore(text, signals.skills);
@@ -136,6 +157,23 @@ const rankItem = (
     score += 4;
     reasons.push('Near your location');
   }
+
+  // Phase 20.3 — intent-aware boosts (additive; fail-soft when intent unknown).
+  const intent = lower(signals.feedIntent || 'for_you');
+  if (intent === 'hire' && (entityType === 'job' || entityType === 'marketplace_listing' || entityType === 'gig')) {
+    score += 10;
+    reasons.push('Aligned with your hiring focus');
+  } else if (intent === 'sell' && (entityType === 'marketplace_listing' || entityType === 'gig' || entityType === 'career_action')) {
+    score += 10;
+    reasons.push('Supports your sell / service goals');
+  } else if (intent === 'learn' && (entityType === 'blog' || entityType === 'group' || entityType === 'career_action')) {
+    score += 10;
+    reasons.push('Matches your learning focus');
+  } else if (intent === 'following' && entityType === 'group') {
+    score += 6;
+    reasons.push('Good for network growth');
+  }
+
   return score;
 };
 
@@ -187,7 +225,7 @@ const loadMarketplace = async (signals: ViewerSignals, limit: number): Promise<P
         const views = Number(row.views ?? row.viewCount ?? 0) || 0;
         score += Math.min(15, Math.log10(views + 1) * 5);
         if (views > 20) reasons.push('Popular right now');
-        score = rankItem(score, text, signals, reasons);
+        score = rankItem(score, text, signals, reasons, 'marketplace_listing');
         return {
           id: String(row.id),
           type: 'marketplace_listing' as const,
@@ -249,7 +287,7 @@ const loadGroups = async (signals: ViewerSignals, limit: number): Promise<Profes
         const members = Number(row.memberCount || 0) || 0;
         score += Math.min(20, members / 5);
         if (members > 10) reasons.push('Active community');
-        score = rankItem(score, text, signals, reasons);
+        score = rankItem(score, text, signals, reasons, 'group');
         const slug = coerce(row.slug || row.id);
         return {
           id: String(row.id),
@@ -298,7 +336,7 @@ const loadBlogs = async (signals: ViewerSignals, limit: number): Promise<Profess
           score += 10;
           reasons.push('Featured article');
         }
-        score = rankItem(score, text, signals, reasons);
+        score = rankItem(score, text, signals, reasons, 'blog');
         if (/\bcareer|resume|job|skill|interview|professional\b/i.test(text)) {
           score += 8;
           reasons.push('Career-relevant content');
