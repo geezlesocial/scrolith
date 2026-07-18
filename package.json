@@ -1,7 +1,7 @@
 {
   "name": "atmyworks",
   "private": true,
-  "version": "1.1.14",
+  "version": "1.1.19",
   "description": "Scrolith desktop application",
   "author": "Scrolith",
   "type": "module",
