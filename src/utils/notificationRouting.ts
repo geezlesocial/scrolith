@@ -1,5 +1,16 @@
 export type NotificationBucket = 'home' | 'community';
 
+export {
+  getNotificationCategoryLabel,
+  getNotificationCategoryMeta,
+  resolveNotificationCategory,
+  formatNotificationTitleWithCategory,
+  resolveAndroidChannelId,
+  ANDROID_CHANNEL_IDS,
+  listNotificationCategoryMeta
+} from './notificationTaxonomy';
+export type { NotificationCategoryKey, NotificationCategoryMeta } from './notificationTaxonomy';
+
 const coerceString = (value: unknown) => String(value ?? '').trim();
 const isAbsoluteHttpUrl = (value: string) => /^https?:\/\//i.test(value);
 const isAppDeepLink = (value: string) => /^scrolith:\/\//i.test(value);

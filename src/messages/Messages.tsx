@@ -37,8 +37,20 @@ import {
   subscribeMessagingEvent,
   trackOutgoingMessage
 } from '../services/messagingEngine';
-import { buildClientSendId } from '../services/messagingComposer';
+import {
+  buildClientSendId,
+  createLocalPendingAttachment,
+  hasPendingUploadsInFlight,
+  MESSAGE_UPLOAD_CONCURRENCY,
+  pendingToAttachmentIds,
+  reconcilePendingWithUploadedFile,
+  revokePendingObjectUrls,
+  runWithConcurrency,
+  type PendingComposerAttachment,
+  updatePendingAttachment
+} from '../services/messagingComposer';
 import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/messagingSurfaces';
+import { setMessagingMediaConversationAffinity } from '../services/messagingMedia';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -190,9 +202,13 @@ const Messages = () => {
   const { settings } = useContent();
   
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
+
+  useEffect(() => {
+      setMessagingMediaConversationAffinity(activeConvoId);
+  }, [activeConvoId]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messageInput, setMessageInput] = useState('');
-  const [pendingAttachments, setPendingAttachments] = useState<UploadedFile[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingComposerAttachment[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showConversationMenu, setShowConversationMenu] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
@@ -717,7 +733,10 @@ const Messages = () => {
   ]);
 
   useEffect(() => {
-      setPendingAttachments([]);
+      setPendingAttachments((prev) => {
+          revokePendingObjectUrls(prev);
+          return [];
+      });
       setReplyToMessage(null);
       setEditingMessageId(null);
       setEditDraft('');
@@ -1216,55 +1235,93 @@ const Messages = () => {
       if (!user) return;
       const queue = Array.from(files || []).filter(Boolean);
       if (!queue.length) return;
-      const uploaded: UploadedFile[] = [];
+
+      // Optimistic local placeholders — conversation remains interactive while uploads run.
+      const pairs = queue.map((file, index) => ({
+          file,
+          local: createLocalPendingAttachment(file, Date.now() + index)
+      }));
+      const locals = pairs.map((pair) => pair.local);
+      setPendingAttachments((prev) => [...prev, ...locals]);
       setAttachmentUploadState({
-          fileName: queue[0].name || 'Attachment',
+          fileName: locals[0]?.name || 'Attachment',
           progress: 0,
           uploadedCount: 0,
-          totalCount: queue.length
+          totalCount: locals.length
       });
-      try {
-          for (let index = 0; index < queue.length; index += 1) {
-              const file = queue[index];
+
+      let completed = 0;
+      let failures = 0;
+
+      await runWithConcurrency(pairs, MESSAGE_UPLOAD_CONCURRENCY, async (pair) => {
+          const { file, local } = pair;
+          const clientLocalId = String(local.clientLocalId || local.id);
+          try {
               const uploadedFile = await FileService.uploadFile(file, inferUploadCategory(file), {
                   role: user.role,
                   userId: user.id,
                   visibility: 'private',
-                  onRetry: (_attempt, _delayMs) => {
-                      setAttachmentUploadState({
-                          fileName: file.name || 'Attachment',
-                          progress: 0,
-                          uploadedCount: index,
-                          totalCount: queue.length
-                      });
-                  },
                   onProgress: (progress) => {
-                      setAttachmentUploadState({
-                          fileName: file.name || 'Attachment',
-                          progress,
-                          uploadedCount: index,
-                          totalCount: queue.length
-                      });
+                      setPendingAttachments((prev) =>
+                          updatePendingAttachment(prev, clientLocalId, {
+                              progress,
+                              uploadState: 'uploading'
+                          })
+                      );
+                      setAttachmentUploadState((prev) =>
+                          prev
+                              ? {
+                                    ...prev,
+                                    fileName: local.name || 'Attachment',
+                                    progress
+                                }
+                              : {
+                                    fileName: local.name || 'Attachment',
+                                    progress,
+                                    uploadedCount: completed,
+                                    totalCount: locals.length
+                                }
+                      );
                   }
               });
-              uploaded.push(uploadedFile);
+              setPendingAttachments((prev) =>
+                  reconcilePendingWithUploadedFile(prev, clientLocalId, uploadedFile)
+              );
+              completed += 1;
               setAttachmentUploadState({
-                  fileName: file.name || 'Attachment',
+                  fileName: local.name || 'Attachment',
                   progress: 100,
-                  uploadedCount: index + 1,
-                  totalCount: queue.length
+                  uploadedCount: completed,
+                  totalCount: locals.length
               });
+          } catch (error: any) {
+              failures += 1;
+              setPendingAttachments((prev) =>
+                  updatePendingAttachment(prev, clientLocalId, {
+                      uploadState: 'failed',
+                      progress: 0,
+                      errorMessage: getRecoverableActionMessage('Attachment upload', error)
+                  })
+              );
+              throw error;
           }
-          mergeAttachments(uploaded);
+      });
+
+      window.setTimeout(() => setAttachmentUploadState(null), 500);
+      if (failures > 0 && completed === 0) {
+          showNotification('error', 'Attachments', 'Upload failed. Remove failed items and try again.');
+      } else if (failures > 0) {
+          showNotification(
+              'warning',
+              'Attachments',
+              `${completed} ready, ${failures} failed. Remove failed items before sending.`
+          );
+      } else {
           showNotification(
               'success',
               'Attachments',
-              uploaded.length === 1 ? 'Attachment ready to send.' : `${uploaded.length} attachments ready to send.`
+              completed === 1 ? 'Attachment ready to send.' : `${completed} attachments ready to send.`
           );
-      } catch (error: any) {
-          showNotification('error', 'Attachments', getRecoverableActionMessage('Attachment upload', error));
-      } finally {
-          window.setTimeout(() => setAttachmentUploadState(null), 600);
       }
   };
 
@@ -1407,19 +1464,18 @@ const Messages = () => {
       });
   }, [mediaPreviewCandidates, preloadMessageAttachment]);
 
-  const mergeAttachments = (files: UploadedFile[]) => {
-      if (!files.length) return;
-      setPendingAttachments(prev => {
-          const map = new Map(prev.map(file => [file.id, file]));
-          files.forEach(file => {
-              if (file?.id) map.set(file.id, file);
-          });
-          return Array.from(map.values());
-      });
-  };
-
   const removeAttachment = (fileId: string) => {
-      setPendingAttachments(prev => prev.filter(file => file.id !== fileId));
+      setPendingAttachments((prev) => {
+          const next = prev.filter(
+              (file) =>
+                  String(file.id) !== String(fileId) &&
+                  String(file.clientLocalId || '') !== String(fileId) &&
+                  String(file.fileId || '') !== String(fileId)
+          );
+          const removed = prev.filter((file) => !next.includes(file));
+          revokePendingObjectUrls(removed);
+          return next;
+      });
   };
 
   const refreshConversationData = async (options?: { silent?: boolean }) => {
@@ -2238,9 +2294,30 @@ const Messages = () => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
-      const attachmentIds = pendingAttachments.map(file => file.id).filter(Boolean);
+      if (hasPendingUploadsInFlight(pendingAttachments)) {
+          showNotification('info', 'Attachments', 'Please wait for uploads to finish before sending.');
+          return;
+      }
+      const failedPending = pendingAttachments.filter((item) => item.uploadState === 'failed');
+      if (failedPending.length) {
+          showNotification('error', 'Attachments', 'Remove or re-upload failed attachments before sending.');
+          return;
+      }
+      const attachmentIds = pendingToAttachmentIds(pendingAttachments);
       const replyToMessageId = replyToMessage?.id || null;
       const clientSendId = buildClientSendId(activeConvoId, Date.now());
+      // Capture local previews for optimistic bubble so media appears instantly.
+      const optimisticAttachmentPayload = pendingAttachments
+          .filter((item) => item.uploadState === 'ready' || item.fileId)
+          .map((item) => ({
+              id: item.fileId || item.id,
+              fileId: item.fileId || item.id,
+              url: item.localObjectUrl || item.url || '',
+              name: item.name,
+              type: item.mimeType || item.type,
+              mimeType: item.mimeType,
+              size: item.size
+          }));
       traceClient('ui.send_message.request', {
           conversationId: activeConvoId,
           textLength: trimmed.length,
@@ -2261,7 +2338,7 @@ const Messages = () => {
           isRead: true,
           message_type: attachmentIds.length ? 'file' : 'text',
           messageType: attachmentIds.length ? 'file' : 'text',
-          attachments: attachmentIds,
+          attachments: optimisticAttachmentPayload.length ? optimisticAttachmentPayload : attachmentIds,
           replyToMessageId,
           reply_to_message_id: replyToMessageId,
           metadata: { clientSendId }
@@ -2279,6 +2356,8 @@ const Messages = () => {
           dedupeMessagesById([...messages.filter((row) => row.id !== clientSendId), optimistic])
       );
       setMessageInput('');
+      // Keep blob URLs alive briefly for optimistic bubble; revoke after send settles.
+      const snapshotPending = pendingAttachments;
       setPendingAttachments([]);
       setReplyToMessage(null);
       emitTypingState(false);
@@ -2305,6 +2384,8 @@ const Messages = () => {
               reconcileOptimisticMessage(messages, reconciled)
           );
           refreshMessages();
+          // Local blob previews can be released once server attachments exist.
+          window.setTimeout(() => revokePendingObjectUrls(snapshotPending), 4000);
           traceClient('ui.send_message.success', {
               conversationId: activeConvoId,
               messageId: newMessage?.id || null,
@@ -2314,6 +2395,7 @@ const Messages = () => {
           markOutgoingState(clientSendId, 'failed', {
               error: getRecoverableActionMessage('Message send', error)
           });
+          // Keep blob previews for failed optimistic bubbles.
           applyConversationMessageChanges(activeConvoId, (messages) =>
               messages.map((entry) =>
                   entry.id === clientSendId
@@ -3565,25 +3647,53 @@ const Messages = () => {
                             {pendingAttachments.length > 0 && (
                                 <div className="mb-3 grid gap-2 sm:grid-cols-2">
                                     {pendingAttachments.map(file => {
-                                        const preview = normalizeAttachmentForDisplay(file);
-                                        const previewUrl = preview ? getResolvedAttachmentUrl(preview) : '';
-                                        const previewLoading = preview ? isAttachmentPreviewLoading(preview) : false;
+                                        const preview = normalizeAttachmentForDisplay({
+                                            ...file,
+                                            url: file.localObjectUrl || file.url,
+                                            id: file.fileId || file.id
+                                        });
+                                        const localPreview = String(file.localObjectUrl || file.url || '');
+                                        const previewUrl = localPreview || (preview ? getResolvedAttachmentUrl(preview) : '');
+                                        const isUploading = file.uploadState === 'uploading';
+                                        const isFailed = file.uploadState === 'failed';
                                         return (
-                                        <div key={file.id} className="flex items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 shadow-sm">
+                                        <div
+                                          key={file.clientLocalId || file.id}
+                                          className={[
+                                            'flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-xs shadow-sm',
+                                            isFailed
+                                              ? 'border-red-200 bg-red-50 text-red-800'
+                                              : 'border-gray-200 bg-gray-50 text-gray-700'
+                                          ].join(' ')}
+                                        >
                                             {preview && preview.type === 'image' && previewUrl ? (
                                                 <img src={previewUrl} alt={preview.name} className="h-12 w-12 shrink-0 rounded-xl object-cover" loading="lazy" />
                                             ) : preview && preview.type === 'video' && previewUrl ? (
                                                 <video src={previewUrl} className="h-12 w-12 shrink-0 rounded-xl object-cover" muted playsInline preload="metadata" />
                                             ) : (
                                                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-gray-400">
-                                                    {previewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+                                                    {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
                                                 </div>
                                             )}
                                             <div className="min-w-0 flex-1">
                                                 <div className="truncate font-semibold">{file.name || 'Attachment'}</div>
-                                                <div className="text-[10px] text-gray-500">{formatBytes(file.size) || 'Ready to send'}</div>
+                                                <div className="text-[10px] text-gray-500">
+                                                    {isFailed
+                                                      ? (file.errorMessage || 'Upload failed')
+                                                      : isUploading
+                                                        ? `Uploading ${Math.max(0, Math.min(100, Number(file.progress || 0)))}%`
+                                                        : formatBytes(file.size) || 'Ready to send'}
+                                                </div>
+                                                {isUploading ? (
+                                                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-blue-100">
+                                                    <div
+                                                      className="h-full rounded-full bg-blue-600 transition-all"
+                                                      style={{ width: `${Math.max(4, Math.min(100, Number(file.progress || 0)))}%` }}
+                                                    />
+                                                  </div>
+                                                ) : null}
                                             </div>
-                                            <button type="button" onClick={() => removeAttachment(file.id)} className="text-gray-400 hover:text-gray-600">
+                                            <button type="button" onClick={() => removeAttachment(String(file.clientLocalId || file.id))} className="text-gray-400 hover:text-gray-600" aria-label="Remove attachment">
                                                 <X className="w-3 h-3" />
                                             </button>
                                         </div>
@@ -3692,7 +3802,7 @@ const Messages = () => {
                                                 !activeConvoId ||
                                                 !voiceRuntimeConfig.enabledVoiceNotes ||
                                                 voiceRuntimeConfig.blockedForCurrentUser ||
-                                                Boolean(attachmentUploadState)
+                                                hasPendingUploadsInFlight(pendingAttachments)
                                             }
                                             maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
                                             onRecorded={handleVoiceRecorded}
@@ -3718,13 +3828,20 @@ const Messages = () => {
 
                                     <div className={`flex gap-3 ${isMobileKeyboardOpen ? 'items-center' : 'items-end'} justify-between`}>
                                         <div className="min-w-0 flex-1 text-[11px] text-gray-500">
-                                            {pendingAttachments.length > 0
-                                                ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} queued`
+                                            {hasPendingUploadsInFlight(pendingAttachments)
+                                                ? 'Uploading in background — keep chatting…'
+                                                : pendingAttachments.length > 0
+                                                ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} ready`
                                                 : 'Private chat media stays scoped to this conversation.'}
                                         </div>
                                         <button
                                             type="submit"
-                                            disabled={!activeConvoId || (!messageInput.trim() && pendingAttachments.length === 0) || Boolean(attachmentUploadState)}
+                                            disabled={
+                                              !activeConvoId ||
+                                              (!messageInput.trim() && pendingAttachments.length === 0) ||
+                                              hasPendingUploadsInFlight(pendingAttachments) ||
+                                              pendingAttachments.some((item) => item.uploadState === 'failed')
+                                            }
                                             className="inline-flex h-11 min-w-[104px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 md:h-12 md:min-w-[112px]"
                                         >
                                             <Send className="h-4 w-4" />

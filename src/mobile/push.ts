@@ -6,6 +6,7 @@ import { tokenStore } from '../services/tokenStore';
 import { type AppDistributionEvent } from '../services/appDistribution';
 import { trackMobileRuntimeEvent } from './mobileTelemetry';
 import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
+import { ANDROID_CHANNEL_IDS } from '../utils/notificationTaxonomy';
 
 let initialized = false;
 let listenersAttached = false;
@@ -22,12 +23,22 @@ const MAX_NATIVE_REGISTER_RETRIES = 5;
 const NATIVE_REGISTER_RETRY_BASE_MS = 4000;
 const FORCE_REGISTER_COOLDOWN_MS = 15000;
 const PUSH_LOG_PREFIX = '[ScrolithPush]';
+
+/** Enterprise channel map — keep ids aligned with FCM android.notification.channelId. */
 export const ANDROID_NOTIFICATION_CHANNELS = {
-  alerts: 'scrolith_alerts_v2',
-  general: 'scrolith_alerts_v2',
-  messages: 'scrolith_alerts_v2',
-  posts: 'scrolith_alerts_v2',
-  campaigns: 'scrolith_alerts_v2'
+  alerts: ANDROID_CHANNEL_IDS.alerts,
+  general: ANDROID_CHANNEL_IDS.system,
+  messages: ANDROID_CHANNEL_IDS.messages,
+  posts: ANDROID_CHANNEL_IDS.social,
+  social: ANDROID_CHANNEL_IDS.social,
+  community: ANDROID_CHANNEL_IDS.community,
+  marketplace: ANDROID_CHANNEL_IDS.marketplace,
+  jobs: ANDROID_CHANNEL_IDS.jobs,
+  freelancing: ANDROID_CHANNEL_IDS.freelancing,
+  scrolitha: ANDROID_CHANNEL_IDS.scrolitha,
+  system: ANDROID_CHANNEL_IDS.system,
+  security: ANDROID_CHANNEL_IDS.security,
+  campaigns: ANDROID_CHANNEL_IDS.system
 } as const;
 
 let nativeRegisterRetryCount = 0;
@@ -64,19 +75,31 @@ const normalizePushActionPath = (raw?: unknown): string | null => {
 };
 
 const buildFallbackPathFromPushData = (data: any): string | null => {
-  const type = String(data?.type || data?.notificationType || '').trim().toLowerCase();
+  const type = String(data?.type || data?.notificationType || data?.category || '').trim().toLowerCase();
   const conversationId = String(data?.conversationId || data?.conversation_id || '').trim();
   const postId = String(data?.postId || data?.post_id || data?.entityId || data?.entity_id || '').trim();
   const campaignId = String(data?.campaignId || data?.campaign_id || '').trim();
+  const listingId = String(data?.listingId || data?.listing_id || '').trim();
+  const jobId = String(data?.jobId || data?.job_id || '').trim();
+  const communityId = String(data?.communityId || data?.community_id || data?.groupId || data?.group_id || '').trim();
 
-  if ((type === 'message' || type === 'new_message') && conversationId) {
+  if ((type === 'message' || type === 'new_message' || type.includes('message')) && conversationId) {
     return `/messages/${encodeURIComponent(conversationId)}`;
   }
-  if (type.includes('message') && conversationId) {
-    return `/messages/${encodeURIComponent(conversationId)}`;
-  }
-  if ((type.includes('post') || type.includes('comment') || type.includes('mention') || type.includes('reaction')) && postId) {
+  if ((type.includes('post') || type.includes('comment') || type.includes('mention') || type.includes('reaction') || type.includes('reply')) && postId) {
     return `/post/${encodeURIComponent(postId)}`;
+  }
+  if (type.includes('marketplace') && listingId) {
+    return `/marketplace?listing=${encodeURIComponent(listingId)}`;
+  }
+  if ((type.includes('job') || type.includes('application')) && jobId) {
+    return `/jobs/${encodeURIComponent(jobId)}`;
+  }
+  if (type.includes('community') && communityId) {
+    return `/community/clubs?group=${encodeURIComponent(communityId)}`;
+  }
+  if (type.includes('scrolitha')) {
+    return '/scrolitha';
   }
   if (type === 'app_campaign' || type === 'campaign') {
     return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
@@ -87,17 +110,100 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
 const ensureAndroidNotificationChannels = async () => {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
 
+  // Enterprise multi-channel taxonomy (Android 8+). Importance: 5=MAX, 4=HIGH, 3=DEFAULT.
+  // Users can mute individual channels without losing DMs.
   const channels: Channel[] = [
     {
-      id: ANDROID_NOTIFICATION_CHANNELS.alerts,
-      name: 'Scrolith Alerts',
-      description: 'Notifications from Scrolith',
+      id: ANDROID_NOTIFICATION_CHANNELS.messages,
+      name: 'Messages',
+      description: 'Direct messages and chat activity',
       sound: 'scrolith.wav',
       importance: 5,
       visibility: 1,
       vibration: true
     },
-    // Keep legacy channels present for older installs/history, but route new notifications to alerts v2.
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.social,
+      name: 'Social Activity',
+      description: 'Comments, replies, mentions, reactions, follows, stories',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.community,
+      name: 'Communities',
+      description: 'Community announcements and group activity',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.marketplace,
+      name: 'Marketplace',
+      description: 'Listing interest, orders, and marketplace updates',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.jobs,
+      name: 'Jobs',
+      description: 'Job applications, recruiter views, and hiring updates',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.freelancing,
+      name: 'Freelancing',
+      description: 'Project invitations, proposals, and contracts',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.scrolitha,
+      name: 'Scrolitha',
+      description: 'AI assistant completions and Scrolitha updates',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.system,
+      name: 'System Alerts',
+      description: 'Account, campaigns, and platform system notices',
+      sound: 'scrolith.wav',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.security,
+      name: 'Security',
+      description: 'Security and sign-in alerts',
+      sound: 'scrolith.wav',
+      importance: 5,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.alerts,
+      name: 'Scrolith Alerts (legacy)',
+      description: 'Legacy default channel retained for prior app installs',
+      sound: 'scrolith.wav',
+      importance: 5,
+      visibility: 1,
+      vibration: true
+    },
+    // Legacy short-id channels retained so history/OS settings remain valid.
     {
       id: 'general',
       name: 'Scrolith notifications (legacy)',
