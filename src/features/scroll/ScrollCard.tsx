@@ -82,8 +82,9 @@ const DEFAULT_ALLOWED_REACTIONS = [
   { key: 'sorry', label: 'Sorry', emoji: '\u{1F64F}', enabled: true }
 ];
 
-const TOUCH_CONTROL_HIDE_DELAY_MS = 20000;
-const DESKTOP_CONTROL_HIDE_DELAY_MS = 3600;
+// Cinematic: chrome recedes quickly so the video stays primary on touch devices.
+const TOUCH_CONTROL_HIDE_DELAY_MS = 4200;
+const DESKTOP_CONTROL_HIDE_DELAY_MS = 2800;
 
 const resolveScrollAuthorAvatar = (scroll: ScrollVideo) =>
   resolvePostAttachmentMediaUrl({
@@ -681,7 +682,11 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/55 via-transparent to-black/25" />
+      <div
+        className={`pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/60 via-transparent to-black/30 transition-opacity duration-300 ease-out motion-reduce:transition-none ${
+          overlayControlsVisible ? 'opacity-100' : 'opacity-40'
+        }`}
+      />
 
       <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-start justify-between gap-3">
           <div className="pointer-events-auto">
@@ -935,63 +940,61 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       </div>
 
       <div
-        className={`pointer-events-none absolute inset-x-4 bottom-5 z-20 transition-all duration-300 ${
-          touchOverlayMode && !overlayControlsVisible
-            ? 'translate-y-6 opacity-0'
+        className={`pointer-events-none absolute inset-x-3 bottom-4 z-20 transition-all duration-300 ease-out motion-reduce:transition-none sm:inset-x-4 sm:bottom-5 ${
+          !overlayControlsVisible
+            ? 'translate-y-4 opacity-0 pointer-events-none'
             : 'translate-y-0 opacity-100'
-        } ${touchOverlayMode && !overlayControlsVisible ? 'pr-0 pointer-events-none' : 'pr-[76px] sm:pr-[88px]'}`}
+        } ${overlayControlsVisible ? 'pr-[72px] sm:pr-[88px]' : 'pr-0'}`}
       >
-        <div className="w-full max-w-[min(34rem,100%)] space-y-2">
+        <div className="w-full max-w-[min(32rem,100%)] space-y-1.5">
           {scroll.sourceScroll ? (
-            <div className="pointer-events-auto rounded-[18px] border border-fuchsia-300/15 bg-fuchsia-400/8 px-3 py-2.5 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.9)] backdrop-blur-[2px]">
-              <div className="flex items-start gap-3">
-                <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-fuchsia-300/25 bg-fuchsia-500/15 text-fuchsia-100">
-                  <Link2 className="h-4 w-4" />
+            <div className="pointer-events-auto rounded-2xl border border-fuchsia-300/15 bg-fuchsia-400/10 px-2.5 py-2 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.9)] backdrop-blur-[3px]">
+              <div className="flex items-start gap-2.5">
+                <div className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-fuchsia-300/25 bg-fuchsia-500/15 text-fuchsia-100">
+                  <Link2 className="h-3.5 w-3.5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-fuchsia-100/90">
-                    {scroll.responseMode === 'duet' ? 'Duet response' : 'Remix response'}
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-fuchsia-100/90">
+                    {scroll.responseMode === 'duet' ? 'Duet' : 'Remix'}
                   </div>
-                  <div className="mt-1 text-sm font-semibold text-white">
-                    {scroll.sourceScroll.unavailable ? 'Original Scroll unavailable' : sourceHeadline || 'Original Scroll'}
-                  </div>
-                  <div className="mt-1 text-xs text-white/70">
-                    {scroll.sourceScroll.author?.name || 'Community member'}
-                    {scroll.sourceScroll.author?.username ? ` · @${scroll.sourceScroll.author.username}` : ''}
+                  <div className="mt-0.5 line-clamp-1 text-sm font-semibold text-white">
+                    {scroll.sourceScroll.unavailable ? 'Original unavailable' : sourceHeadline || 'Original Scroll'}
                   </div>
                 </div>
               </div>
             </div>
           ) : null}
-          <div className="pointer-events-auto rounded-[18px] border border-white/8 bg-black/18 px-3 py-2.5 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.88)] backdrop-blur-[2px]">
+          <div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/22 px-2.5 py-2 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.88)] backdrop-blur-[3px]">
             <ExpandablePreviewText
               text={headlineLine}
               limit={headlinePreviewLimit}
-              textClassName="text-[15px] font-semibold leading-snug text-white sm:text-base"
-              buttonClassName="text-white"
+              textClassName="text-[14px] font-semibold leading-snug text-white sm:text-[15px]"
+              buttonClassName="text-white/90"
+              moreLabel="More"
+              lessLabel="Less"
             />
             {secondaryLine ? (
               <ExpandablePreviewText
                 text={secondaryLine}
                 limit={descriptionPreviewLimit}
-                className="mt-1.5"
-                textClassName="text-sm leading-relaxed text-white/85"
-                buttonClassName="text-white"
+                className="mt-1"
+                textClassName="text-[13px] leading-snug text-white/82 sm:text-sm sm:leading-relaxed"
+                buttonClassName="text-white/90"
               />
             ) : null}
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/75">
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-white/70 sm:text-[11px]">
               {scroll.location ? (
-                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2 py-0.5">
                   {scroll.location}
                 </span>
               ) : null}
               {tagCount > 0 ? (
-                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
+                <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2 py-0.5">
                   {tagCount} tag{tagCount === 1 ? '' : 's'}
                 </span>
               ) : null}
-              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2.5 py-1">
-                {new Date(scroll.createdAt).toLocaleString()}
+              <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2 py-0.5">
+                {new Date(scroll.createdAt).toLocaleDateString()}
               </span>
             </div>
             {Object.values(scrollReactionCounts || {}).some((value) => Number(value || 0) > 0) ? (

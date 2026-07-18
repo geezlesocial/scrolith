@@ -83,7 +83,7 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   }, [selfId]);
 
   const label = useMemo(() => {
-    if (busy) return '...';
+    if (busy) return isFollowing ? 'Following' : 'Follow';
     if (!isFollowing) return 'Follow';
     return 'Following';
   }, [busy, isFollowing]);
@@ -111,8 +111,24 @@ const FollowButton: React.FC<FollowButtonProps> = ({
       if (!ok) return;
     }
 
+    // Instant optimistic UI — never wait for network to flip the label.
     setBusy(true);
     setFollowStatus(id, next);
+    try {
+      window.dispatchEvent(
+        new CustomEvent('community:follow_updated', {
+          detail: {
+            actorUserId: selfId,
+            targetUserId: id,
+            targetType: resolvedType,
+            targetId: id,
+            isFollowing: next,
+            action: next ? 'follow' : 'unfollow',
+            optimistic: true
+          }
+        })
+      );
+    } catch {}
 
     try {
       if (next) {
@@ -131,7 +147,8 @@ const FollowButton: React.FC<FollowButtonProps> = ({
               targetType: resolvedType,
               targetId: id,
               isFollowing: next,
-              action: next ? 'follow' : 'unfollow'
+              action: next ? 'follow' : 'unfollow',
+              optimistic: false
             }
           })
         );
@@ -139,6 +156,22 @@ const FollowButton: React.FC<FollowButtonProps> = ({
       if (onSuccess) onSuccess(next);
     } catch (error: any) {
       setFollowStatus(id, previous);
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: selfId,
+              targetUserId: id,
+              targetType: resolvedType,
+              targetId: id,
+              isFollowing: previous,
+              action: previous ? 'follow' : 'unfollow',
+              optimistic: false,
+              rolledBack: true
+            }
+          })
+        );
+      } catch {}
       if (isUnauthorizedError(error)) {
         if (onRequireLogin) onRequireLogin();
         else window.location.href = '/auth/login';
@@ -153,11 +186,11 @@ const FollowButton: React.FC<FollowButtonProps> = ({
   const stateClass =
     tone === 'overlay'
       ? isFollowing
-        ? 'border-emerald-300/45 bg-emerald-500/20 text-white hover:bg-emerald-500/30'
-        : 'border-white/15 bg-white/10 text-white hover:bg-white/20'
+        ? 'border-emerald-300/45 bg-emerald-500/25 text-white hover:bg-emerald-500/35'
+        : 'border-white/20 bg-white/12 text-white hover:bg-white/22'
       : isFollowing
-        ? 'border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200'
-        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50';
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+        : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50';
 
   return (
     <button
@@ -165,9 +198,15 @@ const FollowButton: React.FC<FollowButtonProps> = ({
       onClick={handleClick}
       disabled={isDisabled}
       aria-label={label}
+      aria-pressed={isFollowing}
       title={label}
-      className={`inline-flex h-8 min-w-[6.25rem] shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3 text-xs font-semibold leading-none transition ${className} ${stateClass} disabled:cursor-not-allowed disabled:opacity-60`}
+      className={`inline-flex h-9 min-h-9 min-w-[6.5rem] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-3.5 text-xs font-semibold leading-none transition duration-150 active:scale-[0.97] motion-reduce:active:scale-100 ${className} ${stateClass} disabled:cursor-not-allowed disabled:opacity-60`}
     >
+      {isFollowing ? (
+        <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 text-[9px] font-bold text-white" aria-hidden>
+          ✓
+        </span>
+      ) : null}
       {label}
     </button>
   );
