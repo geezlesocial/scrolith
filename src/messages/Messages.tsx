@@ -33,7 +33,14 @@ import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDia
 import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
 import {
+  buildThreadTimeline,
+  findFirstUnreadIndex,
+  isNearBottom,
   markOutgoingState,
+  preloadConversationAvatars,
+  preloadConversationMedia,
+  preserveScrollTopAfterGrowth,
+  startMessagingTimer,
   subscribeMessagingEvent,
   trackOutgoingMessage
 } from '../services/messagingEngine';
@@ -51,6 +58,8 @@ import {
 } from '../services/messagingComposer';
 import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/messagingSurfaces';
 import { setMessagingMediaConversationAffinity } from '../services/messagingMedia';
+import { generateImageBlurPreview, generateVideoPoster } from '../services/messagingEngine/mediaProgressive';
+import { uploadMessagingFileWithEngine } from '../services/messagingEngine/mediaUploadEngine';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -202,10 +211,6 @@ const Messages = () => {
   const { settings } = useContent();
   
   const [activeConvoId, setActiveConvoId] = useState<string | null>(null);
-
-  useEffect(() => {
-      setMessagingMediaConversationAffinity(activeConvoId);
-  }, [activeConvoId]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messageInput, setMessageInput] = useState('');
   const [pendingAttachments, setPendingAttachments] = useState<PendingComposerAttachment[]>([]);
@@ -282,7 +287,10 @@ const Messages = () => {
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const shouldAutoScrollRef = useRef(true);
+  const messagesScrollMetricsRef = useRef({ scrollHeight: 0, scrollTop: 0, clientHeight: 0 });
   const activeConvoIdRef = useRef<string | null>(null);
+  const lastPreloadConvoRef = useRef<string | null>(null);
+  const [showJumpToUnread, setShowJumpToUnread] = useState(false);
   const userIdRef = useRef<string | null>(null);
   const refreshingRef = useRef(false);
   const typingStopTimerRef = useRef<number | null>(null);
@@ -538,6 +546,34 @@ const Messages = () => {
       userIdRef.current = user?.id || null;
   }, [user?.id]);
 
+  useEffect(() => {
+      setMessagingMediaConversationAffinity(activeConvoId);
+      if (!activeConvoId) {
+          setShowJumpToUnread(false);
+          lastPreloadConvoRef.current = null;
+          return;
+      }
+      const stop = startMessagingTimer('conversation_switch_ms');
+      const convo = conversations.find((row) => row.id === activeConvoId);
+      const messages = Array.isArray(convo?.messages) ? convo!.messages : [];
+      const firstUnread = findFirstUnreadIndex(messages, user?.id);
+      setShowJumpToUnread(firstUnread >= 0);
+      if (lastPreloadConvoRef.current !== activeConvoId) {
+          lastPreloadConvoRef.current = activeConvoId;
+          void preloadConversationMedia({
+              conversationId: activeConvoId,
+              messages,
+              maxItems: 10,
+              priority: 'high'
+          });
+          const avatarUrls = (convo?.participants || [])
+              .map((p: any) => String(p?.avatar || p?.avatarUrl || '').trim())
+              .filter(Boolean);
+          preloadConversationAvatars(avatarUrls);
+      }
+      window.requestAnimationFrame(() => stop({ export: true }));
+  }, [activeConvoId, conversations, user?.id]);
+
   // Load Conversations
   useEffect(() => {
       if (user) {
@@ -722,10 +758,29 @@ const Messages = () => {
       }
   }, [conversationId, isMobileViewport]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom only when user is near bottom; otherwise preserve position.
   useEffect(() => {
-      if (!shouldAutoScrollRef.current) return;
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      const container = messagesContainerRef.current;
+      if (!container) return;
+      const prev = messagesScrollMetricsRef.current;
+      const nextScrollHeight = container.scrollHeight;
+      const clientHeight = container.clientHeight;
+      if (shouldAutoScrollRef.current) {
+          messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+      } else if (prev.scrollHeight > 0 && nextScrollHeight !== prev.scrollHeight) {
+          container.scrollTop = preserveScrollTopAfterGrowth({
+              previousScrollHeight: prev.scrollHeight,
+              previousScrollTop: prev.scrollTop,
+              nextScrollHeight,
+              stickToBottom: false,
+              clientHeight
+          });
+      }
+      messagesScrollMetricsRef.current = {
+          scrollHeight: container.scrollHeight,
+          scrollTop: container.scrollTop,
+          clientHeight: container.clientHeight
+      };
   }, [
       activeConvoId,
       typingUser,
@@ -1257,10 +1312,28 @@ const Messages = () => {
           const { file, local } = pair;
           const clientLocalId = String(local.clientLocalId || local.id);
           try {
-              const uploadedFile = await FileService.uploadFile(file, inferUploadCategory(file), {
+              // Progressive local previews while upload engine runs (resumable + backoff).
+              void generateImageBlurPreview(file).then((preview) => {
+                  if (!preview?.blurDataUrl) return;
+                  setPendingAttachments((prev) =>
+                      updatePendingAttachment(prev, clientLocalId, { url: preview.blurDataUrl } as any)
+                  );
+              });
+              void generateVideoPoster(file).then((poster) => {
+                  if (!poster?.blurDataUrl) return;
+                  setPendingAttachments((prev) =>
+                      updatePendingAttachment(prev, clientLocalId, {
+                          url: poster.blurDataUrl,
+                          durationMs: poster.durationMs
+                      } as any)
+                  );
+              });
+              const engineResult = await uploadMessagingFileWithEngine({
+                  file,
+                  conversationId: activeConvoId || '',
+                  category: inferUploadCategory(file),
                   role: user.role,
                   userId: user.id,
-                  visibility: 'private',
                   onProgress: (progress) => {
                       setPendingAttachments((prev) =>
                           updatePendingAttachment(prev, clientLocalId, {
@@ -1285,7 +1358,7 @@ const Messages = () => {
                   }
               });
               setPendingAttachments((prev) =>
-                  reconcilePendingWithUploadedFile(prev, clientLocalId, uploadedFile)
+                  reconcilePendingWithUploadedFile(prev, clientLocalId, engineResult.uploaded)
               );
               completed += 1;
               setAttachmentUploadState({
@@ -1550,8 +1623,17 @@ const Messages = () => {
   const handleMessagesScroll = () => {
       const container = messagesContainerRef.current;
       if (!container) return;
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-      shouldAutoScrollRef.current = distanceFromBottom < 120;
+      messagesScrollMetricsRef.current = {
+          scrollHeight: container.scrollHeight,
+          scrollTop: container.scrollTop,
+          clientHeight: container.clientHeight
+      };
+      shouldAutoScrollRef.current = isNearBottom(
+          container.scrollTop,
+          container.scrollHeight,
+          container.clientHeight,
+          120
+      );
   };
 
   const normalizeIncomingMessage = (raw: any): Message => {
@@ -3310,7 +3392,47 @@ const Messages = () => {
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
                         >
-                            {activeConvo.messages.map(msg => {
+                            {showJumpToUnread ? (
+                                <div className="sticky top-2 z-10 flex justify-center">
+                                    <button
+                                        type="button"
+                                        className="rounded-full border border-blue-200 bg-white/95 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm backdrop-blur hover:bg-blue-50"
+                                        onClick={() => {
+                                            const idx = findFirstUnreadIndex(activeConvo.messages || [], user?.id);
+                                            const target = idx >= 0 ? activeConvo.messages[idx] : null;
+                                            const id = String(target?.id || '');
+                                            if (!id) return;
+                                            document.getElementById(`message-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            setShowJumpToUnread(false);
+                                        }}
+                                    >
+                                        Jump to first unread
+                                    </button>
+                                </div>
+                            ) : null}
+                            {buildThreadTimeline(activeConvo.messages || [], { viewerId: user?.id }).map((item) => {
+                                if (item.kind === 'date') {
+                                    return (
+                                        <div key={item.key} className="sticky top-10 z-[5] flex justify-center py-1">
+                                            <span className="rounded-full border border-slate-200 bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-600 shadow-sm backdrop-blur">
+                                                {item.label}
+                                            </span>
+                                        </div>
+                                    );
+                                }
+                                if (item.kind === 'unread') {
+                                    return (
+                                        <div key={item.key} className="flex items-center gap-3 py-1" role="separator" aria-label={`${item.count} unread messages`}>
+                                            <div className="h-px flex-1 bg-blue-200" />
+                                            <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-600">
+                                                {item.count} unread
+                                            </span>
+                                            <div className="h-px flex-1 bg-blue-200" />
+                                        </div>
+                                    );
+                                }
+                                const msg = activeConvo.messages[item.index] || (item.message as any);
+                                if (!msg) return null;
                                 const attachmentList = extractMessageAttachments(msg);
                                 const dealFlowEvent = extractDealFlowEvent(msg);
                                 const isOwner = msg.senderId === user?.id;

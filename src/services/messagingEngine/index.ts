@@ -48,6 +48,14 @@ export {
   MESSAGING_POLL_INTERVAL_MS,
   MESSAGING_POLL_INTERVAL_DEGRADED_MS
 } from './pollingPolicy';
+export * from './messagingExperience';
+export * from './messagingTelemetry';
+export * from './mediaDiskCache';
+export * from './mediaUploadEngine';
+export * from './mediaDownloadEngine';
+export * from './mediaProgressive';
+export * from './conversationPreload';
+export * from './deviceMediaConditions';
 
 import { BoundedIdSet } from './dedupe';
 import { clearOutgoingDeliveryQueue } from './deliveryQueue';

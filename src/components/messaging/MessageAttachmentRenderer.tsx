@@ -78,6 +78,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   const [directStreamUrl, setDirectStreamUrl] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [imageReady, setImageReady] = useState(false);
+  const [blurPlaceholder, setBlurPlaceholder] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -259,6 +260,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
     setObjectUrl('');
     setDirectStreamUrl('');
     setImageReady(false);
+    setBlurPlaceholder('');
     setError(null);
     setDownloadError(null);
     setVideoMode('idle');
@@ -267,6 +269,16 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
     loadGenerationRef.current += 1;
 
     if (!normalized) return;
+
+    // Progressive placeholder from disk cache metadata when available.
+    if (normalized.type === 'image' && cacheKey) {
+      void import('../../services/messagingEngine/mediaDiskCache')
+        .then(({ getDiskCacheMeta }) => getDiskCacheMeta(cacheKey))
+        .then((meta) => {
+          if (meta?.blurDataUrl) setBlurPlaceholder(meta.blurDataUrl);
+        })
+        .catch(() => undefined);
+    }
 
     if (normalized.type === 'video') {
       if (oversizedPrivate) {
@@ -402,14 +414,23 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
       {normalized.type === 'image' ? (
         <div
           className={`relative overflow-hidden rounded-md ${isOutgoing ? 'bg-white/10' : 'bg-slate-100'}`}
-          style={{ minHeight: resolvedSrc || loading ? 112 : undefined }}
+          style={{ minHeight: resolvedSrc || loading || blurPlaceholder ? 112 : undefined }}
         >
-          {/* Aspect-preserving skeleton / blur placeholder to avoid layout shift */}
+          {/* Progressive blur / skeleton placeholder — reserves space, prevents layout shift */}
           {!imageReady || loading ? (
-            <div
-              className={`absolute inset-0 animate-pulse ${isOutgoing ? 'bg-white/10' : 'bg-slate-200/80'}`}
-              aria-hidden
-            />
+            blurPlaceholder ? (
+              <img
+                src={blurPlaceholder}
+                alt=""
+                aria-hidden
+                className="absolute inset-0 h-full w-full scale-110 object-cover opacity-80 blur-md"
+              />
+            ) : (
+              <div
+                className={`absolute inset-0 animate-pulse ${isOutgoing ? 'bg-white/10' : 'bg-slate-200/80'}`}
+                aria-hidden
+              />
+            )
           ) : null}
           {resolvedSrc ? (
             <a href={resolvedSrc} target="_blank" rel="noreferrer" className="block" onClick={(e) => e.stopPropagation()}>

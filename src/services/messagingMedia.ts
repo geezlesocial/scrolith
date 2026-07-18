@@ -582,6 +582,71 @@ export const fetchAuthenticatedMediaObjectUrl = async (
     let blob: Blob;
     let responseHeaders: any = null;
     const contentId = getAttachmentContentId(attachment);
+
+    // Phase 20.2.6R: persistent disk cache before network.
+    try {
+      const { getDiskCacheBlob, putDiskCacheBlob } = await import('./messagingEngine/mediaDiskCache');
+      const disk = await getDiskCacheBlob(cacheKey);
+      if (disk?.blob && disk.blob.size > 0) {
+        blob = disk.blob;
+        const objectUrl = URL.createObjectURL(blob);
+        if (generationAtStart !== cacheGeneration) {
+          throw new Error('Media cache cleared');
+        }
+        const previous = objectUrlCache.get(cacheKey);
+        if (previous && previous.objectUrl !== objectUrl) {
+          revokeEntry(cacheKey, previous);
+        }
+        objectUrlCache.set(cacheKey, {
+          objectUrl,
+          refCount: 0,
+          byteSize: blob.size,
+          lastUsedAt: Date.now(),
+          conversationId: safeString(options?.conversationId) || activeConversationAffinity || undefined
+        });
+        pruneZeroRefEntries();
+        return objectUrl;
+      }
+
+      // Intelligent download queue for authenticated content.
+      if (contentId || attachment.url) {
+        try {
+          const { enqueueMediaDownload } = await import('./messagingEngine/mediaDownloadEngine');
+          blob = await enqueueMediaDownload({
+            attachment,
+            conversationId: options?.conversationId || activeConversationAffinity,
+            priority: 'high'
+          });
+          await putDiskCacheBlob(cacheKey, blob, {
+            conversationId: options?.conversationId || activeConversationAffinity,
+            kind: attachment.type,
+            mimeType: blob.type
+          });
+          const objectUrl = URL.createObjectURL(blob);
+          if (generationAtStart !== cacheGeneration) {
+            throw new Error('Media cache cleared');
+          }
+          const previous = objectUrlCache.get(cacheKey);
+          if (previous && previous.objectUrl !== objectUrl) {
+            revokeEntry(cacheKey, previous);
+          }
+          objectUrlCache.set(cacheKey, {
+            objectUrl,
+            refCount: 0,
+            byteSize: blob.size,
+            lastUsedAt: Date.now(),
+            conversationId: safeString(options?.conversationId) || activeConversationAffinity || undefined
+          });
+          pruneZeroRefEntries();
+          return objectUrl;
+        } catch {
+          // Fall through to direct fetch path.
+        }
+      }
+    } catch {
+      // Disk/download engines optional in unit tests.
+    }
+
     if (contentId) {
       // Dynamic import keeps pure normalization unit-testable without Vite env.
       const { default: api } = await import('./api');
