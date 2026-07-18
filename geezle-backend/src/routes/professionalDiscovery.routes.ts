@@ -6,6 +6,7 @@ import {
   getMarketplaceRecommendations,
   getProfessionalDiscoveryBundle
 } from '../services/professionalDiscovery.service';
+import { getGrowthPulse } from '../services/growthIntelligence.service';
 
 const router = express.Router();
 
@@ -83,6 +84,17 @@ router.get('/career', optionalAuthMiddleware, async (req, res) => {
   } catch (error: any) {
     console.error('[professional-discovery] career failed', error?.message || error);
     return res.status(500).json({ success: false, error: 'Failed to load career intelligence' });
+  }
+});
+
+/** Phase 20.3 — growth pulse (role + preference aware actions; additive). */
+router.get('/growth-pulse', optionalAuthMiddleware, async (req, res) => {
+  try {
+    const pulse = await getGrowthPulse(userIdFromReq(req));
+    return res.json({ success: true, data: pulse });
+  } catch (error: any) {
+    console.error('[professional-discovery] growth-pulse failed', error?.message || error);
+    return res.status(500).json({ success: false, error: 'Failed to load growth pulse' });
   }
 });
 
