@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, ChevronUp, MessageSquare, RefreshCw } from 'lucide-react';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
@@ -16,6 +16,7 @@ import {
   MESSAGING_DOCK_ICON_SIZE_PX,
   MESSAGING_PREVIEW_LIMIT,
   resolveMessagingDockPlacement,
+  shouldShowMessagingDock,
   type MessagingDockPlacement,
   type MessagingInboxTab
 } from '../../services/messagingSurfaces';
@@ -33,6 +34,7 @@ import { useBlockingOverlaySnapshot } from './useBlockingOverlayActive';
  * outside the modal geometry; hide only when no safe slot exists.
  */
 const DesktopMessagingDock: React.FC = () => {
+  const location = useLocation();
   const { user, isAuthenticated } = useUser();
   const {
     unreadCount,
@@ -52,6 +54,10 @@ const DesktopMessagingDock: React.FC = () => {
     searchLoading,
     searchError
   } = useMessages();
+
+  // Defense-in-depth: never portal UI on dedicated /messages workspace routes.
+  // App.tsx also skips mount; this covers any alternate mount sites.
+  const dockAllowedOnRoute = shouldShowMessagingDock(location.pathname);
 
   const [isDesktop, setIsDesktop] = useState(() =>
     typeof window !== 'undefined' ? isDesktopMessagingViewport(window.innerWidth) : false
@@ -199,8 +205,19 @@ const DesktopMessagingDock: React.FC = () => {
     setDockExpanded
   ]);
 
+  // Collapse chrome when leaving dock-eligible routes so re-entry is clean.
+  useEffect(() => {
+    if (dockAllowedOnRoute) return;
+    if (dockExpanded) setDockExpanded(false);
+    openChatWindows
+      .filter((entry) => !entry.minimized)
+      .forEach((entry) => minimizeConversationWindow(entry.conversationId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to route permission flips
+  }, [dockAllowedOnRoute]);
+
   if (!isAuthenticated || !user || !isDesktop) return null;
   if (typeof document === 'undefined') return null;
+  if (!dockAllowedOnRoute) return null;
 
   // E: last resort — no safe geometry; keep MessageContext alive, leave a11y tree.
   if (placement.mode === 'hidden' && overlay.active) {

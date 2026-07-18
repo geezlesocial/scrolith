@@ -5,6 +5,30 @@
 import type { Conversation, Message } from '../types';
 import { getConversationMergeKey } from './messagingMerge';
 
+/**
+ * Phase 20.7 corrective patch: dedicated full-page messaging already provides the
+ * workspace. The floating DesktopMessagingDock must not mount on these routes.
+ *
+ * Segment-aware (not substring): only `/messages` and `/messages/*`.
+ * Query/hash ignored by callers (pass pathname only).
+ */
+export const isMessagingDockExcludedPath = (pathname: string | null | undefined): boolean => {
+  const raw = String(pathname || '').trim();
+  if (!raw) return false;
+  // Strip query/hash if a full path-like string is passed.
+  const withoutQuery = raw.split('?')[0].split('#')[0];
+  // Normalize trailing slashes except root.
+  let path = withoutQuery.replace(/\/+$/, '') || '/';
+  // Optional locale or app prefix is not used by Scrolith today; keep segment check strict.
+  if (path === '/messages') return true;
+  if (path.startsWith('/messages/')) return true;
+  return false;
+};
+
+/** Inverse of exclusion — mount dock only when true. */
+export const shouldShowMessagingDock = (pathname: string | null | undefined): boolean =>
+  !isMessagingDockExcludedPath(pathname);
+
 export const MESSAGING_PREVIEW_LIMIT = 15;
 export const MESSAGING_SEARCH_DEBOUNCE_MS = 300;
 export const MESSAGING_DESKTOP_MIN_WIDTH = 1024;
