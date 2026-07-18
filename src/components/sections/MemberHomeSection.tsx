@@ -42,6 +42,10 @@ import { SearchService } from '../../services/search';
 import { listMarketplaceListings } from '../../services/marketplace';
 import type { MarketplaceListing } from '../../types/marketplace';
 import { CMSService } from '../../services/cms';
+import { ProfessionalDiscoveryService } from '../../services/professionalDiscovery';
+import type { ProfessionalDiscoveryItem } from '../../services/professionalDiscovery';
+import ProfessionalDiscoveryRail from '../discovery/ProfessionalDiscoveryRail';
+import { careerQuickActions } from '../../services/scrolithaCareer';
 import ProBadge from '../ProBadge';
 import ExpandablePreviewText from '../common/ExpandablePreviewText';
 import StaticPreviewText from '../common/StaticPreviewText';
@@ -1512,6 +1516,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [marketplacePreviewLoading, setMarketplacePreviewLoading] = useState(false);
   const [groupPreviewRecommendations, setGroupPreviewRecommendations] = useState<CommunityClub[]>([]);
   const [groupPreviewLoading, setGroupPreviewLoading] = useState(false);
+  const [blogPreviewItems, setBlogPreviewItems] = useState<ProfessionalDiscoveryItem[]>([]);
+  const [careerPreviewItems, setCareerPreviewItems] = useState<ProfessionalDiscoveryItem[]>([]);
+  const [resumeTemplateItems, setResumeTemplateItems] = useState<ProfessionalDiscoveryItem[]>([]);
+  const [professionalDiscoveryLoading, setProfessionalDiscoveryLoading] = useState(false);
   const [groupJoinBusy, setGroupJoinBusy] = useState<Record<string, boolean>>({});
   const [viewersLoading, setViewersLoading] = useState(false);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -3381,6 +3389,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setViewersLoading(true);
     setMarketplacePreviewLoading(true);
     setGroupPreviewLoading(true);
+    setProfessionalDiscoveryLoading(true);
     try {
       const tasks: Promise<any>[] = [];
       tasks.push(
@@ -3476,8 +3485,14 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             }).catch(() => [])
           : Promise.resolve([])
       );
+      // Phase 20.2.7 professional discovery (marketplace/groups/blogs/career) — fail soft.
+      tasks.push(
+        showDiscover
+          ? ProfessionalDiscoveryService.getHome(8).catch(() => null)
+          : Promise.resolve(null)
+      );
 
-      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes, groupsRes, marketplaceRes] =
+      const [profilesRes, jobsRes, gigsRes, viewersRes, viewingRes, pagesRes, adsRes, groupsRes, marketplaceRes, professionalRes] =
         await Promise.allSettled(tasks);
 
       const nextProfiles = profilesRes.status === 'fulfilled' && Array.isArray(profilesRes.value)
@@ -3628,7 +3643,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setSidebarTopAd(topAd);
       setSidebarFeaturedAd(featuredAd);
       setSidebarMiddleAd(middleAd);
-      setGroupPreviewRecommendations(
+      const professionalBundle =
+        professionalRes.status === 'fulfilled' && professionalRes.value && typeof professionalRes.value === 'object'
+          ? (professionalRes.value as Awaited<ReturnType<typeof ProfessionalDiscoveryService.getHome>>)
+          : null;
+
+      const discoveryGroups = Array.isArray(professionalBundle?.groups) ? professionalBundle!.groups : [];
+      const discoveryMarketplace = Array.isArray(professionalBundle?.marketplace)
+        ? professionalBundle!.marketplace
+        : [];
+
+      const fallbackGroups =
         groupsRes.status === 'fulfilled'
           ? extractGroupPreviewRecommendations(groupsRes.value)
               .filter((group) => String(group?.id || '').trim())
@@ -3640,12 +3665,48 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   Number(right.memberCount ?? right.member_count ?? 0) - Number(left.memberCount ?? left.member_count ?? 0)
               )
               .slice(0, 3)
-          : []
-      );
-      setMarketplacePreviewListings(
+          : [];
+
+      const mappedDiscoveryGroups: CommunityClub[] = discoveryGroups.slice(0, 3).map((item) => ({
+        id: item.id,
+        name: item.title,
+        title: item.title,
+        description: item.description || item.subtitle || '',
+        summary: item.description || item.subtitle || '',
+        avatarImage: item.imageUrl || undefined,
+        coverImage: item.imageUrl || undefined,
+        memberCount: Number(item.meta?.memberCount || 0),
+        slug: String(item.meta?.slug || item.id),
+        status: 'active',
+        category: item.subtitle || 'Professional group'
+      })) as CommunityClub[];
+
+      setGroupPreviewRecommendations(mappedDiscoveryGroups.length ? mappedDiscoveryGroups : fallbackGroups);
+
+      const fallbackMarketplace =
         marketplaceRes.status === 'fulfilled'
           ? extractMarketplacePreviewListings(marketplaceRes.value).slice(0, 3)
-          : []
+          : [];
+
+      const mappedDiscoveryMarketplace: MarketplaceListing[] = discoveryMarketplace.slice(0, 3).map((item) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description || '',
+        coverImage: item.imageUrl || undefined,
+        images: item.imageUrl ? [item.imageUrl] : [],
+        price: Number(item.meta?.price || 0) || undefined,
+        currency: String(item.meta?.currency || 'USD'),
+        category: item.subtitle || 'Marketplace',
+        location: ''
+      })) as MarketplaceListing[];
+
+      setMarketplacePreviewListings(
+        mappedDiscoveryMarketplace.length ? mappedDiscoveryMarketplace : fallbackMarketplace
+      );
+      setBlogPreviewItems(Array.isArray(professionalBundle?.blogs) ? professionalBundle!.blogs.slice(0, 4) : []);
+      setCareerPreviewItems(Array.isArray(professionalBundle?.career) ? professionalBundle!.career.slice(0, 4) : []);
+      setResumeTemplateItems(
+        Array.isArray(professionalBundle?.resumeTemplates) ? professionalBundle!.resumeTemplates.slice(0, 4) : []
       );
     } catch (error) {
       console.error('Failed to load member home sidebar data', error);
@@ -3653,6 +3714,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setViewersLoading(false);
       setMarketplacePreviewLoading(false);
       setGroupPreviewLoading(false);
+      setProfessionalDiscoveryLoading(false);
     }
   }, [
     user,
@@ -8085,6 +8147,41 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       )}
                     </div>
                   </div>
+
+                  {/* Phase 20.2.7 — Career intelligence + blogs + resume templates */}
+                  <ProfessionalDiscoveryRail
+                    title="Career Intelligence"
+                    caption="Resume, review, coaching, and opportunities powered by Scrolitha."
+                    items={
+                      careerPreviewItems.length
+                        ? careerPreviewItems
+                        : careerQuickActions().map((action) => ({
+                            id: action.id,
+                            type: 'career_action',
+                            title: action.title,
+                            subtitle: action.caption,
+                            description: action.caption,
+                            url: action.path,
+                            reasons: [action.caption]
+                          }))
+                    }
+                    loading={professionalDiscoveryLoading}
+                    emptyLabel="Career tools will appear here."
+                  />
+                  <ProfessionalDiscoveryRail
+                    title="Resume Templates"
+                    caption="Start a professional CV with AI writing assistance."
+                    items={resumeTemplateItems}
+                    loading={professionalDiscoveryLoading}
+                    emptyLabel="Open Resume Builder to choose a template."
+                  />
+                  <ProfessionalDiscoveryRail
+                    title="Career Blogs & Guides"
+                    caption="Articles, tutorials, and professional knowledge."
+                    items={blogPreviewItems}
+                    loading={professionalDiscoveryLoading}
+                    emptyLabel="Published blogs will appear here."
+                  />
                 </div>
               </div>
             </div>

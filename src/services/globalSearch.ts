@@ -2,8 +2,18 @@ import { listMarketplaceListings } from './marketplace';
 import { SearchService } from './search';
 import type { MarketplaceListing } from '../types/marketplace';
 import { resolveAssetUrl } from '../utils/assetUrl';
+import { CMSService } from './cms';
+import { CommunityService } from './community';
 
-export type GlobalSearchGroupKey = 'people' | 'pages' | 'jobs' | 'gigs' | 'marketplace' | 'posts';
+export type GlobalSearchGroupKey =
+  | 'people'
+  | 'pages'
+  | 'jobs'
+  | 'gigs'
+  | 'marketplace'
+  | 'posts'
+  | 'blogs'
+  | 'groups';
 
 export type GlobalSearchItem = {
   id?: string;
@@ -36,7 +46,9 @@ export const GLOBAL_SEARCH_GROUP_ORDER: GlobalSearchGroupKey[] = [
   'jobs',
   'gigs',
   'marketplace',
-  'posts'
+  'posts',
+  'blogs',
+  'groups'
 ];
 
 export const GLOBAL_SEARCH_GROUP_LABELS: Record<GlobalSearchGroupKey, string> = {
@@ -45,7 +57,9 @@ export const GLOBAL_SEARCH_GROUP_LABELS: Record<GlobalSearchGroupKey, string> = 
   jobs: 'Jobs',
   gigs: 'Gigs',
   marketplace: 'Marketplace',
-  posts: 'Posts'
+  posts: 'Posts',
+  blogs: 'Blogs',
+  groups: 'Groups'
 };
 
 export const GLOBAL_SEARCH_GROUP_BADGES: Record<GlobalSearchGroupKey, string> = {
@@ -54,7 +68,9 @@ export const GLOBAL_SEARCH_GROUP_BADGES: Record<GlobalSearchGroupKey, string> = 
   jobs: 'Job',
   gigs: 'Gig',
   marketplace: 'Item',
-  posts: 'Post'
+  posts: 'Post',
+  blogs: 'Blog',
+  groups: 'Group'
 };
 
 export const emptyGlobalSearchGroups = (): GlobalSearchGroups => ({
@@ -63,7 +79,9 @@ export const emptyGlobalSearchGroups = (): GlobalSearchGroups => ({
   jobs: [],
   gigs: [],
   marketplace: [],
-  posts: []
+  posts: [],
+  blogs: [],
+  groups: []
 });
 
 export const normalizeGlobalSearchType = (value: unknown): GlobalSearchGroupKey | undefined => {
@@ -75,6 +93,8 @@ export const normalizeGlobalSearchType = (value: unknown): GlobalSearchGroupKey 
   if (key === 'gigs' || key === 'gig') return 'gigs';
   if (key === 'marketplace' || key === 'marketplace_listing' || key === 'listing' || key === 'product' || key === 'item') return 'marketplace';
   if (key === 'posts' || key === 'post') return 'posts';
+  if (key === 'blogs' || key === 'blog' || key === 'article' || key === 'guide') return 'blogs';
+  if (key === 'groups' || key === 'group' || key === 'club' || key === 'clubs') return 'groups';
   return undefined;
 };
 
@@ -102,6 +122,14 @@ export const resolveGlobalSearchItemUrl = (item: any, normalizedType?: GlobalSea
     return encodedId ? `/marketplace/listing/${encodedId}` : '/marketplace';
   }
   if (kind === 'posts' || kind === 'post') return encodedId ? `/post/${encodedId}` : '/community';
+  if (kind === 'blogs' || kind === 'blog' || kind === 'article' || kind === 'guide') {
+    const slug = String(item?.slug || item?.meta?.slug || id || '').trim();
+    return slug ? `/blog/${encodeURIComponent(slug)}` : '/blog';
+  }
+  if (kind === 'groups' || kind === 'group' || kind === 'club' || kind === 'clubs') {
+    const groupRef = String(item?.slug || item?.meta?.slug || id || '').trim();
+    return groupRef ? `/community/clubs?group=${encodeURIComponent(groupRef)}` : '/community/clubs';
+  }
   return encodedId ? `/search?q=${encodedId}` : '/search';
 };
 
@@ -183,12 +211,23 @@ export const searchGlobalWithMarketplace = async (
       query: '',
       groups: emptyGlobalSearchGroups(),
       results: [],
-      totals: { people: 0, pages: 0, jobs: 0, gigs: 0, marketplace: 0, posts: 0, total: 0 }
+      totals: {
+        people: 0,
+        pages: 0,
+        jobs: 0,
+        gigs: 0,
+        marketplace: 0,
+        posts: 0,
+        blogs: 0,
+        groups: 0,
+        total: 0
+      }
     };
   }
 
   const perType = Math.max(2, Math.min(6, Math.ceil(maxResults / 2)));
-  const [unified, posts, marketplaceResponse] = await Promise.all([
+  const q = clean.toLowerCase();
+  const [unified, posts, marketplaceResponse, blogPosts, clubs] = await Promise.all([
     SearchService.searchUnified(clean, { limit: Math.max(maxResults, 12), perType }),
     options.includePosts === false
       ? Promise.resolve([])
@@ -198,7 +237,9 @@ export const searchGlobalWithMarketplace = async (
       page: 1,
       pageSize: Math.max(4, Math.min(8, maxResults)),
       sort: 'recommended'
-    }).catch(() => null)
+    }).catch(() => null),
+    CMSService.getBlogPosts().catch(() => []),
+    CommunityService.getClubs({ limit: 40 }).catch(() => [])
   ]);
 
   const marketplaceListings = Array.isArray(marketplaceResponse)
@@ -209,6 +250,49 @@ export const searchGlobalWithMarketplace = async (
         ? (marketplaceResponse as any).items
         : [];
   const marketplaceItems = marketplaceListings.map(normalizeMarketplaceSearchItem);
+
+  const blogItems: GlobalSearchItem[] = (Array.isArray(blogPosts) ? blogPosts : [])
+    .filter((post: any) => {
+      const hay = [post?.title, post?.excerpt, post?.summary, post?.category, ...(Array.isArray(post?.tags) ? post.tags : [])]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ');
+      return hay.includes(q);
+    })
+    .slice(0, maxResults)
+    .map((post: any) =>
+      normalizeGlobalSearchItem({
+        id: post.id || post.slug,
+        type: 'blogs',
+        title: post.title,
+        slug: post.slug,
+        description: post.excerpt || post.summary,
+        image: post.coverImage || post.featuredImage || post.image,
+        category: post.category || 'Blog',
+        meta: { slug: post.slug }
+      })
+    );
+
+  const groupItems: GlobalSearchItem[] = (Array.isArray(clubs) ? clubs : Array.isArray((clubs as any)?.items) ? (clubs as any).items : [])
+    .filter((club: any) => {
+      const hay = [club?.name, club?.title, club?.description, club?.summary, club?.category]
+        .map((v) => String(v || '').toLowerCase())
+        .join(' ');
+      return hay.includes(q);
+    })
+    .slice(0, maxResults)
+    .map((club: any) =>
+      normalizeGlobalSearchItem({
+        id: club.id,
+        type: 'groups',
+        title: club.name || club.title,
+        slug: club.slug || club.id,
+        description: club.summary || club.description,
+        image: club.avatarImage || club.coverImage || club.avatarUrl,
+        category: club.category || 'Group',
+        meta: { slug: club.slug || club.id, memberCount: club.memberCount || club.member_count }
+      })
+    );
+
   const sourceGroups = unified?.groups || {};
   const groups = emptyGlobalSearchGroups();
 
@@ -216,16 +300,26 @@ export const searchGlobalWithMarketplace = async (
     const source =
       key === 'marketplace'
         ? marketplaceItems
-        : key === 'posts' && Array.isArray((sourceGroups as any)?.posts) && !(sourceGroups as any).posts.length
-          ? posts
-          : Array.isArray((sourceGroups as any)?.[key])
-            ? (sourceGroups as any)[key]
-            : [];
+        : key === 'blogs'
+          ? blogItems
+          : key === 'groups'
+            ? groupItems
+            : key === 'posts' && Array.isArray((sourceGroups as any)?.posts) && !(sourceGroups as any).posts.length
+              ? posts
+              : Array.isArray((sourceGroups as any)?.[key])
+                ? (sourceGroups as any)[key]
+                : [];
     groups[key] = uniqueSearchItems(source.map(normalizeGlobalSearchItem)).slice(0, maxResults);
   });
 
   const merged = Array.isArray(unified?.results) && unified.results.length
-    ? [...unified.results.map(normalizeGlobalSearchItem), ...posts.map(normalizeGlobalSearchItem), ...marketplaceItems]
+    ? [
+        ...unified.results.map(normalizeGlobalSearchItem),
+        ...posts.map(normalizeGlobalSearchItem),
+        ...marketplaceItems,
+        ...blogItems,
+        ...groupItems
+      ]
     : GLOBAL_SEARCH_GROUP_ORDER.flatMap((key) => groups[key]);
   const results = uniqueSearchItems(merged).slice(0, Math.max(maxResults, 12));
   const totals = {
@@ -235,6 +329,8 @@ export const searchGlobalWithMarketplace = async (
     gigs: groups.gigs.length,
     marketplace: groups.marketplace.length,
     posts: groups.posts.length,
+    blogs: groups.blogs.length,
+    groups: groups.groups.length,
     total: results.length
   };
 
