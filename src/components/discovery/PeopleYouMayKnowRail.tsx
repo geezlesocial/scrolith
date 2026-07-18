@@ -49,12 +49,15 @@ export default function PeopleYouMayKnowRail({
 }: PeopleYouMayKnowRailProps) {
   const [items, setItems] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
   const [followingIds, setFollowingIds] = useState<Record<string, boolean>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(false);
     void RecoService.getAccounts({ surface: 'who_to_follow', type: 'freelancer', limit })
       .then((rows) => {
         if (cancelled) return;
@@ -64,7 +67,10 @@ export default function PeopleYouMayKnowRail({
         setItems(next);
       })
       .catch(() => {
-        if (!cancelled) setItems([]);
+        if (!cancelled) {
+          setItems([]);
+          setLoadError(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -72,7 +78,7 @@ export default function PeopleYouMayKnowRail({
     return () => {
       cancelled = true;
     };
-  }, [limit]);
+  }, [limit, retryToken]);
 
   const handleFollow = async (person: Suggestion) => {
     if (followingIds[person.id] || busyId) return;
@@ -93,7 +99,7 @@ export default function PeopleYouMayKnowRail({
     }
   };
 
-  if (!loading && items.length === 0) return null;
+  if (!loading && !loadError && items.length === 0) return null;
 
   return (
     <section
@@ -109,6 +115,17 @@ export default function PeopleYouMayKnowRail({
         <div className="space-y-2" aria-busy="true">
           <div className="h-12 animate-pulse rounded-xl bg-slate-100" />
           <div className="h-12 animate-pulse rounded-xl bg-slate-100" />
+        </div>
+      ) : loadError ? (
+        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-3 text-sm text-slate-600" role="status">
+          <p>Suggestions are temporarily unavailable.</p>
+          <button
+            type="button"
+            onClick={() => setRetryToken((n) => n + 1)}
+            className="mt-2 text-xs font-semibold text-indigo-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <ul className="space-y-2">

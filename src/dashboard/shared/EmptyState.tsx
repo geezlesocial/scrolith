@@ -32,13 +32,17 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
     typeof icon === 'string'
       ? (() => {
           const IconComponent = icons[icon] || Inbox;
-          return <IconComponent className="w-8 h-8 text-gray-400" />;
+          return <IconComponent className="w-8 h-8 text-gray-400" aria-hidden="true" />;
         })()
       : icon;
 
   return (
-    <div className={`flex flex-col items-center justify-center py-12 px-4 ${className}`}>
-      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+    <div
+      className={`flex flex-col items-center justify-center py-12 px-4 ${className}`}
+      role="status"
+      aria-live="polite"
+    >
+      <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4" aria-hidden="true">
         {iconNode}
       </div>
       {title ? (
@@ -52,8 +56,9 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       {action && <div className="mt-4" />}
       {action && (
         <button
+          type="button"
           onClick={action.onClick}
-          className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+          className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
         >
           {action.label}
         </button>
