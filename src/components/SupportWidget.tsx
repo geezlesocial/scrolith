@@ -13,6 +13,7 @@ import { clearSupportDraft, readSupportDraft, writeSupportDraft } from '../utils
 import { classifyScrolithaClientError } from '../utils/scrolithaErrors';
 import { plainTextToHtml } from '../utils/staticPageContent';
 import { normalizeScrolithaResponseText } from './scrolitha/scrolithaResponseFormat';
+import { normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import type { ScrolithaChatContext } from '../services/scrolitha';
 
 type Sender = 'user' | 'agent' | 'system';
@@ -81,7 +82,9 @@ const colorToText = (color: string, fallback = '#ffffff') => {
 const buildAgentMessageHtml = (value?: string) => {
   const source = String(value || '').trim();
   if (!source) return '';
-  const normalized = normalizeScrolithaResponseText(source) || source;
+  // Phase 20.7.4: plain-text contract — strip Markdown emphasis before HTML paragraph wrap.
+  const normalized =
+    normalizeScrolithaDisplayText(normalizeScrolithaResponseText(source) || source) || source;
   return plainTextToHtml(normalized);
 };
 

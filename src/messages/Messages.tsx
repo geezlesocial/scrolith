@@ -33,6 +33,7 @@ import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDia
 import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
 import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
 import ScrolithaService from '../services/scrolitha';
+import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
 import {
   buildThreadTimeline,
@@ -2578,7 +2579,7 @@ const Messages = () => {
                   setScrolithaError(
                       reason === 'messaging_assistant_disabled'
                           ? 'Scrolitha messaging assistant is currently unavailable.'
-                          : 'Scrolitha is temporarily unable to respond. Please try again.'
+                          : "Scrolitha couldn't finish that reply just now. Please try again."
                   );
                   setScrolithaThinking(false);
               } else {
@@ -2597,13 +2598,13 @@ const Messages = () => {
                               );
                               if (!hasAssistant) {
                                   setScrolithaError(
-                                      'Scrolitha is temporarily unable to respond. Please try again.'
+                                      "Scrolitha couldn't finish that reply just now. Please try again."
                                   );
                               }
                           }
                       } catch {
                           setScrolithaError(
-                              'Scrolitha is temporarily unable to respond. Please try again.'
+                              "Scrolitha couldn't finish that reply just now. Please try again."
                           );
                       } finally {
                           setScrolithaThinking(false);
@@ -2624,7 +2625,7 @@ const Messages = () => {
       } catch (error) {
           if (scrolithaThread) {
               setScrolithaThinking(false);
-              setScrolithaError('Scrolitha is temporarily unable to respond. Please try again.');
+              setScrolithaError("Scrolitha couldn't finish that reply just now. Please try again.");
           }
           markOutgoingState(clientSendId, 'failed', {
               error: getRecoverableActionMessage('Message send', error)
@@ -3766,7 +3767,9 @@ const Messages = () => {
                                                     'max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]'
                                                 ].join(' ')}
                                             >
-                                                {msg.text || ''}
+                                                {isScrolithaAuthoredMessage(msg)
+                                                    ? normalizeScrolithaDisplayText(String(msg.text || ''))
+                                                    : msg.text || ''}
                                             </p>
                                         )}
                                         {!isDeleted && msg.senderId !== user?.id && Array.isArray((msg as any)?.metadata?.cards) && (msg as any).metadata.cards.length > 0 ? (
