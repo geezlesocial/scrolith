@@ -352,7 +352,54 @@ export const ResumeController = {
       enabled: config.enabled,
       builderEnabled: config.builderEnabled,
       reviewerEnabled: config.reviewerEnabled,
-      adminAccessEnabled: config.adminAccessEnabled
+      adminAccessEnabled: config.adminAccessEnabled,
+      importSources: {
+        supported: ['scrolith_profile', 'json_snapshot'],
+        planned: ['linkedin', 'github']
+      },
+      exportFormats: {
+        supported: ['pdf'],
+        planned: ['docx']
+      }
     });
+  },
+
+  async setShare(req: Request, res: Response) {
+    const user = requireFreelancer(req, res);
+    if (!user) return;
+    try {
+      const enabled = Boolean(req.body?.enabled ?? req.body?.share ?? true);
+      success(res, await ResumeService.setPublicShare(user.id, req.params.id, enabled));
+    } catch (error) {
+      handleError(res, error);
+    }
+  },
+
+  async listVersions(req: Request, res: Response) {
+    const user = requireFreelancer(req, res);
+    if (!user) return;
+    try {
+      success(res, await ResumeService.listVersions(user.id, req.params.id));
+    } catch (error) {
+      handleError(res, error);
+    }
+  },
+
+  async importSnapshot(req: Request, res: Response) {
+    const user = requireFreelancer(req, res);
+    if (!user) return;
+    try {
+      success(res, await ResumeService.importProfileSnapshot(user.id, req.body?.snapshot || req.body || {}));
+    } catch (error) {
+      handleError(res, error);
+    }
+  },
+
+  async getShared(req: Request, res: Response) {
+    try {
+      success(res, await ResumeService.getSharedResume(String(req.params.token || '')));
+    } catch (error) {
+      handleError(res, error);
+    }
   }
 };

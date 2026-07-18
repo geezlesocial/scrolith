@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto';
 import prisma from '../../utils/prismaClient';
 import { ResumeAiService } from './resume.ai.service';
 import { ResumeParserService } from './resume.parser.service';
@@ -301,6 +302,114 @@ export const ResumeService = {
     await ResumeStorageService.delete(resume.pdfStorageKey);
     await prismaAny.resumeDocument.delete({ where: { id: resume.id } });
     return true;
+  },
+
+  /**
+   * Public share without schema change: HMAC token + flag in editableData.publicShare.
+   * Import architecture: profile-source remains the supported import; JSON import stub accepts profile snapshot.
+   */
+  buildShareToken(resumeId: string) {
+    const secret = String(process.env.RESUME_SHARE_SECRET || process.env.JWT_SECRET || 'scrolith-resume-share').trim();
+    const sig = createHmac('sha256', secret).update(String(resumeId)).digest('hex').slice(0, 32);
+    return `${resumeId}.${sig}`;
+  },
+
+  verifyShareToken(token: string): string | null {
+    const raw = String(token || '').trim();
+    const [resumeId, sig] = raw.split('.');
+    if (!resumeId || !sig) return null;
+    const expected = this.buildShareToken(resumeId);
+    return expected === raw ? resumeId : null;
+  },
+
+  async setPublicShare(userId: string, resumeId: string, enabled: boolean) {
+    const resume = await requireOwnedResume(userId, resumeId);
+    const editableData =
+      resume.editableData && typeof resume.editableData === 'object' ? { ...(resume.editableData as any) } : {};
+    const token = this.buildShareToken(resume.id);
+    editableData.publicShare = {
+      enabled: Boolean(enabled),
+      token,
+      updatedAt: new Date().toISOString()
+    };
+    const updated = await prismaAny.resumeDocument.update({
+      where: { id: resume.id },
+      data: { editableData },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 10 } }
+    });
+    return {
+      resume: updated,
+      shareEnabled: Boolean(enabled),
+      shareToken: enabled ? token : null,
+      sharePath: enabled ? `/api/resume/shared/${encodeURIComponent(token)}` : null
+    };
+  },
+
+  async getSharedResume(token: string) {
+    const resumeId = this.verifyShareToken(token);
+    if (!resumeId) throw new Error('Invalid share link.');
+    const resume = await prismaAny.resumeDocument.findUnique({
+      where: { id: resumeId },
+      include: { versions: { orderBy: { versionNumber: 'desc' }, take: 5 } }
+    });
+    if (!resume) throw new Error('Resume not found.');
+    const share = (resume.editableData as any)?.publicShare;
+    if (!share?.enabled || String(share.token || '') !== String(token)) {
+      throw new Error('This resume is not shared publicly.');
+    }
+    // Public payload: no internal storage keys.
+    return {
+      id: resume.id,
+      title: resume.title,
+      targetRole: resume.targetRole,
+      targetIndustry: resume.targetIndustry,
+      template: resume.template,
+      includePhoto: resume.includePhoto,
+      photoUrl: resume.photoUrl,
+      status: resume.status,
+      aiOutput: resume.aiOutput,
+      sourceSnapshot: resume.sourceSnapshot
+        ? {
+            name: (resume.sourceSnapshot as any).name,
+            title: (resume.sourceSnapshot as any).title,
+            location: (resume.sourceSnapshot as any).location,
+            skills: (resume.sourceSnapshot as any).skills,
+            bio: (resume.sourceSnapshot as any).bio
+          }
+        : null,
+      updatedAt: resume.updatedAt,
+      versions: (resume.versions || []).map((v: any) => ({
+        id: v.id,
+        versionNumber: v.versionNumber,
+        changeReason: v.changeReason,
+        createdAt: v.createdAt
+      }))
+    };
+  },
+
+  async importProfileSnapshot(userId: string, snapshot: any) {
+    // Future-ready import architecture: accepts a normalized profile snapshot without external OAuth yet.
+    const source = await normalizeProfileSource(userId);
+    return {
+      mode: 'profile_snapshot',
+      supportedSources: ['scrolith_profile', 'json_snapshot'],
+      plannedSources: ['linkedin', 'github'],
+      imported: {
+        ...source,
+        ...(snapshot && typeof snapshot === 'object'
+          ? {
+              title: snapshot.title || source.title,
+              bio: snapshot.bio || source.bio,
+              skills: Array.isArray(snapshot.skills) ? snapshot.skills : source.skills
+            }
+          : {})
+      }
+    };
+  },
+
+  async listVersions(userId: string, resumeId: string) {
+    const resume = await requireOwnedResume(userId, resumeId);
+    return resume.versions || [];
   },
 
   async listAnalyses(clientId: string) {
