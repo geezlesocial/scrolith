@@ -27,10 +27,19 @@ import QuickActions from '../../components/dashboard/QuickActions';
 import ActivityPanel, { ActivityItem } from '../../components/dashboard/ActivityPanel';
 import OpportunityStudioPanel from '../../components/dashboard/OpportunityStudioPanel';
 import RightRail, { RightRailAction, RightRailMetric } from '../../components/dashboard/RightRail';
+import GrowthPulseCard from '../../components/growth/GrowthPulseCard';
+import {
+  WorkspaceFocusPanel,
+  WorkspaceStatusStrip,
+  type WorkspaceFocusItem,
+  type StatusChip
+} from '../../components/workspace';
 import { useMessages } from '../../context/MessageContext';
 import { useNotification } from '../../context/NotificationContext';
 import { useSocket } from '../../context/SocketContext';
 import { useUser } from '../../context/UserContext';
+import { buildScrolithaCareerPath } from '../../services/scrolithaCareer';
+import { WalletService } from '../../services/wallet';
 
 const parseDateValue = (value?: string) => {
   if (!value) return 0;
@@ -77,6 +86,9 @@ export default function EmployerOverview() {
 
   const [overview, setOverview] = React.useState<EmployerOverviewData | null>(null);
   const [activity, setActivity] = React.useState<ActivityItem[]>([]);
+  const [focusItems, setFocusItems] = React.useState<WorkspaceFocusItem[]>([]);
+  const [proposalStats, setProposalStats] = React.useState({ pending: 0, shortlisted: 0, total: 0 });
+  const [walletSnapshot, setWalletSnapshot] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
   const [search, setSearch] = React.useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = React.useState<string | undefined>(undefined);
@@ -85,18 +97,24 @@ export default function EmployerOverview() {
     if (!user?.id) return;
     setLoading(true);
 
-    const [overviewResult, jobsResult, proposalsResult, contractsResult] = await Promise.allSettled([
-      employerApi.getOverview(),
-      jobsApi.getJobs({ ownerId: 'me', page: 1, limit: 5 }),
-      proposalsApi.getProposals({ page: 1, limit: 5 }),
-      ContractService.getContracts(user.id, 'client')
-    ]);
+    const [overviewResult, jobsResult, proposalsResult, contractsResult, walletResult] =
+      await Promise.allSettled([
+        employerApi.getOverview(),
+        jobsApi.getJobs({ ownerId: 'me', page: 1, limit: 5 }),
+        proposalsApi.getProposals({ page: 1, limit: 12 }),
+        ContractService.getContracts(user.id, 'client'),
+        WalletService.getWallet()
+      ]);
 
     if (overviewResult.status === 'fulfilled') {
       setOverview(overviewResult.value);
     }
+    if (walletResult.status === 'fulfilled') {
+      setWalletSnapshot(walletResult.value);
+    }
 
     const mergedActivity: ActivityItem[] = [];
+    const nextFocus: WorkspaceFocusItem[] = [];
 
     if (jobsResult.status === 'fulfilled') {
       jobsResult.value.jobs.slice(0, 4).forEach((job) => {
@@ -109,11 +127,27 @@ export default function EmployerOverview() {
           status: job.status || 'open',
           href: '/client/dashboard?tab=my-jobs'
         });
+        if (Number(job.proposalsCount || 0) > 0) {
+          nextFocus.push({
+            id: `focus-job-${job.id}`,
+            title: `Review applicants: ${job.title || 'Open job'}`,
+            caption: `${job.proposalsCount} proposals waiting`,
+            href: '/client/dashboard?tab=proposals-offers',
+            urgency: Number(job.proposalsCount || 0) >= 3 ? 'high' : 'medium',
+            status: job.status || 'open'
+          });
+        }
       });
     }
 
     if (proposalsResult.status === 'fulfilled') {
-      proposalsResult.value.proposals.slice(0, 4).forEach((proposal) => {
+      const proposals = proposalsResult.value.proposals || [];
+      let pending = 0;
+      let shortlisted = 0;
+      proposals.forEach((proposal) => {
+        const status = String(proposal.status || '').toLowerCase();
+        if (['pending', 'submitted', 'new', 'viewed'].includes(status)) pending += 1;
+        if (['shortlisted', 'interview', 'offer'].includes(status)) shortlisted += 1;
         mergedActivity.push({
           id: `proposal-${proposal.id}`,
           title: `Proposal ${proposal.status}: ${proposal.jobTitle || 'Job'}`,
@@ -124,6 +158,19 @@ export default function EmployerOverview() {
           href: '/client/dashboard?tab=proposals-offers'
         });
       });
+      setProposalStats({ pending, shortlisted, total: proposals.length });
+      if (pending > 0) {
+        nextFocus.push({
+          id: 'focus-proposals-pending',
+          title: `${pending} proposals need review`,
+          caption: shortlisted > 0 ? `${shortlisted} already shortlisted` : 'Triage applicants to keep hiring velocity high',
+          href: '/client/dashboard?tab=proposals-offers',
+          urgency: pending >= 3 ? 'high' : 'medium',
+          status: 'review'
+        });
+      }
+    } else {
+      setProposalStats({ pending: 0, shortlisted: 0, total: 0 });
     }
 
     if (contractsResult.status === 'fulfilled') {
@@ -140,14 +187,36 @@ export default function EmployerOverview() {
           status: contract.status,
           href: `/client/dashboard?tab=contracts&contract_id=${contract.id}`
         });
+        if (String(contract.status || '').toLowerCase() === 'active') {
+          nextFocus.push({
+            id: `focus-contract-${contract.id}`,
+            title: contract.title || 'Active contract',
+            caption: contract.freelancerName || contract.freelancer_name || 'Freelancer engagement',
+            href: `/client/dashboard?tab=contracts&contract_id=${contract.id}`,
+            urgency: 'low',
+            status: contract.status
+          });
+        }
+      });
+    }
+
+    if (unreadCount + unreadNotifications > 0) {
+      nextFocus.push({
+        id: 'focus-inbox',
+        title: 'Unread hiring updates',
+        caption: `${unreadCount + unreadNotifications} messages / notifications`,
+        href: '/client/dashboard?tab=messages',
+        urgency: 'high',
+        status: 'inbox'
       });
     }
 
     mergedActivity.sort((a, b) => (b.sortValue || 0) - (a.sortValue || 0));
     setActivity(mergedActivity.slice(0, 8));
+    setFocusItems(nextFocus.slice(0, 6));
     setLoading(false);
     setLastRefreshedAt(new Date().toISOString());
-  }, [formatPrice, user?.id]);
+  }, [formatPrice, user?.id, unreadCount, unreadNotifications]);
 
   React.useEffect(() => {
     void loadOverview();
@@ -399,9 +468,57 @@ export default function EmployerOverview() {
         label: 'Boost hiring visibility',
         description: 'Use ad campaigns to increase qualified applicants.',
         href: '/client/dashboard?tab=my-ads'
+      },
+      {
+        id: 'recommend-scrolitha-hire',
+        label: 'AI hiring coach',
+        description: 'Ask Scrolitha to refine job posts and shortlist criteria.',
+        href: buildScrolithaCareerPath('profile-optimize')
       }
     ];
   }, []);
+
+  const statusChips: StatusChip[] = React.useMemo(() => {
+    const available = Number(
+      walletSnapshot?.availableBalance ??
+        walletSnapshot?.available_balance ??
+        overview?.walletBalance ??
+        0
+    );
+    const escrow = Number(
+      walletSnapshot?.escrowBalance ?? walletSnapshot?.escrow_balance ?? overview?.escrowBalance ?? 0
+    );
+    return [
+      {
+        id: 'chip-open-jobs',
+        label: 'Open jobs',
+        value: overview?.openJobs ?? 0,
+        href: '/client/dashboard?tab=my-jobs',
+        tone: 'indigo'
+      },
+      {
+        id: 'chip-proposals',
+        label: 'To review',
+        value: proposalStats.pending || overview?.proposalsReceived || 0,
+        href: '/client/dashboard?tab=proposals-offers',
+        tone: (proposalStats.pending || 0) > 0 ? 'amber' : 'green'
+      },
+      {
+        id: 'chip-shortlist',
+        label: 'Shortlisted',
+        value: proposalStats.shortlisted,
+        href: '/client/dashboard?tab=proposals-offers',
+        tone: 'blue'
+      },
+      {
+        id: 'chip-escrow',
+        label: 'Escrow',
+        value: formatPrice(escrow || available),
+        href: '/client/dashboard?tab=wallet',
+        tone: 'slate'
+      }
+    ];
+  }, [formatPrice, overview, proposalStats, walletSnapshot]);
 
   const railHighlights: RightRailMetric[] = React.useMemo(
     () => [
@@ -509,14 +626,30 @@ export default function EmployerOverview() {
           actions={heroActions}
         />
       }
-      kpiContent={<KpiGrid items={kpiItems} loading={loading && !overview} />}
+      kpiContent={
+        <div className="space-y-3">
+          <WorkspaceStatusStrip chips={statusChips} loading={loading && !overview} />
+          <KpiGrid items={kpiItems} loading={loading && !overview} />
+        </div>
+      }
       quickActionsContent={<QuickActions items={quickActions} subtitle="Common hiring actions, one click away." />}
       supplementaryContent={
-        <OpportunityStudioPanel
-          audience="employer"
-          title="Hiring Opportunity Studio"
-          subtitle="Structure demand faster, test package alternatives, and move directly from brief to job, gig, or page discovery."
-        />
+        <div className="space-y-3">
+          <WorkspaceFocusPanel
+            title="Hiring priorities"
+            subtitle="Candidates, jobs, and contracts that need action today"
+            items={focusItems}
+            loading={loading && focusItems.length === 0}
+            scrolithaHref={buildScrolithaCareerPath('weekly-growth')}
+            emptyLabel="No urgent hiring items. Post a job or invite talent to build pipeline."
+          />
+          <GrowthPulseCard />
+          <OpportunityStudioPanel
+            audience="employer"
+            title="Hiring Opportunity Studio"
+            subtitle="Structure demand faster, test package alternatives, and move directly from brief to job, gig, or page discovery."
+          />
+        </div>
       }
       activityContent={
         <ActivityPanel
