@@ -25,7 +25,16 @@ export type ScrolithaCapability =
   | 'trustVerification'
   | 'learningLoop'
   /** Phase 20.7: official messaging assistant DM surface */
-  | 'messagingAssistant';
+  | 'messagingAssistant'
+  /** Phase 20.7.1 capability flags (independent, default off for staged public enablement) */
+  | 'conversationUnification'
+  | 'messagingStream'
+  | 'richEntityCards'
+  | 'toolExecution'
+  | 'toolWriteActions'
+  | 'confirmationTokens'
+  | 'fileUnderstanding'
+  | 'qualityFeedback';
 
 export type ScrolithaRolloutFlags = Record<ScrolithaCapability, boolean>;
 
@@ -62,7 +71,15 @@ const DEFAULT_FLAGS: ScrolithaRolloutFlags = {
   personalization: false,
   trustVerification: false,
   learningLoop: false,
-  messagingAssistant: false
+  messagingAssistant: false,
+  conversationUnification: false,
+  messagingStream: false,
+  richEntityCards: false,
+  toolExecution: false,
+  toolWriteActions: false,
+  confirmationTokens: false,
+  fileUnderstanding: false,
+  qualityFeedback: false
 };
 
 /**
@@ -88,7 +105,15 @@ const INTERNAL_CAPABILITY_DEFAULTS: ScrolithaRolloutFlags = {
   personalization: true,
   trustVerification: true,
   learningLoop: true,
-  messagingAssistant: true
+  messagingAssistant: true,
+  conversationUnification: true,
+  messagingStream: true,
+  richEntityCards: true,
+  toolExecution: true,
+  toolWriteActions: false,
+  confirmationTokens: true,
+  fileUnderstanding: true,
+  qualityFeedback: true
 };
 
 const ENV_MAP: Partial<Record<ScrolithaCapability, string>> = {
@@ -110,7 +135,15 @@ const ENV_MAP: Partial<Record<ScrolithaCapability, string>> = {
   personalization: 'SCROLITHA_ROLLOUT_PERSONALIZATION',
   trustVerification: 'SCROLITHA_ROLLOUT_TRUST',
   learningLoop: 'SCROLITHA_ROLLOUT_LEARNING',
-  messagingAssistant: 'SCROLITHA_ROLLOUT_MESSAGING_ASSISTANT'
+  messagingAssistant: 'SCROLITHA_ROLLOUT_MESSAGING_ASSISTANT',
+  conversationUnification: 'SCROLITHA_ROLLOUT_CONVERSATION_UNIFICATION',
+  messagingStream: 'SCROLITHA_ROLLOUT_MESSAGING_STREAM',
+  richEntityCards: 'SCROLITHA_ROLLOUT_RICH_ENTITY_CARDS',
+  toolExecution: 'SCROLITHA_ROLLOUT_TOOL_EXECUTION',
+  toolWriteActions: 'SCROLITHA_ROLLOUT_TOOL_WRITE_ACTIONS',
+  confirmationTokens: 'SCROLITHA_ROLLOUT_CONFIRMATION_TOKENS',
+  fileUnderstanding: 'SCROLITHA_ROLLOUT_FILE_UNDERSTANDING',
+  qualityFeedback: 'SCROLITHA_ROLLOUT_QUALITY_FEEDBACK'
 };
 
 const asBool = (value: unknown, fallback: boolean) => {

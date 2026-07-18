@@ -3,7 +3,22 @@ import prisma from '../../utils/prismaClient';
 import { getAffiliateDashboardByUserId } from '../affiliateProgram.service';
 import { listScrolithaAuditLogs } from './scrolitha.audit';
 import { updateScrolithaConfig } from './scrolitha.policy';
-import type { ScrolithaToolDefinition } from './scrolitha.types';
+import type { ScrolithaToolDefinition, ScrolithaToolRiskClass } from './scrolitha.types';
+
+const inferRiskClass = (tool: Pick<ScrolithaToolDefinition, 'scope' | 'method' | 'requiresConfirmation' | 'destructive' | 'riskClass' | 'key'>): ScrolithaToolRiskClass => {
+  if (tool.riskClass) return tool.riskClass;
+  if (tool.scope === 'admin') return 'administrative';
+  if (tool.destructive) return 'destructive';
+  const key = String(tool.key || '').toUpperCase();
+  if (/CREATE_|SUBMIT_|UPLOAD_|BLOCK_|FOLLOW_|MARK_|UPDATE_|MODERATE_|REVIEW_|GENERATE_/.test(key)) {
+    if (/DRAFT|BRIEF|GENERATE_/.test(key)) return 'draft';
+    if (tool.requiresConfirmation) return 'write';
+    return 'write';
+  }
+  if (tool.method === 'GET') return 'read_only';
+  if (tool.requiresConfirmation) return 'write';
+  return 'write';
+};
 
 const s = (v: unknown) => String(v || '').trim();
 const n = (v: unknown, d = 0) => {
@@ -104,6 +119,8 @@ const userTools: ScrolithaToolDefinition[] = [
     method: 'GET',
     endpoint: '/api/profile/me',
     roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    riskClass: 'read_only',
+    messagingSafe: true,
     execute: async (_params, ctx) => {
       const [user, profile] = await Promise.all([
         prisma.user.findUnique({ where: { id: ctx.actor.id } }),
@@ -119,6 +136,8 @@ const userTools: ScrolithaToolDefinition[] = [
     method: 'GET',
     endpoint: '/api/files',
     roleScope: ['freelancer', 'client', 'employer', 'admin'],
+    riskClass: 'read_only',
+    messagingSafe: true,
     execute: async (params, ctx) => {
       const take = Math.max(1, Math.min(100, Math.floor(n(params.limit, 20))));
       const rows = await prisma.file.findMany({
@@ -144,6 +163,7 @@ const userTools: ScrolithaToolDefinition[] = [
     endpoint: '/api/files/upload',
     roleScope: ['freelancer', 'client', 'employer', 'admin'],
     requiresConfirmation: true,
+    riskClass: 'write',
     execute: async (params, ctx) => {
       const fileId = s(params.fileId);
       if (!fileId) throw new Error('fileId is required.');
@@ -174,6 +194,7 @@ const userTools: ScrolithaToolDefinition[] = [
     endpoint: '/api/gigs',
     roleScope: ['freelancer', 'admin'],
     requiresConfirmation: true,
+    riskClass: 'draft',
     execute: async (params, ctx) => {
       const fileIds = arr(params.fileIds || params.attachmentFileIds);
       const files = await ownedFiles(ctx.actor.id, ctx.actor.role, fileIds, ctx.actor.isAdmin);
@@ -881,18 +902,126 @@ const adminTools: ScrolithaToolDefinition[] = [
   }
 ];
 
-const TOOL_DEFINITIONS: ScrolithaToolDefinition[] = [...userTools, ...adminTools];
+const READ_ONLY_MESSAGING_SAFE = new Set([
+  'GET_ME_PROFILE',
+  'GET_UPLOADED_FILES',
+  'FETCH_NOTIFICATIONS',
+  'GET_MY_ORDERS',
+  'GET_MY_MEMBERSHIP_STATUS',
+  'GET_MY_WALLET_SUMMARY',
+  'GET_MY_GCOIN_SUMMARY',
+  'GET_MY_ADS_OVERVIEW',
+  'GET_MY_AFFILIATE_OVERVIEW',
+  'GET_MY_MONETIZATION_STATUS',
+  'SEARCH_USERS'
+]);
+
+const DRAFT_TOOLS = new Set(['CREATE_GIG', 'CREATE_JOB', 'GENERATE_PROJECT_BRIEF']);
+const DESTRUCTIVE_TOOLS = new Set(['BLOCK_USER']);
+
+const annotateTool = (tool: ScrolithaToolDefinition): ScrolithaToolDefinition => {
+  const riskClass = tool.riskClass || inferRiskClass(tool);
+  const messagingSafe =
+    tool.messagingSafe !== undefined
+      ? tool.messagingSafe
+      : riskClass === 'read_only' && READ_ONLY_MESSAGING_SAFE.has(tool.key);
+  let resolvedRisk = riskClass;
+  if (DRAFT_TOOLS.has(tool.key)) resolvedRisk = 'draft';
+  if (DESTRUCTIVE_TOOLS.has(tool.key)) resolvedRisk = 'destructive';
+  if (tool.scope === 'admin') resolvedRisk = 'administrative';
+  return {
+    ...tool,
+    riskClass: resolvedRisk,
+    messagingSafe,
+    requiresConfirmation:
+      tool.requiresConfirmation ||
+      resolvedRisk === 'write' ||
+      resolvedRisk === 'destructive' ||
+      resolvedRisk === 'draft'
+  };
+};
+
+const TOOL_DEFINITIONS: ScrolithaToolDefinition[] = [...userTools, ...adminTools].map(annotateTool);
 const TOOL_MAP = new Map<string, ScrolithaToolDefinition>(TOOL_DEFINITIONS.map((t) => [t.key, t]));
 
 export const getScrolithaToolDefinition = (key: string) => TOOL_MAP.get(String(key || '').trim().toUpperCase()) || null;
 
-export const listScrolithaTools = () => TOOL_DEFINITIONS.map((t) => ({
-  key: t.key,
-  description: t.description,
-  scope: t.scope,
-  method: t.method,
-  endpoint: t.endpoint,
-  roleScope: t.roleScope || [],
-  requiresConfirmation: Boolean(t.requiresConfirmation),
-  destructive: Boolean(t.destructive)
-}));
+export const listScrolithaTools = () =>
+  TOOL_DEFINITIONS.map((t) => ({
+    key: t.key,
+    description: t.description,
+    scope: t.scope,
+    method: t.method,
+    endpoint: t.endpoint,
+    roleScope: t.roleScope || [],
+    requiresConfirmation: Boolean(t.requiresConfirmation),
+    destructive: Boolean(t.destructive),
+    riskClass: t.riskClass || inferRiskClass(t),
+    messagingSafe: Boolean(t.messagingSafe),
+    productionReady: t.scope === 'user' && (t.riskClass === 'read_only' || t.messagingSafe === true)
+  }));
+
+export const listScrolithaToolsByRiskClass = () => {
+  const groups: Record<ScrolithaToolRiskClass, string[]> = {
+    read_only: [],
+    draft: [],
+    write: [],
+    destructive: [],
+    administrative: []
+  };
+  for (const t of TOOL_DEFINITIONS) {
+    const rc = (t.riskClass || inferRiskClass(t)) as ScrolithaToolRiskClass;
+    groups[rc].push(t.key);
+  }
+  return groups;
+};
+
+/**
+ * Gate tool execution by Phase 20.7.1 rollout flags.
+ * Admin tools never available to non-admin actors (policy layer still applies).
+ */
+export const isToolActivationAllowed = async (
+  tool: ScrolithaToolDefinition,
+  actor: { id?: string; role?: string; isAdmin?: boolean; email?: string | null },
+  options?: { surface?: string }
+): Promise<{ allowed: boolean; reason?: string }> => {
+  const { isCapabilityEnabled } = await import('./scrolitha.rollout');
+  const risk = tool.riskClass || inferRiskClass(tool);
+
+  if (risk === 'administrative' && !actor?.isAdmin) {
+    return { allowed: false, reason: 'Administrative tools are not available to ordinary users.' };
+  }
+
+  if (risk === 'read_only') {
+    // Read-only tools: require toolExecution OR messaging-safe + messaging assistant surface
+    const toolExec = await isCapabilityEnabled('toolExecution', actor);
+    if (toolExec) return { allowed: true };
+    if (tool.messagingSafe && options?.surface === 'messaging') {
+      const messaging = await isCapabilityEnabled('messagingAssistant', actor);
+      if (messaging) return { allowed: true };
+    }
+    return { allowed: false, reason: 'Read-only tool execution is disabled by rollout.' };
+  }
+
+  if (risk === 'draft') {
+    const toolExec = await isCapabilityEnabled('toolExecution', actor);
+    const writes = await isCapabilityEnabled('toolWriteActions', actor);
+    if (toolExec && writes) return { allowed: true };
+    return { allowed: false, reason: 'Draft-producing tools are disabled by rollout.' };
+  }
+
+  if (risk === 'write' || risk === 'destructive') {
+    const toolExec = await isCapabilityEnabled('toolExecution', actor);
+    const writes = await isCapabilityEnabled('toolWriteActions', actor);
+    if (toolExec && writes) return { allowed: true };
+    return { allowed: false, reason: 'Write/destructive tools are disabled by rollout.' };
+  }
+
+  if (risk === 'administrative') {
+    const toolExec = await isCapabilityEnabled('toolExecution', actor);
+    if (toolExec && actor?.isAdmin) return { allowed: true };
+    return { allowed: false, reason: 'Administrative tool execution is disabled or unauthorized.' };
+  }
+
+  return { allowed: false, reason: 'Tool activation denied.' };
+};

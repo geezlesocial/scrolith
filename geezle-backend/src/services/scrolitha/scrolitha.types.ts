@@ -28,6 +28,14 @@ export type ScrolithaToolContext = {
   actionPlanId?: string;
 };
 
+/** Phase 20.7.1 — tool risk / activation class */
+export type ScrolithaToolRiskClass =
+  | 'read_only'
+  | 'draft'
+  | 'write'
+  | 'destructive'
+  | 'administrative';
+
 export type ScrolithaToolDefinition = {
   key: string;
   description: string;
@@ -37,6 +45,10 @@ export type ScrolithaToolDefinition = {
   roleScope?: string[];
   requiresConfirmation?: boolean;
   destructive?: boolean;
+  /** Phase 20.7.1: explicit risk class for rollout gates */
+  riskClass?: ScrolithaToolRiskClass;
+  /** When true, tool may run in messaging assistant without extra toolExecution flag (read-only defaults). */
+  messagingSafe?: boolean;
   redactedFields?: string[];
   execute: (params: Record<string, any>, context: ScrolithaToolContext) => Promise<ScrolithaToolExecutionResult>;
 };
@@ -91,6 +103,8 @@ export type ScrolithaExecuteInput = {
   actionId: unknown;
   confirmed: unknown;
   params?: Record<string, any>;
+  /** Phase 20.7.1 single-use confirmation token */
+  confirmationToken?: unknown;
 };
 
 export type ScrolithaFeedbackInput = {
