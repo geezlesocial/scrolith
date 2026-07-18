@@ -375,20 +375,68 @@ registerSkill({
 registerSkill({
   id: 'career_assistant',
   name: 'Career Assistant',
-  description: 'Career-oriented guidance from public skills/jobs/services.',
-  intents: ['career_assistant', 'career'],
-  priority: 0.72,
+  description:
+    'Career coaching: resume builder/review, interview prep, skill gaps, marketplace/jobs/groups, cover letters.',
+  intents: [
+    'career_assistant',
+    'career',
+    'resume',
+    'cv',
+    'cover_letter',
+    'interview',
+    'ats',
+    'skill_gap'
+  ],
+  priority: 0.82,
   run: (ctx) => {
     const skills = nodesOf(ctx, 'skill').map((s) => s.label);
     const jobs = nodesOf(ctx, 'job');
+    const q = text(ctx.question).toLowerCase();
+    const wantsResume = /\bresume|cv|curriculum\b/.test(q);
+    const wantsReview = /\breview|score|ats|analyze\b/.test(q);
+    const wantsCover = /\bcover\s*letter\b/.test(q);
+    const wantsInterview = /\binterview\b/.test(q);
+
+    const lines = [
+      'Scrolitha Career Intelligence (general guidance — review before using):',
+      `• Skills in view: ${skills.join(', ') || 'add skills on your profile for better matching'}`,
+      `• Related public jobs: ${jobs.map((j) => j.label).join(', ') || 'browse /jobs for live openings'}`,
+      '',
+      'Recommended next steps on Scrolith:'
+    ];
+
+    if (wantsReview) {
+      lines.push('1. Open Resume Reviewer → upload or paste your CV for ATS + professional scoring.');
+      lines.push('2. Apply keyword and achievement rewrites to target the role description.');
+    } else if (wantsResume || wantsCover) {
+      lines.push('1. Open Resume Builder → import profile, pick a template, generate a summary.');
+      lines.push('2. Use AI rewrite for action verbs, quantified impact, and ATS-safe formatting.');
+      if (wantsCover) lines.push('3. Draft a cover letter tailored to the target role and company.');
+    } else if (wantsInterview) {
+      lines.push('1. Map 5 STAR stories from your recent projects and marketplace deliveries.');
+      lines.push('2. Practice role-specific questions; close with questions that show research.');
+    } else {
+      lines.push('1. Resume Builder — professional summary, skills, achievements.');
+      lines.push('2. Resume Reviewer — ATS score, gap analysis, line-level suggestions.');
+      lines.push('3. Marketplace + Jobs — opportunities ranked to your skills.');
+      lines.push('4. Groups & blogs — community learning and professional writing.');
+    }
+
+    lines.push('', 'Deep links: /freelancer/dashboard?tab=resume-builder · /client/dashboard?tab=resume-reviewer · /marketplace · /community/clubs · /blog');
+    lines.push('This is product guidance, not licensed career counseling.');
+
     return base(
       'career_assistant',
       'Career Assistant',
-      `Career signals from public context:\n• Skills in view: ${skills.join(', ') || 'none'}\n• Related public jobs: ${
-        jobs.map((j) => j.label).join(', ') || 'none'
-      }\nThis is general guidance, not personalized career counseling.`,
-      ['Scrolith public profile', jobs.length ? 'Public job information' : ''].filter(Boolean),
-      0.55
+      lines.join('\n'),
+      [
+        'Scrolith public profile',
+        jobs.length ? 'Public job information' : '',
+        'Resume Builder',
+        'Resume Reviewer',
+        'Marketplace & Groups'
+      ].filter(Boolean),
+      wantsResume || wantsReview || wantsCover || wantsInterview ? 0.78 : 0.62
     );
   }
 });
