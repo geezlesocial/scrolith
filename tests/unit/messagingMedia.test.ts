@@ -5,6 +5,7 @@ import {
   extractMessageAttachments,
   getAttachmentCacheKey,
   getAttachmentContentId,
+  getMessageAttachmentIdentityKey,
   isOversizedPrivateBlobPreview,
   isPreviewableMessagingMedia,
   MAX_PRIVATE_MEDIA_BLOB_BYTES,
@@ -30,6 +31,26 @@ test('classifyMessagingMediaType prefers MIME and known types', () => {
   assert.equal(classifyMessagingMediaType('voice_note'), 'voice_note');
   assert.equal(classifyMessagingMediaType('application/pdf'), 'document');
   assert.equal(classifyMessagingMediaType('photo.JPG'), 'image');
+});
+
+test('getMessageAttachmentIdentityKey is stable across object identity thrash', () => {
+  const a = normalizeMessageAttachment({
+    id: 'file_abc',
+    name: 'shot.png',
+    mimeType: 'image/png',
+    url: 'https://cdn.example.com/old-or-storage.png'
+  });
+  const b = normalizeMessageAttachment({
+    id: 'file_abc',
+    name: 'shot.png',
+    mimeType: 'image/png',
+    // Different storage URL string must not change content identity when file id is present.
+    url: 'https://storage.googleapis.com/bucket/other-path.png'
+  });
+  assert.ok(a && b);
+  assert.equal(getMessageAttachmentIdentityKey(a), 'file_abc');
+  assert.equal(getMessageAttachmentIdentityKey(b), 'file_abc');
+  assert.equal(getMessageAttachmentIdentityKey(a), getMessageAttachmentIdentityKey(b));
 });
 
 test('normalizeMessageAttachment resolves file ids and content URLs', () => {

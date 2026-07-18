@@ -117,6 +117,22 @@ export const getAttachmentCacheKey = (attachment: any): string => {
   );
 };
 
+/**
+ * Stable identity for a normalized attachment across parent re-renders.
+ * Parent message lists often recreate attachment objects with the same content;
+ * UI effects must key off this identity — not object reference equality.
+ */
+export const getMessageAttachmentIdentityKey = (
+  attachment: NormalizedMessageAttachment | null | undefined
+): string => {
+  if (!attachment) return '';
+  const cacheKey = getAttachmentCacheKey(attachment);
+  if (cacheKey) return cacheKey;
+  return [safeString(attachment.id), safeString(attachment.url), safeString(attachment.type)]
+    .filter(Boolean)
+    .join('|');
+};
+
 export const isPreviewableMessagingMedia = (category: MessagingMediaCategory): boolean =>
   category === 'image' || category === 'video' || category === 'audio' || category === 'voice_note';
 

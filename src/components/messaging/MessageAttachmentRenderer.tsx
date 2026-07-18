@@ -7,6 +7,7 @@ import {
   formatMediaBytes,
   formatMediaDuration,
   getAttachmentCacheKey,
+  getMessageAttachmentIdentityKey,
   isOversizedPrivateBlobPreview,
   MAX_PRIVATE_MEDIA_BLOB_BYTES,
   normalizeMessageAttachment,
@@ -28,17 +29,22 @@ type MessageAttachmentRendererProps = {
 const mapLoadError = (err: any): string => {
   const code = String(err?.code || '');
   if (code === 'preview_too_large') return 'preview_too_large';
+  if (code === 'access_expired') return 'access_expired';
   const status = Number(err?.response?.status || err?.status || 0);
   if (status === 401) return 'auth_required';
   if (status === 403) return 'forbidden';
   if (status === 404) return 'not_found';
+  if (status === 410) return 'access_expired';
   if (status === 416) return 'range_unsatisfiable';
   const message = String(err?.message || '').toLowerCase();
   if (message.includes('abort')) return 'aborted';
+  if (message.includes('expired') || message.includes('signature')) return 'access_expired';
   if (message.includes('empty media') || message.includes('invalid media') || message.includes('media unavailable')) {
     return 'corrupt';
   }
-  if (message.includes('network') || message.includes('timeout')) return 'network';
+  if (message.includes('network') || message.includes('timeout') || message.includes('offline')) {
+    return 'network';
+  }
   return 'preview_failed';
 };
 
@@ -51,15 +57,19 @@ const errorLabel = (code: string | null): string => {
     case 'forbidden':
       return 'You do not have access to this media';
     case 'not_found':
-      return 'Media not found';
+      return 'File no longer available';
+    case 'access_expired':
+      return 'Access expired — refresh preview';
     case 'corrupt':
       return 'Media could not be decoded';
     case 'network':
-      return 'Network error loading media';
+      return 'Network unavailable — retry when connected';
     case 'aborted':
       return 'Preview cancelled';
+    case 'decode_failed':
+      return 'Image preview unavailable';
     default:
-      return 'Preview unavailable';
+      return 'Preview temporarily unavailable';
   }
 };
 
@@ -72,8 +82,32 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
 }) => {
   const normalized = useMemo(
     () => normalizeMessageAttachment(attachment, { forceVoiceNote }),
-    [attachment, forceVoiceNote]
+    // Identity-stable: recompute when content keys change, not every parent object.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      forceVoiceNote,
+      attachment?.id,
+      attachment?.fileId,
+      attachment?.file_id,
+      attachment?.url,
+      attachment?.contentUrl,
+      attachment?.mimeType,
+      attachment?.mime_type,
+      attachment?.type,
+      attachment?.name,
+      attachment?.filename,
+      attachment?.originalName,
+      attachment?.size,
+      attachment?.durationMs,
+      attachment?.duration_ms,
+      typeof attachment === 'string' ? attachment : ''
+    ]
   );
+  const attachmentRef = useRef(attachment);
+  attachmentRef.current = attachment;
+  const forceVoiceNoteRef = useRef(forceVoiceNote);
+  forceVoiceNoteRef.current = forceVoiceNote;
+
   const [objectUrl, setObjectUrl] = useState<string>('');
   const [directStreamUrl, setDirectStreamUrl] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -94,6 +128,9 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   const loadGenerationRef = useRef(0);
 
   const cacheKey = normalized ? getAttachmentCacheKey(normalized) : '';
+  /** Stable across parent re-renders that only change object identity. */
+  const attachmentIdentity = getMessageAttachmentIdentityKey(normalized);
+  const mediaKind = normalized?.type || '';
   const isOutgoing = variant === 'outgoing';
   const saveData = Boolean((navigator as any)?.connection?.saveData);
   const shouldPreload =
@@ -138,16 +175,22 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
 
   const loadMedia = useCallback(
     async (force = false) => {
-      if (!normalized) return;
-      if (!normalized.canPreview && normalized.type !== 'document' && normalized.type !== 'generic_file') {
+      const current = normalizeMessageAttachment(attachmentRef.current, {
+        forceVoiceNote: forceVoiceNoteRef.current
+      });
+      if (!current) return;
+      if (!current.canPreview && current.type !== 'document' && current.type !== 'generic_file') {
         return;
       }
-      if (!normalized.fileId && !normalized.url) return;
-      if (normalized.type === 'document' || normalized.type === 'generic_file') return;
+      if (!current.fileId && !current.url) return;
+      if (current.type === 'document' || current.type === 'generic_file') return;
+
+      const key = getAttachmentCacheKey(current);
+      const oversized = isOversizedPrivateBlobPreview(current, MAX_PRIVATE_MEDIA_BLOB_BYTES);
 
       // Prefer direct Range streaming when auth is not required for native elements.
-      if (prefersDirectRangeStreaming(normalized) && normalized.url) {
-        setDirectStreamUrl(normalized.url);
+      if (prefersDirectRangeStreaming(current) && current.url) {
+        setDirectStreamUrl(current.url);
         setObjectUrl('');
         setError(null);
         setLoading(false);
@@ -156,7 +199,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
       }
 
       // Known oversized private videos: never allocate full blob; download-only fallback.
-      if (normalized.type === 'video' && oversizedPrivate) {
+      if (current.type === 'video' && oversized) {
         setVideoMode('download_only');
         setError('preview_too_large');
         setObjectUrl('');
@@ -170,20 +213,21 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
       const generation = ++loadGenerationRef.current;
       setLoading(true);
       setError(null);
+      setImageReady(false);
       try {
         // If already cached, retain without re-fetch.
-        if (!force && cacheKey) {
-          const retained = retainAuthenticatedMediaUrl(cacheKey);
+        if (!force && key) {
+          const retained = retainAuthenticatedMediaUrl(key);
           if (retained) {
             if (!mountedRef.current || controller.signal.aborted || generation !== loadGenerationRef.current) {
-              releaseAuthenticatedMediaUrl(cacheKey);
+              releaseAuthenticatedMediaUrl(key);
               return;
             }
             releaseHeldUrl();
-            heldKeyRef.current = cacheKey;
+            heldKeyRef.current = key;
             setObjectUrl(retained);
             setDirectStreamUrl('');
-            if (normalized.type === 'video') setVideoMode('blob');
+            if (current.type === 'video') setVideoMode('blob');
             return;
           }
         }
@@ -193,28 +237,29 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
           releaseHeldUrl();
         }
 
-        const url = await fetchAuthenticatedMediaObjectUrl(normalized, {
+        const url = await fetchAuthenticatedMediaObjectUrl(current, {
           signal: controller.signal,
           force,
           maxBytes: MAX_PRIVATE_MEDIA_BLOB_BYTES
         });
         if (!mountedRef.current || controller.signal.aborted || generation !== loadGenerationRef.current) {
           // Stale response: release the retain performed by fetch.
-          if (cacheKey) releaseAuthenticatedMediaUrl(cacheKey);
+          if (key) releaseAuthenticatedMediaUrl(key);
           return;
         }
         releaseHeldUrl();
-        heldKeyRef.current = cacheKey;
+        heldKeyRef.current = key;
         setObjectUrl(url);
         setDirectStreamUrl('');
-        if (normalized.type === 'video') setVideoMode('blob');
+        setError(null);
+        if (current.type === 'video') setVideoMode('blob');
       } catch (err: any) {
         if (controller.signal.aborted || generation !== loadGenerationRef.current) return;
         if (!mountedRef.current) return;
         const code = mapLoadError(err);
         if (code === 'aborted') return;
 
-        if (code === 'preview_too_large' && normalized.type === 'video') {
+        if (code === 'preview_too_large' && current.type === 'video') {
           setVideoMode('download_only');
           setError('preview_too_large');
           setObjectUrl('');
@@ -222,11 +267,11 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         }
 
         // Direct public URL fallback when blob path fails and auth is not required.
-        if (normalized.url && canUseDirectMediaUrl(normalized)) {
-          setDirectStreamUrl(normalized.url);
+        if (current.url && canUseDirectMediaUrl(current)) {
+          setDirectStreamUrl(current.url);
           setObjectUrl('');
           setError(null);
-          if (normalized.type === 'video') setVideoMode('direct');
+          if (current.type === 'video') setVideoMode('direct');
           return;
         }
 
@@ -237,7 +282,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         }
       }
     },
-    [normalized, cacheKey, oversizedPrivate, releaseHeldUrl]
+    [releaseHeldUrl]
   );
 
   useEffect(() => {
@@ -254,9 +299,13 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   const [inViewport, setInViewport] = useState(false);
 
   useEffect(() => {
-    // Attachment replacement / conversation switch: drop previous hold and reset UI.
+    // Only reset when the attachment *content identity* changes (file id / url),
+    // not when the parent re-creates a new attachment object with the same data.
+    // Identity thrash previously aborted loads and left inViewport stuck false after
+    // IntersectionObserver disconnected — permanent "Image preview unavailable".
     stopMediaElements();
     releaseHeldUrl();
+    abortRef.current?.abort();
     setObjectUrl('');
     setDirectStreamUrl('');
     setImageReady(false);
@@ -268,10 +317,10 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
     setDurationLabel(formatMediaDuration(normalized?.durationMs));
     loadGenerationRef.current += 1;
 
-    if (!normalized) return;
+    if (!attachmentIdentity || !normalized) return;
 
     // Progressive placeholder from disk cache metadata when available.
-    if (normalized.type === 'image' && cacheKey) {
+    if (mediaKind === 'image' && cacheKey) {
       void import('../../services/messagingEngine/mediaDiskCache')
         .then(({ getDiskCacheMeta }) => getDiskCacheMeta(cacheKey))
         .then((meta) => {
@@ -280,28 +329,39 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         .catch(() => undefined);
     }
 
-    if (normalized.type === 'video') {
+    if (mediaKind === 'video') {
       if (oversizedPrivate) {
         setVideoMode('download_only');
         setError('preview_too_large');
         return;
       }
-      if (prefersDirectRangeStreaming(normalized) && normalized.url) {
-        // Direct Range path still waits for explicit user action (no autoplay/preload full body).
-        return;
-      }
-      // Private videos: explicit Load video only.
+      // Direct Range / private videos: explicit Load video only (no auto-blob).
       return;
     }
-  }, [cacheKey, normalized, oversizedPrivate, releaseHeldUrl, stopMediaElements]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: identity key only
+  }, [attachmentIdentity, cacheKey, mediaKind, oversizedPrivate, releaseHeldUrl, stopMediaElements]);
 
   // Viewport gate: avoid fetching every historical image/audio row on conversation open.
   useEffect(() => {
     const node = rootRef.current;
-    if (!node || typeof IntersectionObserver === 'undefined') {
+    if (!node) {
       setInViewport(true);
       return;
     }
+    if (typeof IntersectionObserver === 'undefined') {
+      setInViewport(true);
+      return;
+    }
+
+    // Already visible (common after parent re-render / dock restore): load immediately.
+    const rect = node.getBoundingClientRect();
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const margin = 160;
+    if (rect.bottom >= -margin && rect.top <= viewportHeight + margin && rect.width > 0) {
+      setInViewport(true);
+      return;
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -313,14 +373,14 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [cacheKey]);
+  }, [attachmentIdentity]);
 
   useEffect(() => {
-    if (!normalized || !shouldPreload || !inViewport) return;
-    if (normalized.type === 'video') return;
-    if (!normalized.canPreview) return;
+    if (!attachmentIdentity || !shouldPreload || !inViewport) return;
+    if (mediaKind === 'video') return;
+    if (mediaKind !== 'image' && mediaKind !== 'audio' && mediaKind !== 'voice_note') return;
     void loadMedia(false);
-  }, [normalized, shouldPreload, inViewport, loadMedia]);
+  }, [attachmentIdentity, mediaKind, shouldPreload, inViewport, loadMedia]);
 
   if (!normalized) return null;
 
@@ -443,17 +503,50 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
                 ].join(' ')}
                 loading="lazy"
                 decoding="async"
-                onLoad={() => setImageReady(true)}
-                onError={() => setImageReady(true)}
+                onLoad={() => {
+                  setImageReady(true);
+                  setError(null);
+                }}
+                onError={() => {
+                  // Do not mark ready on decode failure — surface retry path.
+                  setImageReady(false);
+                  setObjectUrl('');
+                  setDirectStreamUrl('');
+                  setError((prev) => prev || 'decode_failed');
+                }}
               />
             </a>
           ) : (
             <div
-              className={`flex h-40 items-center justify-center rounded-md ${mutedClass}`}
+              className={`flex h-40 flex-col items-center justify-center gap-2 rounded-md px-3 text-center ${mutedClass}`}
               role="status"
               aria-live="polite"
             >
-              {loading ? <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading image" /> : 'Image preview unavailable'}
+              {loading ? (
+                <>
+                  <Loader2 className="h-5 w-5 animate-spin" aria-label="Loading preview" />
+                  <span className="text-[10px]">Loading preview…</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-[11px] font-medium">
+                    {error ? errorLabel(error) : 'Preview temporarily unavailable'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      void loadMedia(true);
+                    }}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-blue-500 ${buttonClass}`}
+                    aria-label="Refresh image preview"
+                  >
+                    <RefreshCw className="h-3 w-3" aria-hidden />
+                    Refresh preview
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>
