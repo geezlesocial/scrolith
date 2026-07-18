@@ -12,6 +12,20 @@ export type CareerPrompt = {
 
 export const SCROLITHA_CAREER_PROMPTS: CareerPrompt[] = [
   {
+    id: 'weekly-growth',
+    label: 'Weekly growth plan',
+    prompt:
+      '@Scrolitha build a 7-day Scrolith growth plan covering posting, networking, marketplace or hiring actions, and measurable goals.',
+    href: '/scrolitha?intent=growth'
+  },
+  {
+    id: 'profile-optimize',
+    label: 'Optimize profile for discovery',
+    prompt:
+      '@Scrolitha optimize my headline, about section, and skills so I rank better in professional discovery and hiring matches on Scrolith.',
+    href: '/scrolitha?intent=career'
+  },
+  {
     id: 'resume-summary',
     label: 'Write professional summary',
     prompt:

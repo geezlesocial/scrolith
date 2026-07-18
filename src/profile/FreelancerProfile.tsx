@@ -20,6 +20,7 @@ import { getDefaultStoryTextDraft, getStoryTextStyle, storyTextFonts, storyTextT
 import { getPublicAppOrigin } from '../utils/siteUrl';
 import ProfessionalIntegrationStrip from '../components/discovery/ProfessionalIntegrationStrip';
 import CreatorAnalyticsCard from '../components/insights/CreatorAnalyticsCard';
+import GrowthPulseCard from '../components/growth/GrowthPulseCard';
 import PeopleYouMayKnowRail from '../components/discovery/PeopleYouMayKnowRail';
 import EmptyState from '../components/ui/EmptyState';
 
@@ -1093,6 +1094,7 @@ const FreelancerProfile = () => {
 
                         <ProfessionalIntegrationStrip surface="profile" />
                         {isOwner ? <CreatorAnalyticsCard compact /> : null}
+                        {isOwner ? <GrowthPulseCard compact className="mt-3" /> : null}
                         {!isOwner ? <PeopleYouMayKnowRail limit={4} /> : null}
 
                         {/* Stats Card */}

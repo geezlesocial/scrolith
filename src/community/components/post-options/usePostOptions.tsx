@@ -198,6 +198,21 @@ export function usePostOptions({
     void run('not_interested', async () => {
       const resp = await postOptionsApi.notInterested(postId);
       showNotification('info', 'Not interested', resp?.message || 'We will show you fewer posts like this.');
+      // Phase 20.3 — dual-write IFF (telemetry only; ranking still uses intent path).
+      void import('../../../services/intelligenceFeedback')
+        .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
+          submitIntelligenceFeedbackEvents([
+            {
+              eventId: `post_options:not_interested:post:${postId}`,
+              entityType: 'post',
+              entityId: postId,
+              action: 'not_interested',
+              sourceSurface: 'post_options',
+              sessionId: getFeedbackSessionId()
+            }
+          ])
+        )
+        .catch(() => null);
     });
   }, [ensureAuth, onHideFromFeed, postId, run, showNotification]);
 
@@ -223,6 +238,20 @@ export function usePostOptions({
     void run('hide', async () => {
       const resp = await postOptionsApi.hide(postId);
       showNotification('info', 'Hidden', resp?.message || 'Post hidden from your feed.');
+      void import('../../../services/intelligenceFeedback')
+        .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
+          submitIntelligenceFeedbackEvents([
+            {
+              eventId: `post_options:hide:post:${postId}`,
+              entityType: 'post',
+              entityId: postId,
+              action: 'hide',
+              sourceSurface: 'post_options',
+              sessionId: getFeedbackSessionId()
+            }
+          ])
+        )
+        .catch(() => null);
     });
   }, [ensureAuth, onHideFromFeed, postId, run, showNotification]);
 
@@ -247,6 +276,20 @@ export function usePostOptions({
           ? `${baseMessage} Reference: ${reportId.slice(0, 8)}${reviewState ? ` · ${reviewState}` : ''}.`
           : baseMessage;
       showNotification('success', 'Report submitted', detail);
+      void import('../../../services/intelligenceFeedback')
+        .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
+          submitIntelligenceFeedbackEvents([
+            {
+              eventId: `post_options:report:post:${postId}`,
+              entityType: 'post',
+              entityId: postId,
+              action: 'report',
+              sourceSurface: 'post_options',
+              sessionId: getFeedbackSessionId()
+            }
+          ])
+        )
+        .catch(() => null);
     });
   }, [ensureAuth, postId, run, showNotification]);
 
