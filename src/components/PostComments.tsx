@@ -910,34 +910,40 @@ const PostComments: React.FC<PostCommentsProps> = ({
       <div
         key={comment.id}
         id={`comment-${comment.id}`}
-        className={`mt-4 transition-colors ${depth > 0 ? 'ml-6 border-l border-slate-100 pl-4' : ''}`}
+        className={`scroll-mt-24 transition-[transform,opacity] duration-200 ease-out motion-reduce:transition-none ${
+          depth > 0 ? 'ml-3 border-l-2 border-slate-100 pl-3 sm:ml-5 sm:pl-4' : ''
+        }`}
       >
-        <div className="flex items-start gap-3">
-          <Link to={commentProfileUrl} className="h-10 w-10 overflow-hidden rounded-full bg-slate-100 shadow-sm">
+        <div className="flex items-start gap-2.5 sm:gap-3">
+          <Link
+            to={commentProfileUrl}
+            className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 shadow-sm ring-1 ring-slate-200/80 sm:h-10 sm:w-10"
+            aria-label={`${commentAuthorName} profile`}
+          >
             {commentAuthorAvatar ? (
-              <img src={commentAuthorAvatar} alt={commentAuthorName} className="h-full w-full object-cover" />
+              <img src={commentAuthorAvatar} alt="" className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-slate-500">
+              <div className="flex h-full w-full items-center justify-center text-[11px] font-semibold text-slate-500">
                 {commentAuthorName.slice(0, 1)}
               </div>
             )}
           </Link>
           <div className="min-w-0 flex-1">
-            <div className="rounded-3xl border border-slate-100 bg-white px-4 py-3 shadow-[0_10px_30px_rgba(15,23,42,0.05)]">
-              <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm">
+            <div className="rounded-2xl border border-slate-100/90 bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] sm:rounded-3xl sm:px-4 sm:py-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
                 <Link to={commentProfileUrl} className="font-semibold text-slate-900 hover:text-slate-700 hover:underline">
                   {commentAuthorName}
                 </Link>
                 {commentAuthorUsername ? (
-                  <span className="truncate text-xs text-slate-400">@{commentAuthorUsername}</span>
+                  <span className="truncate text-[11px] text-slate-400 sm:text-xs">@{commentAuthorUsername}</span>
                 ) : null}
                 {comment.createdAt && (
-                  <span className="text-xs text-slate-500" title={formatTime(comment.createdAt)}>
-                    {formatRelativeTime(comment.createdAt)}
+                  <span className="text-[11px] text-slate-400 sm:text-xs" title={formatTime(comment.createdAt)}>
+                    · {formatRelativeTime(comment.createdAt)}
                   </span>
                 )}
                 {comment.updatedAt && comment.updatedAt !== comment.createdAt && !isDeleted && (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
                     Edited
                   </span>
                 )}
@@ -979,7 +985,11 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 </div>
               ) : (
                 <>
-                  <div className={`mt-2 text-[15px] leading-6 ${isDeleted ? 'italic text-slate-400' : 'text-slate-800'}`}>
+                  <div
+                    className={`mt-1.5 text-[14px] leading-relaxed sm:mt-2 sm:text-[15px] sm:leading-6 ${
+                      isDeleted ? 'italic text-slate-400' : 'text-slate-800'
+                    }`}
+                  >
                     {isDeleted ? (
                       'This comment has been deleted.'
                     ) : (
@@ -997,15 +1007,16 @@ const PostComments: React.FC<PostCommentsProps> = ({
             </div>
 
             {!isEditing && (
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 pl-2 text-xs">
+              <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-0.5 text-xs sm:mt-2 sm:gap-x-2">
                 <button
                   type="button"
                   onClick={() => handleLike(comment)}
-                  className={`inline-flex items-center gap-1 font-semibold transition hover:text-blue-600 ${
-                    comment.likedByMe ? 'text-blue-600' : 'text-slate-500'
+                  className={`inline-flex min-h-9 min-w-9 items-center justify-center gap-1 rounded-full px-2.5 py-1.5 font-semibold transition active:scale-95 motion-reduce:active:scale-100 hover:bg-slate-100 ${
+                    comment.likedByMe ? 'text-blue-600' : 'text-slate-500 hover:text-blue-600'
                   }`}
+                  aria-label={comment.likedByMe ? 'Unlike comment' : 'Like comment'}
                 >
-                  <Heart className={`h-3.5 w-3.5 ${comment.likedByMe ? 'fill-current' : ''}`} />
+                  <Heart className={`h-4 w-4 ${comment.likedByMe ? 'fill-current' : ''}`} />
                   <span>{normalizeCount(comment.likesCount)}</span>
                 </button>
                 {!isDeleted && (
@@ -1018,15 +1029,15 @@ const PostComments: React.FC<PostCommentsProps> = ({
                       setReplyDraft('');
                       setReplyAttachments([]);
                     }}
-                    className="inline-flex items-center gap-1 font-semibold text-slate-500 transition hover:text-slate-900"
+                    className="inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 py-1.5 font-semibold text-slate-500 transition active:scale-95 motion-reduce:active:scale-100 hover:bg-slate-100 hover:text-slate-900"
                   >
-                    <MessageCircle className="h-3.5 w-3.5" />
+                    <MessageCircle className="h-4 w-4" />
                     Reply
                   </button>
                 )}
                 {!isDeleted && reactionCount > 0 ? (
                   <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 font-semibold text-slate-500">
-                    {reactionCount} reactions
+                    {reactionCount}
                   </span>
                 ) : null}
                 {!isDeleted && replyCount > 0 ? (
@@ -1038,9 +1049,9 @@ const PostComments: React.FC<PostCommentsProps> = ({
                         [comment.id]: !repliesExpanded
                       }))
                     }
-                    className="font-semibold text-slate-500 transition hover:text-slate-900"
+                    className="inline-flex min-h-9 items-center rounded-full px-2.5 py-1.5 font-semibold text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
                   >
-                    {repliesExpanded ? 'Hide replies' : `View ${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`}
+                    {repliesExpanded ? 'Hide' : `${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`}
                   </button>
                 ) : null}
                 {canEdit && (
@@ -1050,7 +1061,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                       setEditingId(comment.id);
                       setEditDraft(comment.content || '');
                     }}
-                    className="inline-flex items-center gap-1 font-semibold text-slate-500 transition hover:text-slate-900"
+                    className="inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 py-1.5 font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                   >
                     <Edit3 className="h-3.5 w-3.5" />
                     Edit
@@ -1060,7 +1071,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   <button
                     type="button"
                     onClick={() => handleDelete(comment.id)}
-                    className="inline-flex items-center gap-1 font-semibold text-slate-500 transition hover:text-rose-600"
+                    className="inline-flex min-h-9 items-center gap-1 rounded-full px-2.5 py-1.5 font-semibold text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     Delete
@@ -1075,12 +1086,16 @@ const PostComments: React.FC<PostCommentsProps> = ({
                 targetId={comment.id}
                 initialCounts={reactionSummary?.counts}
                 initialUserReaction={reactionSummary?.userReaction}
-                className="mt-2 pl-1"
+                className="mt-1 pl-0.5 sm:mt-1.5"
+                compact
               />
             ) : null}
 
             {replyToId === comment.id && (
-              <div className="mt-3 rounded-3xl border border-slate-200 bg-slate-50/80 p-3 shadow-sm">
+              <div className="mt-2 animate-[fadeIn_160ms_ease-out] rounded-2xl border border-slate-200 bg-slate-50/90 p-2.5 shadow-sm sm:mt-3 sm:rounded-3xl sm:p-3">
+                <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Replying to {commentAuthorName}
+                </p>
                 <CommentAiAssist
                   value={replyDraft}
                   onReplace={setReplyDraft}
@@ -1096,7 +1111,7 @@ const PostComments: React.FC<PostCommentsProps> = ({
                   hashtagsEnabled={false}
                   minQueryLength={0}
                   placeholder={`Reply as ${user?.name || user?.username || 'you'}...`}
-                  className="mt-3 min-h-[88px] w-full rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 outline-none transition focus:border-slate-300"
+                  className="mt-2 min-h-[72px] w-full rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 sm:mt-3 sm:min-h-[88px] sm:rounded-3xl sm:p-4"
                 />
                 <EmojiPhraseSuggestionBar
                   value={replyDraft}
@@ -1159,44 +1174,19 @@ const PostComments: React.FC<PostCommentsProps> = ({
 
   if (!expanded) return null;
 
-  return (
+  const composer = user ? (
     <div
-      id={`post-${postId}-comments`}
-      className="mt-4 rounded-[28px] border border-slate-100 bg-gradient-to-b from-slate-50 to-white p-4 shadow-[0_20px_60px_rgba(15,23,42,0.05)]"
+      className="sticky bottom-0 z-20 mt-3 rounded-[22px] border border-slate-200/90 bg-white/96 p-2.5 shadow-[0_-10px_36px_rgba(15,23,42,0.1)] backdrop-blur-md sm:static sm:mt-4 sm:rounded-[28px] sm:p-4 sm:shadow-sm sm:backdrop-blur-none"
+      style={{ paddingBottom: 'max(0.65rem, env(safe-area-inset-bottom, 0px))' }}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="text-sm font-semibold text-slate-800">Comments ({count})</div>
-          <div className="mt-1 text-[11px] uppercase tracking-wide text-slate-400">{policyLabel}</div>
-        </div>
-        <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-500 shadow-sm">
-          <span>Sort</span>
-          <select
-            value={commentSortMode}
-            onChange={(event) => setCommentSortMode(event.target.value as CommentSortMode)}
-            className="bg-transparent text-[11px] font-semibold text-slate-700 outline-none"
-          >
-            <option value="relevant">Most relevant</option>
-            <option value="newest">Newest</option>
-            <option value="oldest">Oldest</option>
-          </select>
-        </label>
-      </div>
-
-      {!user && (
-        <div className="mt-3 rounded-3xl border border-slate-200 bg-white p-4 text-xs text-slate-500 shadow-sm">
-          Log in to comment on this post.
-        </div>
-      )}
-
-      {user && (
-        <div className="mt-4 rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
-          <CommentAiAssist
-            value={draft}
-            onReplace={setDraft}
-            disabled={commentsDisabled || submitting}
-            scopeLabel="comment"
-          />
+      <CommentAiAssist
+        value={draft}
+        onReplace={setDraft}
+        disabled={commentsDisabled || submitting}
+        scopeLabel="comment"
+      />
+      <div className="flex items-end gap-2">
+        <div className="min-w-0 flex-1">
           <MentionHashtagTextarea
             ref={draftRef}
             value={draft}
@@ -1209,10 +1199,10 @@ const PostComments: React.FC<PostCommentsProps> = ({
             placeholder={
               commentsDisabled
                 ? 'Comments are disabled for this post.'
-                : `Comment as ${user?.name || user?.username || 'you'} — type @ to mention`
+                : `Write a comment… @ mention · emoji suggestions`
             }
             disabled={commentsDisabled || submitting}
-            className="mt-3 min-h-[96px] w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100"
+            className="min-h-[52px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[15px] leading-snug text-slate-800 outline-none transition focus:border-slate-300 focus:bg-white disabled:bg-slate-100 sm:min-h-[88px] sm:rounded-3xl sm:px-4 sm:py-3 sm:text-sm"
           />
           <EmojiPhraseSuggestionBar
             value={draft}
@@ -1233,46 +1223,80 @@ const PostComments: React.FC<PostCommentsProps> = ({
               });
             }}
           />
-          {renderPendingAttachments(draftAttachments, 'draft')}
-          {uploadingAttachmentCount > 0 ? (
-            <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              <span>{uploadingAttachmentLabel || 'Uploading attachment...'}</span>
-            </div>
-          ) : null}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-            <p className="max-w-[32rem] text-xs text-slate-400">
-              {commentsDisabled ? 'Only the post author can comment.' : 'Be respectful and keep it constructive.'}
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => openPicker('draft')}
-                disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0}
-                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
-              >
-                <Paperclip className="h-4 w-4" />
-                Upload Files
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSubmit(null)}
-                disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-4 py-2 text-[11px] font-semibold uppercase text-white disabled:opacity-60"
-              >
-                <Send className="h-4 w-4" />
-                Comment
-              </button>
-            </div>
-          </div>
         </div>
-      )}
+        <button
+          type="button"
+          onClick={() => handleSubmit(null)}
+          disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0 || !String(draft || '').trim()}
+          className="mb-0.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-900 text-white shadow-sm transition active:scale-95 disabled:opacity-50 motion-reduce:active:scale-100 sm:h-10 sm:w-auto sm:gap-1 sm:rounded-full sm:px-4 sm:text-[11px] sm:font-semibold sm:uppercase"
+          aria-label="Post comment"
+        >
+          <Send className="h-4 w-4" />
+          <span className="hidden sm:inline">Comment</span>
+        </button>
+      </div>
+      {renderPendingAttachments(draftAttachments, 'draft')}
+      {uploadingAttachmentCount > 0 ? (
+        <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>{uploadingAttachmentLabel || 'Uploading attachment...'}</span>
+        </div>
+      ) : null}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => openPicker('draft')}
+          disabled={commentsDisabled || submitting || uploadingAttachmentCount > 0}
+          className="inline-flex min-h-9 items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 disabled:opacity-60"
+        >
+          <Paperclip className="h-3.5 w-3.5" />
+          Attach
+        </button>
+        <p className="text-[11px] text-slate-400">
+          {commentsDisabled ? 'Comments disabled' : 'Mentions · emoji · realtime'}
+        </p>
+      </div>
+    </div>
+  ) : (
+    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3 text-xs text-slate-500 shadow-sm sm:rounded-3xl sm:p-4">
+      Log in to join the conversation.
+    </div>
+  );
 
-      <div className="mt-4">
+  return (
+    <div
+      id={`post-${postId}-comments`}
+      className="mt-4 flex flex-col rounded-[24px] border border-slate-100 bg-gradient-to-b from-slate-50/90 to-white p-3 shadow-[0_16px_48px_rgba(15,23,42,0.05)] sm:rounded-[28px] sm:p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100/80 pb-2.5">
+        <div>
+          <div className="text-sm font-semibold tracking-tight text-slate-900">Comments · {count}</div>
+          <div className="mt-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-slate-400">{policyLabel}</div>
+        </div>
+        <label className="inline-flex min-h-9 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-500 shadow-sm">
+          <span className="sr-only sm:not-sr-only">Sort</span>
+          <select
+            value={commentSortMode}
+            onChange={(event) => setCommentSortMode(event.target.value as CommentSortMode)}
+            className="bg-transparent text-[11px] font-semibold text-slate-700 outline-none"
+            aria-label="Sort comments"
+          >
+            <option value="relevant">Most relevant</option>
+            <option value="newest">Newest</option>
+            <option value="oldest">Oldest</option>
+          </select>
+        </label>
+      </div>
+
+      {/* Conversation first: premium mobile hierarchy keeps composer unobtrusive at bottom. */}
+      <div className="mt-3 min-h-0 flex-1 space-y-3 sm:mt-4 sm:space-y-4">
         {loading ? (
-          <p className="text-xs text-slate-500">Loading comments...</p>
+          <p className="py-6 text-center text-xs text-slate-500">Loading conversation…</p>
         ) : comments.length === 0 ? (
-          <p className="text-xs text-slate-500">No comments yet. Be the first to reply.</p>
+          <div className="rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-slate-700">Start the conversation</p>
+            <p className="mt-1 text-xs text-slate-500">Be the first to share a thoughtful comment.</p>
+          </div>
         ) : (
           sortedComments.map((comment) => renderComment(comment))
         )}
@@ -1282,11 +1306,13 @@ const PostComments: React.FC<PostCommentsProps> = ({
         <button
           type="button"
           onClick={() => loadComments(nextCursor)}
-          className="mt-4 rounded-full border border-slate-200 px-4 py-2 text-[11px] font-semibold uppercase text-slate-600"
+          className="mt-3 min-h-10 self-center rounded-full border border-slate-200 bg-white px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-600 shadow-sm transition hover:bg-slate-50"
         >
-          Load more comments
+          Load more
         </button>
       )}
+
+      {composer}
 
       <input
         ref={deviceUploadInputRef}

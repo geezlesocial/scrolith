@@ -298,7 +298,20 @@ const ModuleThumb = ({
   const shouldRenderVideo = Boolean(
     videoUrl && (isVideoUrl(videoUrl) || videoUrl.includes('/api/files/content/') || Boolean(posterUrl))
   );
-  const playVideo = shouldRenderVideo && (!hoverPreview || (hoverActive && previewAllowed));
+  // Touch/mobile: autoplay when in view (hoverPreview still limits desktop to hover).
+  const isCoarsePointer =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(hover: none), (pointer: coarse)').matches;
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const mobileAutoPreview = hoverPreview && isCoarsePointer && !prefersReducedMotion;
+  const playVideo =
+    shouldRenderVideo &&
+    !prefersReducedMotion &&
+    (!hoverPreview || isCoarsePointer || (hoverActive && previewAllowed));
   const optimizedPosterUrl = shouldRenderVideo
     ? resolveResponsiveAssetUrl(posterUrl || src || fallbackMediaUrl || undefined, {
         width: size * 2,
@@ -308,13 +321,40 @@ const ModuleThumb = ({
       })
     : '';
 
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Mobile series: exclusive autoplay only when this thumb is in viewport.
+  useEffect(() => {
+    if (!mobileAutoPreview || !shouldRenderVideo || !rootRef.current) return;
+    const node = rootRef.current;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) return;
+        if (entry.isIntersecting && entry.intersectionRatio >= 0.4) {
+          setActivePreviewToken(tokenRef.current);
+        } else if (activePreviewToken === tokenRef.current) {
+          setActivePreviewToken(null);
+        }
+      },
+      { threshold: [0, 0.4, 0.75], rootMargin: '0px 0px -8% 0px' }
+    );
+    obs.observe(node);
+    return () => {
+      obs.disconnect();
+      if (activePreviewToken === tokenRef.current) setActivePreviewToken(null);
+    };
+  }, [mobileAutoPreview, shouldRenderVideo, videoUrl]);
+
   return (
     <div
+      ref={rootRef}
       className={[
         'relative shrink-0 overflow-hidden border border-slate-200/80 bg-slate-50',
         large
           ? 'h-24 w-24 rounded-2xl sm:h-28 sm:w-28'
-          : 'h-11 w-11 rounded-xl sm:h-12 sm:w-12'
+          : 'h-11 w-11 rounded-xl sm:h-12 sm:w-12',
+        shouldRenderVideo ? 'ring-1 ring-slate-900/5' : ''
       ].join(' ')}
       aria-hidden={!shouldRenderVideo}
       onMouseEnter={handlePointerEnter}
@@ -329,6 +369,16 @@ const ModuleThumb = ({
             : 'member-home-module-thumb'
       }
     >
+      {/* Poster always present for zero flash; video fades over it. */}
+      {(optimizedPosterUrl || src) && shouldRenderVideo ? (
+        <img
+          src={optimizedPosterUrl || src}
+          alt=""
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-300 ease-out motion-reduce:transition-none ${
+            playVideo && previewAllowed ? 'opacity-0' : 'opacity-100'
+          }`}
+        />
+      ) : null}
       {playVideo ? (
         <InlineAutoplayVideo
           src={videoUrl}
@@ -337,18 +387,30 @@ const ModuleThumb = ({
           loop
           muted
           defaultMuted
-          autoplayEnabled
-          // Desktop hover path forces play via hoverActive; mobile uses visibility.
-          active={hoverPreview ? hoverActive && previewAllowed : true}
-          threshold={0.35}
-          rootMargin="0px 0px 8% 0px"
+          autoplayEnabled={!prefersReducedMotion}
+          // Desktop: hover-gated. Mobile: exclusive token from viewport IO.
+          active={
+            hoverPreview
+              ? isCoarsePointer
+                ? previewAllowed
+                : hoverActive && previewAllowed
+              : true
+          }
+          threshold={0.45}
+          rootMargin="0px 0px 10% 0px"
           showMuteToggle={false}
           loadingLabel={false}
-          containerClassName="h-full w-full"
+          containerClassName="relative h-full w-full opacity-100 transition-opacity duration-300 ease-out motion-reduce:transition-none"
           className="h-full w-full object-cover"
-          overlay={null}
+          overlay={
+            shouldRenderVideo ? (
+              <span className="pointer-events-none absolute bottom-1 right-1 inline-flex items-center rounded bg-black/55 px-1 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                Video
+              </span>
+            ) : null
+          }
           preload="metadata"
-          preloadRootMargin="120px 0px 120px 0px"
+          preloadRootMargin="100px 0px 100px 0px"
         />
       ) : (
         <OptimizedImage

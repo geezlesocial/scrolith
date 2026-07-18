@@ -19,6 +19,7 @@ import { RecoService } from '../../../services/reco';
 import { MessagingService } from '../../../services/messaging';
 import { ScrollService, type ScrollSeriesDiscovery } from '../../../services/scroll';
 import MentionText from '../../../community/components/MentionText';
+import FollowButton from '../../../community/components/FollowButton';
 import PostEngagementBar from '../../../community/components/PostEngagementBar';
 import PostOptionsButton from '../../../community/components/post-options/PostOptionsButton';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
@@ -664,7 +665,23 @@ export default function MobileFeed({
 
   const scrollToFeedSection = useCallback((sectionId: string) => {
     if (typeof document === 'undefined') return;
-    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const tryScroll = (attempt = 0) => {
+      const el = document.getElementById(sectionId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        try {
+          el.setAttribute('tabindex', '-1');
+          el.focus({ preventScroll: true });
+        } catch {
+          /* ignore focus failures */
+        }
+        return;
+      }
+      if (attempt < 8) {
+        window.setTimeout(() => tryScroll(attempt + 1), 60 + attempt * 40);
+      }
+    };
+    tryScroll(0);
   }, []);
 
   const openInsightsSection = useCallback((sectionId: string, group?: 'growth' | 'opportunity') => {
@@ -1054,14 +1071,15 @@ export default function MobileFeed({
         badge: 'Grow',
         reason: networkWhy,
         ctaLabel: 'Open recommendations',
-        onClick: () =>
-          scrollToFeedSection(
-            suggestedPeople.length
-              ? 'mobile-member-home-people-suggestions'
-              : suggestedPages.length
-                ? 'mobile-member-home-page-suggestions'
-                : 'mobile-member-home-feed-stream'
-          ),
+        // Prefer always-mounted anchors so CTA works even with short feeds.
+        onClick: () => {
+          const targetId = suggestedPeople.length
+            ? 'mobile-member-home-people-suggestions'
+            : suggestedPages.length
+              ? 'mobile-member-home-page-suggestions'
+              : 'mobile-member-home-network-recommendations';
+          scrollToFeedSection(targetId);
+        },
         mediaUrl: resolveHighlightAvatar(topPerson?.avatarUrl || topPage?.avatarUrl || null),
         icon: <UsersIcon className="h-4 w-4" />,
         tone: 'emerald'
@@ -2541,6 +2559,28 @@ export default function MobileFeed({
                   </div>
 
                   <div className="flex min-w-fit items-center gap-2 whitespace-nowrap self-start">
+                    {(() => {
+                      const authorId = String(author?.id || post?.authorId || '').trim();
+                      const isBusiness =
+                        String(author?.type || '').toLowerCase() === 'business' || Boolean(post?.businessPage);
+                      const pageId = String(post?.businessPage?.id || author?.id || '').trim();
+                      const selfId = String(user?.id || '').trim();
+                      if (!authorId || (authorId === selfId && !isBusiness)) return null;
+                      return (
+                        <FollowButton
+                          targetUserId={isBusiness ? pageId : authorId}
+                          targetType={isBusiness ? 'page' : 'user'}
+                          currentUserId={user?.id}
+                          initialIsFollowing={Boolean(
+                            post?.viewer?.isFollowingAuthor ?? post?.viewer?.isFollowingPage
+                          )}
+                          onRequireLogin={() => {
+                            if (confirm('Log in to follow?')) window.location.href = '/auth/login';
+                          }}
+                          className="h-8 min-h-8 border-slate-200 bg-white px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm"
+                        />
+                      );
+                    })()}
                     <PostOptionsButton
                       post={post}
                       icon={<MoreVertical className="h-4 w-4" />}
@@ -2839,7 +2879,7 @@ export default function MobileFeed({
               ) : null}
 
               {idx === 3 && showPeopleCard ? (
-                <div id="mobile-member-home-people-suggestions">
+                <div id="mobile-member-home-people-suggestions" data-network-reco="people">
                   <SuggestedCard
                     data={{
                       kind: 'people',
@@ -2860,7 +2900,7 @@ export default function MobileFeed({
               ) : null}
 
               {idx === 5 && showPagesCard ? (
-                <div id="mobile-member-home-page-suggestions">
+                <div id="mobile-member-home-page-suggestions" data-network-reco="pages">
                   <SuggestedCard
                     data={{
                       kind: 'pages',
@@ -2882,6 +2922,50 @@ export default function MobileFeed({
             </React.Fragment>
           );
         })}
+
+        {/* Always-mounted anchors so Relationship Intelligence CTA can scroll even on short feeds. */}
+        <div id="mobile-member-home-network-recommendations" className="space-y-3">
+          {showPeopleCard && posts.length < 4 ? (
+            <div id="mobile-member-home-people-suggestions" data-network-reco="people-fallback">
+              <SuggestedCard
+                data={{
+                  kind: 'people',
+                  title: 'Suggested people',
+                  items: suggestedPeople.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    username: p.username,
+                    avatarUrl: p.avatarUrl,
+                    targetType: 'user' as const,
+                    reasons: p.reasons,
+                    whyRecommended: p.whyRecommended,
+                    badge: p.badge
+                  }))
+                }}
+              />
+            </div>
+          ) : null}
+          {showPagesCard && posts.length < 6 ? (
+            <div id="mobile-member-home-page-suggestions" data-network-reco="pages-fallback">
+              <SuggestedCard
+                data={{
+                  kind: 'pages',
+                  title: 'Suggested pages',
+                  items: suggestedPages.map((p: any) => ({
+                    id: p.id,
+                    name: p.name,
+                    username: p.username,
+                    avatarUrl: p.avatarUrl,
+                    targetType: 'page' as const,
+                    reasons: p.reasons,
+                    whyRecommended: p.whyRecommended,
+                    badge: p.badge
+                  }))
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
 
         {loadingMore ? (
           <div className="flex items-center justify-center gap-2 py-3 text-sm text-slate-600">
