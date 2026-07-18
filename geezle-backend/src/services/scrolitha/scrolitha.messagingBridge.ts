@@ -44,8 +44,135 @@ export const isMessagingAssistantEnabled = async (actor?: {
   }
 };
 
+const isExactScrolithaDm = (
+  conversation: { type?: string | null; participants?: Array<{ userId?: string | null }> | null },
+  userId: string,
+  platformUserId: string
+) => {
+  if (String(conversation?.type || '').toUpperCase() !== 'DIRECT') return false;
+  const ids = Array.from(
+    new Set(
+      (conversation.participants || [])
+        .map((p) => String(p.userId || '').trim())
+        .filter(Boolean)
+    )
+  );
+  return ids.length === 2 && ids.includes(userId) && ids.includes(platformUserId);
+};
+
+/**
+ * Phase 20.7.5 — Find all DIRECT conversations that are exactly user↔Scrolitha.
+ * Participant order independent. Includes soft-deleted human membership.
+ */
+export const findAllScrolithaDirectConversations = async (userId: string, platformUserId: string) => {
+  const uid = String(userId || '').trim();
+  const pid = String(platformUserId || '').trim();
+  if (!uid || !pid) return [];
+
+  const candidates = await prisma.conversation.findMany({
+    where: {
+      type: 'DIRECT',
+      AND: [
+        { participants: { some: { userId: uid } } },
+        { participants: { some: { userId: pid } } }
+      ]
+    },
+    include: {
+      participants: true,
+      _count: { select: { messages: true } }
+    },
+    orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }, { createdAt: 'asc' }]
+  });
+
+  return candidates.filter((c) => isExactScrolithaDm(c, uid, pid));
+};
+
+/**
+ * Consolidate duplicate Scrolitha DMs into one survivor.
+ * Moves messages by reassigning conversationId (skipDuplicates on id not needed — ids unique).
+ * Soft-archives losers for the human participant (deletedAt) rather than hard-delete.
+ */
+export const consolidateScrolithaDirectConversations = async (
+  userId: string,
+  platformUserId: string,
+  matches: Array<{
+    id: string;
+    createdAt?: Date | null;
+    lastMessageAt?: Date | null;
+    updatedAt?: Date | null;
+    _count?: { messages?: number };
+  }>
+): Promise<{ survivorId: string; mergedFrom: string[]; messagesMoved: number }> => {
+  const ordered = [...matches].sort((a, b) => {
+    const aCount = Number(a._count?.messages || 0);
+    const bCount = Number(b._count?.messages || 0);
+    if (aCount !== bCount) return bCount - aCount;
+    const aAct = new Date(a.lastMessageAt || a.updatedAt || 0).getTime();
+    const bAct = new Date(b.lastMessageAt || b.updatedAt || 0).getTime();
+    if (aAct !== bAct) return bAct - aAct;
+    const aCreated = new Date(a.createdAt || 0).getTime();
+    const bCreated = new Date(b.createdAt || 0).getTime();
+    return aCreated - bCreated;
+  });
+
+  const survivor = ordered[0];
+  const losers = ordered.slice(1);
+  if (!survivor || !losers.length) {
+    return { survivorId: survivor?.id || '', mergedFrom: [], messagesMoved: 0 };
+  }
+
+  let messagesMoved = 0;
+  for (const loser of losers) {
+    try {
+      const moved = await prisma.directMessage.updateMany({
+        where: { conversationId: loser.id },
+        data: { conversationId: survivor.id }
+      });
+      messagesMoved += moved.count || 0;
+
+      // Soft-remove loser from human inbox; keep platform participant row for audit.
+      await prisma.conversationParticipant.updateMany({
+        where: { conversationId: loser.id, userId },
+        data: {
+          deletedAt: new Date(),
+          isArchived: true,
+          isStarred: false,
+          label: 'scrolitha_duplicate_merged'
+        }
+      });
+      await prisma.conversation.update({
+        where: { id: loser.id },
+        data: {
+          lastMessageText: `[merged into ${survivor.id}]`,
+          updatedAt: new Date()
+        }
+      });
+    } catch (error) {
+      console.warn('[scrolitha] consolidate merge failed', {
+        survivorId: survivor.id,
+        loserId: loser.id,
+        error: String((error as any)?.message || error)
+      });
+    }
+  }
+
+  console.info('[scrolitha] consolidated duplicate DMs', {
+    userId,
+    survivorId: survivor.id,
+    mergedFrom: losers.map((l) => l.id),
+    messagesMoved
+  });
+
+  return {
+    survivorId: survivor.id,
+    mergedFrom: losers.map((l) => l.id),
+    messagesMoved
+  };
+};
+
 /**
  * Exactly one DIRECT conversation between the user and the Scrolitha platform account.
+ * Phase 20.7.5: concurrency-safe create + automatic duplicate consolidation.
  */
 export const ensureScrolithaDirectConversation = async (
   userId: string,
@@ -63,35 +190,28 @@ export const ensureScrolithaDirectConversation = async (
   const messagingAssistantEnabled = await isMessagingAssistantEnabled({ id: uid });
 
   const uniqueIds = [uid, platformUser.id];
-  const canonicalKey = participantPairKey(uid, platformUser.id);
 
-  const candidates = await prisma.conversation.findMany({
-    where: {
-      type: 'DIRECT',
-      participants: { some: { userId: { in: uniqueIds } } }
-    },
-    include: { participants: true },
-    orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }]
-  });
+  // Resolve all exact pair matches (participant-order independent).
+  let matches = await findAllScrolithaDirectConversations(uid, platformUser.id);
 
-  let existing =
-    candidates.find((c) => {
-      const ids = (c.participants || [])
-        .map((p) => String(p.userId || '').trim())
-        .filter(Boolean);
-      return participantPairKey(ids[0] || '', ids[1] || '') === canonicalKey && ids.length === 2;
-    }) || null;
-
-  // Prefer exact two-participant match
-  if (!existing) {
-    existing =
-      candidates.find((c) => {
-        const ids = Array.from(
-          new Set((c.participants || []).map((p) => String(p.userId || '').trim()).filter(Boolean))
-        );
-        return ids.length === 2 && ids.includes(uid) && ids.includes(platformUser.id);
-      }) || null;
+  // Consolidate any historical duplicates before proceeding.
+  if (matches.length > 1) {
+    const { survivorId } = await consolidateScrolithaDirectConversations(
+      uid,
+      platformUser.id,
+      matches as any
+    );
+    matches = await findAllScrolithaDirectConversations(uid, platformUser.id);
+    // Prefer survivor if still present
+    if (survivorId) {
+      matches = [
+        ...matches.filter((m) => m.id === survivorId),
+        ...matches.filter((m) => m.id !== survivorId)
+      ];
+    }
   }
+
+  let existing = matches[0] || null;
 
   // When rollout is off: return existing conversation if any; do not create/spam new ones.
   if (!messagingAssistantEnabled) {
@@ -131,22 +251,67 @@ export const ensureScrolithaDirectConversation = async (
     });
     conversationId = existing.id;
   } else {
-    const createdRow = await prisma.conversation.create({
-      data: {
-        type: 'DIRECT',
-        lastMessageText: 'Scrolitha · AI assistant',
-        lastMessageAt: new Date(),
-        lastMessageSenderId: platformUser.id,
-        participants: {
-          create: [
-            { userId: uid, isStarred: true, label: 'scrolitha' },
-            { userId: platformUser.id, label: 'system' }
+    // Concurrency-safe create: re-check inside transaction after create race.
+    conversationId = await prisma.$transaction(async (tx) => {
+      const again = await tx.conversation.findMany({
+        where: {
+          type: 'DIRECT',
+          AND: [
+            { participants: { some: { userId: uid } } },
+            { participants: { some: { userId: platformUser.id } } }
           ]
+        },
+        include: { participants: true },
+        orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'asc' }]
+      });
+      const hit = again.find((c) => isExactScrolithaDm(c, uid, platformUser.id));
+      if (hit) return hit.id;
+
+      const createdRow = await tx.conversation.create({
+        data: {
+          type: 'DIRECT',
+          lastMessageText: 'Scrolitha · AI assistant',
+          lastMessageAt: new Date(),
+          lastMessageSenderId: platformUser.id,
+          participants: {
+            create: [
+              { userId: uid, isStarred: true, label: 'scrolitha' },
+              { userId: platformUser.id, label: 'system' }
+            ]
+          }
         }
-      }
+      });
+      return createdRow.id;
     });
-    conversationId = createdRow.id;
-    created = true;
+
+    // Detect whether we created or raced into an existing row.
+    const postCreateMatches = await findAllScrolithaDirectConversations(uid, platformUser.id);
+    if (postCreateMatches.length > 1) {
+      const { survivorId } = await consolidateScrolithaDirectConversations(
+        uid,
+        platformUser.id,
+        postCreateMatches as any
+      );
+      conversationId = survivorId || conversationId;
+      created = false;
+    } else {
+      created = postCreateMatches[0]?.id === conversationId;
+      // If race: another request created first and we returned that id from txn
+      if (!created && postCreateMatches[0]) {
+        conversationId = postCreateMatches[0].id;
+      } else {
+        created = true;
+      }
+    }
+
+    await prisma.conversationParticipant.updateMany({
+      where: { conversationId, userId: { in: uniqueIds } },
+      data: { deletedAt: null, isArchived: false }
+    });
+    await prisma.conversationParticipant.updateMany({
+      where: { conversationId, userId: uid },
+      data: { isStarred: true, label: 'scrolitha' }
+    });
   }
 
   let welcomeSeeded = false;

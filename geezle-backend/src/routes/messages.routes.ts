@@ -16,7 +16,8 @@ import {
   copyMessage,
   ensureScrolithaMessagingConversation,
   postScrolithaUnifiedTurn,
-  postScrolithaUnifiedTurnStream
+  postScrolithaUnifiedTurnStream,
+  searchMessages
 } from '../controllers/messages.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
@@ -29,6 +30,8 @@ router.post('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConvers
 // Phase 20.7.1 — conversation unification + streaming
 router.post('/scrolitha/turn', authMiddleware, postScrolithaUnifiedTurn);
 router.post('/scrolitha/turn/stream', authMiddleware, postScrolithaUnifiedTurnStream);
+// Phase 20.7.5 — Messages search (was implemented but never registered → 404)
+router.get('/search', authMiddleware, searchMessages);
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
 router.get('/conversations/:id', authMiddleware, getConversation);
