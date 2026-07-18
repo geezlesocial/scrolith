@@ -218,13 +218,25 @@ const mapAttachments = (fileIds: string[], fileMap: Map<string, any>) => {
           : mimeType.startsWith('audio/')
             ? 'audio'
           : 'document';
+      // Prefer auth-backed content path for previews. Storage object URLs may be
+      // private / non-browser-loadable; clients resolve bytes via /api/files/content/:id.
+      const contentUrl = `/api/files/content/${encodeURIComponent(String(file.id))}`;
       return {
         id: file.id,
-        url: file.url,
+        fileId: file.id,
+        url: contentUrl,
+        contentUrl,
+        // Preserve original storage locator for ops/debug without using it as img src.
+        storageUrl: file.url || undefined,
         name: file.originalName,
+        originalName: file.originalName,
         mimeType: file.mimeType,
         type,
-        size: Number(file.size || 0)
+        size: Number(file.size || 0),
+        thumbnailUrl: file.thumbnailUrl || undefined,
+        width: file.width ?? undefined,
+        height: file.height ?? undefined,
+        duration: file.duration ?? undefined
       };
     })
     .filter(Boolean);
