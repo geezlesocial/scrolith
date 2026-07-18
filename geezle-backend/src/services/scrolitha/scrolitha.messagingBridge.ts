@@ -12,7 +12,7 @@ import {
   type ScrolithaPlatformUser
 } from './scrolitha.platformIdentity';
 import type { ScrolithaActor } from './scrolitha.types';
-import { isCapabilityEnabled, isScrolithaUserFacingAccessAllowed } from './scrolitha.rollout';
+import { isCapabilityEnabled } from './scrolitha.rollout';
 import { recordAiReply, recordLatencyMs, recordOpsCounter } from './scrolitha.opsMetrics';
 
 const WELCOME_TEXT =
@@ -35,17 +35,13 @@ export const isMessagingAssistantEnabled = async (actor?: {
   email?: string | null;
   isAdmin?: boolean;
 } | null): Promise<boolean> => {
-  const access = await isScrolithaUserFacingAccessAllowed(actor);
-  if (!access) return false;
-  // Prefer dedicated flag when set; otherwise allow if master/user-facing access is already open.
+  // Strict staged control: require messagingAssistant capability (env/config/internal defaults).
+  // Does NOT auto-enable merely because master or other AI surfaces are on.
   try {
-    const dedicated = await isCapabilityEnabled('messagingAssistant' as any, actor);
-    if (dedicated) return true;
+    return await isCapabilityEnabled('messagingAssistant', actor);
   } catch {
-    // Capability may not exist in older rollout maps until extended.
+    return false;
   }
-  // Fallback: user-facing access already proven — enable messaging bridge.
-  return true;
 };
 
 /**
@@ -63,6 +59,7 @@ export const ensureScrolithaDirectConversation = async (
     throw Object.assign(new Error('Scrolitha cannot open a conversation with itself'), { statusCode: 400 });
   }
 
+  // Actor may be passed later; use id for capability check (internal allowlist uses id/email).
   const messagingAssistantEnabled = await isMessagingAssistantEnabled({ id: uid });
 
   const uniqueIds = [uid, platformUser.id];
@@ -94,6 +91,23 @@ export const ensureScrolithaDirectConversation = async (
         );
         return ids.length === 2 && ids.includes(uid) && ids.includes(platformUser.id);
       }) || null;
+  }
+
+  // When rollout is off: return existing conversation if any; do not create/spam new ones.
+  if (!messagingAssistantEnabled) {
+    if (!existing) {
+      throw Object.assign(new Error('Scrolitha messaging assistant is currently disabled'), {
+        statusCode: 403,
+        code: 'SCROLITHA_MESSAGING_DISABLED'
+      });
+    }
+    return {
+      conversationId: existing.id,
+      platformUser,
+      created: false,
+      welcomeSeeded: false,
+      messagingAssistantEnabled: false
+    };
   }
 
   let created = false;

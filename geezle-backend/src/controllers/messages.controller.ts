@@ -822,13 +822,21 @@ export const listConversations = async (req: Request, res: Response) => {
       return res.json({ success: true, data: [] });
     }
 
-    // Best-effort: ensure official assistant DM exists before listing (non-blocking on failure).
+    // Best-effort: ensure official assistant DM when messaging assistant is enabled for this user.
     if (!admin && userId) {
       try {
-        const { ensureScrolithaDirectConversation } = await import(
+        const { ensureScrolithaDirectConversation, isMessagingAssistantEnabled } = await import(
           '../services/scrolitha/scrolitha.messagingBridge'
         );
-        await ensureScrolithaDirectConversation(userId, { seedWelcome: true });
+        const enabled = await isMessagingAssistantEnabled({
+          id: userId,
+          role: resolveRole(req),
+          email: (req.user as any)?.email,
+          isAdmin: isAdminRole(resolveRole(req))
+        });
+        if (enabled) {
+          await ensureScrolithaDirectConversation(userId, { seedWelcome: true });
+        }
       } catch (ensureError) {
         console.warn('[messages] ensure Scrolitha conversation skipped', ensureError);
       }
@@ -1320,37 +1328,36 @@ export const postMessage = async (req: Request, res: Response) => {
       console.warn('Failed to send message notifications', notifyError);
     });
 
-    // Phase 20.7: if this is the official Scrolitha DM and the human sent text, run orchestration.
+    // Phase 20.7: Scrolitha DM AI turn must be awaited (Cloud Run can drop fire-and-forget work).
+    // User message is already persisted; AI failures must not fail the user send.
     if (text && senderId === userId && !admin) {
-      void (async () => {
-        try {
-          const {
-            conversationIncludesScrolitha,
-            processScrolithaMessagingTurn
-          } = await import('../services/scrolitha/scrolitha.messagingBridge');
-          const isScrolithaDm = await conversationIncludesScrolitha(conversation.id);
-          if (!isScrolithaDm) return;
-          // Never generate AI replies to Scrolitha's own messages.
+      try {
+        const {
+          conversationIncludesScrolitha,
+          processScrolithaMessagingTurn
+        } = await import('../services/scrolitha/scrolitha.messagingBridge');
+        const isScrolithaDm = await conversationIncludesScrolitha(conversation.id);
+        if (isScrolithaDm) {
           const { getScrolithaPlatformUserId } = await import(
             '../services/scrolitha/scrolitha.platformIdentity'
           );
           const platformId = await getScrolithaPlatformUserId();
-          if (senderId === platformId) return;
-
-          const { resolveActorFromRequest } = await import('../services/scrolitha/scrolitha.audit');
-          const actor = resolveActorFromRequest(req);
-          await processScrolithaMessagingTurn({
-            userId: senderId,
-            conversationId: conversation.id,
-            userText: text,
-            actor,
-            app: req.app,
-            emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
-          });
-        } catch (bridgeError) {
-          console.warn('[messages] scrolitha messaging bridge failed', bridgeError);
+          if (senderId !== platformId) {
+            const { resolveActorFromRequest } = await import('../services/scrolitha/scrolitha.audit');
+            const actor = resolveActorFromRequest(req);
+            await processScrolithaMessagingTurn({
+              userId: senderId,
+              conversationId: conversation.id,
+              userText: text,
+              actor,
+              app: req.app,
+              emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
+            });
+          }
         }
-      })();
+      } catch (bridgeError) {
+        console.warn('[messages] scrolitha messaging bridge failed', bridgeError);
+      }
     }
 
     return res.json({ success: true, data: payload });
