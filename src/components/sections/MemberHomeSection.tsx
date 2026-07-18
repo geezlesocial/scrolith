@@ -45,6 +45,7 @@ import { CMSService } from '../../services/cms';
 import { ProfessionalDiscoveryService } from '../../services/professionalDiscovery';
 import type { ProfessionalDiscoveryItem } from '../../services/professionalDiscovery';
 import ProfessionalDiscoveryRail from '../discovery/ProfessionalDiscoveryRail';
+import GrowthPulseCard from '../growth/GrowthPulseCard';
 import { careerQuickActions } from '../../services/scrolithaCareer';
 import ProBadge from '../ProBadge';
 import ExpandablePreviewText from '../common/ExpandablePreviewText';
@@ -8148,6 +8149,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     </div>
                   </div>
 
+                  {/* Phase 20.3 — Growth intelligence pulse */}
+                  <GrowthPulseCard className="mb-3" />
                   {/* Phase 20.2.7 — Career intelligence + blogs + resume templates */}
                   <ProfessionalDiscoveryRail
                     title="Career Intelligence"

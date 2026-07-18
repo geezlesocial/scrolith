@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { BarChart3, Sparkles, TrendingUp } from 'lucide-react';
 import { InsightsService, type ProfessionalScore } from '../../services/insights';
+import { GrowthIntelligenceService } from '../../services/growthIntelligence';
 
 type CreatorAnalyticsCardProps = {
   className?: string;
@@ -23,6 +24,7 @@ const formatMetric = (value: unknown) => {
 export default function CreatorAnalyticsCard({ className = '', compact = false }: CreatorAnalyticsCardProps) {
   const [score, setScore] = useState<ProfessionalScore | null>(null);
   const [revenue, setRevenue] = useState<any>(null);
+  const [postingTip, setPostingTip] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
@@ -31,13 +33,26 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
     let cancelled = false;
     setLoading(true);
     setError(null);
-    void Promise.allSettled([InsightsService.getMyPgs(), InsightsService.getRevenue()])
-      .then(([pgsResult, revenueResult]) => {
+    void Promise.allSettled([
+      InsightsService.getMyPgs(),
+      InsightsService.getRevenue(),
+      GrowthIntelligenceService.getPulse()
+    ])
+      .then(([pgsResult, revenueResult, pulseResult]) => {
         if (cancelled) return;
         if (pgsResult.status === 'fulfilled') setScore(pgsResult.value);
         else setScore(null);
         if (revenueResult.status === 'fulfilled') setRevenue(revenueResult.value);
         else setRevenue(null);
+        if (pulseResult.status === 'fulfilled') {
+          const windows = pulseResult.value?.postingGuidance?.bestWindowsLocal || [];
+          const tip = pulseResult.value?.postingGuidance?.tip || '';
+          setPostingTip(
+            windows.length
+              ? `Best windows: ${windows.slice(0, 2).join(' · ')}${tip ? ` — ${tip}` : ''}`
+              : tip || null
+          );
+        }
         if (pgsResult.status === 'rejected' && revenueResult.status === 'rejected') {
           setError('Insights unavailable right now.');
         }
@@ -118,6 +133,11 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
               </div>
             ) : null}
           </div>
+          {postingTip ? (
+            <p className="mt-3 text-[11px] leading-5 text-slate-600" data-testid="creator-posting-tip">
+              {postingTip}
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
               to="/my-ads"
@@ -131,6 +151,12 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
             >
               <Sparkles className="h-3 w-3" aria-hidden="true" />
               Grow with Scroll
+            </Link>
+            <Link
+              to="/scrolitha?intent=growth"
+              className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100"
+            >
+              Growth plan
             </Link>
           </div>
         </>

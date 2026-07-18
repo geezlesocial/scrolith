@@ -92,8 +92,53 @@ export default function PeopleYouMayKnowRail({
         entityId: person.id,
         action: 'follow'
       }).catch(() => {});
+      // Dual-write intelligence fabric (collect only; does not change ranking).
+      void import('../../services/intelligenceFeedback')
+        .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
+          submitIntelligenceFeedbackEvents([
+            {
+              eventId: `pymk:follow:person:${person.id}`,
+              entityType: 'person',
+              entityId: person.id,
+              action: 'follow',
+              sourceSurface: 'people_you_may_know',
+              sessionId: getFeedbackSessionId()
+            }
+          ])
+        )
+        .catch(() => null);
     } catch {
       // Keep card interactive on failure
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDismiss = async (person: Suggestion) => {
+    if (busyId) return;
+    setBusyId(person.id);
+    try {
+      setItems((prev) => prev.filter((row) => row.id !== person.id));
+      void RecoService.submitFeedback({
+        surface: 'who_to_follow',
+        entityType: 'freelancer',
+        entityId: person.id,
+        action: 'dismiss'
+      }).catch(() => {});
+      void import('../../services/intelligenceFeedback')
+        .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
+          submitIntelligenceFeedbackEvents([
+            {
+              eventId: `pymk:dismiss:person:${person.id}`,
+              entityType: 'person',
+              entityId: person.id,
+              action: 'dismiss_recommendation',
+              sourceSurface: 'people_you_may_know',
+              sessionId: getFeedbackSessionId()
+            }
+          ])
+        )
+        .catch(() => null);
     } finally {
       setBusyId(null);
     }
@@ -152,20 +197,33 @@ export default function PeopleYouMayKnowRail({
                     <div className="truncate text-[11px] text-slate-500">{person.reason}</div>
                   </div>
                 </Link>
-                <button
-                  type="button"
-                  disabled={isFollowing || busyId === person.id}
-                  onClick={() => void handleFollow(person)}
-                  className={`inline-flex shrink-0 items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
-                    isFollowing
-                      ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60'
-                  }`}
-                  aria-label={isFollowing ? `Following ${person.name}` : `Follow ${person.name}`}
-                >
-                  <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                  {isFollowing ? 'Following' : 'Follow'}
-                </button>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={isFollowing || busyId === person.id}
+                    onClick={() => void handleFollow(person)}
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
+                      isFollowing
+                        ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : 'bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60'
+                    }`}
+                    aria-label={isFollowing ? `Following ${person.name}` : `Follow ${person.name}`}
+                  >
+                    <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
+                    {isFollowing ? 'Following' : 'Follow'}
+                  </button>
+                  {!isFollowing ? (
+                    <button
+                      type="button"
+                      disabled={busyId === person.id}
+                      onClick={() => void handleDismiss(person)}
+                      className="rounded-full px-2 py-1.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                      aria-label={`Dismiss suggestion for ${person.name}`}
+                    >
+                      Dismiss
+                    </button>
+                  ) : null}
+                </div>
               </li>
             );
           })}
