@@ -147,34 +147,35 @@ const GROWTH_PATTERNS = [
   'referral earnings'
 ];
 
+// Phase 20.7.4 — plain-text templates (no Markdown markers).
 const greetingReply = () =>
-  "Hi! I'm **Scrolitha**, Scrolith's AI assistant. I can help you find jobs, freelancers, improve your profile or resume, draft proposals and posts, and navigate Scrolith. What would you like to do?";
+  "Hi! I'm Scrolitha, Scrolith's AI assistant. I can help with jobs, freelancers, profiles, resumes, proposals, posts, and navigating the platform. What would you like help with?";
 
-const thanksReply = () => "You're welcome. If you need anything else on Scrolith — jobs, profile help, drafts, or navigation — just ask.";
+const thanksReply = () =>
+  "You're welcome. If you need anything else on Scrolith, just ask.";
 
 const goodbyeReply = () => 'Goodbye for now. Come back anytime when you need help on Scrolith.';
 
 const helpReply = () =>
-  "I'm Scrolitha. I can help with job discovery, freelancer search, profile and resume improvement, proposal and post drafts, marketplace and communities, and general Scrolith guidance. What would you like to focus on?";
+  "I can help you find opportunities, improve your profile or resume, draft proposals and posts, find freelancers or communities, and navigate Scrolith. What are you working on today?";
 
 const jobSearchFallback = (role: string) => {
   const r = role.toLowerCase();
-  const roleHint = r.includes('employer') || r.includes('client')
-    ? 'If you are hiring instead, say “find freelancers” or “post a job.”'
-    : 'I can also help refine your resume or profile for better matches.';
+  const hiringHint =
+    r.includes('employer') || r.includes('client')
+      ? '\n\nIf you are hiring instead, say "find freelancers" or "post a job."'
+      : '\n\nI can also help improve your profile or resume so you get better matches.';
   return (
-    'I can help you find jobs.\n\n' +
-    'What kind of role are you looking for, and do you prefer **remote**, **hybrid**, or **onsite** work? ' +
-    'Live job results may be limited in this chat right now, but I can help you refine your search and prepare your profile.\n\n' +
-    roleHint
+    'Sure. What type of role are you looking for, and do you prefer remote, hybrid, or onsite work?' +
+    hiringHint
   );
 };
 
 const freelancerSearchFallback = () =>
-  'I can help you find freelancers.\n\nWhat skills or role do you need (for example React, design, mobile), and what is your approximate budget or timeline? Live discovery may be limited here, but I can help frame the brief.';
+  'Sure. What skills or role do you need, and what is your approximate budget or timeline? I can help frame the brief even when live discovery is limited here.';
 
 const unknownReply = () =>
-  "I can help with jobs, freelancers, profiles, resumes, drafts, and navigating Scrolith. Tell me what you want to do in a short phrase — for example “find jobs” or “improve my resume.”";
+  'I can help with jobs, freelancers, profiles, resumes, drafts, and navigating Scrolith. What would you like to do?';
 
 /**
  * Pure intent router — deterministic, unit-testable, role-safe.
@@ -300,7 +301,7 @@ export const routeScrolithaIntent = (input: {
       confidence: 0.92,
       allowTools: false,
       userFacingReply:
-        'I can help improve your resume. Share the role you want, your top skills, and any weak sections (summary, experience, or skills). Paste text or attach a resume when file understanding is available.',
+        "Absolutely. Share your resume text or open it from your Scrolith profile, and tell me the kind of role you're targeting. I'll help improve the wording, structure, and relevance.",
       followUpPrompts: ['Review my profile', 'Find jobs for me'],
       suggestions: [],
       routerMeta: baseMeta
@@ -324,8 +325,8 @@ export const routeScrolithaIntent = (input: {
       confidence: 0.9,
       allowTools: toolsEnabled && suggestions.length > 0,
       userFacingReply: toolsEnabled
-        ? 'I can review your profile. Confirm if you want me to load your profile context and suggest improvements.'
-        : 'I can help review your profile. Tell me your target role and what you want to improve (headline, about, skills, or portfolio).',
+        ? 'I can help with that. Confirm if you want me to load your profile and suggest the most important improvements.'
+        : "I can help with that. Tell me your target role and what you want to improve — headline, bio, skills, or portfolio — and I'll suggest the highest-impact changes.",
       followUpPrompts: ['Improve my resume', 'Find jobs for me'],
       suggestions: toolsEnabled ? suggestions : [],
       routerMeta: baseMeta
@@ -365,7 +366,7 @@ export const routeScrolithaIntent = (input: {
       confidence: 0.88,
       allowTools: false,
       userFacingReply:
-        'To upload a file on Scrolith, open **Uploaded Files** in your dashboard (or attach a file in Messages). Supported types depend on the feature (images, PDF, DOCX). Tell me what you want to attach it to (gig, job, proposal, or message).',
+        'To upload a file on Scrolith, open Uploaded Files in your dashboard or attach a file in Messages. Supported types depend on the feature (images, PDF, DOCX). What do you want to attach it to — a gig, job, proposal, or message?',
       followUpPrompts: [],
       suggestions: [],
       routerMeta: baseMeta
@@ -519,9 +520,13 @@ export const matchSkillSuggestionSafe = (
 };
 
 /**
- * Strip internal orchestration leakage from model or legacy fallback text.
+ * Strip internal orchestration leakage and normalize to plain user-facing prose.
+ * Phase 20.7.4: Markdown emphasis markers are removed for ordinary replies.
  */
-export const sanitizeUserFacingReply = (text: string): string => {
+export const sanitizeUserFacingReply = (
+  text: string,
+  options?: { preserveMarkdown?: boolean; userMessage?: string }
+): string => {
   let out = String(text || '').trim();
   if (!out) return unknownReply();
 
@@ -547,24 +552,17 @@ export const sanitizeUserFacingReply = (text: string): string => {
     out = out.replace(re, '');
   }
 
-  // Collapse leftover blank lines
-  out = out
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line, idx, arr) => {
-      if (line.trim()) return true;
-      // keep single blank between paragraphs
-      return idx > 0 && Boolean(arr[idx - 1]?.trim());
-    })
-    .join('\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-
-  // Strip leading "I prepared one action/secure next step" when it is the whole style of bad reply
-  // but keep if followed by real content that's still useful — prefer clean rewrites for short garbage
-  if (/^i prepared (one|a|\d+)/i.test(out) && out.length < 280) {
-    // leave to caller if they already have a better intent reply
+  // Soften robotic prepared-action openers when they dominate a short reply
+  if (/^i prepared (one|a|\d+)\s+(secure\s+)?(next\s+)?step/i.test(out) && out.length < 320) {
+    out = out.replace(/^i prepared[^.]*\.\s*/i, '');
   }
+
+  const { toCanonicalUserFacingProse, userRequestedMarkdown } = require('./scrolitha.responseFormat') as typeof import('./scrolitha.responseFormat');
+  const preserve =
+    Boolean(options?.preserveMarkdown) ||
+    (options?.userMessage ? userRequestedMarkdown(options.userMessage) : false);
+
+  out = toCanonicalUserFacingProse(out, { preserveMarkdown: preserve });
 
   return out || unknownReply();
 };

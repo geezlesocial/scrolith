@@ -405,7 +405,7 @@ const buildFallbackReply = (input: {
   allowPreparedActionPhrase?: boolean;
 }) => {
   const { sanitizeUserFacingReply } = require('./scrolitha.intentRouter') as typeof import('./scrolitha.intentRouter');
-  const classified = sanitizeUserFacingReply(input.classifiedReply);
+  const classified = sanitizeUserFacingReply(input.classifiedReply, {});
 
   // Prefer deterministic intent reply over "I prepared one action" boilerplate.
   if (!input.allowPreparedActionPhrase || !input.actionPlans.length) {
@@ -451,7 +451,10 @@ const buildScrolithaSystemPrompt = (params: {
   return [
     `You are Scrolitha, Scrolith's helpful AI platform assistant.`,
     `User-facing reply rules:`,
-    `- Answer naturally and concisely. Prefer a direct answer, one helpful next step, then optional clarification.`,
+    `- Return polished plain-text prose. Do NOT use Markdown emphasis markers (**bold**, *italic*, __underline__) in ordinary conversational replies.`,
+    `- Do NOT use HTML. Do not wrap ordinary words like remote/hybrid/onsite or names in asterisks.`,
+    `- Answer naturally and concisely. Prefer a direct answer, one helpful next step, then one focused clarification if needed.`,
+    `- Keep greetings to 1–3 short sentences. Avoid long capability inventories and repeated "I can help" lists.`,
     `- Do NOT reveal internal fields: role, scope, surface, route, rollout flags, tool traces, or policy boilerplate.`,
     `- Do NOT start with "I prepared one action" or "Current context" or "Account context".`,
     `- Do NOT claim an action was prepared unless planned actions below are non-empty and clearly match the user request.`,
@@ -459,6 +462,7 @@ const buildScrolithaSystemPrompt = (params: {
     `- Do NOT claim you executed a change unless a tool result confirms it.`,
     `- If the user greets you, greet back and offer help — never invent a file or admin workflow.`,
     `- If the user asks for jobs, stay on job discovery guidance — never switch to employer retention, ads, or wallet.`,
+    `- Mention unavailable live tools only when accurate and relevant, in one short sentence.`,
     `- Safety mode: ${params.safeMode ? 'ON (avoid risky/destructive guidance).' : 'OFF'}`,
     ``,
     // Internal-only context for the model — sanitizeUserFacingReply strips echoes
@@ -966,8 +970,9 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
     });
   }
 
+  const sanitizeOpts = { userMessage: message };
   const rawReply =
-    (llmReply && sanitizeUserFacingReply(llmReply)) ||
+    (llmReply && sanitizeUserFacingReply(llmReply, sanitizeOpts)) ||
     buildFallbackReply({
       page: pageContext,
       accountContext,
@@ -978,7 +983,7 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
       intent: classified.intent,
       allowPreparedActionPhrase: Boolean(classified.allowTools && actionPlans.length)
     });
-  const reply = sanitizeUserFacingReply(rawReply);
+  const reply = sanitizeUserFacingReply(rawReply, sanitizeOpts);
 
   await appendConversationMessage({
     conversationId: conversation.id,
