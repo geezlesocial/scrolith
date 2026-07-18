@@ -93,6 +93,11 @@ export default function EmployerOverview() {
   const [search, setSearch] = React.useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = React.useState<string | undefined>(undefined);
 
+  // Must be declared before loadOverview — dependency arrays evaluate at hook call time (TDZ).
+  const unreadNotifications = React.useMemo(() => {
+    return notifications.reduce((total, item) => total + (item.isRead ? 0 : 1), 0);
+  }, [notifications]);
+
   const loadOverview = React.useCallback(async () => {
     if (!user?.id) return;
     setLoading(true);
@@ -240,10 +245,6 @@ export default function EmployerOverview() {
       window.removeEventListener('contracts:updated', refresh as EventListener);
     };
   }, [loadOverview]);
-
-  const unreadNotifications = React.useMemo(() => {
-    return notifications.reduce((total, item) => total + (item.isRead ? 0 : 1), 0);
-  }, [notifications]);
 
   const filteredActivity = React.useMemo(() => {
     const query = search.trim().toLowerCase();
