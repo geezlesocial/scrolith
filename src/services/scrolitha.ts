@@ -129,8 +129,18 @@ export class ScrolithaService {
     actionId: string;
     confirmed: boolean;
     params?: Record<string, any>;
+    confirmationToken?: string;
   }): Promise<any> {
-    const response = await api.post('/scrolitha/execute', payload, { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS });
+    const response = await api.post(
+      '/scrolitha/execute',
+      {
+        actionId: payload.actionId,
+        confirmed: payload.confirmed,
+        params: payload.params,
+        confirmationToken: payload.confirmationToken
+      },
+      { timeout: SCROLITHA_EXECUTE_TIMEOUT_MS }
+    );
     return extractData<any>(response);
   }
 

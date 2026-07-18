@@ -876,15 +876,52 @@ const SupportWidget: React.FC = () => {
     try {
       if (isAuthenticated && user?.id) {
         const payloadMessage = userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : '');
-        const data = await ScrolithaService.chat({
-          message: payloadMessage,
-          conversationId: conversationId || undefined,
-          context: buildChatContext(location.pathname, location.search, user)
-        });
-        if (data?.conversationId) setConversationId(data.conversationId);
-        pushMessages({ sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() });
-        setSuggestedActions(Array.isArray(data?.suggestedActions) ? data.suggestedActions : []);
-        setFollowUpPrompts(Array.isArray(data?.followUpPrompts) ? data.followUpPrompts : []);
+        const clientRequestId =
+          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `sw_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+        // Phase 20.7.1 — conversation unification: write-through to canonical Scrolitha DM.
+        // Falls back to legacy /scrolitha/chat when messaging assistant is disabled.
+        let unifiedOk = false;
+        try {
+          const { MessagingService } = await import('../services/messaging');
+          const data = await MessagingService.scrolithaUnifiedTurn({
+            message: payloadMessage,
+            clientRequestId,
+            source: 'support_widget',
+            stream: false
+          });
+          unifiedOk = true;
+          if (data?.conversationId) {
+            setConversationId(data.conversationId);
+            setMessagingConversationId(data.conversationId);
+          }
+          pushMessages({ sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() });
+          setSuggestedActions(Array.isArray(data?.suggestedActions) ? data.suggestedActions : []);
+          setFollowUpPrompts(Array.isArray(data?.followUpPrompts) ? data.followUpPrompts : []);
+        } catch (unifiedError: any) {
+          const code = unifiedError?.response?.data?.code || unifiedError?.code;
+          if (code !== 'SCROLITHA_MESSAGING_DISABLED' && unifiedError?.response?.status !== 403) {
+            // Non-rollout errors: still try legacy chat so the widget stays usable.
+            console.warn('[SupportWidget] unified turn failed, falling back to chat', unifiedError);
+          }
+        }
+
+        if (!unifiedOk) {
+          const data = await ScrolithaService.chat({
+            message: payloadMessage,
+            conversationId: conversationId || undefined,
+            context: {
+              ...buildChatContext(location.pathname, location.search, user),
+              source: 'support_widget_fallback'
+            }
+          });
+          if (data?.conversationId) setConversationId(data.conversationId);
+          pushMessages({ sender: 'agent', text: data?.reply || 'Done.', timestamp: new Date() });
+          setSuggestedActions(Array.isArray(data?.suggestedActions) ? data.suggestedActions : []);
+          setFollowUpPrompts(Array.isArray(data?.followUpPrompts) ? data.followUpPrompts : []);
+        }
       } else {
         const response = await getSupportResponse(
           userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : ''),
