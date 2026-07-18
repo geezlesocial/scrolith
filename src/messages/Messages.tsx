@@ -574,13 +574,24 @@ const Messages = () => {
       window.requestAnimationFrame(() => stop({ export: true }));
   }, [activeConvoId, conversations, user?.id]);
 
-  // Load Conversations
+  // Load Conversations (+ ensure official Scrolitha assistant DM)
   useEffect(() => {
-      if (user) {
-          MessagingService.getAllConversations(user.id, user.role).then((list) => {
-              setConversations(mergeDirectConversations(list));
-          });
-      }
+      if (!user) return;
+      let cancelled = false;
+      (async () => {
+          try {
+              // Best-effort ensure before list so the pinned assistant appears.
+              await MessagingService.ensureScrolithaConversation().catch(() => null);
+          } catch {
+              // ignore — assistant may be rollout-gated
+          }
+          if (cancelled) return;
+          const list = await MessagingService.getAllConversations(user.id, user.role, { force: true });
+          if (!cancelled) setConversations(mergeDirectConversations(list));
+      })().catch(() => undefined);
+      return () => {
+          cancelled = true;
+      };
   }, [user]);
 
   useEffect(() => {
@@ -845,6 +856,28 @@ const Messages = () => {
       if (!mergeKey) return undefined;
       return dedupedConversations.find((conversation) => getConversationMergeKey(conversation) === mergeKey);
   }, [activeConvoId, conversations, dedupedConversations]);
+
+  const isActiveScrolithaConversation = Boolean(
+      activeConvo?.isScrolitha ??
+          activeConvo?.is_scrolitha ??
+          activeConvo?.participants?.some((p: any) => p?.isScrolitha || p?.is_scrolitha)
+  );
+
+  const scrolithaPromptChips = useMemo(
+      () => [
+          'Find jobs for me',
+          'Improve my resume',
+          'Review my profile',
+          'Find freelancers',
+          'Create a proposal draft',
+          'Write a post',
+          'Search marketplace',
+          'Find communities',
+          'Show my growth plan'
+      ],
+      []
+  );
+
   useEffect(() => {
       const targetMessageId = searchParams.get('messageId') || pendingSearchMessageFocusRef.current;
       if (!activeConvoId || !targetMessageId || !activeConvo?.messages?.some((msg) => msg.id === targetMessageId)) return;
@@ -875,6 +908,10 @@ const Messages = () => {
   const conversationListSource = isMessageSearchActive ? searchConversations : dedupedConversations;
   const visibleConversations = [...conversationListSource]
       .sort((a, b) => {
+          // Official Scrolitha assistant always pins above user conversations.
+          const aAi = Number(Boolean(a.isScrolitha ?? a.is_scrolitha ?? a.isPinned ?? a.is_pinned));
+          const bAi = Number(Boolean(b.isScrolitha ?? b.is_scrolitha ?? b.isPinned ?? b.is_pinned));
+          if (aAi !== bAi) return bAi - aAi;
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
           const bStar = Number(Boolean(b.isStarred ?? b.is_starred));
           if (aStar !== bStar) return bStar - aStar;
@@ -3035,6 +3072,12 @@ const Messages = () => {
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
                             const convoStarred = Boolean(convo.isStarred ?? convo.is_starred);
+                            const isScrolithaConvo = Boolean(
+                                convo.isScrolitha ??
+                                    convo.is_scrolitha ??
+                                    participant?.isScrolitha ??
+                                    participant?.is_scrolitha
+                            );
                             const previewText = String(
                                 searchMeta?.matchedMessageSnippet ||
                                 searchMeta?.lastMessage ||
@@ -3049,7 +3092,9 @@ const Messages = () => {
                                     className={`mx-2 my-1.5 w-auto cursor-pointer overflow-hidden rounded-2xl border px-4 py-3 shadow-sm transition-all ${
                                         activeConvoId === convo.id
                                             ? 'border-blue-200 bg-gradient-to-r from-blue-50 via-white to-indigo-50 shadow-md ring-1 ring-blue-100'
-                                            : 'border-transparent bg-white hover:border-gray-200 hover:bg-gray-50 hover:shadow'
+                                            : isScrolithaConvo
+                                              ? 'border-indigo-100 bg-gradient-to-r from-indigo-50/80 via-white to-violet-50/60 hover:border-indigo-200 hover:shadow'
+                                              : 'border-transparent bg-white hover:border-gray-200 hover:bg-gray-50 hover:shadow'
                                     }`}
                                 >
                                     <div className="flex w-full min-w-0 items-center">
@@ -3059,17 +3104,19 @@ const Messages = () => {
                                                 onClick={(event) => {
                                                     event.preventDefault();
                                                     event.stopPropagation();
-                                                    navigate(resolveParticipantProfileUrl(participant));
+                                                    if (!isScrolithaConvo) {
+                                                        navigate(resolveParticipantProfileUrl(participant));
+                                                    }
                                                 }}
                                                 className="mr-3 rounded-full"
                                             >
                                                 <img
-                                                    src={participant?.avatar || 'https://ui-avatars.com/api/?name=User'}
-                                                    className="w-10 h-10 rounded-full border border-gray-200 object-cover"
+                                                    src={participant?.avatar || (isScrolithaConvo ? 'https://scrolith.com/icon-192.png' : 'https://ui-avatars.com/api/?name=User')}
+                                                    className={`w-10 h-10 rounded-full border object-cover ${isScrolithaConvo ? 'border-indigo-200 ring-2 ring-indigo-100' : 'border-gray-200'}`}
                                                     alt={participant?.name || 'Profile'}
                                                 />
                                             </button>
-                                            {participant?.isOnline && (
+                                            {(participant?.isOnline || isScrolithaConvo) && (
                                         <span className="absolute bottom-0 right-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-green-500"></span>
                                             )}
                                         </div>
@@ -3081,13 +3128,25 @@ const Messages = () => {
                                                         onClick={(event) => {
                                                             event.preventDefault();
                                                             event.stopPropagation();
-                                                            navigate(resolveParticipantProfileUrl(participant));
+                                                            if (!isScrolithaConvo) {
+                                                                navigate(resolveParticipantProfileUrl(participant));
+                                                            }
                                                         }}
                                                         className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
                                                     >
-                                                        {renderHighlightedText(participant?.name || 'Conversation', activeMessageSearchQuery)}
+                                                        {renderHighlightedText(participant?.name || (isScrolithaConvo ? 'Scrolitha' : 'Conversation'), activeMessageSearchQuery)}
                                                     </button>
-                                                    {participantRole && (
+                                                    {isScrolithaConvo ? (
+                                                        <span className="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+                                                            AI
+                                                        </span>
+                                                    ) : null}
+                                                    {isScrolithaConvo ? (
+                                                        <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700" title="Verified system assistant">
+                                                            ✓
+                                                        </span>
+                                                    ) : null}
+                                                    {!isScrolithaConvo && participantRole && (
                                                         <ProBadge role={participantRole} isPro={participantIsPro} />
                                                     )}
                                                     {searchMeta?.matchType ? (
@@ -3744,6 +3803,30 @@ const Messages = () => {
                                     : undefined
                             }
                         >
+                            {isActiveScrolithaConversation ? (
+                                <div className="mb-3 space-y-2" role="region" aria-label="Scrolitha suggested prompts">
+                                    <p className="text-[11px] font-medium text-indigo-700">
+                                        Scrolitha · official AI assistant · responses are AI-generated
+                                    </p>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {scrolithaPromptChips.map((chip) => (
+                                            <button
+                                                key={chip}
+                                                type="button"
+                                                onClick={() => {
+                                                    setMessageInput(chip);
+                                                    window.requestAnimationFrame(() => {
+                                                        composerTextareaRef.current?.focus();
+                                                    });
+                                                }}
+                                                className="rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-medium text-indigo-800 transition hover:bg-indigo-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-indigo-500"
+                                            >
+                                                {chip}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ) : null}
                             {replyToMessage && (
                                 <div className="mb-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-3 py-3 text-xs text-slate-600 shadow-sm">
                                     <div className="flex items-start justify-between gap-3">
@@ -3855,7 +3938,11 @@ const Messages = () => {
                                         className={`w-full resize-none border-0 bg-transparent px-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 ${
                                             isMobileKeyboardOpen ? 'py-2' : 'py-2.5 md:py-3'
                                         }`}
-                                        placeholder="Write a message. Press Enter to send, Shift+Enter for a new line."
+                                        placeholder={
+                                            isActiveScrolithaConversation
+                                                ? 'Ask Scrolitha to do something on Scrolith…'
+                                                : 'Write a message. Press Enter to send, Shift+Enter for a new line.'
+                                        }
                                         value={messageInput}
                                         onChange={(event) => handleMessageInputChange(event.target.value)}
                                         onKeyDown={handleComposerKeyDown}

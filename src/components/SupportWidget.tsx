@@ -187,6 +187,9 @@ const SupportWidget: React.FC = () => {
       ? normalizedStarterPrompts
       : normalizedGuestPrompts;
 
+  // Messaging conversation id shared with /messages (Phase 20.7 unification).
+  const [messagingConversationId, setMessagingConversationId] = useState<string | null>(null);
+
   // Load Configuration on Mount (single config fetch; drafts restored from session)
   useEffect(() => {
     let cancelled = false;
@@ -233,6 +236,19 @@ const SupportWidget: React.FC = () => {
           const draft = readSupportDraft();
           if (draft?.message) setMessage(String(draft.message));
           if (draft?.conversationId) setConversationId(String(draft.conversationId));
+        }
+
+        // Ensure official messaging DM exists so SupportWidget and Messages share one thread.
+        if (isAuthenticated) {
+          try {
+            const { MessagingService } = await import('../services/messaging');
+            const ensured = await MessagingService.ensureScrolithaConversation();
+            if (!cancelled && ensured?.conversationId) {
+              setMessagingConversationId(ensured.conversationId);
+            }
+          } catch {
+            // Rollout-gated or network — widget still works via /scrolitha/chat
+          }
         }
       } catch (error) {
         console.error('Failed to initialize chat flow', error);
@@ -983,6 +999,23 @@ const SupportWidget: React.FC = () => {
               </div>
             ) : null}
             <div className="flex items-center space-x-2 shrink-0">
+              {isAuthenticated ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsOpen(false);
+                    const target = messagingConversationId
+                      ? `/messages?conversation=${encodeURIComponent(messagingConversationId)}`
+                      : '/messages';
+                    navigate(target);
+                  }}
+                  className="hidden rounded-full border border-white/25 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white hover:bg-white/20 sm:inline-flex"
+                  title="Open full Scrolitha conversation in Messages"
+                  aria-label="Open Scrolitha in Messages"
+                >
+                  Messages
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
