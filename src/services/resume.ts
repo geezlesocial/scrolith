@@ -76,5 +76,32 @@ export const ResumeService = {
 
   async remove(id: string) {
     return unwrap<{ deleted: boolean }>(await api.delete(`/freelancer/resumes/${id}`));
+  },
+
+  async listVersions(id: string) {
+    return unwrap<any[]>(await api.get(`/freelancer/resumes/${id}/versions`));
+  },
+
+  async setShare(id: string, enabled: boolean) {
+    return unwrap<{
+      resume: ResumeDocument;
+      shareEnabled: boolean;
+      shareToken: string | null;
+      sharePath: string | null;
+    }>(await api.post(`/freelancer/resumes/${id}/share`, { enabled }));
+  },
+
+  async importSnapshot(snapshot: Record<string, any>) {
+    return unwrap<{ mode: string; supportedSources: string[]; plannedSources: string[]; imported: ResumeProfileSource }>(
+      await api.post('/freelancer/resumes/import-snapshot', { snapshot })
+    );
+  },
+
+  async getShared(token: string) {
+    return unwrap<any>(await api.get(`/resume/shared/${encodeURIComponent(token)}`));
+  },
+
+  async publicInfo() {
+    return unwrap<any>(await api.get('/resume/info'));
   }
 };

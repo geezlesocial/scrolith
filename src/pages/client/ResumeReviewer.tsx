@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, FileSearch, Link2, Loader2, ShieldCheck, Sparkles, UploadCloud } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { ResumeAnalysis, ResumeReviewService } from '../../services/resumeReview';
+import ProfessionalIntegrationStrip from '../../components/discovery/ProfessionalIntegrationStrip';
+import { SCROLITHA_CAREER_PROMPTS } from '../../services/scrolithaCareer';
 
 const splitList = (value: string) =>
   value
@@ -201,11 +204,31 @@ const ResumeReviewer: React.FC = () => {
             </p>
             <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950 md:text-[28px]">Resume/CV Reviewer</h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-              Analyze candidate resumes and public Scrolith profiles against role requirements. Scrolitha provides an assistive review; final hiring decisions must be made by a human reviewer.
+              ATS analyzer, keyword coverage, role fit, interview questions, and professional scoring powered by Scrolitha.
+              Final hiring decisions remain human-reviewed.
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {SCROLITHA_CAREER_PROMPTS.filter((p) => ['resume-review', 'interview-prep', 'skill-gap'].includes(p.id)).map((prompt) => (
+                <Link
+                  key={prompt.id}
+                  to={`/scrolitha?intent=career&q=${encodeURIComponent(prompt.prompt)}`}
+                  className="rounded-full border border-purple-200 bg-white px-3 py-1 text-[11px] font-semibold text-purple-800 hover:bg-purple-50"
+                >
+                  {prompt.label}
+                </Link>
+              ))}
+              <Link
+                to="/freelancer/dashboard?tab=resume-builder"
+                className="rounded-full border border-slate-200 bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white"
+              >
+                Open Resume Builder
+              </Link>
+            </div>
           </div>
         </div>
       </div>
+
+      <ProfessionalIntegrationStrip surface="profile" />
 
       {message && (
         <div className="rounded-[14px] border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 text-sm text-blue-800 shadow-sm">

@@ -78,6 +78,7 @@ import type {
 } from '../../types/marketplace';
 import type { CommunityClub, Currency, StructuredLocationFields } from '../../types';
 import { getCurrentDeviceCoordinates } from '../../utils/deviceLocation';
+import ProfessionalIntegrationStrip from '../../components/discovery/ProfessionalIntegrationStrip';
 
 const LocationPicker = React.lazy(() => import('../../components/common/LocationPicker'));
 
@@ -2188,6 +2189,9 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
   return (
     <div ref={mainRef} className={isDashboardVariant ? 'space-y-6 overflow-x-hidden' : 'space-y-6 overflow-x-hidden pb-10'}>
       {renderHeader()}
+      {(isBrowseRoute || isCategoryRoute) && !isDashboardVariant ? (
+        <ProfessionalIntegrationStrip surface="marketplace" className="mx-auto w-full max-w-7xl px-3 sm:px-4" />
+      ) : null}
       {error && <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>}
       {notice && <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{notice}</div>}
 
