@@ -1394,6 +1394,8 @@ const AppContent = () => {
         !isMobileShellRoute &&
         !isMobileStandaloneRoute &&
         !shouldRenderForcedMobileHome &&
+        // Phase 20.7 patch: full /messages workspace replaces floating dock (unmount, not hide).
+        !isMessagesRoute &&
         nonCriticalUiReady && (
           <Suspense fallback={null}>
             <DesktopMessagingDock />
