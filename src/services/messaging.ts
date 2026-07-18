@@ -413,14 +413,37 @@ export const MessagingService = {
     text: string,
     role: string,
     attachments?: string[],
-    replyToMessageId?: string | null
-  ): Promise<Message> => {
+    replyToMessageId?: string | null,
+    options?: {
+      /** Phase 20.7.2 — longer timeout for Scrolitha AI turn in the same HTTP request */
+      scrolitha?: boolean;
+      clientRequestId?: string;
+      timeoutMs?: number;
+    }
+  ): Promise<Message & { scrolithaTurn?: any }> => {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       throw createOfflineRecoveryError('Message is queued in the composer while you are offline. Retry when your connection returns.');
     }
-    const request = beginManagedIdempotentRequest(`message-send:${conversationId}:${senderId}`);
+    const isScrolitha = Boolean(options?.scrolitha);
+    // Scrolitha generation is awaited server-side; default 16s API timeout aborts before AI finishes.
+    const timeoutMs = Math.max(
+      5_000,
+      Math.min(120_000, Number(options?.timeoutMs || (isScrolitha ? 95_000 : 0)) || (isScrolitha ? 95_000 : 16_000))
+    );
+    const clientRequestId =
+      String(options?.clientRequestId || '').trim() ||
+      (isScrolitha
+        ? typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `scr_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+        : '');
+    const request = beginManagedIdempotentRequest(
+      `message-send:${conversationId}:${senderId}:${clientRequestId || 'default'}`
+    );
     let lastError: any = null;
-    for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+    // Do not auto-retry Scrolitha sends — retries create duplicate user turns while AI is in flight.
+    const maxAttempts = isScrolitha ? 0 : WRITE_RETRY_ATTEMPTS;
+    for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       try {
         const response = await api.post(
           `/messages/conversations/${conversationId}/messages`,
@@ -429,15 +452,27 @@ export const MessagingService = {
             text,
             role,
             attachments: Array.isArray(attachments) ? attachments : [],
-            replyToMessageId: replyToMessageId || null
+            replyToMessageId: replyToMessageId || null,
+            ...(clientRequestId ? { clientRequestId } : {})
           },
-          { headers: request.headers }
+          {
+            headers: {
+              ...request.headers,
+              ...(clientRequestId ? { 'X-Client-Request-Id': clientRequestId } : {})
+            },
+            timeout: timeoutMs
+          }
         );
         request.complete();
-        return normalizeMessage(extractData<any>(response));
+        const body = (response as any)?.data;
+        const data = extractData<any>(response);
+        const message = normalizeMessage(data);
+        // scrolithaTurn is sibling of data on the envelope: { success, data, scrolithaTurn }
+        const scrolithaTurn = body?.scrolithaTurn || (data as any)?.scrolithaTurn || null;
+        return Object.assign(message, scrolithaTurn ? { scrolithaTurn } : {});
       } catch (error) {
         lastError = annotateRecoverableError(error);
-        if (!lastError.retryable || attempt >= WRITE_RETRY_ATTEMPTS) {
+        if (!lastError.retryable || attempt >= maxAttempts) {
           request.retain();
           throw lastError;
         }
