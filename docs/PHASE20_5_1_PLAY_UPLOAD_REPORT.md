@@ -8,13 +8,17 @@
 
 | Step | Status |
 |---|---|
-| Pre-upload artifact lock | **completed** |
-| Play Developer API automated upload | **blocked** — no Android Publisher service account / OAuth automation in this environment |
-| Operator Console upload | **pending operator approval** |
-| Bundle processing (Play) | **pending operator approval** |
-| Production release draft | **pending operator approval** |
-| Staged production rollout start | **pending operator approval** — **must not start until operator explicitly confirms** |
-| Unrestricted 100% rollout | **not applicable** — forbidden for initial 20.5.1 strategy |
+| Pre-upload artifact lock | **completed** (reconfirmed 2026-07-18 Option 1) |
+| Docs commit `edf4c8f2` push | **completed** → `origin/release/backend-production` |
+| Play Developer API automated upload | **blocked** — `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`; no Play Publisher SA |
+| Operator Console upload | **pending operator** — materials ready (`PLAY_CONSOLE_DRAFT_ONLY.md`) |
+| Bundle processing (Play) | **pending operator** (upload not yet in Console) |
+| Production release draft materials | **completed** (name, notes, path, checksum, steps) |
+| Live Console production draft object | **pending operator** |
+| Staged production rollout start | **NO** — Option 1 forbids; requires later explicit approval |
+| Unrestricted 100% rollout | **not applicable** — forbidden |
+
+**Option 1 detail report:** `docs/PHASE20_5_1_PLAY_DRAFT_OPTION1_REPORT.md`
 
 ---
 
@@ -133,14 +137,16 @@ Fill during operator session:
 
 ---
 
-## Final gates (Play layer)
+## Final gates (Play layer) — Option 1
 
 | Gate | Result |
 |---|---|
-| PLAY AAB UPLOAD COMPLETED | **NO** (pending operator) |
-| PLAY BUNDLE PROCESSING PASSED | **NO** (pending operator) |
-| PLAY ERRORS RESOLVED | **NO** (pending upload / review) |
-| PLAY WARNINGS REVIEWED | **NO** (pending Console) |
-| RELEASE NOTES ADDED | **NO** (text prepared; Console entry pending) |
-| PRODUCTION RELEASE PREPARED | **NO** (draft prep pending operator) |
+| PLAY AAB UPLOAD COMPLETED | **NO** (API blocked; Console session required) |
+| PLAY BUNDLE PROCESSING PASSED | **NO** |
+| PLAY ERRORS RESOLVED | **NO** (no Console processing yet) |
+| PLAY WARNINGS REVIEWED | **YES** pre-upload technical; Console warnings **pending upload** |
+| RELEASE NOTES ADDED | **YES** prepared for paste; Console entry **pending** |
+| PRODUCTION RELEASE DRAFT PREPARED | **YES** materials; live Console draft **pending operator** |
+| PRODUCTION ROLLOUT STARTED | **NO** |
 | FINAL ROLLOUT AWAITING OPERATOR APPROVAL | **YES** |
+| PUBLIC RELEASE COMPLETE | **NO** |
