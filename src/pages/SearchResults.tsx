@@ -100,7 +100,29 @@ const SearchResults = () => {
   const [filter, setFilter] = useState<SearchFilter>('all');
   const [error, setError] = useState<string | null>(null);
   const [trending, setTrending] = useState<any[]>([]);
+  const [retryToken, setRetryToken] = useState(0);
   const { formatPrice } = useCurrency();
+
+  useEffect(() => {
+    const clean = query.trim();
+    const nextTitle = clean
+      ? `Search “${clean.slice(0, 80)}” · Scrolith`
+      : 'Search Scrolith';
+    document.title = nextTitle;
+    try {
+      let meta = document.querySelector("meta[name='description']") as HTMLMetaElement | null;
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', 'description');
+        document.head.appendChild(meta);
+      }
+      meta.content = clean
+        ? `Search results for ${clean} across people, jobs, gigs, marketplace, posts, blogs, and groups on Scrolith.`
+        : 'Search Scrolith for people, jobs, gigs, marketplace, posts, blogs, and professional groups.';
+    } catch {
+      // ignore DOM meta failures (non-browser test envs)
+    }
+  }, [query]);
 
   useEffect(() => {
     let cancelled = false;
@@ -153,7 +175,7 @@ const SearchResults = () => {
     return () => {
       cancelled = true;
     };
-  }, [mode, query]);
+  }, [mode, query, retryToken]);
 
   const sections = useMemo(
     () =>
@@ -237,10 +259,34 @@ const SearchResults = () => {
         </div>
 
         {error ? (
-          <div className="rounded-2xl border border-red-200 bg-white p-5 text-sm text-red-700 shadow-sm">{error}</div>
+          <div
+            className="rounded-2xl border border-red-200 bg-white p-5 text-sm text-red-700 shadow-sm"
+            role="alert"
+            data-testid="search-error-state"
+          >
+            <p>{error}</p>
+            <button
+              type="button"
+              onClick={() => setRetryToken((n) => n + 1)}
+              className="mt-3 inline-flex items-center rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+            >
+              Retry search
+            </button>
+          </div>
         ) : loading ? (
-          <div className="flex justify-center rounded-3xl border border-slate-200 bg-white py-20 shadow-sm">
-            <Loader className="h-10 w-10 animate-spin text-slate-700" />
+          <div
+            className="space-y-3 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+            aria-busy="true"
+            aria-live="polite"
+            data-testid="search-loading-skeleton"
+          >
+            <div className="flex items-center gap-2 text-sm font-medium text-slate-600">
+              <Loader className="h-4 w-4 animate-spin text-slate-700" aria-hidden="true" />
+              Searching Scrolith…
+            </div>
+            <div className="h-16 animate-pulse rounded-2xl bg-slate-100" />
+            <div className="h-16 animate-pulse rounded-2xl bg-slate-100" />
+            <div className="h-16 animate-pulse rounded-2xl bg-slate-100" />
           </div>
         ) : cleanQuery && visibleItems.length > 0 ? (
           filter === 'all' ? (

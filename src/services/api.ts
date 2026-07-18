@@ -154,17 +154,43 @@ void (async () => {
   }
 })();
 
-// Request interceptor to add auth token
+const createRequestId = () => {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch {
+    // fall through
+  }
+  return `fe-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+// Request interceptor to add auth token + correlation id
 api.interceptors.request.use(
   async (config) => {
     if (!config.baseURL && !isAbsoluteRequestUrl(config.url)) {
       config.baseURL = getApiBaseUrl();
     }
+    if (!config.headers) {
+      config.headers = {};
+    }
+    const headers = config.headers as any;
+    const existingRequestId =
+      headers['x-request-id'] ||
+      headers['X-Request-Id'] ||
+      (typeof headers.get === 'function' ? headers.get('x-request-id') : null);
+    if (!existingRequestId) {
+      const requestId = createRequestId();
+      if (typeof headers.set === 'function') {
+        headers.set('x-request-id', requestId);
+      } else {
+        headers['x-request-id'] = requestId;
+      }
+    }
     const isFormDataPayload =
       typeof FormData !== 'undefined' &&
       config.data instanceof FormData;
     if (isFormDataPayload && config.headers) {
-      const headers = config.headers as any;
       if (typeof headers.delete === 'function') {
         headers.delete('Content-Type');
         headers.delete('content-type');
@@ -175,10 +201,11 @@ api.interceptors.request.use(
     }
     const token = await readToken();
     if (token) {
-      if (!config.headers) {
-        config.headers = {};
+      if (typeof headers.set === 'function') {
+        headers.set('Authorization', `Bearer ${token}`);
+      } else {
+        headers.Authorization = `Bearer ${token}`;
       }
-      config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
   },

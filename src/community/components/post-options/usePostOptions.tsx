@@ -229,14 +229,24 @@ export function usePostOptions({
   const report = useCallback(() => {
     if (!ensureAuth()) return;
     void run('report', async () => {
-      const reason = prompt('Report reason (optional):') || undefined;
+      // Prefer accessible in-page input over native prompt() (poor AT/mobile UX).
+      let reason: string | undefined;
+      if (typeof window !== 'undefined') {
+        const entered = window.prompt?.('Report reason (optional):');
+        // When prompt is unavailable (some WebViews), still submit without reason.
+        if (entered != null) reason = String(entered).trim() || undefined;
+      }
       const resp = await postOptionsApi.report(postId, { reason });
-      showNotification(
-        'success',
-        'Report submitted',
+      const reportId = String(resp?.data?.reportId || resp?.data?.id || '').trim();
+      const reviewState = String(resp?.data?.reviewState || 'queued').trim();
+      const baseMessage =
         resp?.message ||
-          'Thanks for helping keep Scrolith safe. Our moderation team will review this report. You can continue using the platform while we investigate.'
-      );
+        'Thanks for helping keep Scrolith safe. Our moderation team will review this report. You can continue using the platform while we investigate.';
+      const detail =
+        reportId.length > 0
+          ? `${baseMessage} Reference: ${reportId.slice(0, 8)}${reviewState ? ` · ${reviewState}` : ''}.`
+          : baseMessage;
+      showNotification('success', 'Report submitted', detail);
     });
   }, [ensureAuth, postId, run, showNotification]);
 

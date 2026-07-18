@@ -25,6 +25,7 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
   const [revenue, setRevenue] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,7 +35,9 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
       .then(([pgsResult, revenueResult]) => {
         if (cancelled) return;
         if (pgsResult.status === 'fulfilled') setScore(pgsResult.value);
+        else setScore(null);
         if (revenueResult.status === 'fulfilled') setRevenue(revenueResult.value);
+        else setRevenue(null);
         if (pgsResult.status === 'rejected' && revenueResult.status === 'rejected') {
           setError('Insights unavailable right now.');
         }
@@ -45,7 +48,7 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryToken]);
 
   const pgs = Number(score?.score);
   const earnings =
@@ -80,7 +83,16 @@ export default function CreatorAnalyticsCard({ className = '', compact = false }
           <div className="h-16 animate-pulse rounded-xl bg-white/80" />
         </div>
       ) : error && !score && !revenue ? (
-        <p className="text-sm text-slate-600">{error}</p>
+        <div className="text-sm text-slate-600" role="status">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => setRetryToken((n) => n + 1)}
+            className="mt-2 text-xs font-semibold text-indigo-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <>
           <div className={`grid gap-2 ${compact ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'}`}>
