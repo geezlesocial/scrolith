@@ -1,8 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, FileText, Image, Loader2, RefreshCw, Save, Sparkles, Trash2 } from 'lucide-react';
+import { Download, FileText, History, Image, Link2, Loader2, RefreshCw, Save, Share2, Sparkles, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { ResumeDocument, ResumeProfileSource, ResumeService } from '../../services/resume';
 import { downloadToDevice } from '../../utils/deviceDownload';
 import { getBackendOrigin } from '../../utils/apiBase';
+import { SCROLITHA_CAREER_PROMPTS } from '../../services/scrolithaCareer';
+import ProfessionalIntegrationStrip from '../../components/discovery/ProfessionalIntegrationStrip';
 
 const templates = [
   { id: 'professional', label: 'Professional', note: 'Balanced business resume' },
@@ -132,16 +135,47 @@ const ResumeBuilder: React.FC = () => {
   const [instructions, setInstructions] = useState('Make it ATS-friendly, concise, and focused on measurable client outcomes.');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [versions, setVersions] = useState<any[]>([]);
+  const [shareLink, setShareLink] = useState('');
+  const [importInfo, setImportInfo] = useState<{ supported?: string[]; planned?: string[] } | null>(null);
 
   const importedSkills = useMemo(() => joinSkills(source?.skills), [source?.skills]);
 
   const load = async () => {
-    const [profileSource, history] = await Promise.all([ResumeService.getProfileSource(), ResumeService.list()]);
+    const [profileSource, history, info] = await Promise.all([
+      ResumeService.getProfileSource(),
+      ResumeService.list(),
+      ResumeService.publicInfo().catch(() => null)
+    ]);
     setSource(profileSource);
     setResumes(history);
     setIncludePhoto(Boolean(profileSource.profilePhotoUrl));
     if (history[0]) setActive(history[0]);
+    if (info?.importSources) {
+      setImportInfo({
+        supported: info.importSources.supported,
+        planned: info.importSources.planned
+      });
+    }
   };
+
+  useEffect(() => {
+    if (!active?.id) {
+      setVersions([]);
+      setShareLink('');
+      return;
+    }
+    void ResumeService.listVersions(active.id)
+      .then((rows) => setVersions(Array.isArray(rows) ? rows : active.versions || []))
+      .catch(() => setVersions(Array.isArray(active.versions) ? active.versions : []));
+    const token = (active.editableData as any)?.publicShare?.token;
+    const enabled = Boolean((active.editableData as any)?.publicShare?.enabled);
+    if (enabled && token) {
+      setShareLink(`${window.location.origin}/api/resume/shared/${encodeURIComponent(token)}`);
+    } else {
+      setShareLink('');
+    }
+  }, [active?.id, active?.updatedAt]);
 
   useEffect(() => {
     load().catch((error) => setMessage(error?.response?.data?.error || error?.message || 'Unable to load resume builder.'));
@@ -248,6 +282,32 @@ const ResumeBuilder: React.FC = () => {
     }
   };
 
+  const toggleShare = async (enabled: boolean) => {
+    if (!active) return;
+    setSaving(true);
+    try {
+      const result = await ResumeService.setShare(active.id, enabled);
+      setActive(result.resume);
+      if (result.shareToken) {
+        const url = `${window.location.origin}${result.sharePath || `/api/resume/shared/${result.shareToken}`}`;
+        setShareLink(url);
+        try {
+          await navigator.clipboard.writeText(url);
+          setMessage(enabled ? 'Public share link copied to clipboard.' : 'Resume sharing disabled.');
+        } catch {
+          setMessage(enabled ? `Share enabled: ${url}` : 'Resume sharing disabled.');
+        }
+      } else {
+        setShareLink('');
+        setMessage('Resume sharing disabled.');
+      }
+    } catch (error: any) {
+      setMessage(error?.response?.data?.error || error?.message || 'Share update failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <div className="rounded-[8px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -258,7 +318,8 @@ const ResumeBuilder: React.FC = () => {
             </p>
             <h1 className="mt-3 text-2xl font-semibold text-slate-950">Resume/CV Builder</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Generate, edit, preview, and download a professional resume from your Scrolith freelancer profile.
+              Generate, edit, preview, version, share, and export a professional resume from your Scrolith profile.
+              AI writer, ATS-friendly templates, and career coaching integrate with Scrolitha.
             </p>
           </div>
           <button
@@ -268,7 +329,19 @@ const ResumeBuilder: React.FC = () => {
             <RefreshCw className="h-4 w-4" /> Import profile
           </button>
         </div>
+        <div className="mt-4 rounded-[8px] border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
+          <p className="font-semibold text-slate-800">Import architecture</p>
+          <p className="mt-1">
+            Supported now: Scrolith profile · JSON snapshot.{' '}
+            Planned: LinkedIn · GitHub projects (OAuth-ready architecture, not connected).
+          </p>
+          {importInfo?.supported?.length ? (
+            <p className="mt-1">Sources: {importInfo.supported.join(', ')}</p>
+          ) : null}
+        </div>
       </div>
+
+      <ProfessionalIntegrationStrip surface="profile" />
 
       {message && <div className="rounded-[8px] border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">{message}</div>}
 
@@ -332,8 +405,45 @@ const ResumeBuilder: React.FC = () => {
               <Save className="h-4 w-4" /> Save draft
             </button>
             <button onClick={downloadPdf} disabled={!active || saving} className="inline-flex items-center justify-center gap-2 rounded-[8px] bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
-              <Download className="h-4 w-4" /> PDF
+              <Download className="h-4 w-4" /> PDF export
             </button>
+            <button
+              onClick={() => void toggleShare(!(active?.editableData as any)?.publicShare?.enabled)}
+              disabled={!active || saving}
+              className="col-span-2 inline-flex items-center justify-center gap-2 rounded-[8px] border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60"
+            >
+              <Share2 className="h-4 w-4" />
+              {(active?.editableData as any)?.publicShare?.enabled ? 'Disable public share' : 'Enable public share'}
+            </button>
+          </div>
+          {shareLink ? (
+            <div className="rounded-[8px] border border-emerald-100 bg-emerald-50/70 p-3 text-xs text-emerald-900">
+              <div className="flex items-center gap-2 font-semibold">
+                <Link2 className="h-3.5 w-3.5" /> Share link
+              </div>
+              <p className="mt-1 break-all">{shareLink}</p>
+            </div>
+          ) : null}
+
+          <div className="rounded-[8px] border border-violet-100 bg-violet-50/60 p-4 shadow-sm">
+            <h2 className="font-semibold text-slate-950">Scrolitha career tools</h2>
+            <div className="mt-3 space-y-2">
+              {SCROLITHA_CAREER_PROMPTS.slice(0, 5).map((prompt) => (
+                <Link
+                  key={prompt.id}
+                  to={`/scrolitha?intent=career&q=${encodeURIComponent(prompt.prompt)}`}
+                  className="block rounded-[8px] border border-white bg-white px-3 py-2 text-left text-xs font-semibold text-violet-800 transition hover:border-violet-200"
+                >
+                  {prompt.label}
+                </Link>
+              ))}
+              <Link
+                to="/client/dashboard?tab=resume-reviewer"
+                className="block rounded-[8px] border border-violet-200 bg-violet-600 px-3 py-2 text-center text-xs font-semibold text-white"
+              >
+                Open ATS Resume Reviewer
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -341,7 +451,7 @@ const ResumeBuilder: React.FC = () => {
           <ResumePreview source={source} resume={active} />
           <aside className="space-y-3">
             <div className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
-              <h2 className="font-semibold text-slate-950">Version history</h2>
+              <h2 className="font-semibold text-slate-950">Documents</h2>
               <div className="mt-3 space-y-2">
                 {resumes.map((item) => (
                   <button key={item.id} onClick={() => setActive(item)} className={`w-full rounded-[8px] border p-3 text-left ${active?.id === item.id ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}>
@@ -350,6 +460,20 @@ const ResumeBuilder: React.FC = () => {
                   </button>
                 ))}
                 {!resumes.length && <p className="text-sm text-slate-500">Generated resumes will appear here.</p>}
+              </div>
+            </div>
+            <div className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+              <h2 className="inline-flex items-center gap-2 font-semibold text-slate-950">
+                <History className="h-4 w-4" /> Version history
+              </h2>
+              <div className="mt-3 space-y-2">
+                {versions.map((version) => (
+                  <div key={version.id || version.versionNumber} className="rounded-[8px] border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    <div className="font-semibold text-slate-800">v{version.versionNumber}</div>
+                    <div>{version.changeReason || 'update'} · {version.createdAt ? new Date(version.createdAt).toLocaleString() : ''}</div>
+                  </div>
+                ))}
+                {!versions.length && <p className="text-sm text-slate-500">Versions appear after generate, regenerate, or PDF export.</p>}
               </div>
             </div>
             {active && (

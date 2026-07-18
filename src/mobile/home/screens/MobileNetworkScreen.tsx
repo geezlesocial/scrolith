@@ -8,6 +8,7 @@ import {
 import { CommunityService } from '../../../services/community';
 import { useUser } from '../../../context/UserContext';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
+import ProfessionalIntegrationStrip from '../../../components/discovery/ProfessionalIntegrationStrip';
 
 type Tab = 'following' | 'followers';
 
@@ -93,6 +94,9 @@ export default function MobileNetworkScreen() {
 
   return (
     <div className={MOBILE_PAGE_SECTION_CLASS}>
+      <div className="mb-3">
+        <ProfessionalIntegrationStrip surface="mobile" compact />
+      </div>
       <div className="mb-3 flex gap-2">
         <button
           type="button"

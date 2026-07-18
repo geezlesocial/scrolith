@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import SearchInput from '../components/SearchInput';
 import OptimizedImage from '../components/media/OptimizedImage';
+import ProfessionalIntegrationStrip from '../components/discovery/ProfessionalIntegrationStrip';
 import { useCurrency } from '../context/CurrencyContext';
 import { SearchService } from '../services/search';
 import {
@@ -45,7 +46,9 @@ const FILTERS: Array<{ key: SearchFilter; label: string; icon: React.ComponentTy
   { key: 'jobs', label: 'Jobs', icon: Briefcase },
   { key: 'gigs', label: 'Gigs', icon: Sparkles },
   { key: 'marketplace', label: 'Marketplace', icon: ShoppingBag },
-  { key: 'posts', label: 'Posts', icon: FileText }
+  { key: 'posts', label: 'Posts', icon: FileText },
+  { key: 'blogs', label: 'Blogs', icon: FileText },
+  { key: 'groups', label: 'Groups', icon: Building2 }
 ];
 
 const normalizeType = (value: unknown): Exclude<SearchFilter, 'all'> => normalizeGlobalSearchType(value) || 'posts';
@@ -66,7 +69,11 @@ const getSubtitle = (item: SearchItem, type: string) =>
           ? 'Available gig'
           : type === 'marketplace'
             ? 'Marketplace item'
-            : 'Community post');
+            : type === 'blogs'
+              ? 'Blog article'
+              : type === 'groups'
+                ? 'Professional group'
+                : 'Community post');
 
 const getUrl = (item: SearchItem, type: Exclude<SearchFilter, 'all'>) => {
   const raw = String(item.url || '').trim();
@@ -209,13 +216,16 @@ const SearchResults = () => {
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-6">
+          <ProfessionalIntegrationStrip surface="search" />
+        </div>
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-950">
               {cleanQuery ? (loading ? 'Searching Scrolith...' : `${visibleItems.length} result${visibleItems.length === 1 ? '' : 's'} for "${cleanQuery}"`) : 'Search Scrolith'}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              Search marketplace items, posts, members, pages, jobs, and gigs with one real-time result experience.
+              Search marketplace, blogs, groups, posts, members, pages, jobs, and gigs in one professional discovery experience.
             </p>
           </div>
           {mode === 'semantic' ? (

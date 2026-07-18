@@ -4,11 +4,15 @@ import { useParams, Link } from 'react-router-dom';
 import { Calendar, User, ChevronLeft, Loader } from 'lucide-react';
 import { BlogPost as BlogPostType } from '../types';
 import { CMSService } from '../services/cms';
+import { ProfessionalDiscoveryService, type ProfessionalDiscoveryItem } from '../services/professionalDiscovery';
+import ProfessionalDiscoveryRail from '../components/discovery/ProfessionalDiscoveryRail';
+import ProfessionalIntegrationStrip from '../components/discovery/ProfessionalIntegrationStrip';
 
 const BlogPost = () => {
   const { slug } = useParams<{ slug: string }>();
   const [post, setPost] = useState<BlogPostType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [related, setRelated] = useState<ProfessionalDiscoveryItem[]>([]);
 
   useEffect(() => {
     const loadPost = async () => {
@@ -16,6 +20,8 @@ const BlogPost = () => {
       try {
         const data = await CMSService.getBlogPostBySlug(slug);
         setPost(data || null);
+        const blogs = await ProfessionalDiscoveryService.getBlogs(6);
+        setRelated(blogs.filter((item) => item.meta?.slug !== slug).slice(0, 4));
       } catch (error) {
         console.error("Failed to load post", error);
       } finally {
@@ -78,9 +84,26 @@ const BlogPost = () => {
               <p className="lead text-xl text-gray-500 mb-8 font-light">
                 {post.excerpt}
               </p>
+              <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 not-prose">
+                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Author</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{post.authorName || 'Scrolith Author'}</div>
+                <p className="mt-1 text-xs text-slate-600">
+                  Follow professional writing across blogs, groups, and Scrolitha career guides.
+                </p>
+              </div>
               <div className="whitespace-pre-line">
                 {post.content}
               </div>
+            </div>
+
+            <div className="mt-10 space-y-4 not-prose">
+              <ProfessionalIntegrationStrip surface="blog" />
+              <ProfessionalDiscoveryRail
+                title="Related articles & guides"
+                caption="Recommended from the professional discovery engine."
+                items={related}
+                emptyLabel="More articles will appear as the blog library grows."
+              />
             </div>
           </div>
         </article>

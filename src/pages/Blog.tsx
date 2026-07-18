@@ -4,16 +4,24 @@ import { Link } from 'react-router-dom';
 import { Calendar, User, ArrowRight, Loader } from 'lucide-react';
 import { BlogPost } from '../types';
 import { CMSService } from '../services/cms';
+import ProfessionalIntegrationStrip from '../components/discovery/ProfessionalIntegrationStrip';
+import ProfessionalDiscoveryRail from '../components/discovery/ProfessionalDiscoveryRail';
+import { ProfessionalDiscoveryService, type ProfessionalDiscoveryItem } from '../services/professionalDiscovery';
 
 const Blog = () => {
   const [posts, setPosts] = useState<BlogPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [recommended, setRecommended] = useState<ProfessionalDiscoveryItem[]>([]);
 
   useEffect(() => {
     const loadPosts = async () => {
       try {
-        const data = await CMSService.getBlogPosts();
+        const [data, reco] = await Promise.all([
+          CMSService.getBlogPosts(),
+          ProfessionalDiscoveryService.getBlogs(6)
+        ]);
         setPosts(data);
+        setRecommended(reco);
       } catch (error) {
         console.error("Failed to load blog posts", error);
       } finally {
@@ -41,6 +49,16 @@ const Blog = () => {
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
             Insights, trends, and tips for freelancers and businesses. Stay ahead of the curve.
           </p>
+        </div>
+
+        <div className="mb-8 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <ProfessionalIntegrationStrip surface="blog" />
+          <ProfessionalDiscoveryRail
+            title="Recommended for you"
+            caption="Career and industry reading from discovery."
+            items={recommended}
+            loading={loading}
+          />
         </div>
 
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
