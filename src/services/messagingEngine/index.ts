@@ -22,6 +22,17 @@ export {
   MAX_OUTGOING_AUTO_RETRIES
 } from './deliveryQueue';
 export {
+  upsertDurableOutboxItem,
+  markDurableOutboxState,
+  removeDurableOutboxItem,
+  listDurableOutboxPending,
+  listDurableOutboxFlushOrder,
+  clearDurableOutbox,
+  MAX_DURABLE_OUTBOX_RETRIES,
+  DURABLE_OUTBOX_STORAGE_KEY
+} from './durableOutbox';
+export type { DurableOutboxItem } from './durableOutbox';
+export {
   dedupeThreadMessages,
   sortThreadMessagesByTime,
   mergeThreadMessage,

@@ -97,6 +97,22 @@ const normalizeMessage = (raw: any): Message => {
     safeString(raw?.timestamp ?? raw?.createdAt ?? raw?.created_at ?? new Date().toISOString());
   const isRead = Boolean(raw?.isRead ?? raw?.is_read ?? false);
 
+  const clientMessageId = safeString(
+    raw?.clientMessageId ??
+      raw?.client_message_id ??
+      raw?.clientSendId ??
+      raw?.client_send_id ??
+      raw?.metadata?.clientMessageId ??
+      raw?.metadata?.clientSendId
+  );
+  const baseMeta =
+    raw?.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)
+      ? { ...raw.metadata }
+      : {};
+  if (clientMessageId) {
+    baseMeta.clientMessageId = clientMessageId;
+    baseMeta.clientSendId = clientMessageId;
+  }
   const normalized = {
     id: safeString(raw?.id ?? `${conversationId}-msg-${Date.now()}`),
     conversation_id: conversationId,
@@ -107,7 +123,10 @@ const normalizeMessage = (raw: any): Message => {
     is_read: isRead,
     message_type: safeString(raw?.message_type ?? raw?.messageType ?? 'text').toLowerCase(),
     messageType: safeString(raw?.messageType ?? raw?.message_type ?? 'text').toLowerCase(),
-    metadata: raw?.metadata ?? null,
+    clientMessageId: clientMessageId || null,
+    client_message_id: clientMessageId || null,
+    clientSendId: clientMessageId || null,
+    metadata: Object.keys(baseMeta).length ? baseMeta : raw?.metadata ?? null,
     voice_note: raw?.voice_note ?? raw?.voiceNote ?? null,
     voiceNote: raw?.voiceNote ?? raw?.voice_note ?? null,
     sender_role: raw?.senderRole ?? raw?.sender_role,
@@ -299,13 +318,15 @@ export const MessagingService = {
   getAllConversations: async (
     userId: string,
     role: UserRole,
-    options?: { force?: boolean; limit?: number; cursor?: string }
+    options?: { force?: boolean; limit?: number; cursor?: string; updatedSince?: string | null }
   ): Promise<Conversation[]> => {
-    const cacheKey = `${userId}:${role}`;
+    const updatedSince = String(options?.updatedSince || '').trim();
+    const cacheKey = `${userId}:${role}${updatedSince ? `:since:${updatedSince}` : ''}`;
     const cached = conversationCache.get(cacheKey);
     const now = Date.now();
 
-    if (!options?.force && cached && now - cached.timestamp < CACHE_TTL_MS) {
+    // Delta queries must always hit the network.
+    if (!updatedSince && !options?.force && cached && now - cached.timestamp < CACHE_TTL_MS) {
       return cached.data;
     }
 
@@ -326,13 +347,16 @@ export const MessagingService = {
           limit: Math.max(20, Math.min(200, Number(options?.limit || 120))),
           // Keep inbox payload small; open-thread loads full history separately.
           messagePreviewLimit: 5,
-          ...(options?.cursor ? { cursor: options.cursor } : {})
+          ...(options?.cursor ? { cursor: options.cursor } : {}),
+          ...(updatedSince ? { updatedSince } : {})
         }
       })
       .then(response => {
         const data = extractData<any>(response);
         const normalized = normalizeList(data);
-        conversationCache.set(cacheKey, { timestamp: Date.now(), data: normalized });
+        if (!updatedSince) {
+          conversationCache.set(`${userId}:${role}`, { timestamp: Date.now(), data: normalized });
+        }
         return normalized;
       })
       .catch(err => {
@@ -441,6 +465,8 @@ export const MessagingService = {
       /** Phase 20.7.2 — longer timeout for Scrolitha AI turn in the same HTTP request */
       scrolitha?: boolean;
       clientRequestId?: string;
+      /** Phase 22.1 — stable client message identity for idempotent retries */
+      clientMessageId?: string;
       timeoutMs?: number;
     }
   ): Promise<Message & { scrolithaTurn?: any }> => {
@@ -453,19 +479,21 @@ export const MessagingService = {
       5_000,
       Math.min(120_000, Number(options?.timeoutMs || (isScrolitha ? 95_000 : 0)) || (isScrolitha ? 95_000 : 16_000))
     );
+    const clientMessageId = String(options?.clientMessageId || options?.clientRequestId || '').trim();
     const clientRequestId =
-      String(options?.clientRequestId || '').trim() ||
+      String(options?.clientRequestId || clientMessageId || '').trim() ||
       (isScrolitha
         ? typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
           ? crypto.randomUUID()
           : `scr_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
         : '');
     const request = beginManagedIdempotentRequest(
-      `message-send:${conversationId}:${senderId}:${clientRequestId || 'default'}`
+      `message-send:${conversationId}:${senderId}:${clientMessageId || clientRequestId || 'default'}`
     );
     let lastError: any = null;
     // Do not auto-retry Scrolitha sends — retries create duplicate user turns while AI is in flight.
-    const maxAttempts = isScrolitha ? 0 : WRITE_RETRY_ATTEMPTS;
+    // Phase 22.1: when clientMessageId is present, retries are safe (server idempotent).
+    const maxAttempts = isScrolitha && !clientMessageId ? 0 : WRITE_RETRY_ATTEMPTS;
     for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       try {
         const response = await api.post(
@@ -476,12 +504,16 @@ export const MessagingService = {
             role,
             attachments: Array.isArray(attachments) ? attachments : [],
             replyToMessageId: replyToMessageId || null,
-            ...(clientRequestId ? { clientRequestId } : {})
+            ...(clientRequestId ? { clientRequestId } : {}),
+            ...(clientMessageId
+              ? { clientMessageId, client_message_id: clientMessageId, clientSendId: clientMessageId }
+              : {})
           },
           {
             headers: {
               ...request.headers,
-              ...(clientRequestId ? { 'X-Client-Request-Id': clientRequestId } : {})
+              ...(clientRequestId ? { 'X-Client-Request-Id': clientRequestId } : {}),
+              ...(clientMessageId ? { 'X-Client-Message-Id': clientMessageId } : {})
             },
             timeout: timeoutMs
           }

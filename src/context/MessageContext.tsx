@@ -52,14 +52,20 @@ import {
   evictThreadCacheEntries,
   getSocketHealthSnapshot,
   globalMessagingSeenIds,
+  listRetryableOutgoing,
   markOutgoingState,
   MESSAGING_POLL_GRACE_MS,
   publishMessagingEvent,
   resetMessagingEngineSession,
   subscribeMultiTabMessaging,
   touchThreadCacheEntry,
-  trackOutgoingMessage
+  trackOutgoingMessage,
+  listDurableOutboxFlushOrder
 } from '../services/messagingEngine';
+import {
+  applyPendingInboxItems,
+  isolateInboxSoftRefresh
+} from '../services/messagingSessionStability';
 import { useNetworkStatus } from './NetworkStatusContext';
 import { useUser } from './UserContext';
 import { useSocket } from './SocketContext';
@@ -279,6 +285,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const inFlightRefreshRef = useRef<Promise<void> | null>(null);
   const lastRefreshAtRef = useRef(0);
+  const lastSyncedAtRef = useRef<number | null>(null);
+  const outboxFlushInFlightRef = useRef(false);
   const visibleConversationIdsRef = useRef<Set<string>>(new Set());
   const conversationsRef = useRef<Conversation[]>([]);
   const userIdRef = useRef<string>('');
@@ -362,20 +370,39 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           } catch {
             // Rollout / network — continue with normal inbox load
           }
+          // Phase 22.1 — delta reconnect when we have a prior sync clock (soft refresh).
+          const updatedSince =
+            !options?.force && lastSyncedAtRef.current
+              ? new Date(lastSyncedAtRef.current).toISOString()
+              : null;
           const convos = await MessagingService.getAllConversations(user.id, user.role, {
             // Force reload only when ensure may have created/updated the assistant row.
-            force: Boolean(options?.force || ensured)
+            force: Boolean(options?.force || ensured),
+            updatedSince: options?.force ? null : updatedSince
           });
-          const sorted = sortConversationsByRecent(Array.isArray(convos) ? convos : []).sort((a, b) => {
-            const aAi = Number(Boolean((a as any).isScrolitha ?? (a as any).is_scrolitha));
-            const bAi = Number(Boolean((b as any).isScrolitha ?? (b as any).is_scrolitha));
-            if (aAi !== bAi) return bAi - aAi;
-            return 0;
-          });
+          const incoming = sortConversationsByRecent(Array.isArray(convos) ? convos : []).sort(
+            (a, b) => {
+              const aAi = Number(Boolean((a as any).isScrolitha ?? (a as any).is_scrolitha));
+              const bAi = Number(Boolean((b as any).isScrolitha ?? (b as any).is_scrolitha));
+              if (aAi !== bAi) return bAi - aAi;
+              return 0;
+            }
+          );
+          // Phase 22.1 — soft refresh isolates new rows; force replace still allowed.
+          let sorted = incoming;
+          if (!options?.force && conversationsRef.current.length > 0 && updatedSince) {
+            const isolated = isolateInboxSoftRefresh(conversationsRef.current, incoming);
+            // Auto-apply pending for messaging (unlike feed) so users see new DMs,
+            // but preserve relative order of existing sessions (no full reorder thrash).
+            sorted = sortConversationsByRecent(
+              applyPendingInboxItems(isolated.sessionItems, isolated.pendingNewItems)
+            );
+          }
           setConversations(sorted);
           recomputeUnread(sorted);
           const refreshedAt = Date.now();
           lastRefreshAtRef.current = refreshedAt;
+          lastSyncedAtRef.current = refreshedAt;
           setLastSyncedAt(refreshedAt);
           setSyncState('ready');
           publishMessagingEvent(
@@ -897,7 +924,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           replyToMessageId,
           {
             scrolitha: isScrolithaSend,
-            clientRequestId: isScrolithaSend ? optimisticId : undefined,
+            // Phase 22.1 — always send clientMessageId for idempotent retries (incl. Scrolitha).
+            clientMessageId: optimisticId,
+            clientRequestId: optimisticId,
             timeoutMs: isScrolithaSend ? 95_000 : undefined
           }
         );
@@ -1402,7 +1431,56 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   }, [user?.id, scheduleSoftRefresh]);
 
-  // Reconnect path: recover missed inbox rows only after an actual disconnect.
+  // Phase 22.1 — flush durable outbox fairly on reconnect (FIFO per conversation).
+  const flushDurableOutbox = useCallback(async () => {
+    if (!user?.id || outboxFlushInFlightRef.current) return;
+    const pending = listDurableOutboxFlushOrder();
+    const retryable = listRetryableOutgoing();
+    const combinedIds = new Set<string>();
+    const work = [
+      ...pending.map((p) => ({
+        clientMessageId: p.clientMessageId,
+        conversationId: p.conversationId,
+        text: p.text,
+        attachmentIds: p.attachmentIds,
+        replyToMessageId: p.replyToMessageId,
+        scrolitha: p.scrolitha
+      })),
+      ...retryable.map((r) => ({
+        clientMessageId: r.clientSendId,
+        conversationId: r.conversationId,
+        text: r.text,
+        attachmentIds: r.attachmentIds,
+        replyToMessageId: r.replyToMessageId,
+        scrolitha: false
+      }))
+    ].filter((item) => {
+      if (combinedIds.has(item.clientMessageId)) return false;
+      combinedIds.add(item.clientMessageId);
+      return Boolean(item.conversationId && item.clientMessageId);
+    });
+    if (!work.length) return;
+    outboxFlushInFlightRef.current = true;
+    try {
+      for (const item of work) {
+        try {
+          markOutgoingState(item.clientMessageId, 'retry');
+          await sendInlineMessage(item.conversationId, item.text, {
+            attachmentIds: item.attachmentIds,
+            replyToMessageId: item.replyToMessageId,
+            optimisticId: item.clientMessageId,
+            scrolitha: item.scrolitha
+          });
+        } catch {
+          // Leave failed item for next flush; sendInlineMessage marks failed.
+        }
+      }
+    } finally {
+      outboxFlushInFlightRef.current = false;
+    }
+  }, [user?.id, sendInlineMessage]);
+
+  // Reconnect path: delta inbox + outbox replay after an actual disconnect.
   const wasConnectedRef = useRef(false);
   const hadDisconnectRef = useRef(false);
   useEffect(() => {
@@ -1423,11 +1501,12 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
         },
         { source: 'recovery' }
       );
-      void refreshMessages({ force: true });
+      // Soft delta refresh preferred; force only if we have no prior clock.
+      void refreshMessages({ force: !lastSyncedAtRef.current }).then(() => flushDurableOutbox());
       hadDisconnectRef.current = false;
     }
     wasConnectedRef.current = isConnected;
-  }, [isConnected, user?.id, refreshMessages]);
+  }, [isConnected, user?.id, refreshMessages, flushDurableOutbox]);
 
   // Centralized socket reconciliation for shared surfaces
   // Single shared-surface listener registration per provider mount / socket instance.

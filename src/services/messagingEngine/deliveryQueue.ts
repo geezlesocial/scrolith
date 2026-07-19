@@ -1,13 +1,20 @@
 /**
  * Outgoing message delivery tracker with client-send IDs and retry metadata.
  * Does not own network I/O — MessageContext / MessagingService execute sends.
+ * Phase 22.1 — mirrors durable outbox for cross-reload retries.
  */
 import type { MessagingDeliveryState, OutgoingDeliveryRecord } from './types';
 import { nextMessagingSequence } from './eventBus';
+import {
+  listDurableOutboxFlushOrder,
+  markDurableOutboxState,
+  upsertDurableOutboxItem
+} from './durableOutbox';
+import { fairScheduleConversationQueues } from '../messagingSessionStability';
 
 const records = new Map<string, OutgoingDeliveryRecord>();
 const MAX_RECORDS = 400;
-const MAX_AUTO_RETRIES = 3;
+const MAX_AUTO_RETRIES = 5;
 
 const touch = (record: OutgoingDeliveryRecord) => {
   record.updatedAt = Date.now();
@@ -55,6 +62,14 @@ export const trackOutgoingMessage = (input: {
   };
   records.set(clientSendId, record);
   evictOldest();
+  upsertDurableOutboxItem({
+    clientMessageId: clientSendId,
+    conversationId,
+    text: record.text,
+    attachmentIds: record.attachmentIds,
+    replyToMessageId: record.replyToMessageId,
+    state: record.state
+  });
   return record;
 };
 
@@ -75,6 +90,11 @@ export const markOutgoingState = (
   if (state === 'retry') {
     record.retryCount += 1;
   }
+  markDurableOutboxState(key, state, {
+    serverMessageId: options?.serverMessageId,
+    error: options?.error,
+    bumpRetry: state === 'retry' || state === 'failed'
+  });
   return touch(record);
 };
 
@@ -92,13 +112,35 @@ export const findOutgoingByServerId = (serverMessageId: string): OutgoingDeliver
   return null;
 };
 
-export const listRetryableOutgoing = (): OutgoingDeliveryRecord[] =>
-  Array.from(records.values()).filter(
+export const listRetryableOutgoing = (): OutgoingDeliveryRecord[] => {
+  const memory = Array.from(records.values()).filter(
     (record) =>
-      record.state === 'failed' &&
+      (record.state === 'failed' || record.state === 'queued' || record.state === 'retry') &&
       record.retryCount < MAX_AUTO_RETRIES &&
       Boolean(record.conversationId)
   );
+  // Fair FIFO: memory first, then durable pending not already in memory.
+  const memoryIds = new Set(memory.map((r) => r.clientSendId));
+  const durable = listDurableOutboxFlushOrder()
+    .filter((row) => !memoryIds.has(row.clientMessageId))
+    .map(
+      (row): OutgoingDeliveryRecord => ({
+        clientSendId: row.clientMessageId,
+        conversationId: row.conversationId,
+        text: row.text,
+        attachmentIds: row.attachmentIds,
+        replyToMessageId: row.replyToMessageId,
+        state: row.state,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        retryCount: row.retryCount,
+        sequence: 0,
+        lastError: row.lastError,
+        serverMessageId: row.serverMessageId
+      })
+    );
+  return fairScheduleConversationQueues([...memory, ...durable].map((r) => ({ ...r })));
+};
 
 export const canAutoRetryOutgoing = (clientSendId: string): boolean => {
   const record = getOutgoingRecord(clientSendId);

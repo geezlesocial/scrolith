@@ -205,10 +205,21 @@ export const getPendingAttachmentsForConversation = (
   return Array.isArray(map[id]) ? map[id] : [];
 };
 
+/**
+ * Phase 22.1 — unique client message identity for optimistic UI + server idempotency.
+ * Format remains `optimistic-…` so existing isOptimisticMessageId checks keep working.
+ */
 export const buildClientSendId = (conversationId: string, nowMs = Date.now()): string => {
   const id = String(conversationId || '').trim() || 'conversation';
-  return `optimistic-${id}-${nowMs}`;
+  const rand =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      : Math.random().toString(36).slice(2, 14);
+  return `optimistic-${id}-${nowMs}-${rand}`;
 };
+
+/** Alias used by outbox / API contract docs. */
+export const buildClientMessageId = buildClientSendId;
 
 export const mergeEditResponseIntoMessage = (
   previous: Message,
