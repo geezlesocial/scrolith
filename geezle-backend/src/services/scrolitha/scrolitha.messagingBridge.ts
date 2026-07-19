@@ -475,19 +475,43 @@ export const processScrolithaMessagingTurn = async (input: {
   const confirmTokensEnabled = await isCapabilityEnabled('confirmationTokens', input.actor);
 
   let messageForModel = userText;
-  if (fileUnderstandingEnabled && Array.isArray(input.attachmentFileIds) && input.attachmentFileIds.length) {
+  if (fileUnderstandingEnabled) {
     try {
-      const { understandOwnedAttachments, formatFileUnderstandingContext } = await import(
-        './scrolitha.fileUnderstanding'
-      );
-      const snippets = await understandOwnedAttachments({
-        actorId: userId,
-        fileIds: input.attachmentFileIds,
-        isAdmin: Boolean(input.actor.isAdmin)
-      });
-      const block = formatFileUnderstandingContext(snippets);
-      if (block) {
-        messageForModel = `${userText}\n\n${block}`;
+      const {
+        understandOwnedAttachments,
+        formatFileUnderstandingContext,
+        collectRecentConversationAttachmentIds,
+        looksLikeFileAnalysisRequest,
+        NO_FILE_SELECTED_PROMPT
+      } = await import('./scrolitha.fileUnderstanding');
+
+      let fileIds = Array.isArray(input.attachmentFileIds)
+        ? input.attachmentFileIds.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 5)
+        : [];
+
+      // Continuity: if no new attachment but user refers to a prior file in this DM, reuse recent owned attachments.
+      if (!fileIds.length && looksLikeFileAnalysisRequest(userText)) {
+        fileIds = await collectRecentConversationAttachmentIds({
+          conversationId,
+          actorId: userId,
+          limitMessages: 25
+        });
+      }
+
+      if (fileIds.length) {
+        const snippets = await understandOwnedAttachments({
+          actorId: userId,
+          fileIds,
+          conversationId
+        });
+        const block = formatFileUnderstandingContext(snippets);
+        if (block) {
+          messageForModel = `${userText}\n\n${block}`;
+        } else if (looksLikeFileAnalysisRequest(userText)) {
+          messageForModel = `${userText}\n\n[FILE_SELECTION]\nNo authorized readable attachment was resolved for this request. Ask the user: ${NO_FILE_SELECTED_PROMPT}\n[/FILE_SELECTION]`;
+        }
+      } else if (looksLikeFileAnalysisRequest(userText)) {
+        messageForModel = `${userText}\n\n[FILE_SELECTION]\nNo file was attached or selected. Ask the user: ${NO_FILE_SELECTED_PROMPT}\nDo not invent file contents.\n[/FILE_SELECTION]`;
       }
     } catch {
       // file understanding is best-effort
@@ -780,22 +804,28 @@ export const processScrolithaUnifiedTurn = async (input: {
   const ensured = await ensureScrolithaDirectConversation(input.userId, { seedWelcome: true });
   const platformUser = ensured.platformUser;
   const conversationId = ensured.conversationId;
-  const userText = String(input.userText || '').trim();
+  const attachmentIds = Array.isArray(input.attachmentFileIds)
+    ? input.attachmentFileIds.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const userText =
+    String(input.userText || '').trim() ||
+    (attachmentIds.length ? 'Please review the attached file(s).' : '');
   if (!userText) {
     return { skipped: true, reason: 'missing_input', conversationId, messagingAssistantEnabled: true };
   }
 
-  // Persist user turn into canonical DirectMessage conversation
+  // Persist user turn into canonical DirectMessage conversation (attachments for continuity).
   const userMessage = await prisma.directMessage.create({
     data: {
       conversationId,
       senderId: input.userId,
       text: userText,
+      attachments: attachmentIds,
       metadata: {
         scrolithaSurface: input.source || 'unified',
         clientRequestId: input.clientRequestId || null,
         conversationUnification: unificationOn,
-        attachmentFileIds: Array.isArray(input.attachmentFileIds) ? input.attachmentFileIds.slice(0, 5) : []
+        attachmentFileIds: attachmentIds
       }
     }
   });
@@ -816,6 +846,7 @@ export const processScrolithaUnifiedTurn = async (input: {
     sender_id: input.userId,
     senderId: input.userId,
     text: userText,
+    attachments: attachmentIds,
     timestamp: userMessage.createdAt.toISOString(),
     is_scrolitha: false,
     isScrolitha: false,
@@ -830,7 +861,7 @@ export const processScrolithaUnifiedTurn = async (input: {
     app: input.app,
     emitToUser: input.emitToUser,
     clientRequestId: input.clientRequestId,
-    attachmentFileIds: input.attachmentFileIds,
+    attachmentFileIds: attachmentIds,
     onStreamEvent: input.onStreamEvent,
     preferStream: input.preferStream
   });

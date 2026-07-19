@@ -821,15 +821,15 @@ export const postScrolithaUnifiedTurn = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    const text = String(req.body?.message || req.body?.text || '').trim();
-    if (!text) {
-      return res.status(400).json({ success: false, error: 'message is required' });
-    }
-
-    const clientRequestId = String(req.body?.clientRequestId || req.body?.requestId || '').trim() || null;
     const attachmentFileIds = Array.isArray(req.body?.attachmentFileIds)
       ? req.body.attachmentFileIds.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 5)
       : [];
+    const text = String(req.body?.message || req.body?.text || '').trim();
+    if (!text && !attachmentFileIds.length) {
+      return res.status(400).json({ success: false, error: 'message or attachmentFileIds is required' });
+    }
+
+    const clientRequestId = String(req.body?.clientRequestId || req.body?.requestId || '').trim() || null;
     const preferStream = Boolean(req.body?.stream);
     const source = String(req.body?.source || 'unified_api').slice(0, 80);
 
@@ -839,7 +839,7 @@ export const postScrolithaUnifiedTurn = async (req: Request, res: Response) => {
 
     const result = await processScrolithaUnifiedTurn({
       userId,
-      userText: text,
+      userText: text || (attachmentFileIds.length ? 'Please review the attached file(s).' : ''),
       actor,
       app: req.app,
       clientRequestId,
@@ -904,17 +904,17 @@ export const postScrolithaUnifiedTurnStream = async (req: Request, res: Response
       });
     }
 
+    const attachmentFileIds = Array.isArray(req.body?.attachmentFileIds)
+      ? req.body.attachmentFileIds.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 5)
+      : [];
     const text = String(req.body?.message || req.body?.text || '').trim();
-    if (!text) {
-      return res.status(400).json({ success: false, error: 'message is required' });
+    if (!text && !attachmentFileIds.length) {
+      return res.status(400).json({ success: false, error: 'message or attachmentFileIds is required' });
     }
 
     const clientRequestId =
       String(req.body?.clientRequestId || req.body?.requestId || '').trim() ||
       `sse_${userId}_${Date.now()}`;
-    const attachmentFileIds = Array.isArray(req.body?.attachmentFileIds)
-      ? req.body.attachmentFileIds.map((x: any) => String(x || '').trim()).filter(Boolean).slice(0, 5)
-      : [];
     const source = String(req.body?.source || 'unified_stream').slice(0, 80);
 
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -932,7 +932,7 @@ export const postScrolithaUnifiedTurnStream = async (req: Request, res: Response
     const { processScrolithaUnifiedTurn } = await import('../services/scrolitha/scrolitha.messagingBridge');
     const result = await processScrolithaUnifiedTurn({
       userId,
-      userText: text,
+      userText: text || (attachmentFileIds.length ? 'Please review the attached file(s).' : ''),
       actor,
       app: req.app,
       clientRequestId,
@@ -1512,7 +1512,8 @@ export const postMessage = async (req: Request, res: Response) => {
     // AI failures must not fail the user send.
     // Phase 20.7.2 P1: do NOT skip admin/moderator users — that caused silent no-reply.
     let scrolithaTurn: Record<string, unknown> | null = null;
-    if (text && senderId === userId) {
+    // Allow attachment-only user turns on Scrolitha DMs (file intelligence).
+    if ((text || (attachments && attachments.length)) && senderId === userId) {
       try {
         const {
           conversationIncludesScrolitha,
@@ -1551,10 +1552,12 @@ export const postMessage = async (req: Request, res: Response) => {
               turnResult = await processScrolithaMessagingTurn({
                 userId: senderId,
                 conversationId: conversation.id,
-                userText: text,
+                userText: text || (attachments.length ? 'Please review the attached file(s).' : ''),
                 actor,
                 app: req.app,
                 clientRequestId,
+                // Phase 20.7.6 — pass messaging attachments into secure file intelligence
+                attachmentFileIds: Array.isArray(attachments) ? attachments.slice(0, 5) : [],
                 signal: abortController.signal,
                 emitToUser: (targetId, event, body) => emitToUser(req, targetId, event, body)
               });
