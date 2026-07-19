@@ -23,6 +23,38 @@ SCROLITHA_ROLLOUT_CONFIRMATION_TOKENS=true
 SCROLITHA_ROLLOUT_TOOL_WRITE_ACTIONS=true
 ```
 
-## Post-deploy
+## Builds
 
-_Filled after Cloud Run update._
+| Image | Status |
+|---|---|
+| scrolith-backend:p2079-3de89a3d | SUCCESS |
+| scrolith-frontend:p2080-3f571533 | SUCCESS |
+
+## Post-deploy traffic
+
+| Service | Revision | Tag | Traffic |
+|---|---|---|---|
+| Backend | scrolith-backend-00138-zan | p2079 | 100% |
+| Backend prior | scrolith-backend-00136-ziz | p2078 | 0% |
+| Frontend | scrolith-frontend-00167-wal | p2080 | 100% |
+
+## PRs
+
+| PR | Merge |
+|---|---|
+| #103 BE | 3de89a3d |
+| #104 FE | 3f571533 |
+
+## Live capability statuses (public-profile)
+
+| Capability | Status |
+|---|---|
+| file_understanding | available / Available |
+| streaming | available / Available |
+| read_tools | available / Available |
+| write_actions | available_with_confirmation / Available with confirmation |
+
+## Official assets live
+
+- Profile: `.../edd2e7e7-...?v=p2079`
+- Cover: `.../a163c581-...?v=p2079`
