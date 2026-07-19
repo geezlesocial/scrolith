@@ -52,7 +52,7 @@ import {
   subscribeMessagingEvent,
   trackOutgoingMessage
 } from '../services/messagingEngine';
-import { computeComposerTextareaHeight } from './messagesWorkspaceLayout';
+import { computeComposerTextareaHeight, mobileComposerPlaceholder } from './messagesWorkspaceLayout';
 import {
   buildClientSendId,
   createLocalPendingAttachment,
@@ -3303,11 +3303,12 @@ const Messages = () => {
                                                             {searchMeta.matchType === 'message' ? 'Message' : searchMeta.matchType === 'username' ? 'Username' : 'Person'}
                                                         </span>
                                                     ) : null}
-                                                    {participant?.gender && (
+                                                    {/* Gender is profile metadata — hide on mobile inbox density */}
+                                                    {!isMobileViewport && participant?.gender ? (
                                                         <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
                                                             {participant.gender}
                                                         </span>
-                                                    )}
+                                                    ) : null}
                                                     {String(convo.label || '').toLowerCase() === 'jobs' && (
                                                         <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
                                                             Jobs
@@ -3451,20 +3452,23 @@ const Messages = () => {
                                         {otherParticipantRole && (
                                             <ProBadge role={otherParticipantRole} isPro={otherParticipantIsPro} />
                                         )}
-                                        {otherParticipant?.gender && (
-                                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+                                        {/* Phase 20.8.1 — gender lives on profile, not compact mobile header */}
+                                        {!isMobileViewport && otherParticipant?.gender ? (
+                                            <span className="hidden rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600 sm:inline">
                                                 {otherParticipant.gender}
                                             </span>
-                                        )}
+                                        ) : null}
                                     </div>
                                     {otherOnline ? (
                                         <span className="text-xs text-green-500 flex items-center">Online</span>
-                                    ) : otherLastSeen ? (
+                                    ) : !isMobileViewport && otherLastSeen ? (
                                         <span className="text-xs text-gray-500 flex items-center">
                                             Last seen {new Date(otherLastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     ) : (
-                                        <span className="text-xs text-gray-400 flex items-center">Offline</span>
+                                        <span className="text-xs text-gray-400 flex items-center">
+                                          {isMobileViewport ? (otherOnline ? 'Online' : 'Offline') : 'Offline'}
+                                        </span>
                                     )}
                                 </div>
                             </div>
@@ -4038,17 +4042,22 @@ const Messages = () => {
                             data-testid="messages-composer-region"
                             data-scrolitha-composer={isActiveScrolithaConversation ? 'true' : 'false'}
                         >
-                            {isActiveScrolithaConversation ? (
+                            {/* Phase 20.8.1 — collapse Scrolitha chrome while typing / keyboard open on mobile */}
+                            {isActiveScrolithaConversation &&
+                            !(isMobileViewport && (isMobileKeyboardOpen || Boolean(messageInput.trim()))) ? (
                                 <div
                                     className="mb-2 space-y-1.5"
                                     role="region"
                                     aria-label="Scrolitha suggested prompts"
                                     data-testid="scrolitha-prompt-chips"
                                 >
-                                    <p className="text-[11px] font-medium text-indigo-700">
-                                        Scrolitha · official AI assistant · responses are AI-generated
-                                    </p>
-                                    {/* Single-row horizontal scroll keeps vertical height compact */}
+                                    {!isMobileViewport || !isMobileKeyboardOpen ? (
+                                      <p className="truncate text-[11px] font-medium text-indigo-700">
+                                          {isMobileViewport
+                                            ? 'Scrolitha · AI assistant'
+                                            : 'Scrolitha · official AI assistant · responses are AI-generated'}
+                                      </p>
+                                    ) : null}
                                     <div className="flex max-w-full flex-nowrap gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                                         {scrolithaPromptChips.map((chip) => (
                                             <button
@@ -4066,6 +4075,26 @@ const Messages = () => {
                                             </button>
                                         ))}
                                     </div>
+                                </div>
+                            ) : isActiveScrolithaConversation &&
+                              isMobileViewport &&
+                              (isMobileKeyboardOpen || Boolean(messageInput.trim())) ? (
+                                <div className="mb-1 flex items-center justify-between gap-2 px-0.5">
+                                  <p className="truncate text-[10px] font-medium text-indigo-600/90">
+                                    AI · verify important details
+                                  </p>
+                                  {!messageInput.trim() ? (
+                                    <button
+                                      type="button"
+                                      className="shrink-0 text-[10px] font-semibold text-indigo-700"
+                                      onClick={() => {
+                                        /* chips reappear when input cleared / keyboard closed */
+                                      }}
+                                      hidden
+                                    >
+                                      Suggestions
+                                    </button>
+                                  ) : null}
                                 </div>
                             ) : null}
                             {replyToMessage && (
@@ -4112,7 +4141,7 @@ const Messages = () => {
                                           key={file.clientLocalId || file.id}
                                           role="listitem"
                                           className={[
-                                            'flex min-w-[14rem] max-w-[18rem] shrink-0 items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-xs shadow-sm',
+                                            'flex min-w-[11rem] max-w-[16rem] shrink-0 items-center justify-between gap-2 rounded-2xl border px-2.5 py-1.5 text-xs shadow-sm sm:min-w-[14rem] sm:max-w-[18rem] sm:gap-3 sm:px-3 sm:py-2',
                                             isFailed
                                               ? 'border-red-200 bg-red-50 text-red-800'
                                               : 'border-gray-200 bg-gray-50 text-gray-700'
@@ -4185,7 +4214,12 @@ const Messages = () => {
                                 keyboardOpen={isMobileKeyboardOpen}
                                 isScrolitha={isActiveScrolithaConversation}
                                 placeholder={
-                                    isActiveScrolithaConversation
+                                    isMobileViewport
+                                      ? mobileComposerPlaceholder(
+                                          isActiveScrolithaConversation,
+                                          pendingAttachments.length > 0
+                                        )
+                                      : isActiveScrolithaConversation
                                         ? 'Ask Scrolitha to do something on Scrolith…'
                                         : 'Write a message. Press Enter to send, Shift+Enter for a new line.'
                                 }
@@ -4200,15 +4234,19 @@ const Messages = () => {
                                 onPickCamera={() => cameraInputRef.current?.click()}
                                 onSuggestReply={() => void handleAiSuggest()}
                                 suggestLoading={isGettingAiSuggestion}
-                                showSuggestReply
+                                showSuggestReply={!isActiveScrolithaConversation}
                                 helperText={
-                                    hasPendingUploadsInFlight(pendingAttachments)
-                                        ? 'Uploading in background — keep chatting…'
+                                    isMobileKeyboardOpen
+                                      ? undefined
+                                      : hasPendingUploadsInFlight(pendingAttachments)
+                                        ? 'Uploading…'
                                         : pendingAttachments.length > 0
-                                          ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} ready`
-                                          : isActiveScrolithaConversation
-                                            ? 'AI responses are generated — verify important details.'
-                                            : 'Private chat media stays scoped to this conversation.'
+                                          ? `${pendingAttachments.length} ready`
+                                          : isMobileViewport
+                                            ? undefined
+                                            : isActiveScrolithaConversation
+                                              ? 'AI responses are generated — verify important details.'
+                                              : 'Private chat media stays scoped to this conversation.'
                                 }
                                 fileInputs={
                                     <>
@@ -4250,7 +4288,7 @@ const Messages = () => {
                                         maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
                                         onRecorded={handleVoiceRecorded}
                                         onError={(message) => showNotification('error', 'Voice notes', message)}
-                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
+                                        className="inline-flex h-11 w-11 min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
                                     />
                                 }
                             />
