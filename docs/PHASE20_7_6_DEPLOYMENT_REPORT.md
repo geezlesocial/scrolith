@@ -16,7 +16,27 @@ All file intelligence capabilities **disabled**:
 
 ## Builds / revisions
 
-_Populated after Cloud Build + Cloud Run update._
+| Image | Build | Status |
+|---|---|---|
+| scrolith-backend:p2076-e346b4a9 | Cloud Build SUCCESS | SUCCESS |
+| scrolith-frontend:p2077-e9078581 | e9f59edc-095d-449f-8f9f-b83043828974 | SUCCESS |
+
+| Service | Revision | Tag | Traffic |
+|---|---|---|---|
+| Backend | scrolith-backend-00132-loh | p2076 | 100% |
+| Backend prior | scrolith-backend-00130-joj | p2075 | 0% |
+| Frontend | scrolith-frontend-00161-bov | p2077 | 100% |
+| Frontend prior | scrolith-frontend-00159-vox | p2076 | 0% |
+
+## Post-deploy smoke
+
+| Check | Result |
+|---|---|
+| `GET /api/health` | 200 |
+| `GET https://scrolith.com/` | 200 |
+| `GET /api/messages/search?q=test` unauth | 401 (route present) |
+| `SCROLITHA_ROLLOUT_FILE_UNDERSTANDING` | unset (OFF) |
+| Messaging assistant | remains true |
 
 ## Progressive enable order (internal)
 

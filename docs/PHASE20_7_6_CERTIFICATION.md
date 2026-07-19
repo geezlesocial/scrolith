@@ -2,9 +2,9 @@
 
 ## Decision
 
-**INCOMPLETE — DEPLOYED BUT DISABLED** (target after deploy) / code-complete with progressive flags off.
+**INCOMPLETE — DEPLOYED BUT DISABLED**
 
-Full public file intelligence certification requires operator canary after progressive enable.
+Code and production revisions are live with `SCROLITHA_ROLLOUT_FILE_UNDERSTANDING` unset (capability off). Full public file intelligence certification requires operator canary after progressive enable.
 
 ## Gate table
 
