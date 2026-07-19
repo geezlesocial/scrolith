@@ -183,12 +183,16 @@ export const shouldPrefetchNextPage = (params: {
   return remainingLoaded <= threshold;
 };
 
-/** Cap retained feed items to protect memory on long sessions (keeps newest tail). */
+/**
+ * Cap retained feed items to protect memory on long sessions.
+ * Phase 21.1.7 — keep the session head (reading window) and drop the oldest tail.
+ * Dropping the head previously swapped visible identity after aggressive pagination.
+ */
 export const trimFeedForMemory = <T>(items: T[], maxRetained: number): T[] => {
   const list = Array.isArray(items) ? items : [];
   const cap = Math.max(20, Math.trunc(Number(maxRetained) || 120));
   if (list.length <= cap) return list;
-  return list.slice(list.length - cap);
+  return list.slice(0, cap);
 };
 
 /**

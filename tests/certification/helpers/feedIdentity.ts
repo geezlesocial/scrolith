@@ -81,13 +81,31 @@ export async function runFeedIdentityProbe(
   const first = cards.first();
   await first.scrollIntoViewIfNeeded();
   const initial = await snapshotPostCard(first);
+  const productSnapshot = await page
+    .evaluate(() => {
+      const w = window as any;
+      const head = document.querySelector(
+        '[data-testid="enterprise-post-card"][data-feed-post-id], [data-post-card-design="21.1.5"][data-feed-post-id]'
+      ) as HTMLElement | null;
+      return {
+        sessionId: w.__scrolithFeedSessionId || null,
+        productHead: w.__scrolithFeedHeadPostId || null,
+        domHead: head?.getAttribute('data-feed-post-id') || null,
+        lifecycleLen: Array.isArray(w.__scrolithFeedLifecycleLog)
+          ? w.__scrolithFeedLifecycleLog.length
+          : 0
+      };
+    })
+    .catch(() => ({ sessionId: null, productHead: null, domHead: null, lifecycleLen: 0 }));
+
   const timeline: Array<Record<string, unknown>> = [
     {
       t: 0,
       event: 'anchor',
       postId: initial.postId,
       author: initial.authorText?.slice(0, 40),
-      headPostId: initial.postId
+      headPostId: initial.postId,
+      ...productSnapshot
     }
   ];
   let samples = 1;
@@ -118,18 +136,40 @@ export async function runFeedIdentityProbe(
         ? await snapshotPostCard(anchorLoc.first())
         : headSnap;
 
+    const productTick = await page
+      .evaluate(() => {
+        const w = window as any;
+        const log = Array.isArray(w.__scrolithFeedLifecycleLog)
+          ? w.__scrolithFeedLifecycleLog.slice(-8)
+          : [];
+        return {
+          sessionId: w.__scrolithFeedSessionId || null,
+          productHead: w.__scrolithFeedHeadPostId || null,
+          recentLifecycle: log
+        };
+      })
+      .catch(() => ({ sessionId: null, productHead: null, recentLifecycle: [] }));
+
     timeline.push({
       t: Date.now() - started,
       event: 'sample',
       headPostId: headSnap.postId,
       anchorPostId: current.postId,
-      anchorPresent: anchorCount > 0
+      anchorPresent: anchorCount > 0,
+      productHead: productTick.productHead,
+      sessionId: productTick.sessionId,
+      recentLifecycle: productTick.recentLifecycle
     });
 
     if (initial.postId && headSnap.postId && initial.postId !== headSnap.postId) {
       failed = true;
       reason = `visible_post_id_changed:${initial.postId}->${headSnap.postId}`;
-      timeline.push({ t: Date.now() - started, event: 'fail', reason });
+      timeline.push({
+        t: Date.now() - started,
+        event: 'fail',
+        reason,
+        recentLifecycle: productTick.recentLifecycle
+      });
       break;
     }
     if (initial.authorText && current.authorText && initial.authorText !== current.authorText) {
@@ -145,15 +185,18 @@ export async function runFeedIdentityProbe(
   }
 
   // Expose timeline for certification diagnostics
-  await page
+  const lifecycleLog = await page
     .evaluate((rows) => {
       try {
         (window as any).__scrolithFeedIdentityTimeline = rows;
+        return Array.isArray((window as any).__scrolithFeedLifecycleLog)
+          ? (window as any).__scrolithFeedLifecycleLog
+          : [];
       } catch {
-        /* ignore */
+        return [];
       }
     }, timeline)
-    .catch(() => undefined);
+    .catch(() => []);
 
   const finalHead = postCards(page).first();
   const final = (await finalHead.count()) > 0 ? await snapshotPostCard(finalHead) : null;
@@ -165,7 +208,8 @@ export async function runFeedIdentityProbe(
     initial,
     final,
     failed,
-    reason
+    reason,
+    lifecycleEventCount: Array.isArray(lifecycleLog) ? lifecycleLog.length : 0
   };
 }
 

@@ -591,14 +591,26 @@ export default function MobileFeed({
   });
   const initialRenderCount = constrainedForFeed ? 4 : 6;
   const renderStep = constrainedForFeed ? 3 : 5;
+  // Phase 21.1.7c — avoid content-visibility on WebKit for the progressive head window.
+  // Safari has historically recycled/skipped layout for content-visibility:auto in ways that
+  // interact poorly with identity probes + IntersectionObserver (Chromium remains fine).
+  const isWebKitEngine = useMemo(() => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = String(navigator.userAgent || '');
+    return /AppleWebKit/i.test(ua) && !/Chrome|Chromium|Edg|Android/i.test(ua);
+  }, []);
   const feedItemPerformanceStyle = useMemo(
     () =>
       ({
-        contentVisibility: 'auto',
-        containIntrinsicSize: constrainedForFeed ? '680px' : '760px',
+        ...(isWebKitEngine
+          ? {}
+          : {
+              contentVisibility: 'auto' as const,
+              containIntrinsicSize: constrainedForFeed ? '680px' : '760px'
+            }),
         transform: 'translateZ(0)'
       }) as React.CSSProperties,
-    [constrainedForFeed]
+    [constrainedForFeed, isWebKitEngine]
   );
   const priorityMediaPostLimit = constrainedForFeed ? 1 : 2;
   const listingCardEveryPosts = clamp(Number((feedSettings as any).listingCardEveryPosts ?? 2) || 2, 1, 6);
@@ -985,6 +997,9 @@ export default function MobileFeed({
   // Phase 21.1.7 — NEVER re-sort session posts/stream here. sortPosts was reordering
   // visible cards on every soft_refresh/status tick (WebKit identity regression).
   // Session order is owned by useContinuousFeed isolation; preserve it exactly.
+  // Phase 21.1.7c — lock session head post id once painted; reject destructive swaps
+  // (defense-in-depth if shared stream ever hard-replaces under WebKit remount races).
+  const mobileSessionHeadIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!USE_SHARED_FEED_LIFECYCLE) return;
     const normalizedPosts = (sharedFeed.posts || [])
@@ -996,9 +1011,6 @@ export default function MobileFeed({
         }
       })
       .filter(Boolean) as any[];
-    postsRef.current = normalizedPosts;
-    setPosts(normalizedPosts);
-    // Re-normalize post entries in stream for rich mobile cards — keep entry order.
     const nextStream = (sharedFeed.stream || []).map((entry) => {
       if (entry.kind !== 'post' || !entry.post) return entry;
       try {
@@ -1008,6 +1020,49 @@ export default function MobileFeed({
         return entry;
       }
     });
+    const nextHead =
+      nextStream.find((e) => e.kind === 'post' && e.post?.id)?.post?.id ||
+      normalizedPosts[0]?.id ||
+      null;
+    const nextHeadId = nextHead ? String(nextHead) : null;
+    if (
+      mobileSessionHeadIdRef.current &&
+      nextHeadId &&
+      mobileSessionHeadIdRef.current !== nextHeadId &&
+      feedStreamRef.current.length > 0
+    ) {
+      // Keep existing reading session; still absorb cursor/loading chrome.
+      try {
+        const w = window as any;
+        if (!Array.isArray(w.__scrolithFeedLifecycleLog)) w.__scrolithFeedLifecycleLog = [];
+        w.__scrolithFeedLifecycleLog.push({
+          t: Date.now(),
+          type: 'reject_head_swap',
+          surface: 'mobile_member_home',
+          headPostId: mobileSessionHeadIdRef.current,
+          reason: `${mobileSessionHeadIdRef.current}->${nextHeadId}`,
+          streamLen: feedStreamRef.current.length,
+          detail: { rejectedHead: nextHeadId, incomingLen: nextStream.length }
+        });
+      } catch {
+        /* ignore */
+      }
+      cursorRef.current = sharedFeed.cursor;
+      setCursor(sharedFeed.cursor);
+      feedTerminalRef.current = sharedFeed.terminal;
+      setFeedTerminal(sharedFeed.terminal);
+      setLoading(sharedFeed.loading);
+      setLoadingMore(sharedFeed.loadingMore);
+      setError(sharedFeed.error);
+      if (sharedFeed.statusMessage) setStatusMessage(sharedFeed.statusMessage);
+      return;
+    }
+    if (!mobileSessionHeadIdRef.current && nextHeadId) {
+      mobileSessionHeadIdRef.current = nextHeadId;
+    }
+    postsRef.current = normalizedPosts;
+    setPosts(normalizedPosts);
+    // Re-normalize post entries in stream for rich mobile cards — keep entry order.
     feedStreamRef.current = nextStream;
     setFeedStream(nextStream);
     cursorRef.current = sharedFeed.cursor;

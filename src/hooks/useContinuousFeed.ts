@@ -36,8 +36,14 @@ import {
 import {
   applyPendingStreamEntries,
   isolateStreamSoftRefresh,
+  createFeedSessionId,
   FEED_SESSION_STABILITY_VERSION
 } from '../utils/feedSessionStability';
+import {
+  firstPostIdFromStream,
+  firstPostKeyFromStream,
+  pushFeedLifecycleEvent
+} from '../utils/feedIdentityDebug';
 
 export type ContinuousFeedMode = 'initial' | 'more' | 'soft_refresh';
 
@@ -127,6 +133,9 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const scrollParentRef = useRef<HTMLElement | null>(null);
   const loadMoreArmedRef = useRef(false);
+  const sessionIdRef = useRef(createFeedSessionId(surface));
+  const sessionKeyRef = useRef(`${surface}:${feedMode}`);
+  const lastHeadPostIdRef = useRef<string | null>(null);
 
   const networkClass = useMemo(
     () =>
@@ -212,11 +221,48 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
         setTerminal(!resolvedCursor);
       }
 
+      const beforeLen = next.length;
       const trimmed = trimFeedForMemory(next, policy.maxRetainedItems) as FeedStreamEntry[];
+      if (trimmed.length < beforeLen) {
+        pushFeedLifecycleEvent({
+          type: 'memory_trim',
+          surface,
+          sessionId: sessionIdRef.current,
+          mode,
+          streamLen: trimmed.length,
+          headPostId: firstPostIdFromStream(trimmed),
+          headKey: firstPostKeyFromStream(trimmed),
+          detail: { beforeLen, afterLen: trimmed.length, maxRetained: policy.maxRetainedItems }
+        });
+      }
+      const headPostId = firstPostIdFromStream(trimmed);
+      if (lastHeadPostIdRef.current && headPostId && lastHeadPostIdRef.current !== headPostId) {
+        pushFeedLifecycleEvent({
+          type: 'head_change',
+          surface,
+          sessionId: sessionIdRef.current,
+          mode,
+          headPostId,
+          reason: `commit_stream:${lastHeadPostIdRef.current}->${headPostId}`,
+          streamLen: trimmed.length,
+          uniqueAdded
+        });
+      }
+      lastHeadPostIdRef.current = headPostId;
       streamRef.current = trimmed;
       cursorRef.current = resolvedCursor;
       setStream(trimmed);
       setCursor(resolvedCursor);
+      pushFeedLifecycleEvent({
+        type: 'commit_stream',
+        surface,
+        sessionId: sessionIdRef.current,
+        mode,
+        headPostId,
+        headKey: firstPostKeyFromStream(trimmed),
+        streamLen: trimmed.length,
+        uniqueAdded
+      });
 
       if (mode === 'initial') {
         setRenderedCount(Math.min(policy.progressiveInitialWindow, trimmed.length || policy.progressiveInitialWindow));
@@ -226,7 +272,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
         );
       }
     },
-    [policy.maxRetainedItems, policy.progressiveInitialWindow, policy.progressiveRevealStep]
+    [policy.maxRetainedItems, policy.progressiveInitialWindow, policy.progressiveRevealStep, surface]
   );
 
   const load = useCallback(
@@ -294,6 +340,15 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
           { mode, limit: pageSize }
         );
 
+        pushFeedLifecycleEvent({
+          type: 'load_start',
+          surface,
+          sessionId: sessionIdRef.current,
+          mode,
+          streamLen: streamRef.current.length,
+          headPostId: firstPostIdFromStream(streamRef.current)
+        });
+
         let page: MemberFeedPage | null = null;
         if (isAuthenticated) {
           page = await MemberFeedService.tryFetchPage({
@@ -312,16 +367,40 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
           setTransport('orchestrated');
           const incoming = buildStreamFromMemberFeedPage(page);
           // Phase 21.1.4 — soft refresh must NOT reorder or replace the visible session.
-          if (mode === 'soft_refresh' && streamRef.current.length > 0) {
+          // Phase 21.1.7c — re-initial against a live session is also isolated (WebKit remount /
+          // feedMode flicker previously hard-replaced the reading head).
+          if (
+            (mode === 'soft_refresh' || mode === 'initial') &&
+            streamRef.current.length > 0
+          ) {
             const { session, pending } = isolateStreamSoftRefresh(streamRef.current, incoming);
+            const beforeHead = firstPostIdFromStream(streamRef.current);
+            const afterHead = firstPostIdFromStream(session);
             streamRef.current = session;
             pendingNewRef.current = pending;
             setPendingNew(pending);
             if (pending.length === 0) {
-              setStatusMessage('You are up to date.');
+              setStatusMessage(mode === 'soft_refresh' ? 'You are up to date.' : null);
             } else {
               setStatusMessage(null);
             }
+            pushFeedLifecycleEvent({
+              type: mode === 'initial' ? 'initial_protected' : 'soft_refresh_isolate',
+              surface,
+              sessionId: sessionIdRef.current,
+              mode,
+              headPostId: afterHead,
+              pendingCount: pending.length,
+              streamLen: session.length,
+              reason:
+                beforeHead && afterHead && beforeHead !== afterHead
+                  ? `head_would_have_changed:${beforeHead}->${afterHead}`
+                  : undefined,
+              detail: {
+                incomingHead: firstPostIdFromStream(incoming),
+                incomingLen: incoming.length
+              }
+            });
             measureFeedRequest(surface, startedAt, 'success', {
               mode,
               added: 0,
@@ -336,6 +415,17 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
             { prepend: false, maxRetained: policy.maxRetainedItems }
           );
           const nextCursor = page.nextCursor;
+          if (mode === 'more') {
+            pushFeedLifecycleEvent({
+              type: 'pagination_merge',
+              surface,
+              sessionId: sessionIdRef.current,
+              mode,
+              uniqueAdded: addedCount,
+              streamLen: merged.length,
+              headPostId: firstPostIdFromStream(merged)
+            });
+          }
           commitStream(
             mode === 'initial' ? incoming : merged,
             nextCursor,
@@ -366,12 +456,25 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
           if (seq !== requestSeqRef.current) return;
           if (legacy) {
             const incoming = buildStreamFromPosts(legacy.posts || []);
-            if (mode === 'soft_refresh' && streamRef.current.length > 0) {
+            // Phase 21.1.7c — isolate soft_refresh AND re-initial against live session.
+            if ((mode === 'soft_refresh' || mode === 'initial') && streamRef.current.length > 0) {
               const { session, pending } = isolateStreamSoftRefresh(streamRef.current, incoming);
               streamRef.current = session;
               pendingNewRef.current = pending;
               setPendingNew(pending);
-              setStatusMessage(pending.length === 0 ? 'You are up to date.' : null);
+              setStatusMessage(
+                pending.length === 0 && mode === 'soft_refresh' ? 'You are up to date.' : null
+              );
+              pushFeedLifecycleEvent({
+                type: mode === 'initial' ? 'initial_protected' : 'soft_refresh_isolate',
+                surface,
+                sessionId: sessionIdRef.current,
+                mode,
+                headPostId: firstPostIdFromStream(session),
+                pendingCount: pending.length,
+                streamLen: session.length,
+                detail: { transport: 'legacy' }
+              });
               setError(null);
               return;
             }
@@ -463,9 +566,39 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
     setRenderedCount((prev) => Math.min(streamRef.current.length, prev + policy.progressiveRevealStep));
   }, [policy.progressiveRevealStep]);
 
-  // Initial load
+  // Initial load — only open a new session when surface/mode identity changes.
   useEffect(() => {
     if (!enabled) return;
+    const key = `${surface}:${feedMode}`;
+    if (sessionKeyRef.current !== key) {
+      sessionKeyRef.current = key;
+      sessionIdRef.current = createFeedSessionId(surface);
+      streamRef.current = [];
+      setStream([]);
+      pendingNewRef.current = [];
+      setPendingNew([]);
+      lastHeadPostIdRef.current = null;
+      cursorRef.current = null;
+      setCursor(null);
+      terminalRef.current = false;
+      setTerminal(false);
+      pushFeedLifecycleEvent({
+        type: 'session_start',
+        surface,
+        sessionId: sessionIdRef.current,
+        mode: 'initial',
+        reason: 'surface_or_mode_change',
+        detail: { key }
+      });
+    } else if (!streamRef.current.length) {
+      pushFeedLifecycleEvent({
+        type: 'session_start',
+        surface,
+        sessionId: sessionIdRef.current,
+        mode: 'initial',
+        reason: 'empty_mount'
+      });
+    }
     void load('initial');
     return () => {
       abortRef.current?.abort();
@@ -538,6 +671,13 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       const nowOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
       const recovered = !wasOnline && nowOnline;
       wasOnline = nowOnline;
+      pushFeedLifecycleEvent({
+        type: 'online_change',
+        surface,
+        sessionId: sessionIdRef.current,
+        reason: recovered ? 'recovered' : 'synthetic_ignored',
+        detail: { nowOnline, wasOnline: !nowOnline }
+      });
       if (!recovered) return;
       setStatusMessage(null);
       if (streamRef.current.length === 0) void load('initial');
@@ -545,6 +685,12 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
     };
     const onOffline = () => {
       wasOnline = false;
+      pushFeedLifecycleEvent({
+        type: 'online_change',
+        surface,
+        sessionId: sessionIdRef.current,
+        reason: 'offline'
+      });
     };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
@@ -552,7 +698,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, [load]);
+  }, [load, surface]);
 
   // Phase 21.1.4 — focus must not rebuild visible sequence (soft refresh only).
   // Phase 21.1.7 — only soft-refresh on a real hidden→visible transition.
@@ -565,13 +711,44 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
       const next = document.visibilityState;
       const becameVisible = lastVisibility !== 'visible' && next === 'visible';
       lastVisibility = next;
+      pushFeedLifecycleEvent({
+        type: 'visibility_change',
+        surface,
+        sessionId: sessionIdRef.current,
+        reason: becameVisible ? 'hidden_to_visible' : `state:${next}`,
+        detail: { visibilityState: next }
+      });
       if (!becameVisible) return;
       if (streamRef.current.length === 0) return;
       void load('soft_refresh');
     };
     document.addEventListener('visibilitychange', onVis);
-    return () => document.removeEventListener('visibilitychange', onVis);
-  }, [load]);
+    // WebKit pageshow/pagehide (bfcache) — observe only; never hard-replace session.
+    const onPageShow = (ev: PageTransitionEvent) => {
+      pushFeedLifecycleEvent({
+        type: 'webkit_lifecycle',
+        surface,
+        sessionId: sessionIdRef.current,
+        reason: 'pageshow',
+        detail: { persisted: Boolean(ev?.persisted) }
+      });
+    };
+    const onPageHide = () => {
+      pushFeedLifecycleEvent({
+        type: 'webkit_lifecycle',
+        surface,
+        sessionId: sessionIdRef.current,
+        reason: 'pagehide'
+      });
+    };
+    window.addEventListener('pageshow', onPageShow as EventListener);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('pageshow', onPageShow as EventListener);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [load, surface]);
 
   const posts = useMemo(
     () => stream.filter((e) => e.kind === 'post' && e.post).map((e) => e.post),

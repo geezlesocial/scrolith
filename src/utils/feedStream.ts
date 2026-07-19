@@ -183,9 +183,10 @@ export const mergeStreamEntries = (
     (incoming || []).forEach((e) => push(e, true));
   }
 
+  // Phase 21.1.7 — preserve session head; drop oldest tail when over cap.
   const cap = Math.max(20, Number(options?.maxRetained || 140));
   if (merged.length > cap) {
-    return { merged: merged.slice(merged.length - cap), addedCount };
+    return { merged: merged.slice(0, cap), addedCount };
   }
   return { merged, addedCount };
 };

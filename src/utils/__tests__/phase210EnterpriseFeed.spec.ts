@@ -97,12 +97,13 @@ test('diversity interleave avoids long runs of same type when alternatives exist
   assert.ok(!(firstThreeTypes[0] === 'post' && firstThreeTypes[1] === 'post' && firstThreeTypes[2] === 'post'));
 });
 
-test('trimFeedForMemory keeps tail within cap', () => {
+test('trimFeedForMemory keeps session head within cap (Phase 21.1.7)', () => {
   const items = Array.from({ length: 50 }, (_, i) => ({ id: String(i) }));
   const trimmed = trimFeedForMemory(items, 30);
   assert.equal(trimmed.length, 30);
-  assert.equal(trimmed[0].id, '20');
-  assert.equal(trimmed[29].id, '49');
+  // Preserve reading-window head; drop oldest tail.
+  assert.equal(trimmed[0].id, '0');
+  assert.equal(trimmed[29].id, '29');
 });
 
 test('caught-up suggestions always include professional discovery paths', () => {
