@@ -1065,12 +1065,12 @@ const CommunityHome = () => {
                 })
                 .filter(Boolean)
             );
+            // Phase 21.1.4 — append only; do not re-sort the full session (prevents visible identity swap).
             const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
             if (addedCount > 0) {
               postsEmptyPageStreakRef.current = 0;
-              const sorted = sortPosts(merged);
-              postsRef.current = sorted;
-              setPosts(sorted);
+              postsRef.current = merged;
+              setPosts(merged);
               setCommentCounts((prev) => {
                 const next = { ...prev };
                 nextPosts.forEach((post: any) => {
@@ -1177,9 +1177,8 @@ const CommunityHome = () => {
       const { merged, addedCount } = mergeUniqueFeedItems(postsRef.current, nextPosts);
       if (addedCount > 0) {
         postsEmptyPageStreakRef.current = 0;
-        const sorted = sortPosts(merged);
-        postsRef.current = sorted;
-        setPosts(sorted);
+        postsRef.current = merged;
+        setPosts(merged);
         setCommentCounts((prev) => {
           const next = { ...prev };
           nextPosts.forEach((post: any) => {
@@ -1434,8 +1433,20 @@ const CommunityHome = () => {
             discoverySupplementUsedRef.current = true;
             postsFeedTerminalRef.current = !orchestrated.hasMore && normalizedPosts.length === 0;
             setPostsFeedTerminal(postsFeedTerminalRef.current);
-            setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
-            postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+            // Phase 21.1.4 — never replace an existing session with a re-ranked first page.
+            setPosts((prev) => {
+              if (normalizedPosts.length === 0 && prev.length) return prev;
+              if (prev.length > 0) {
+                const { merged } = mergeUniqueFeedItems(prev, normalizedPosts);
+                postsRef.current = merged;
+                return merged;
+              }
+              postsRef.current = normalizedPosts;
+              return normalizedPosts;
+            });
+            if (!postsRef.current.length && normalizedPosts.length) {
+              postsRef.current = normalizedPosts;
+            }
             postsNextCursorRef.current = orchestrated.nextCursor;
             setPostsNextCursor(orchestrated.nextCursor);
             postsOffsetFallbackRef.current = false;
@@ -1492,8 +1503,16 @@ const CommunityHome = () => {
           discoverySupplementUsedRef.current = false;
           postsFeedTerminalRef.current = false;
           setPostsFeedTerminal(false);
-          setPosts((prev) => (normalizedPosts.length === 0 && prev.length ? prev : normalizedPosts));
-          postsRef.current = normalizedPosts.length ? normalizedPosts : postsRef.current;
+          setPosts((prev) => {
+            if (normalizedPosts.length === 0 && prev.length) return prev;
+            if (prev.length > 0) {
+              const { merged } = mergeUniqueFeedItems(prev, normalizedPosts);
+              postsRef.current = merged;
+              return merged;
+            }
+            postsRef.current = normalizedPosts;
+            return normalizedPosts;
+          });
           postsNextCursorRef.current = nextCursor;
           setPostsNextCursor(nextCursor);
           const offsetOn = Boolean(normalizedPosts.length) && !nextCursor;

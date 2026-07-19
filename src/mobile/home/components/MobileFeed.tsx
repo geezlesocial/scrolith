@@ -1336,19 +1336,20 @@ export default function MobileFeed({
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
-  const commitVisiblePosts = useCallback((items: any[], nextCursorValue: string | null, mode: 'initial' | 'more') => {
+  const commitVisiblePosts = useCallback((items: any[], nextCursorValue: string | null, mode: 'initial' | 'more' | 'soft_refresh') => {
     const beforeIds = new Set(
       (postsRef.current || []).map((item) => String(item?.id || '').trim()).filter(Boolean)
     );
-    const normalizedItems = sortPosts(
-      dedupeById(
-        (Array.isArray(items) ? items : [])
-          .map((item) => normalizePost(item))
-          .filter((item) => Boolean(item?.id))
-      )
+    // Phase 21.1.4 — never re-sort an existing session on soft_refresh/more; only sort brand-new batches.
+    const deduped = dedupeById(
+      (Array.isArray(items) ? items : [])
+        .map((item) => normalizePost(item))
+        .filter((item) => Boolean(item?.id))
     );
+    const normalizedItems =
+      mode === 'initial' && postsRef.current.length === 0 ? sortPosts(deduped) : deduped;
     const uniqueAdded =
-      mode === 'more'
+      mode === 'more' || mode === 'soft_refresh'
         ? normalizedItems.filter((item) => !beforeIds.has(String(item?.id || '').trim())).length
         : normalizedItems.length;
     let resolvedCursor = nextCursorValue ? String(nextCursorValue).trim() || null : null;
@@ -1836,23 +1837,41 @@ export default function MobileFeed({
             setRateLimitUntil(null);
             setError(null);
             setStatusMessage(null);
+            // Phase 21.1.4 — soft_refresh keeps session order; new IDs only via controlled prepend path.
             const mergedPosts = shouldPreserveExistingFeed
               ? postsRef.current
               : mode === 'more'
                 ? [...postsRef.current, ...nextPosts]
                 : mode === 'soft_refresh'
-                  ? (() => {
-                      const existingIds = new Set(
-                        postsRef.current.map((p) => String(p?.id || '')).filter(Boolean)
-                      );
-                      const fresh = nextPosts.filter((p) => !existingIds.has(String(p?.id || '')));
-                      return [...fresh, ...postsRef.current];
-                    })()
+                  ? postsRef.current
                   : nextPosts;
+            const softFresh =
+              mode === 'soft_refresh' && !shouldPreserveExistingFeed
+                ? (() => {
+                    const existingIds = new Set(
+                      postsRef.current.map((p) => String(p?.id || '')).filter(Boolean)
+                    );
+                    return nextPosts.filter((p) => !existingIds.has(String(p?.id || '')));
+                  })()
+                : [];
+            if (mode === 'soft_refresh') {
+              if (softFresh.length === 0) {
+                setStatusMessage('You are up to date.');
+              } else {
+                // Controlled prepend only when user is not mid-list: still do not replace existing order.
+                // Apply new IDs at top only after explicit soft buffer apply — for mobile use status + keep session.
+                setStatusMessage(`${softFresh.length} new posts available — pull to refresh to show them.`);
+              }
+            }
             const commit = commitVisiblePosts(
-              mergedPosts,
+              mode === 'soft_refresh' && softFresh.length
+                ? (() => {
+                    // Do not auto-prepend (causes scroll identity jump). Session stays put.
+                    return postsRef.current;
+                  })()
+                : mergedPosts,
               mode === 'soft_refresh' ? cursorRef.current : nextCursor,
-              mode === 'soft_refresh' ? 'initial' : mode === 'more' ? 'more' : 'initial'
+              mode === 'soft_refresh' ? 'soft_refresh' : mode === 'more' ? 'more' : 'initial'
             );
             // Phase 21.0.1 — maintain ordered mixed stream from orchestrator items.
             const streamIncoming = buildStreamFromMemberFeedPage(orchestrated);
@@ -1860,13 +1879,8 @@ export default function MobileFeed({
               feedStreamRef.current = streamIncoming;
               setFeedStream(streamIncoming);
             } else if (mode === 'soft_refresh') {
-              const mergedStream = mergeStreamEntries(streamIncoming, feedStreamRef.current, {
-                prepend: true,
-                maxRetained: feedPrefetchPolicy.maxRetainedItems
-              });
-              feedStreamRef.current = mergedStream.merged;
-              setFeedStream(mergedStream.merged);
-              if (mergedStream.addedCount === 0) setStatusMessage('You are up to date.');
+              // Isolate: leave session stream unchanged (pending messaging only).
+              if (softFresh.length === 0) setStatusMessage('You are up to date.');
             } else if (mode === 'more') {
               const mergedStream = mergeStreamEntries(feedStreamRef.current, streamIncoming, {
                 maxRetained: feedPrefetchPolicy.maxRetainedItems

@@ -33,6 +33,11 @@ import {
   shouldSkipDuplicateCursorRequest,
   shouldStopUnchangedCursorLoop
 } from '../utils/feedLifecycle';
+import {
+  applyPendingStreamEntries,
+  isolateStreamSoftRefresh,
+  FEED_SESSION_STABILITY_VERSION
+} from '../utils/feedSessionStability';
 
 export type ContinuousFeedMode = 'initial' | 'more' | 'soft_refresh';
 
@@ -72,6 +77,10 @@ export type UseContinuousFeedResult = {
   load: (mode?: ContinuousFeedMode) => Promise<void>;
   loadMore: () => Promise<void>;
   softRefresh: () => Promise<void>;
+  /** Phase 21.1.4 — pending new items from soft refresh (not yet in stream). */
+  pendingNewCount: number;
+  applyPendingNew: () => void;
+  dismissPendingNew: () => void;
   setRenderedCount: React.Dispatch<React.SetStateAction<number>>;
   revealMore: () => void;
   sentinelRef: React.RefObject<HTMLDivElement | null>;
@@ -102,8 +111,10 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const [cursor, setCursor] = useState<string | null>(null);
   const [renderedCount, setRenderedCount] = useState(8);
   const [transport, setTransport] = useState<'orchestrated' | 'legacy'>('orchestrated');
+  const [pendingNew, setPendingNew] = useState<FeedStreamEntry[]>([]);
 
   const streamRef = useRef<FeedStreamEntry[]>([]);
+  const pendingNewRef = useRef<FeedStreamEntry[]>([]);
   const cursorRef = useRef<string | null>(null);
   const terminalRef = useRef(false);
   const inFlightRef = useRef(false);
@@ -300,27 +311,41 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
         if (page && (page.items?.length || page.posts?.length || page.hasMore)) {
           setTransport('orchestrated');
           const incoming = buildStreamFromMemberFeedPage(page);
-          const prepend = mode === 'soft_refresh';
+          // Phase 21.1.4 — soft refresh must NOT reorder or replace the visible session.
+          if (mode === 'soft_refresh' && streamRef.current.length > 0) {
+            const { session, pending } = isolateStreamSoftRefresh(streamRef.current, incoming);
+            streamRef.current = session;
+            pendingNewRef.current = pending;
+            setPendingNew(pending);
+            if (pending.length === 0) {
+              setStatusMessage('You are up to date.');
+            } else {
+              setStatusMessage(null);
+            }
+            measureFeedRequest(surface, startedAt, 'success', {
+              mode,
+              added: 0,
+              pending: pending.length
+            });
+            setError(null);
+            return;
+          }
           const { merged, addedCount } = mergeStreamEntries(
             mode === 'initial' ? [] : streamRef.current,
             incoming,
-            { prepend, maxRetained: policy.maxRetainedItems }
+            { prepend: false, maxRetained: policy.maxRetainedItems }
           );
-          // Soft refresh with zero new items: keep existing stream intact.
-          if (mode === 'soft_refresh' && addedCount === 0 && streamRef.current.length > 0) {
-            setStatusMessage('You are up to date.');
-            measureFeedRequest(surface, startedAt, 'success', { mode, added: 0 });
-            return;
-          }
-          // Soft refresh keeps the pagination cursor (never rewinds continuous scroll).
-          const nextCursor =
-            mode === 'soft_refresh' ? cursorRef.current : page.nextCursor;
+          const nextCursor = page.nextCursor;
           commitStream(
             mode === 'initial' ? incoming : merged,
             nextCursor,
-            mode === 'soft_refresh' ? 'soft_refresh' : mode,
+            mode,
             mode === 'initial' ? incoming.length : addedCount
           );
+          if (mode === 'initial') {
+            pendingNewRef.current = [];
+            setPendingNew([]);
+          }
           measureFeedRequest(surface, startedAt, mode === 'more' ? 'prefetch_success' : 'success', {
             transport: 'orchestrated',
             added: mode === 'initial' ? incoming.length : addedCount
@@ -341,15 +366,20 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
           if (seq !== requestSeqRef.current) return;
           if (legacy) {
             const incoming = buildStreamFromPosts(legacy.posts || []);
+            if (mode === 'soft_refresh' && streamRef.current.length > 0) {
+              const { session, pending } = isolateStreamSoftRefresh(streamRef.current, incoming);
+              streamRef.current = session;
+              pendingNewRef.current = pending;
+              setPendingNew(pending);
+              setStatusMessage(pending.length === 0 ? 'You are up to date.' : null);
+              setError(null);
+              return;
+            }
             const { merged, addedCount } = mergeStreamEntries(
               mode === 'initial' ? [] : streamRef.current,
               incoming,
-              { prepend: mode === 'soft_refresh', maxRetained: policy.maxRetainedItems }
+              { prepend: false, maxRetained: policy.maxRetainedItems }
             );
-            if (mode === 'soft_refresh' && addedCount === 0 && streamRef.current.length > 0) {
-              setStatusMessage('You are up to date.');
-              return;
-            }
             commitStream(
               mode === 'initial' ? incoming : merged,
               legacy.nextCursor,
@@ -407,6 +437,27 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   const loadMore = useCallback(() => load('more'), [load]);
   const softRefresh = useCallback(() => load('soft_refresh'), [load]);
   const retry = useCallback(() => load('initial'), [load]);
+
+  const applyPendingNew = useCallback(() => {
+    const pending = pendingNewRef.current;
+    if (!pending.length) return;
+    const { merged, addedCount } = applyPendingStreamEntries(
+      streamRef.current,
+      pending,
+      policy.maxRetainedItems
+    );
+    pendingNewRef.current = [];
+    setPendingNew([]);
+    if (addedCount > 0) {
+      commitStream(merged, cursorRef.current, 'soft_refresh', addedCount);
+      setStatusMessage(null);
+    }
+  }, [commitStream, policy.maxRetainedItems]);
+
+  const dismissPendingNew = useCallback(() => {
+    pendingNewRef.current = [];
+    setPendingNew([]);
+  }, []);
 
   const revealMore = useCallback(() => {
     setRenderedCount((prev) => Math.min(streamRef.current.length, prev + policy.progressiveRevealStep));
@@ -477,7 +528,7 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
     return () => obs.disconnect();
   }, [observerRootMargin, loading, loadingMore, revealMore, load, renderedCount, stream.length]);
 
-  // Online resume
+  // Online resume — soft only (pending buffer), never hard replace session.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onOnline = () => {
@@ -487,6 +538,18 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
     };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
+  }, [load]);
+
+  // Phase 21.1.4 — focus must not rebuild visible sequence (soft refresh only).
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const onVis = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (streamRef.current.length === 0) return;
+      void load('soft_refresh');
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, [load]);
 
   const posts = useMemo(
@@ -512,12 +575,15 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
     load,
     loadMore,
     softRefresh,
+    pendingNewCount: pendingNew.length,
+    applyPendingNew,
+    dismissPendingNew,
     setRenderedCount,
     revealMore,
     sentinelRef,
     scrollParentRef,
     retry,
-    feedVersion: '21.0.2'
+    feedVersion: FEED_SESSION_STABILITY_VERSION
   };
 }
 

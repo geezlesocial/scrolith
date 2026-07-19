@@ -71,6 +71,12 @@ import {
   shouldContinueOffsetFallback
 } from '../../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../../utils/continuousFeed';
+import {
+  applyPendingNewItems,
+  applyPendingStreamEntries,
+  isolateSoftRefreshPage,
+  isolateStreamSoftRefresh
+} from '../../utils/feedSessionStability';
 import FeedLoadSkeleton from '../feed/FeedLoadSkeleton';
 import FeedCaughtUpPanel from '../feed/FeedCaughtUpPanel';
 import FeedMixedCard from '../feed/FeedMixedCard';
@@ -1448,6 +1454,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   /** Phase 21.0.1 — ordered mixed stream (orchestrator order). Empty → posts-only fallback. */
   const [feedStream, setFeedStream] = useState<FeedStreamEntry[]>([]);
   const feedStreamRef = useRef<FeedStreamEntry[]>([]);
+  /** Phase 21.1.4 — soft-refresh pending buffer (does not mutate visible session). */
+  const [pendingNewFeedItems, setPendingNewFeedItems] = useState<FeedPost[]>([]);
+  const [pendingNewStream, setPendingNewStream] = useState<FeedStreamEntry[]>([]);
+  const pendingNewFeedItemsRef = useRef<FeedPost[]>([]);
+  const pendingNewStreamRef = useRef<FeedStreamEntry[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
   const [feedOffsetFallbackEnabled, setFeedOffsetFallbackEnabled] = useState(false);
   const [feedTerminal, setFeedTerminal] = useState(false);
@@ -2758,43 +2769,54 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             feedDiscoveryUsedRef.current = true; // skip Phase 1 discovery supplement while orchestrated
             feedTerminalRef.current = !orchestrated.hasMore && normalized.length === 0 && streamIncoming.length === 0;
             setFeedTerminal(feedTerminalRef.current);
-            // Soft refresh: merge first page over existing pages — never drop already-loaded items.
-            const nextItems =
-              hadExistingContent && !options?.hardReset
-                ? (mergeUniqueFeedItems(normalized, feedItemsRef.current).merged as FeedPost[])
-                : normalized;
-            commitFeedItems(nextItems, {
-              forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent
-            });
-            // Phase 21.0.1 — preserve orchestrator mixed order (no client ranking).
-            const streamMerged =
-              hadExistingContent && !options?.hardReset
-                ? mergeStreamEntries(streamIncoming, feedStreamRef.current, {
-                    prepend: true,
-                    maxRetained: 140
-                  }).merged
-                : streamIncoming;
-            feedStreamRef.current = streamMerged;
-            setFeedStream(streamMerged);
-            // Only reset cursor on deliberate hard reset / empty prior list.
-            if (!hadExistingContent || options?.hardReset) {
+            // Phase 21.1.4 — soft refresh isolates new IDs into pending buffer; never reorders session.
+            if (hadExistingContent && !options?.hardReset) {
+              const soft = isolateSoftRefreshPage(feedItemsRef.current, normalized);
+              pendingNewFeedItemsRef.current = soft.pendingNewItems as FeedPost[];
+              setPendingNewFeedItems(soft.pendingNewItems as FeedPost[]);
+              const streamSoft = isolateStreamSoftRefresh(feedStreamRef.current, streamIncoming);
+              pendingNewStreamRef.current = streamSoft.pending;
+              setPendingNewStream(streamSoft.pending);
+              // Keep session arrays untouched (identity-stable while reading).
+              logFeedLifecycle({
+                surface: 'member_home',
+                transport: 'orchestrated',
+                kind: 'soft_refresh',
+                sequence: requestId,
+                cursor: null,
+                nextCursor: feedNextCursorRef.current,
+                itemCount: soft.pendingCount,
+                hasMore: orchestrated.hasMore,
+                feedCountBefore: feedItemsRef.current.length,
+                feedCountAfter: feedItemsRef.current.length
+              });
+            } else {
+              pendingNewFeedItemsRef.current = [];
+              setPendingNewFeedItems([]);
+              pendingNewStreamRef.current = [];
+              setPendingNewStream([]);
+              commitFeedItems(normalized, {
+                forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent
+              });
+              feedStreamRef.current = streamIncoming;
+              setFeedStream(streamIncoming);
               feedNextCursorRef.current = orchestrated.nextCursor;
               setFeedNextCursor(orchestrated.nextCursor);
               feedOffsetFallbackRef.current = false;
               setFeedOffsetFallbackEnabled(false);
+              logFeedLifecycle({
+                surface: 'member_home',
+                transport: 'orchestrated',
+                kind: 'initial',
+                sequence: requestId,
+                cursor: null,
+                nextCursor: orchestrated.nextCursor,
+                itemCount: Math.max(normalized.length, streamIncoming.length),
+                hasMore: orchestrated.hasMore,
+                feedCountBefore: 0,
+                feedCountAfter: normalized.length
+              });
             }
-            logFeedLifecycle({
-              surface: 'member_home',
-              transport: 'orchestrated',
-              kind: hadExistingContent ? 'soft_refresh' : 'initial',
-              sequence: requestId,
-              cursor: null,
-              nextCursor: orchestrated.nextCursor,
-              itemCount: Math.max(normalized.length, streamIncoming.length),
-              hasMore: orchestrated.hasMore,
-              feedCountBefore: hadExistingContent ? feedItemsRef.current.length : 0,
-              feedCountAfter: normalized.length
-            });
             if (orchestrated.jobs.length) {
               setListingJobsPool((prev) =>
                 dedupeById([...(orchestrated.jobs as any[]), ...((prev || []) as any[])]) as any
@@ -3004,11 +3026,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         scope === 'discover' &&
         !feedTopic &&
         !feedRegion;
-      const softMerged =
-        hadExistingContent && !options?.hardReset && sorted.length > 0
-          ? (mergeUniqueFeedItems(sorted, feedItemsRef.current).merged as FeedPost[])
-          : sorted;
-      const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : softMerged;
+      // Phase 21.1.4 — legacy soft path: never put re-ranked first page ahead of session items.
+      if (hadExistingContent && !options?.hardReset && sorted.length > 0) {
+        const soft = isolateSoftRefreshPage(feedItemsRef.current, sorted);
+        pendingNewFeedItemsRef.current = soft.pendingNewItems as FeedPost[];
+        setPendingNewFeedItems(soft.pendingNewItems as FeedPost[]);
+        feedEmptyPageStreakRef.current = 0;
+        return;
+      }
+      const effectiveFeedItems = shouldPreserveExistingFeed ? feedItemsRef.current : sorted;
       feedEmptyPageStreakRef.current = 0;
       // Soft refresh keeps discovery/offset state so pagination is not reset.
       if (!hadExistingContent || options?.hardReset) {
@@ -5718,8 +5744,45 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return () => obs.disconnect();
   }, [desktopRenderStep, userId, feedTabReady]);
 
+  const applyPendingNewFeed = useCallback(() => {
+    const pendingPosts = pendingNewFeedItemsRef.current;
+    const pendingStream = pendingNewStreamRef.current;
+    if (pendingPosts.length) {
+      const { merged } = applyPendingNewItems(feedItemsRef.current, pendingPosts, { maxRetained: 140 });
+      commitFeedItems(merged as FeedPost[]);
+    }
+    if (pendingStream.length || feedStreamRef.current.length) {
+      const { merged: streamMerged } = applyPendingStreamEntries(
+        feedStreamRef.current,
+        pendingStream,
+        140
+      );
+      feedStreamRef.current = streamMerged;
+      setFeedStream(streamMerged);
+    }
+    pendingNewFeedItemsRef.current = [];
+    pendingNewStreamRef.current = [];
+    setPendingNewFeedItems([]);
+    setPendingNewStream([]);
+    if (typeof window !== 'undefined') {
+      try {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch {
+        // ignore
+      }
+    }
+  }, [commitFeedItems]);
+
+  const dismissPendingNewFeed = useCallback(() => {
+    pendingNewFeedItemsRef.current = [];
+    pendingNewStreamRef.current = [];
+    setPendingNewFeedItems([]);
+    setPendingNewStream([]);
+  }, []);
+
   useEffect(() => {
     if (!socket || !user) return;
+    // Phase 21.1.4 — socket soft refresh isolates into pending buffer (loadFeed soft path).
     const softRefreshFeed = () => {
       void loadFeed();
     };
@@ -8669,7 +8732,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               />
             </Suspense>
 
-            <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1">
+            <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1" data-feed-session-stable="21.1.4">
+              {(pendingNewFeedItems.length > 0 || pendingNewStream.length > 0) ? (
+                <div
+                  className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2.5"
+                  data-testid="feed-new-posts-banner"
+                  role="status"
+                >
+                  <p className="text-sm font-semibold text-blue-900">
+                    {Math.max(pendingNewFeedItems.length, pendingNewStream.length)} new post
+                    {Math.max(pendingNewFeedItems.length, pendingNewStream.length) === 1 ? '' : 's'} available
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={dismissPendingNewFeed}
+                      className="rounded-full px-3 py-1.5 text-xs font-semibold text-blue-800 hover:bg-blue-100"
+                    >
+                      Dismiss
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyPendingNewFeed}
+                      className="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                    >
+                      Show new posts
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-slate-900">{feedTitle}</p>
