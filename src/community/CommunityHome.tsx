@@ -800,7 +800,11 @@ const CommunityHome = () => {
       post.author?.userName ||
       post.author?.user_name ||
       null;
-    const authorAvatar = resolveUserAvatarUrl(post.author || post) || post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '';
+    // Phase 20.10 — merge post-level avatar fields so incomplete author objects cannot blank photos.
+    const authorAvatar =
+      resolveUserAvatarUrl({ ...(post || {}), ...(post?.author || {}) }) ||
+      resolveUserAvatarUrl(post.authorAvatar || post.userAvatar || post.user_avatar || post.author?.avatarUrl || post.author?.avatar || '') ||
+      '';
     const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
     const authorUserId =
       post.authorUserId ||
@@ -829,7 +833,7 @@ const CommunityHome = () => {
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
         displayName: post.author?.displayName || authorName,
-        avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
+        avatarUrl: authorAvatar,
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
@@ -1556,53 +1560,57 @@ const CommunityHome = () => {
 
         if (pagesResult.status === 'fulfilled') {
           const pages = Array.isArray(pagesResult.value) ? pagesResult.value : [];
-          setRecommendedCommunityPages(
-            pages
-              .map((page: any) => {
-                const source = page?.account || page || {};
-                const id = String(source?.id || page?.entityId || page?.pageId || '').trim();
-                if (!id) return null;
-                return {
-                  id,
-                  name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
-                  slug: source?.slug || source?.pageSlug || page?.slug || page?.handle || '',
-                  handle: source?.handle || source?.pageHandle || page?.handle || '',
-                  avatar: resolveUserAvatarUrl(source || page) || null,
-                  tagline: source?.tagline || source?.headline || page?.tagline || page?.description || '',
-                  followersCount: Number(source?.followersCount || page?.followersCount || 0),
-                  isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
-                  followId: source?.followId || page?.followId || null
-                };
-              })
-              .filter(Boolean)
-          );
+          const mappedPages = pages
+            .map((page: any) => {
+              const source = page?.account || page || {};
+              const id = String(source?.id || page?.entityId || page?.pageId || page?.id || '').trim();
+              if (!id) return null;
+              return {
+                id,
+                name: String(source?.name || page?.name || 'Business page').trim() || 'Business page',
+                slug: source?.slug || source?.pageSlug || page?.slug || page?.handle || '',
+                handle: source?.handle || source?.pageHandle || page?.handle || '',
+                avatar: resolveUserAvatarUrl(source || page) || null,
+                tagline: source?.tagline || source?.headline || page?.tagline || page?.description || '',
+                followersCount: Number(source?.followersCount || page?.followersCount || 0),
+                isFollowing: Boolean(source?.isFollowing ?? page?.isFollowing),
+                followId: source?.followId || page?.followId || null
+              };
+            })
+            .filter(Boolean);
+          // Phase 20.10 — never wipe orchestrated seeds with empty specialized responses.
+          setRecommendedCommunityPages((prev) => (mappedPages.length ? mappedPages : prev));
         } else {
           console.error('Failed to load community page recommendations:', pagesResult.reason);
         }
 
         if (peopleResult.status === 'fulfilled') {
           const people = Array.isArray(peopleResult.value) ? peopleResult.value : [];
-          setRecommendedCommunityPeople(
-            people
-              .map((account: any) => {
-                const source = account?.user || account?.account || account || {};
-                const id = String(source?.id || account?.entityId || account?.userId || '').trim();
-                if (!id) return null;
-                return {
-                  id,
-                  name: String(source?.name || account?.name || 'Community member').trim() || 'Community member',
-                  username: source?.username || source?.handle || account?.username || account?.handle || '',
-                  avatar:
-                    resolveUserAvatarUrl(source || account) ||
-                    resolveAssetUrl(source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar) ||
-                    null,
-                  headline: source?.headline || source?.bio || account?.headline || account?.reason || 'Recommended for your network',
-                  isFollowing: Boolean(source?.isFollowing ?? account?.isFollowing)
-                };
-              })
-              .filter(Boolean)
-              .slice(0, 6)
-          );
+          const mappedPeople = people
+            .map((account: any) => {
+              const source = account?.user || account?.account || account || {};
+              const id = String(
+                source?.id || account?.entityId || account?.userId || account?.id || ''
+              ).trim();
+              if (!id) return null;
+              return {
+                id,
+                name: String(source?.name || account?.name || 'Community member').trim() || 'Community member',
+                username: source?.username || source?.handle || account?.username || account?.handle || '',
+                avatar:
+                  resolveUserAvatarUrl(source || account) ||
+                  resolveUserAvatarUrl(
+                    source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar
+                  ) ||
+                  resolveAssetUrl(source?.avatarUrl || source?.avatar || source?.profilePhotoUrl || account?.avatarUrl || account?.avatar) ||
+                  null,
+                headline: source?.headline || source?.bio || account?.headline || account?.reason || 'Recommended for your network',
+                isFollowing: Boolean(source?.isFollowing ?? account?.isFollowing)
+              };
+            })
+            .filter(Boolean)
+            .slice(0, 6);
+          setRecommendedCommunityPeople((prev) => (mappedPeople.length ? mappedPeople : prev));
         } else {
           console.error('Failed to load community people recommendations:', peopleResult.reason);
         }

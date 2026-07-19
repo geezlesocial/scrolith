@@ -975,11 +975,16 @@ const isPrivilegedRole = (role?: string) => {
 const isUnauthorizedError = (error: any) => Number(error?.response?.status) === 401;
 
 const getApiErrorMessage = (error: any, fallback: string) => {
-  const apiMessage = error?.response?.data?.message;
-  if (typeof apiMessage === 'string' && apiMessage.trim()) return apiMessage.trim();
-  const message = typeof error?.message === 'string' ? error.message.trim() : '';
-  if (!message || message.startsWith('Request failed with status code')) return fallback;
-  return message;
+  const data = error?.response?.data;
+  const candidates = [data?.message, data?.error, error?.message];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      const text = candidate.trim();
+      if (text.startsWith('Request failed with status code')) continue;
+      return text;
+    }
+  }
+  return fallback;
 };
 
 const inferMediaType = (media: {
@@ -2351,7 +2356,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       post.author?.userName ||
       post.author?.user_name ||
       null;
-    const authorAvatar = resolveUserAvatarUrl(post.author || post);
+    // Phase 20.10 — merge post-level avatar fields so incomplete author objects cannot blank photos.
+    const authorAvatar =
+      resolveUserAvatarUrl({ ...(post || {}), ...(post?.author || {}) }) ||
+      resolveUserAvatarUrl(post?.authorAvatar || post?.userAvatar || post?.user_avatar || '');
     const authorType = post.author?.type || (post.businessPage ? 'business' : 'user');
     const authorUserId =
       post.authorUserId ||
@@ -2411,7 +2419,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
         displayName: post.author?.displayName || authorName,
-        avatarUrl: resolveUserAvatarUrl(post.author || post) || authorAvatar,
+        avatarUrl: authorAvatar,
         type: authorType,
         businessSlug: post.author?.businessSlug || post.businessPage?.slug || null,
         isVerified: Boolean(post.author?.isVerified),
@@ -3347,8 +3355,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         feedCountAfter: feedItemsRef.current.length
       });
     } catch (error) {
-      // Keep cursor/offset so IntersectionObserver can retry without full reload.
+      // Phase 20.10 — cap automatic retries so "Loading more..." cannot loop forever on 5xx.
       console.error('Failed to load more home feed', error);
+      feedEmptyPageStreakRef.current += 1;
+      if (shouldHaltEmptyPageLoop(feedEmptyPageStreakRef.current, 2)) {
+        feedNextCursorRef.current = null;
+        setFeedNextCursor(null);
+        feedOffsetFallbackRef.current = false;
+        setFeedOffsetFallbackEnabled(false);
+        feedTerminalRef.current = true;
+        setFeedTerminal(true);
+      }
     } finally {
       feedLoadingMoreRef.current = false;
       feedInFlightCursorRef.current = null;
@@ -5997,7 +6014,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, [sidebarTopAd, sidebarFeaturedAd, sidebarMiddleAd]);
 
   const handleFollow = async (target: ProfileCard) => {
-    if (!user) return;
+    if (!user) {
+      if (confirm('Log in to follow people?')) window.location.href = '/auth/login';
+      return;
+    }
     if (followingIds.has(target.id)) return;
     setFollowingIds((prev) => new Set(prev).add(target.id));
     try {

@@ -1152,11 +1152,21 @@ export default function MobileFeed({
   const feedAbortRef = useRef<AbortController | null>(null);
   const feedLoadRequestIdRef = useRef(0);
   const mobileFeedTransportRef = useRef<'orchestrated' | 'legacy'>('legacy');
+  /** Phase 20.10 — stop infinite "Loading more..." on zero-unique pages / stuck cursors. */
+  const emptyPageStreakRef = useRef(0);
+  const lastCompletedCursorRef = useRef<string | null>(null);
+  const lastCompletedAddedRef = useRef(0);
+  const loadMoreErrorStreakRef = useRef(0);
+  const feedTerminalRef = useRef(false);
+  const [feedTerminal, setFeedTerminal] = useState(false);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
   const commitVisiblePosts = useCallback((items: any[], nextCursorValue: string | null, mode: 'initial' | 'more') => {
+    const beforeIds = new Set(
+      (postsRef.current || []).map((item) => String(item?.id || '').trim()).filter(Boolean)
+    );
     const normalizedItems = sortPosts(
       dedupeById(
         (Array.isArray(items) ? items : [])
@@ -1164,14 +1174,57 @@ export default function MobileFeed({
           .filter((item) => Boolean(item?.id))
       )
     );
+    const uniqueAdded =
+      mode === 'more'
+        ? normalizedItems.filter((item) => !beforeIds.has(String(item?.id || '').trim())).length
+        : normalizedItems.length;
+    let resolvedCursor = nextCursorValue ? String(nextCursorValue).trim() || null : null;
+    if (mode === 'more') {
+      if (uniqueAdded > 0) {
+        emptyPageStreakRef.current = 0;
+        loadMoreErrorStreakRef.current = 0;
+      } else {
+        emptyPageStreakRef.current += 1;
+      }
+      const sameCursor =
+        Boolean(lastCompletedCursorRef.current) &&
+        String(lastCompletedCursorRef.current) === String(cursorRef.current || '');
+      const haltEmpty = emptyPageStreakRef.current >= 2;
+      const haltUnchanged = uniqueAdded <= 0 && sameCursor;
+      if (!resolvedCursor || haltEmpty || haltUnchanged || uniqueAdded <= 0 && !resolvedCursor) {
+        if (haltEmpty || haltUnchanged || !resolvedCursor) {
+          resolvedCursor = null;
+          feedTerminalRef.current = true;
+          setFeedTerminal(true);
+        }
+      } else {
+        feedTerminalRef.current = false;
+        setFeedTerminal(false);
+      }
+      // Zero unique growth with a still-truthy API cursor → clear cursor after empty streak.
+      if (uniqueAdded <= 0 && (haltEmpty || haltUnchanged)) {
+        resolvedCursor = null;
+        feedTerminalRef.current = true;
+        setFeedTerminal(true);
+      }
+      lastCompletedCursorRef.current = String(cursorRef.current || '') || null;
+      lastCompletedAddedRef.current = uniqueAdded;
+    } else {
+      emptyPageStreakRef.current = 0;
+      loadMoreErrorStreakRef.current = 0;
+      feedTerminalRef.current = !resolvedCursor;
+      setFeedTerminal(!resolvedCursor);
+    }
     postsRef.current = normalizedItems;
-    setCursor(nextCursorValue);
+    cursorRef.current = resolvedCursor;
+    setCursor(resolvedCursor);
     startTransition(() => {
       setPosts(normalizedItems);
     });
     if (mode === 'initial') {
       setRenderedPostCount(Math.min(initialRenderCount, normalizedItems.length || initialRenderCount));
     }
+    return { uniqueAdded, resolvedCursor };
   }, [initialRenderCount, normalizePost, sortPosts]);
 
   useEffect(() => {
@@ -1487,15 +1540,37 @@ export default function MobileFeed({
       return;
     }
     if (loadInFlightRef.current) return;
+    if (mode === 'more' && (feedTerminalRef.current || !String(cursorRef.current || '').trim())) {
+      feedTerminalRef.current = true;
+      setFeedTerminal(true);
+      return;
+    }
+    if (
+      mode === 'more' &&
+      lastCompletedCursorRef.current &&
+      String(lastCompletedCursorRef.current) === String(cursorRef.current || '') &&
+      lastCompletedAddedRef.current <= 0
+    ) {
+      cursorRef.current = null;
+      setCursor(null);
+      feedTerminalRef.current = true;
+      setFeedTerminal(true);
+      return;
+    }
     loadInFlightRef.current = true;
     const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
     const requestId = ++feedLoadRequestIdRef.current;
+    const requestedCursor = mode === 'more' ? String(cursorRef.current || '').trim() || null : null;
 
     try {
       if (mode === 'initial') {
         setLoading(postsRef.current.length === 0);
         setError(null);
         setStatusMessage(null);
+        feedTerminalRef.current = false;
+        setFeedTerminal(false);
+        emptyPageStreakRef.current = 0;
+        loadMoreErrorStreakRef.current = 0;
       } else {
         setLoadingMore(true);
       }
@@ -1546,20 +1621,30 @@ export default function MobileFeed({
             setRateLimitUntil(null);
             setError(null);
             setStatusMessage(null);
-            cursorRef.current = nextCursor;
             const mergedPosts = shouldPreserveExistingFeed
               ? postsRef.current
               : mode === 'more'
                 ? [...postsRef.current, ...nextPosts]
                 : nextPosts;
-            commitVisiblePosts(mergedPosts, nextCursor, mode);
-            if (mergedPosts.length > 0) {
+            const commit = commitVisiblePosts(mergedPosts, nextCursor, mode);
+            // Stuck cursor with zero unique adds — end pagination even if API re-issues hasMore.
+            if (
+              mode === 'more' &&
+              commit.uniqueAdded <= 0 &&
+              (commit.resolvedCursor === requestedCursor || !commit.resolvedCursor)
+            ) {
+              cursorRef.current = null;
+              setCursor(null);
+              feedTerminalRef.current = true;
+              setFeedTerminal(true);
+            }
+            if (postsRef.current.length > 0) {
               try {
                 localStorage.setItem(
                   feedCacheKey,
                   JSON.stringify({
                     ts: Date.now(),
-                    cursor: nextCursor,
+                    cursor: cursorRef.current,
                     items: postsRef.current.slice(0, 80)
                   })
                 );
@@ -1728,23 +1813,32 @@ export default function MobileFeed({
       setRateLimitUntil(null);
       setError(null);
       setStatusMessage(usedPostsFallback ? 'Showing community posts while your home feed reconnects.' : null);
-      cursorRef.current = nextCursor;
       const mergedPosts = shouldPreserveExistingFeed
         ? postsRef.current
         : mode === 'more'
           ? [...postsRef.current, ...nextPosts]
           : nextPosts;
-      commitVisiblePosts(mergedPosts, nextCursor, mode);
+      const commit = commitVisiblePosts(mergedPosts, nextCursor, mode);
+      if (
+        mode === 'more' &&
+        commit.uniqueAdded <= 0 &&
+        (commit.resolvedCursor === requestedCursor || emptyPageStreakRef.current >= 2 || !commit.resolvedCursor)
+      ) {
+        cursorRef.current = null;
+        setCursor(null);
+        feedTerminalRef.current = true;
+        setFeedTerminal(true);
+      }
       if (shouldPreserveExistingFeed) {
         setStatusMessage('Showing your saved feed while we reconnect.');
       }
-        if (mergedPosts.length > 0) {
+        if (postsRef.current.length > 0) {
           try {
             localStorage.setItem(
               feedCacheKey,
               JSON.stringify({
                 ts: Date.now(),
-                cursor: nextCursor,
+                cursor: cursorRef.current,
                 items: postsRef.current.slice(0, 80)
               })
             );
@@ -1755,6 +1849,16 @@ export default function MobileFeed({
     } catch (e: any) {
       const status = Number(e?.response?.status || 0);
       const backendError = e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.';
+      if (mode === 'more') {
+        loadMoreErrorStreakRef.current += 1;
+        if (loadMoreErrorStreakRef.current >= 2) {
+          cursorRef.current = null;
+          setCursor(null);
+          feedTerminalRef.current = true;
+          setFeedTerminal(true);
+          setStatusMessage('Could not load more posts. Pull to refresh or try again later.');
+        }
+      }
 
       if (status === 429) {
         const headers = (e?.response?.headers || {}) as Record<string, any>;
@@ -2286,6 +2390,7 @@ export default function MobileFeed({
           setRenderedPostCount((prev) => Math.min(posts.length, prev + renderStep));
           return;
         }
+        if (feedTerminalRef.current || feedTerminal) return;
         if (!cursor) return;
         if (loadingMore || loading) return;
         if (loadMoreArmedRef.current) return;
@@ -2294,11 +2399,12 @@ export default function MobileFeed({
           loadMoreArmedRef.current = false;
         });
       },
-      { rootMargin: '600px 0px', threshold: 0.01 }
+      // Phase 20.10 — tighter rootMargin reduces perpetual re-fire while spinner visible
+      { rootMargin: '280px 0px', threshold: 0.01 }
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [cursor, loading, loadingMore, load, posts.length, renderStep, renderedPostCount]);
+  }, [cursor, feedTerminal, loading, loadingMore, load, posts.length, renderStep, renderedPostCount]);
 
   const showTagsCard = feedSettings.showTrendingTags !== false && trendingTags.length > 0;
   const showPeopleCard = feedSettings.showSuggestedPeople !== false && suggestedPeople.length > 0;
@@ -2968,7 +3074,7 @@ export default function MobileFeed({
         </div>
 
         {loadingMore ? (
-          <div className="flex items-center justify-center gap-2 py-3 text-sm text-slate-600">
+          <div className="flex items-center justify-center gap-2 py-3 text-sm text-slate-600" role="status" aria-live="polite">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading more...
           </div>
@@ -2980,8 +3086,10 @@ export default function MobileFeed({
           <div className="py-3 text-center text-xs font-medium text-slate-500">
             Scroll to reveal more posts.
           </div>
-        ) : !cursor ? (
-          <div className="py-6 text-center text-xs text-slate-500">You're all caught up.</div>
+        ) : feedTerminal || !cursor ? (
+          <div className="py-6 text-center text-xs text-slate-500">
+            {posts.length ? "You're all caught up." : 'No more posts.'}
+          </div>
         ) : null}
       </div>
 

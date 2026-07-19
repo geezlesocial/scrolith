@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CommunityService } from '../../services/community';
+import { getApiErrorMessage, isUnauthorizedError } from '../../utils/apiErrorMessage';
 import { applyFollowUpdatePayload, setFollowStatus, useFollowStatus } from '../followState';
 
 type FollowButtonProps = {
@@ -16,17 +17,8 @@ type FollowButtonProps = {
   className?: string;
 };
 
-const isUnauthorizedError = (error: any) => Number(error?.response?.status) === 401;
-
-const getFollowErrorMessage = (error: any) => {
-  const apiMessage = error?.response?.data?.message;
-  if (typeof apiMessage === 'string' && apiMessage.trim()) return apiMessage.trim();
-  const message = typeof error?.message === 'string' ? error.message.trim() : '';
-  if (!message || message.startsWith('Request failed with status code')) {
-    return 'Unable to update follow status.';
-  }
-  return message;
-};
+const getFollowErrorMessage = (error: any) =>
+  getApiErrorMessage(error, 'Unable to update follow status.');
 
 const FollowButton: React.FC<FollowButtonProps> = ({
   targetUserId,
@@ -134,9 +126,15 @@ const FollowButton: React.FC<FollowButtonProps> = ({
       if (next) {
         await CommunityService.followTarget({ targetType: resolvedType, targetId: id });
       } else if (resolvedType === 'page') {
+        // Phase 20.10: DELETE accepts follow-record id OR page id for current user.
         await CommunityService.unfollowTarget(id);
       } else {
-        await CommunityService.unfollowUser(id);
+        // Prefer unfollow by user id; DELETE also accepts followee id as fallback.
+        try {
+          await CommunityService.unfollowUser(id);
+        } catch {
+          await CommunityService.unfollowTarget(id);
+        }
       }
       try {
         window.dispatchEvent(
