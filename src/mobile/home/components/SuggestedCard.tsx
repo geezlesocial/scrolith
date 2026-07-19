@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import OptimizedImage from '../../../components/media/OptimizedImage';
 import { RecoSignalChips } from '../../../components/feed/FeedIntelligenceSignals';
 import FollowButton from '../../../community/components/FollowButton';
-import { useAuth } from '../../../context/AuthContext';
+import { useUser } from '../../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
 
 type SuggestedPersonOrPage = {
@@ -77,7 +77,7 @@ function FollowList({
   items: SuggestedPersonOrPage[];
   kind: 'people' | 'pages';
 }) {
-  const { user } = useAuth();
+  const { user } = useUser();
   const [statusById, setStatusById] = useState<Record<string, 'idle' | 'ok' | 'error'>>({});
   const [errorById, setErrorById] = useState<Record<string, string>>({});
 
