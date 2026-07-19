@@ -17,7 +17,9 @@ import {
   ensureScrolithaMessagingConversation,
   postScrolithaUnifiedTurn,
   postScrolithaUnifiedTurnStream,
-  searchMessages
+  searchMessages,
+  listConversationAttachments,
+  getConversationSecurityStatus
 } from '../controllers/messages.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
@@ -35,6 +37,9 @@ router.get('/search', authMiddleware, searchMessages);
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
 router.get('/conversations/:id', authMiddleware, getConversation);
+// Phase 20.7.8 — media browser + honest security status
+router.get('/conversations/:id/attachments', authMiddleware, listConversationAttachments);
+router.get('/conversations/:id/security', authMiddleware, getConversationSecurityStatus);
 router.post('/conversations', authMiddleware, createConversation);
 router.post('/conversations/:id/messages', authMiddleware, postMessage);
 router.post('/conversations/:id/voice-notes', authMiddleware, postVoiceNoteMessage);

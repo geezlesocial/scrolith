@@ -23,6 +23,9 @@ import {
   scrolithaOsBootstrapController,
   scrolithaOsCancelController,
   scrolithaPlatformIdentityController,
+  scrolithaPublicProfileController,
+  scrolithaPublicInfoController,
+  scrolithaMessageSecurityController,
   scrolithaRolloutController,
   scrolithaRecordsController,
   scrolithaSkillsListController,
@@ -51,6 +54,10 @@ const router = express.Router();
 // Optional auth so approved internal accounts can receive enabled=true; others stay dark.
 router.get('/widget-config', optionalAuthMiddleware, scrolithaWidgetConfigController);
 router.get('/platform-identity', scrolithaPlatformIdentityController);
+// Phase 20.7.8 — public enterprise profile / accuracy / security (no secrets)
+router.get('/public-profile', optionalAuthMiddleware, scrolithaPublicProfileController);
+router.get('/public-info', optionalAuthMiddleware, scrolithaPublicInfoController);
+router.get('/message-security', optionalAuthMiddleware, scrolithaMessageSecurityController);
 
 router.use(authMiddleware);
 
