@@ -3872,6 +3872,8 @@ model DirectMessage {
   editedAt         DateTime?
   createdAt        DateTime          @default(now())
   deletedAt        DateTime?
+  /// Phase 22.1 — client-generated send identity for idempotent retries (null for legacy rows).
+  clientMessageId  String?
 
   conversation   Conversation          @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   sender         User                  @relation(fields: [senderId], references: [id], onDelete: Cascade)
@@ -3881,6 +3883,7 @@ model DirectMessage {
   records        DirectMessageRecord[]
   voiceNote      VoiceNote?
 
+  @@unique([senderId, clientMessageId])
   @@index([conversationId])
   @@index([conversationId, createdAt])
   @@index([conversationId, createdAt, id])
@@ -3888,6 +3891,7 @@ model DirectMessage {
   @@index([createdAt])
   @@index([replyToMessageId])
   @@index([messageType])
+  @@index([clientMessageId])
 }
 
 model MessageReaction {

@@ -9,6 +9,7 @@ import {
   resolveStoredLastMessageText,
   MESSAGE_PREVIEW_LABELS
 } from '../services/messaging/lastMessagePreview';
+import { parseClientMessageId } from '../services/messaging/clientMessageId';
 import {
   SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL,
   withScrolithaAssetVersion
@@ -380,12 +381,22 @@ const formatConversationMessage = (
       (metadata as any)?.kind === 'welcome'
   );
 
+  const clientMessageId = message?.clientMessageId
+    ? String(message.clientMessageId)
+    : (metadata as any)?.clientMessageId || (metadata as any)?.clientSendId || null;
+
   return {
     id: message.id,
     conversation_id: conversation.id,
+    conversationId: conversation.id,
     sender_id: message.senderId,
+    senderId: message.senderId,
     receiver_id: receiverId,
     text: message.text,
+    client_message_id: clientMessageId,
+    clientMessageId,
+    client_send_id: clientMessageId,
+    clientSendId: clientMessageId,
     is_scrolitha: isScrolithaMessage,
     isScrolitha: isScrolithaMessage,
     timestamp: message.createdAt ? message.createdAt.toISOString() : nowIso(),
@@ -1070,15 +1081,40 @@ export const listConversations = async (req: Request, res: Response) => {
       }
     }
 
-    const where = admin
-      ? {}
+    // Phase 22.1 — delta reconnect: only conversations updated after ISO timestamp.
+    const updatedSinceRaw = String(
+      req.query?.updatedSince || req.query?.updated_since || ''
+    ).trim();
+    let updatedSinceDate: Date | null = null;
+    if (updatedSinceRaw) {
+      const parsed = new Date(updatedSinceRaw);
+      if (!Number.isNaN(parsed.getTime())) updatedSinceDate = parsed;
+    }
+
+    const where: any = admin
+      ? updatedSinceDate
+        ? {
+            OR: [
+              { updatedAt: { gt: updatedSinceDate } },
+              { lastMessageAt: { gt: updatedSinceDate } }
+            ]
+          }
+        : {}
       : {
           participants: {
             some: {
               userId,
               deletedAt: null
             }
-          }
+          },
+          ...(updatedSinceDate
+            ? {
+                OR: [
+                  { updatedAt: { gt: updatedSinceDate } },
+                  { lastMessageAt: { gt: updatedSinceDate } }
+                ]
+              }
+            : {})
         };
 
     const requestedLimit = Number.parseInt(String(req.query?.limit || ''), 10);
@@ -1173,6 +1209,10 @@ export const getConversation = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
     const messageLimit = parseIntInRange(req.query?.messageLimit, DEFAULT_CONVERSATION_MESSAGE_LIMIT, 20, 200);
+    // Phase 22.1 — delta reconnect: messages newer than a known anchor id.
+    const afterMessageId = String(
+      req.query?.afterMessageId || req.query?.after_message_id || ''
+    ).trim();
 
     let conversation: any = null;
     try {
@@ -1205,6 +1245,55 @@ export const getConversation = async (req: Request, res: Response) => {
     const isParticipant = conversation.participants.some((p) => p.userId === userId && !p.deletedAt);
     if (!admin && !isParticipant) {
       return res.status(403).json({ success: false, error: 'Not authorized' });
+    }
+
+    if (afterMessageId) {
+      const anchor = await prisma.directMessage.findFirst({
+        where: { id: afterMessageId, conversationId: conversation.id },
+        select: { id: true, createdAt: true }
+      });
+      if (anchor?.createdAt) {
+        const newer = await prisma.directMessage.findMany({
+          where: {
+            conversationId: conversation.id,
+            OR: [
+              { createdAt: { gt: anchor.createdAt } },
+              { createdAt: anchor.createdAt, id: { gt: anchor.id } }
+            ]
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: Math.min(200, messageLimit),
+          include: {
+            reactions: true,
+            replyToMessage: { select: replyToMessageSelect }
+          }
+        } as any);
+        conversation = { ...conversation, messages: newer };
+        // Delta mode: return single conversation payload without merge expansion thrash.
+        const hiddenMessageMapDelta =
+          !admin && userId
+            ? await getDeletedForMeMessageMap(userId, [String(conversation.id)])
+            : new Map<string, Set<string>>();
+        const base = buildConversationPayload(conversation, userId, {
+          hiddenMessageIds: hiddenMessageMapDelta.get(String(conversation.id || '')) || new Set<string>()
+        });
+        const attachmentIds = (base.messages || []).flatMap((msg: any) =>
+          Array.isArray(msg.attachments) ? msg.attachments : []
+        );
+        const fileMap = await buildAttachmentMap(attachmentIds);
+        const payload = applyAttachmentAwareLastMessage({
+          ...base,
+          messages: (base.messages || []).map((msg: any) => ({
+            ...msg,
+            attachments: mapAttachments(msg.attachments || [], fileMap)
+          }))
+        });
+        return res.json({
+          success: true,
+          data: payload,
+          delta: { afterMessageId, count: Array.isArray(payload.messages) ? payload.messages.length : 0 }
+        });
+      }
     }
 
     const mergedConversationRecords = await getMergedDirectConversationRecords(conversation, userId, messageLimit, admin);
@@ -1340,6 +1429,7 @@ export const postMessage = async (req: Request, res: Response) => {
     const text = (req.body?.text || '').toString().trim();
     const attachments = normalizeAttachmentIds(req.body?.attachments);
     const replyToMessageId = req.body?.replyToMessageId ? String(req.body.replyToMessageId).trim() : '';
+    const clientMessageId = parseClientMessageId(req.body, req.headers as any);
     if (!senderId || (!text && attachments.length === 0)) {
       return res.status(400).json({ success: false, error: 'Sender and message content are required' });
     }
@@ -1349,7 +1439,8 @@ export const postMessage = async (req: Request, res: Response) => {
       hasText: Boolean(text),
       textLength: text.length,
       attachmentsCount: attachments.length,
-      replyToMessageId: replyToMessageId || null
+      replyToMessageId: replyToMessageId || null,
+      clientMessageId
     });
 
     const conversation = await prisma.conversation.findUnique({
@@ -1383,6 +1474,82 @@ export const postMessage = async (req: Request, res: Response) => {
       });
     }
 
+    // Phase 22.1 — idempotent send: duplicate clientMessageId returns existing message (200).
+    if (clientMessageId) {
+      try {
+        const existingByClientId = await (prisma.directMessage as any).findFirst({
+          where: {
+            senderId,
+            clientMessageId,
+            conversationId: conversation.id
+          },
+          include: {
+            reactions: true,
+            replyToMessage: {
+              select: replyToMessageSelect
+            }
+          }
+        });
+        if (existingByClientId) {
+          const receiverIdsExisting = conversation.participants
+            .map((p) => p.userId)
+            .filter((id) => id !== senderId);
+          const fileMapExisting = Array.isArray(existingByClientId.attachments) && existingByClientId.attachments.length
+            ? await buildAttachmentMap(existingByClientId.attachments)
+            : new Map<string, any>();
+          const mappedExisting = mapAttachments(existingByClientId.attachments || [], fileMapExisting);
+          const payloadExisting = {
+            id: existingByClientId.id,
+            conversation_id: conversation.id,
+            conversationId: conversation.id,
+            sender_id: senderId,
+            senderId,
+            receiver_id: receiverIdsExisting[0] || '',
+            text: existingByClientId.text,
+            timestamp: existingByClientId.createdAt.toISOString(),
+            is_read: false,
+            is_deleted: Boolean(existingByClientId.deletedAt),
+            isDeleted: Boolean(existingByClientId.deletedAt),
+            deleted_at: existingByClientId.deletedAt ? existingByClientId.deletedAt.toISOString() : null,
+            deletedAt: existingByClientId.deletedAt ? existingByClientId.deletedAt.toISOString() : null,
+            edited_at: existingByClientId.editedAt ? existingByClientId.editedAt.toISOString() : null,
+            editedAt: existingByClientId.editedAt ? existingByClientId.editedAt.toISOString() : null,
+            reactions: Array.isArray(existingByClientId.reactions)
+              ? existingByClientId.reactions.map(formatReaction)
+              : [],
+            message_type: existingByClientId.messageType || 'text',
+            messageType: existingByClientId.messageType || 'text',
+            attachments: mappedExisting,
+            attachment_ids: existingByClientId.attachments || [],
+            reply_to_message_id: existingByClientId.replyToMessageId || null,
+            replyToMessageId: existingByClientId.replyToMessageId || null,
+            reply_to_snapshot: existingByClientId.replyToSnapshot || null,
+            replyToSnapshot: existingByClientId.replyToSnapshot || null,
+            reply_to: buildReplyPreview(existingByClientId),
+            replyTo: buildReplyPreview(existingByClientId),
+            client_message_id: clientMessageId,
+            clientMessageId,
+            client_send_id: clientMessageId,
+            clientSendId: clientMessageId,
+            metadata: {
+              ...(existingByClientId.metadata && typeof existingByClientId.metadata === 'object'
+                ? existingByClientId.metadata
+                : {}),
+              clientMessageId,
+              clientSendId: clientMessageId
+            },
+            idempotentReplay: true
+          };
+          return res.json({ success: true, data: payloadExisting, idempotentReplay: true });
+        }
+      } catch (lookupError: any) {
+        // Column may not exist until migration applied — fall through to create.
+        if (!String(lookupError?.message || '').includes('clientMessageId')) {
+          console.warn('[messages] clientMessageId lookup failed', lookupError?.message || lookupError);
+        }
+      }
+    }
+
     let replyToSnapshot: any = null;
     if (replyToMessageId) {
       const replySource = await prisma.directMessage.findUnique({
@@ -1413,13 +1580,24 @@ export const postMessage = async (req: Request, res: Response) => {
       };
     }
 
+    const baseMetadata =
+      req.body?.metadata && typeof req.body.metadata === 'object' && !Array.isArray(req.body.metadata)
+        ? { ...req.body.metadata }
+        : {};
+    if (clientMessageId) {
+      baseMetadata.clientMessageId = clientMessageId;
+      baseMetadata.clientSendId = clientMessageId;
+    }
+
     const messageCreateData: any = {
       conversationId: conversation.id,
       senderId,
       text,
       attachments,
       replyToMessageId: replyToMessageId || null,
-      replyToSnapshot: replyToSnapshot || null
+      replyToSnapshot: replyToSnapshot || null,
+      ...(clientMessageId ? { clientMessageId } : {}),
+      ...(Object.keys(baseMetadata).length ? { metadata: baseMetadata } : {})
     };
 
     let message: any;
@@ -1434,20 +1612,57 @@ export const postMessage = async (req: Request, res: Response) => {
         }
       } as any);
     } catch (error: any) {
-      if (!isReplyFeatureUnsupportedError(error)) throw error;
-      message = await prisma.directMessage.create({
-        data: {
-          conversationId: conversation.id,
-          senderId,
-          text,
-          attachments
-        },
-        include: {
-          reactions: true
+      // Race: concurrent duplicate clientMessageId — return existing (idempotent).
+      if (clientMessageId && (error?.code === 'P2002' || String(error?.message || '').includes('clientMessageId'))) {
+        const raced = await (prisma.directMessage as any).findFirst({
+          where: { senderId, clientMessageId, conversationId: conversation.id },
+          include: {
+            reactions: true,
+            replyToMessage: { select: replyToMessageSelect }
+          }
+        });
+        if (raced) {
+          message = raced;
+        } else if (!isReplyFeatureUnsupportedError(error)) {
+          throw error;
         }
-      } as any);
-      if (replyToMessageId) {
-        console.warn('[messages] reply fields unavailable in Prisma client; saved message without reply metadata');
+      } else if (!isReplyFeatureUnsupportedError(error)) {
+        // Retry without clientMessageId column if migration not applied yet.
+        if (clientMessageId && String(error?.message || '').includes('clientMessageId')) {
+          message = await prisma.directMessage.create({
+            data: {
+              conversationId: conversation.id,
+              senderId,
+              text,
+              attachments,
+              replyToMessageId: replyToMessageId || null,
+              replyToSnapshot: replyToSnapshot || null,
+              metadata: baseMetadata
+            },
+            include: {
+              reactions: true,
+              replyToMessage: { select: replyToMessageSelect }
+            }
+          } as any);
+        } else {
+          throw error;
+        }
+      }
+      if (!message) {
+        message = await prisma.directMessage.create({
+          data: {
+            conversationId: conversation.id,
+            senderId,
+            text,
+            attachments
+          },
+          include: {
+            reactions: true
+          }
+        } as any);
+        if (replyToMessageId) {
+          console.warn('[messages] reply fields unavailable in Prisma client; saved message without reply metadata');
+        }
       }
     }
 
@@ -1513,6 +1728,11 @@ export const postMessage = async (req: Request, res: Response) => {
       }
     });
 
+    const resolvedClientMessageId =
+      clientMessageId ||
+      (message as any)?.clientMessageId ||
+      (message?.metadata as any)?.clientMessageId ||
+      null;
     const payload = {
       id: message.id,
       conversation_id: conversation.id,
@@ -1540,6 +1760,16 @@ export const postMessage = async (req: Request, res: Response) => {
       replyToSnapshot: message.replyToSnapshot || null,
       reply_to: buildReplyPreview(message),
       replyTo: buildReplyPreview(message),
+      client_message_id: resolvedClientMessageId,
+      clientMessageId: resolvedClientMessageId,
+      client_send_id: resolvedClientMessageId,
+      clientSendId: resolvedClientMessageId,
+      metadata: {
+        ...(message.metadata && typeof message.metadata === 'object' ? message.metadata : {}),
+        ...(resolvedClientMessageId
+          ? { clientMessageId: resolvedClientMessageId, clientSendId: resolvedClientMessageId }
+          : {})
+      },
       // Phase 20.7.7 — attachment-aware preview for socket inbox updates
       last_message: resolvedLastMessageText || '',
       lastMessage: resolvedLastMessageText || '',

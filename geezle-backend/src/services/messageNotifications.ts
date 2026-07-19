@@ -1,5 +1,6 @@
 import prisma from '../utils/prismaClient';
 import { sendSystemMessage } from './systemMessaging';
+import { filterReceiversForMessagePush } from './messaging/notificationPolicy';
 
 type DispatchMessageReceiptNotificationsInput = {
   receiverIds: string[];
@@ -9,6 +10,8 @@ type DispatchMessageReceiptNotificationsInput = {
   preview?: string | null;
   fallbackPreview?: string;
   messageType?: string | null;
+  /** Optional mention ids for future 22.2 bypass; unused when empty. */
+  mentionedUserIds?: string[];
 };
 
 const normalizePreview = (preview?: string | null, fallbackPreview?: string) => {
@@ -37,7 +40,36 @@ export const dispatchMessageReceiptNotifications = async (
   );
 
   if (!senderId || !conversationId || !messageId || receiverIds.length === 0) {
-    return { attempted: 0, notified: 0 };
+    return { attempted: 0, notified: 0, suppressedMuted: 0 };
+  }
+
+  // Phase 22.1 — mute-aware push: conversation mute suppresses new_message (forcePush cannot override).
+  let mutedUserIds: string[] = [];
+  try {
+    const mutedRows = await prisma.conversationParticipant.findMany({
+      where: {
+        conversationId,
+        userId: { in: receiverIds },
+        isMuted: true
+      },
+      select: { userId: true }
+    });
+    mutedUserIds = mutedRows.map((row) => String(row.userId || '').trim()).filter(Boolean);
+  } catch (muteError) {
+    console.warn('[message-notifications] mute lookup failed; notifying all receivers', muteError);
+  }
+
+  const notifyIds = filterReceiversForMessagePush({
+    receiverIds,
+    mutedUserIds,
+    senderId,
+    allowMentionBypass: false,
+    mentionedUserIds: input.mentionedUserIds
+  });
+  const suppressedMuted = receiverIds.filter((id) => id !== senderId).length - notifyIds.length;
+
+  if (notifyIds.length === 0) {
+    return { attempted: 0, notified: 0, suppressedMuted };
   }
 
   const sender = await prisma.user.findUnique({
@@ -51,7 +83,7 @@ export const dispatchMessageReceiptNotifications = async (
   const senderEmail = sender?.email || '';
 
   const results = await Promise.allSettled(
-    receiverIds.map((receiverId) =>
+    notifyIds.map((receiverId) =>
       sendSystemMessage({
         templateKey: 'new_message',
         userId: receiverId,
@@ -66,8 +98,10 @@ export const dispatchMessageReceiptNotifications = async (
           messageId,
           senderId,
           receiverId,
-          messageType: input.messageType || 'text'
+          messageType: input.messageType || 'text',
+          mutedSuppressed: false
         },
+        // force flags apply only to unmuted receivers (already filtered).
         forceNotification: true,
         forcePush: true
       })
@@ -80,13 +114,15 @@ export const dispatchMessageReceiptNotifications = async (
       conversationId,
       messageId,
       senderId,
-      attempted: receiverIds.length,
-      failed: failures.length
+      attempted: notifyIds.length,
+      failed: failures.length,
+      suppressedMuted
     });
   }
 
   return {
-    attempted: receiverIds.length,
-    notified: receiverIds.length - failures.length
+    attempted: notifyIds.length,
+    notified: notifyIds.length - failures.length,
+    suppressedMuted
   };
 };
