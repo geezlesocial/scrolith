@@ -1,5 +1,6 @@
 /**
  * Phase 21.1.4 — append-only session + soft-refresh isolation invariants.
+ * Includes video-reproduction simulation of visible-index identity swap.
  */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -12,6 +13,7 @@ import {
   mergeAppendOnly,
   updateItemInPlace
 } from '../feedSessionStability';
+import { mergeUniqueFeedItems } from '../feedPagination';
 import { mergeStreamEntries, type FeedStreamEntry } from '../feedStream';
 
 test('FEED_SESSION_STABILITY_VERSION is 21.1.4', () => {
@@ -93,4 +95,70 @@ test('stream merge append-only preserves keys subsequence', () => {
     merged.map((e) => e.key),
     ['post:a', 'post:b', 'post:c', 'person:p1']
   );
+});
+
+/**
+ * Video reproduction artifact simulation (Member Home soft-refresh morph):
+ * User is reading progressive window index 2 (id=c). Scroll position fixed.
+ * Soft refresh returns re-ranked first page. Old bug swapped identity at index 2.
+ *
+ * Source (pre-fix): MemberHomeSection.loadFeed orchestrated soft path used
+ * mergeUniqueFeedItems(normalizedFirstPage, existingSession).
+ */
+test('VIDEO REPRO: old soft-merge swaps identity at fixed progressive index', () => {
+  const session = [
+    { id: 'post-author-A', key: 'post:post-author-A' },
+    { id: 'post-author-B', key: 'post:post-author-B' },
+    { id: 'post-author-C', key: 'post:post-author-C' },
+    { id: 'post-author-D', key: 'post:post-author-D' },
+    { id: 'post-author-E', key: 'post:post-author-E' }
+  ];
+  const readingIndex = 2;
+  const beforeId = session[readingIndex].id;
+  const beforeKey = session[readingIndex].key;
+
+  // Server soft-refresh first page (re-ranked personalization)
+  const refreshPage = [
+    { id: 'reco-person-X', key: 'person:reco-person-X' },
+    { id: 'post-author-Z', key: 'post:post-author-Z' },
+    { id: 'post-author-Y', key: 'post:post-author-Y' },
+    { id: 'post-author-A', key: 'post:post-author-A' },
+    { id: 'post-author-B', key: 'post:post-author-B' }
+  ];
+
+  // OLD BUG PATH (arguments inverted relative to session-first semantics)
+  const buggy = mergeUniqueFeedItems(refreshPage, session).merged;
+  assert.notEqual(buggy[readingIndex].id, beforeId);
+  assert.equal(detectDestructiveReplacement(session, buggy), true);
+
+  // FIXED PATH — isolate soft refresh
+  const fixed = isolateSoftRefreshPage(session, refreshPage);
+  assert.equal(fixed.sessionItems[readingIndex].id, beforeId);
+  assert.equal(fixed.sessionItems[readingIndex].key, beforeKey);
+  assert.deepEqual(
+    fixed.sessionItems.map((i) => i.id),
+    session.map((i) => i.id)
+  );
+  // New recommendations are pending, not injected into the reading window
+  assert.ok(fixed.pendingNewItems.some((i) => i.id === 'reco-person-X'));
+  assert.ok(fixed.pendingNewItems.some((i) => i.id === 'post-author-Z'));
+  assert.equal(assertStableRelativeOrder(session, fixed.sessionItems), true);
+});
+
+test('VIDEO REPRO: progressive window slice identity stable after soft isolation', () => {
+  const session = Array.from({ length: 12 }, (_, i) => ({
+    id: `id-${i}`,
+    key: `post:id-${i}`
+  }));
+  const renderedCount = 8;
+  const beforeWindow = session.slice(0, renderedCount).map((i) => i.id);
+
+  const refresh = [
+    { id: 'new-0', key: 'post:new-0' },
+    { id: 'new-1', key: 'post:new-1' },
+    ...session.slice(0, 6)
+  ];
+  const soft = isolateSoftRefreshPage(session, refresh);
+  const afterWindow = soft.sessionItems.slice(0, renderedCount).map((i) => i.id);
+  assert.deepEqual(afterWindow, beforeWindow);
 });
