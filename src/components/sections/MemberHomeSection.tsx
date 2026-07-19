@@ -89,6 +89,7 @@ import {
 } from '../../utils/feedStream';
 import { prefetchStreamMedia } from '../../utils/feedMediaPrefetch';
 import { useFeedChromeBridge } from '../../hooks/useFeedChromeBridge';
+import { useFeedSessionIntegrity } from '../../hooks/useFeedSessionIntegrity';
 import {
   getStableFeedReactKey,
   isStaleFeedResponse,
@@ -1543,6 +1544,29 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     dataSaver: false,
     isMobile: false
   });
+
+  // Phase 21.1.4 — continuous integrity stress probe (DEV or localStorage scrolith:feedIntegrityProbe=1)
+  const orderedFeedIdsForIntegrity = useMemo(
+    () =>
+      feedStream.length
+        ? feedStream.map((e) => e.key || e.post?.id || e.data?.id)
+        : feedItems.map((p) => p?.id),
+    [feedStream, feedItems]
+  );
+  const primaryVisiblePost = renderableFeedItems[0] || null;
+  const feedIntegrity = useFeedSessionIntegrity({
+    surface: 'member_home',
+    orderedItemIds: orderedFeedIdsForIntegrity,
+    visiblePostId: primaryVisiblePost?.id || null,
+    visibleAuthorId:
+      (primaryVisiblePost as any)?.authorUserId ||
+      (primaryVisiblePost as any)?.authorId ||
+      (primaryVisiblePost as any)?.author?.id ||
+      null,
+    visibleAnchorId: primaryVisiblePost?.id || null,
+    intervalMs: 2000
+  });
+
   // Phase 21.1.2S — align with Community/Mobile fatigue policy (up to 4 eligible posts / batch).
   const interestSurveyPostIds = useMemo(
     () =>
@@ -5591,6 +5615,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     feedOffsetFallbackRef.current = false;
     setFeedOffsetFallbackEnabled(false);
     // Tab/filter change is a deliberate hard reset of the primary stream.
+    try {
+      feedIntegrity.noteUserAction('tab_change');
+    } catch {
+      // probe optional
+    }
     void loadFeed({ forceRetryOrchestrated: true, hardReset: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFeed omitted intentionally to stop request loops
   }, [userId, feedTab, feedTopic, feedRegion, feedTabReady]);
@@ -5745,6 +5774,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, [desktopRenderStep, userId, feedTabReady]);
 
   const applyPendingNewFeed = useCallback(() => {
+    feedIntegrity.noteUserAction('show_new_posts');
     const pendingPosts = pendingNewFeedItemsRef.current;
     const pendingStream = pendingNewStreamRef.current;
     if (pendingPosts.length) {
@@ -5771,7 +5801,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         // ignore
       }
     }
-  }, [commitFeedItems]);
+  }, [commitFeedItems, feedIntegrity]);
 
   const dismissPendingNewFeed = useCallback(() => {
     pendingNewFeedItemsRef.current = [];
@@ -8732,7 +8762,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               />
             </Suspense>
 
-            <div id="member-home-feed-stream" className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1" data-feed-session-stable="21.1.4">
+            <div
+              id="member-home-feed-stream"
+              className="rounded-3xl border border-white/70 bg-white p-4 shadow-sm rise-fade-delay-1"
+              data-feed-session-stable="21.1.4"
+              data-feed-integrity-session={feedIntegrity.sessionId || undefined}
+              data-feed-integrity-enabled={feedIntegrity.enabled ? 'true' : 'false'}
+            >
               {(pendingNewFeedItems.length > 0 || pendingNewStream.length > 0) ? (
                 <div
                   className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2.5"
