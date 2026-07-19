@@ -1,0 +1,13 @@
+{
+  "overall": "PASS",
+  "fe": {
+    "passed": 7,
+    "failed": 0
+  },
+  "idempotencyUnit": "PASS",
+  "mutePolicy": "PASS",
+  "be": {
+    "passed": 5,
+    "failed": 0
+  }
+}

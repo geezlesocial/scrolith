@@ -1,0 +1,7 @@
+{
+  "total": 54,
+  "overall": "PASS",
+  "command": "npm run test:cert:unit",
+  "failed": 0,
+  "passed": 54
+}

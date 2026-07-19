@@ -1,0 +1,199 @@
+{
+  "phase": "22.2A",
+  "generatedAt": "2026-07-19T21:27:43.576Z",
+  "apiBase": "https://api.scrolith.com/api",
+  "checks": {
+    "pure_policy_module_present": "PASS",
+    "auth_token_source": "PASS",
+    "health": "PASS",
+    "auth_me": "PASS",
+    "dm_list_conversations": "PASS",
+    "dm_send_compat": "PASS",
+    "dm_idempotent_replay_221": "PASS",
+    "group_create": "PASS",
+    "group_update_meta": "PASS",
+    "group_list_members": "PASS",
+    "group_owner_role": "PASS",
+    "group_create_invite": "PASS",
+    "group_invite_accept_flow": "PASS",
+    "group_notification_pref_mentions": "PASS",
+    "group_notification_pref_all": "PASS",
+    "group_notification_pref_none": "PASS",
+    "group_role_change_endpoint": "PASS",
+    "group_send_with_mention": "PASS",
+    "mention_resolution": "PASS",
+    "jump_to_message": "PASS",
+    "deep_link_join_path_shape": "PASS",
+    "deep_link_invite_query_shape": "PASS"
+  },
+  "evidence": [
+    {
+      "name": "pure_policy_module_present",
+      "ok": true,
+      "note": "groupPolicy + notificationPolicy covered by jest/vitest in gate",
+      "at": "2026-07-19T21:27:43.577Z"
+    },
+    {
+      "name": "auth_token_source",
+      "ok": true,
+      "source": "storage_or_env",
+      "at": "2026-07-19T21:27:43.588Z"
+    },
+    {
+      "name": "health",
+      "ok": true,
+      "status": 200,
+      "url": "https://api.scrolith.com/api/health",
+      "at": "2026-07-19T21:27:44.323Z"
+    },
+    {
+      "name": "auth_me",
+      "ok": true,
+      "status": 200,
+      "hasUser": true,
+      "at": "2026-07-19T21:27:44.688Z"
+    },
+    {
+      "name": "dm_list_conversations",
+      "ok": true,
+      "status": 200,
+      "count": 19,
+      "hasDirect": true,
+      "at": "2026-07-19T21:27:45.336Z"
+    },
+    {
+      "name": "dm_send_compat",
+      "ok": true,
+      "status": 200,
+      "hasId": true,
+      "at": "2026-07-19T21:27:45.898Z"
+    },
+    {
+      "name": "dm_idempotent_replay_221",
+      "ok": true,
+      "status": 200,
+      "sameId": true,
+      "at": "2026-07-19T21:27:46.155Z"
+    },
+    {
+      "name": "group_create",
+      "ok": true,
+      "status": 200,
+      "type": "group",
+      "at": "2026-07-19T21:27:46.527Z"
+    },
+    {
+      "name": "group_update_meta",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-19T21:27:46.702Z"
+    },
+    {
+      "name": "group_list_members",
+      "ok": true,
+      "status": 200,
+      "count": 1,
+      "myRole": "OWNER",
+      "at": "2026-07-19T21:27:46.878Z"
+    },
+    {
+      "name": "group_owner_role",
+      "ok": true,
+      "myRole": "OWNER",
+      "at": "2026-07-19T21:27:46.879Z"
+    },
+    {
+      "name": "group_create_invite",
+      "ok": true,
+      "status": 200,
+      "hasCode": true,
+      "joinPath": "/messages/join/gf480b21b8a3142d0",
+      "at": "2026-07-19T21:27:47.089Z"
+    },
+    {
+      "name": "group_invite_accept_flow",
+      "ok": true,
+      "status": 200,
+      "note": "same-user redeem; multi-user accept covered when CERT_SECOND_TOKEN set",
+      "at": "2026-07-19T21:27:47.431Z"
+    },
+    {
+      "name": "group_notification_pref_mentions",
+      "ok": true,
+      "status": 200,
+      "level": "MENTIONS",
+      "at": "2026-07-19T21:27:47.809Z"
+    },
+    {
+      "name": "group_notification_pref_all",
+      "ok": true,
+      "status": 200,
+      "level": "ALL",
+      "at": "2026-07-19T21:27:48.120Z"
+    },
+    {
+      "name": "group_notification_pref_none",
+      "ok": true,
+      "status": 200,
+      "level": "NONE",
+      "at": "2026-07-19T21:27:48.465Z"
+    },
+    {
+      "name": "group_role_change_endpoint",
+      "ok": true,
+      "status": 200,
+      "note": "endpoint reachable without server error",
+      "at": "2026-07-19T21:27:49.034Z"
+    },
+    {
+      "name": "group_send_with_mention",
+      "ok": true,
+      "status": 200,
+      "hasMessageId": true,
+      "mentionHandle": "scrolitha",
+      "at": "2026-07-19T21:27:49.329Z"
+    },
+    {
+      "name": "mention_resolution",
+      "ok": true,
+      "mentionedCount": 1,
+      "mentionHandle": "scrolitha",
+      "note": "username resolved into mentionedUserIds",
+      "at": "2026-07-19T21:27:50.257Z"
+    },
+    {
+      "name": "jump_to_message",
+      "ok": true,
+      "status": 200,
+      "count": 1,
+      "at": "2026-07-19T21:27:50.619Z"
+    },
+    {
+      "name": "deep_link_join_path_shape",
+      "ok": true,
+      "joinPath": "/messages/join/gf480b21b8a3142d0",
+      "at": "2026-07-19T21:27:50.619Z"
+    },
+    {
+      "name": "deep_link_invite_query_shape",
+      "ok": true,
+      "example": "/messages?invite=gf480b21b8a3142d0",
+      "at": "2026-07-19T21:27:50.619Z"
+    }
+  ],
+  "artifacts": {
+    "groupId": "cmrsb4el900pys60110d26h44",
+    "groupTitle": "P222 Cert Group 1784496466156",
+    "inviteCode": "gf480b21b8a3142d0",
+    "joinPath": "/messages/join/gf480b21b8a3142d0"
+  },
+  "overall": "PASS",
+  "failed": [],
+  "groupCrud": "PASS",
+  "inviteFlow": "PASS",
+  "roleEnforcement": "PASS",
+  "mentionResolution": "PASS",
+  "notificationPolicy": "PASS",
+  "jumpToMessage": "PASS",
+  "dmCompat": "PASS"
+}

@@ -1,0 +1,62 @@
+{
+  "phase": "22.2A-e2e",
+  "baseURL": "https://p222---scrolith-frontend-25ysnpjdda-as.a.run.app",
+  "overall": "PASS",
+  "passed": 4,
+  "failed": 0,
+  "total": 4,
+  "results": [
+    {
+      "project": "desktop-chrome",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "create_group_control": true,
+        "composer": true,
+        "join_deep_link_route": true,
+        "phase21_feed_shell": true,
+        "phase21_no_login_bounce": true
+      },
+      "ok": true
+    },
+    {
+      "project": "mobile-390",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "create_group_control": true,
+        "composer": true,
+        "join_deep_link_route": true,
+        "phase21_feed_shell": true,
+        "phase21_no_login_bounce": true
+      },
+      "ok": true
+    },
+    {
+      "project": "pixel-7",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "create_group_control": true,
+        "composer": true,
+        "join_deep_link_route": true,
+        "phase21_feed_shell": true,
+        "phase21_no_login_bounce": true
+      },
+      "ok": true
+    },
+    {
+      "project": "iphone-15",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "create_group_control": true,
+        "composer": true,
+        "join_deep_link_route": true,
+        "phase21_feed_shell": true,
+        "phase21_no_login_bounce": true
+      },
+      "ok": true
+    }
+  ]
+}

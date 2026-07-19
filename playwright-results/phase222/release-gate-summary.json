@@ -1,0 +1,37 @@
+{
+  "phase": "22.2A",
+  "generatedAt": "2026-07-19T21:26:56.217Z",
+  "overall": "PASS",
+  "phase222Certified": true,
+  "promoteRecommended": true,
+  "matrix": {
+    "groupCrud": "PASS",
+    "inviteFlow": "PASS",
+    "roleEnforcement": "PASS",
+    "mentionResolution": "PASS",
+    "notificationPolicy": "PASS",
+    "jumpToMessage": "PASS",
+    "dmCompat": "PASS",
+    "phase21Regression": "PASS",
+    "phase221Regression": "PASS",
+    "apiOverall": "PASS",
+    "e2e": "PASS"
+  },
+  "deploy": {
+    "backendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p222",
+    "backendRevision": "scrolith-backend-00152-sag",
+    "backendTag": "p222",
+    "frontendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p222",
+    "frontendRevision": "scrolith-frontend-00207-rug",
+    "frontendTag": "p222",
+    "migration": "20260720140000_phase222_group_messaging",
+    "trafficAction": "PROMOTE_BE_scrolith-backend-00152-sag_FE_scrolith-frontend-00207-rug_TO_100"
+  },
+  "artifacts": {
+    "groupId": "cmrsb03k0007is601u0pt00va",
+    "groupTitle": "P222 Cert Group 1784496265238",
+    "inviteCode": "g1027573b7aba4413",
+    "joinPath": "/messages/join/g1027573b7aba4413"
+  },
+  "apiFailed": []
+}

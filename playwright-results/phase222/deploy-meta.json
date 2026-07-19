@@ -1,0 +1,14 @@
+{
+  "frontendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p222",
+  "frontendTagUrl": "https://p222---scrolith-frontend-25ysnpjdda-as.a.run.app",
+  "migrationStatus": "APPLIED",
+  "frontendTag": "p222",
+  "previousBackend": "scrolith-backend-00148-ruy",
+  "backendTagUrl": "https://p222---scrolith-backend-25ysnpjdda-as.a.run.app",
+  "migration": "20260720140000_phase222_group_messaging",
+  "backendTag": "p222",
+  "frontendRevision": "scrolith-frontend-00207-rug",
+  "backendRevision": "scrolith-backend-00152-sag",
+  "previousFrontend": "scrolith-frontend-00205-rub",
+  "backendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p222"
+}
