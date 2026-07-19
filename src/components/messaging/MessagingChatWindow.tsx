@@ -16,6 +16,7 @@ import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import {
   formatRelativeMessageTime,
   getConversationAvatarParticipant,
@@ -198,8 +199,8 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
           className="flex w-full items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/40"
           aria-label={`Restore conversation with ${title}`}
         >
-          <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-full bg-slate-100">
-            {avatarUrl ? <img src={avatarUrl} alt="" className="h-full w-full object-cover" /> : null}
+          <div className="relative h-7 w-7 shrink-0">
+            <EnterpriseAvatar src={avatarUrl} name={title} size="xs" className="!h-7 !w-7" />
             {isOnline ? (
               <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border border-white bg-emerald-500" />
             ) : null}
@@ -237,14 +238,13 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
       aria-label={`Conversation with ${title}`}
     >
       <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
-        <div className="relative h-8 w-8 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
-              {title.charAt(0).toUpperCase() || '?'}
-            </div>
-          )}
+        <div className="relative h-8 w-8 shrink-0">
+          <EnterpriseAvatar
+            src={avatarUrl}
+            name={title}
+            size="sm"
+            className="border border-slate-200"
+          />
           {isOnline ? (
             <span
               className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500"

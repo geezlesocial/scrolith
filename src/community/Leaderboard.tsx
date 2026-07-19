@@ -1,4 +1,5 @@
 
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 import React, { useState, useEffect } from 'react';
 import { CommunityService } from '../services/community';
 import { LeaderboardEntry } from '../types';
@@ -89,7 +90,12 @@ const Leaderboard = () => {
                                 </td>
                                 <td className="px-6 py-4">
                                     <div className="flex items-center">
-                                        <img src={user.userAvatar} className="w-10 h-10 rounded-full mr-3 border-2 border-white shadow-sm" />
+                                        <EnterpriseAvatar
+                                          src={user.userAvatar}
+                                          name={user.userName}
+                                          size="md"
+                                          className="mr-3 border-2 border-white shadow-sm"
+                                        />
                                         <div>
                                             <div className="font-bold text-gray-900">{user.userName}</div>
                                             <div className="text-xs text-gray-500">{user.category}</div>

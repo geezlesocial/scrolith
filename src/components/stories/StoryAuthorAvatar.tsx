@@ -1,5 +1,5 @@
 import React from 'react';
-import { resolveAssetUrl } from '../../utils/assetUrl';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
 
 type StoryAuthorAvatarProps = {
   src?: string | null;
@@ -13,58 +13,31 @@ type StoryAuthorAvatarProps = {
   loading?: 'lazy' | 'eager';
 };
 
+/**
+ * Phase 21.1.2 — story author avatars route through EnterpriseAvatar
+ * (photo → initials, no blank/white flash). Outer className keeps ring/layout from callers.
+ */
 export default function StoryAuthorAvatar({
   src,
   name,
   initial,
   className,
-  imageClassName = 'h-full w-full object-cover',
   width = 72,
-  height = 72,
-  sizes = '72px',
-  loading = 'lazy'
+  height = 72
 }: StoryAuthorAvatarProps) {
-  const imageSrc = String(src || '').trim();
-  const resolvedImageSrc = imageSrc ? resolveAssetUrl(imageSrc) : '';
-  const [failedSrc, setFailedSrc] = React.useState('');
-  const [retryNonce, setRetryNonce] = React.useState(0);
-  const fallbackInitial = String(initial || name || 'S').replace(/^@+/, '').trim().charAt(0).toUpperCase() || 'S';
-  const shouldRenderImage = Boolean(resolvedImageSrc) && failedSrc !== resolvedImageSrc;
-  const displayImageSrc =
-    shouldRenderImage && retryNonce > 0 && resolvedImageSrc.includes('/api/files/content/')
-      ? `${resolvedImageSrc}${resolvedImageSrc.includes('?') ? '&' : '?'}avatarRetry=${retryNonce}`
-      : resolvedImageSrc;
-
-  React.useEffect(() => {
-    setFailedSrc('');
-    setRetryNonce(0);
-  }, [resolvedImageSrc]);
-
-  React.useEffect(() => {
-    if (!failedSrc || failedSrc !== resolvedImageSrc) return;
-    const retryTimer = window.setTimeout(() => {
-      setFailedSrc('');
-      setRetryNonce((current) => current + 1);
-    }, 2500);
-    return () => window.clearTimeout(retryTimer);
-  }, [failedSrc, resolvedImageSrc]);
+  const sizePx = Math.max(width || 0, height || 0) || 72;
+  const size =
+    sizePx <= 28 ? 'xs' : sizePx <= 36 ? 'sm' : sizePx <= 44 ? 'md' : sizePx <= 56 ? 'lg' : 'xl';
 
   return (
     <div className={className}>
-      {shouldRenderImage ? (
-        <img
-          src={displayImageSrc}
-          alt={name}
-          width={width}
-          height={height}
-          className={imageClassName}
-          loading={loading}
-          decoding="async"
-          onError={() => setFailedSrc(resolvedImageSrc)}
-        />
-      ) : (
-        <span>{fallbackInitial}</span>
-      )}
+      <EnterpriseAvatar
+        src={src}
+        name={name || initial || 'Story'}
+        size={size as any}
+        className="!h-full !w-full !text-[inherit]"
+        alt={name || 'Story author'}
+      />
     </div>
   );
 }

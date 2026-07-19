@@ -1,4 +1,5 @@
 import React from 'react';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import type { LucideIcon } from 'lucide-react';
 import { CircleDot, X } from 'lucide-react';
 
@@ -77,10 +78,12 @@ export const MobileDrawerNav: React.FC<MobileDrawerNavProps> = ({
       <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-3.5 text-white shadow-sm xl:p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <img
-              src={userAvatar || 'https://ui-avatars.com/api/?name=User&background=1f2937&color=fff'}
+            <EnterpriseAvatar
+              src={userAvatar}
+              name={userName}
+              size="lg"
+              className="border border-white/20 shadow-sm xl:!h-12 xl:!w-12"
               alt={userName}
-              className="h-11 w-11 rounded-full border border-white/20 object-cover shadow-sm xl:h-12 xl:w-12"
             />
             <div className="min-w-0">
               <p className="truncate text-[15px] font-semibold xl:text-base">{userName}</p>

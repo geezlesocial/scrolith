@@ -12,6 +12,7 @@ import MentionHashtagTextarea from '../community/components/MentionHashtagTextar
 import { UploadedFile } from '../types';
 import CommentAiAssist from './post/CommentAiAssist';
 import EmojiPhraseSuggestionBar from '../community/components/EmojiPhraseSuggestionBar';
+import EnterpriseAvatar from './common/EnterpriseAvatar';
 
 type CommentAuthor = {
   id?: string;
@@ -917,16 +918,20 @@ const PostComments: React.FC<PostCommentsProps> = ({
         <div className="flex items-start gap-2.5 sm:gap-3">
           <Link
             to={commentProfileUrl}
-            className="mt-0.5 h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 shadow-sm ring-1 ring-slate-200/80 sm:h-10 sm:w-10"
+            className="mt-0.5 shrink-0 rounded-full shadow-sm ring-1 ring-slate-200/80"
             aria-label={`${commentAuthorName} profile`}
           >
-            {commentAuthorAvatar ? (
-              <img src={commentAuthorAvatar} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-[11px] font-semibold text-slate-500">
-                {commentAuthorName.slice(0, 1)}
-              </div>
-            )}
+            <EnterpriseAvatar
+              src={commentAuthorAvatar}
+              name={commentAuthorName}
+              user={{
+                id: comment.userId || comment.author?.id,
+                username: commentAuthorUsername,
+                name: commentAuthorName
+              }}
+              size="md"
+              className="!h-9 !w-9 sm:!h-10 sm:!w-10"
+            />
           </Link>
           <div className="min-w-0 flex-1">
             <div className="rounded-2xl border border-slate-100/90 bg-white px-3 py-2.5 shadow-[0_8px_24px_rgba(15,23,42,0.04)] sm:rounded-3xl sm:px-4 sm:py-3">

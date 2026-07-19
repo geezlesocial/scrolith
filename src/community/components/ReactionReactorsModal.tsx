@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { Loader2, RefreshCw, UserRound, X } from 'lucide-react';
 import { ReactionsService, ReactionTargetType, ReactionUser } from '../../services/reactions';
 import { resolveResponsiveAssetUrl } from '../../utils/assetUrl';
+import EnterpriseAvatar from '../../components/common/EnterpriseAvatar';
 
 type AllowedReaction = {
   key: string;
@@ -386,12 +387,15 @@ const ReactionReactorsModal: React.FC<ReactionReactorsModalProps> = ({
                     onTouchStart={(event) => event.stopPropagation()}
                     className="group flex items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5 transition hover:border-blue-100 hover:bg-blue-50/60"
                   >
-                    <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-sm font-semibold text-slate-500">
-                      {avatar ? (
-                        <img src={avatar} alt={name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
-                      ) : (
-                        <UserRound className="h-5 w-5" />
-                      )}
+                    <span className="relative inline-flex h-11 w-11 shrink-0">
+                      <EnterpriseAvatar
+                        src={avatar}
+                        name={name}
+                        user={{ id: reactor.userId, username, name }}
+                        size="lg"
+                        className="!h-11 !w-11"
+                        alt={name}
+                      />
                       <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-white text-[12px] shadow-sm">
                         {meta?.emoji || '\u{1F44D}'}
                       </span>

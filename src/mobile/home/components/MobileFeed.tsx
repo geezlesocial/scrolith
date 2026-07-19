@@ -26,6 +26,7 @@ import ExpandablePreviewText from '../../../components/common/ExpandablePreviewT
 import VerifiedBadge from '../../../components/common/VerifiedBadge';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
 import OptimizedImage from '../../../components/media/OptimizedImage';
+import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
 import TranslatablePostText from '../../../components/translation/TranslatablePostText';
@@ -2964,25 +2965,17 @@ export default function MobileFeed({
                   <div className="flex min-w-0 items-center gap-3">
                     <Link
                       to={profileUrl}
-                      className="h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-gradient-to-br from-slate-100 via-white to-slate-50 shadow-sm ring-1 ring-white"
+                      className="h-12 w-12 shrink-0 rounded-full border border-slate-200 shadow-sm ring-1 ring-white"
                       aria-label={`View ${authorName} profile`}
                     >
-                      {authorAvatar ? (
-                        <OptimizedImage
-                          src={authorAvatar}
-                          alt={authorName}
-                          width={96}
-                          height={96}
-                          sizes="48px"
-                          className="h-full w-full object-cover"
-                          loading={idx < priorityMediaPostLimit ? 'eager' : 'lazy'}
-                          decoding="async"
-                          fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
-                          onError={(event) => {
-                            (event.currentTarget as HTMLImageElement).style.display = 'none';
-                          }}
-                        />
-                      ) : null}
+                      <EnterpriseAvatar
+                        src={authorAvatar}
+                        name={authorName}
+                        user={author}
+                        size="lg"
+                        className="!h-12 !w-12"
+                        alt={authorName}
+                      />
                     </Link>
                     <div className="min-w-0 pt-0.5">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">

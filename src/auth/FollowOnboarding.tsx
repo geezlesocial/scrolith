@@ -16,6 +16,7 @@ import { CommunityService } from '../services/community';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 
 type RecommendationCard = {
   key: string;
@@ -626,30 +627,18 @@ const FollowOnboarding = () => {
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Selected accounts">
                   {selectedCards.map((card) => {
-                    const initials = card.name
-                      .split(' ')
-                      .map((part) => part[0] || '')
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase();
-                    const showImg = Boolean(card.avatarUrl) && !avatarFailures[card.key];
                     return (
                       <div
                         key={`preview-${card.key}`}
                         className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 py-1 pl-1 pr-3"
                       >
-                        {showImg ? (
-                          <img
-                            src={card.avatarUrl || undefined}
-                            alt=""
-                            className="h-7 w-7 rounded-full object-cover"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-200 text-[10px] font-semibold text-slate-600">
-                            {initials || 'SC'}
-                          </span>
-                        )}
+                        <EnterpriseAvatar
+                          src={card.avatarUrl}
+                          name={card.name}
+                          user={{ id: card.id, username: card.username }}
+                          size="xs"
+                          className="!h-7 !w-7"
+                        />
                         <span className="max-w-[7rem] truncate text-xs font-semibold text-slate-700">{card.name}</span>
                       </div>
                     );
@@ -748,13 +737,6 @@ const FollowOnboarding = () => {
             ) : (
               <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {cards.map((card) => {
-                  const initials = card.name
-                    .split(' ')
-                    .map((part) => part[0] || '')
-                    .join('')
-                    .slice(0, 2)
-                    .toUpperCase();
-                  const showAvatarImage = Boolean(card.avatarUrl) && !avatarFailures[card.key];
                   const reasonChips = Array.isArray(card.reasons) ? card.reasons : [];
 
                   return (
@@ -771,28 +753,14 @@ const FollowOnboarding = () => {
                           to={card.route}
                           className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
                         >
-                          {showAvatarImage ? (
-                            <img
-                              src={card.avatarUrl || undefined}
-                              alt=""
-                              className="h-14 w-14 rounded-2xl object-cover ring-1 ring-slate-200"
-                              loading="lazy"
-                              decoding="async"
-                              onError={(event) => {
-                                if (!avatarFailures[card.key]) {
-                                  setAvatarFailures((prev) => ({ ...prev, [card.key]: true }));
-                                }
-                                event.currentTarget.onerror = null;
-                              }}
-                            />
-                          ) : (
-                            <div
-                              className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-sm font-semibold text-slate-600 ring-1 ring-slate-200"
-                              aria-hidden="true"
-                            >
-                              {initials || 'SC'}
-                            </div>
-                          )}
+                          <EnterpriseAvatar
+                            src={card.avatarUrl}
+                            name={card.name}
+                            user={{ id: card.id, username: card.username }}
+                            size="xl"
+                            rounded="2xl"
+                            className="!h-14 !w-14 ring-1 ring-slate-200"
+                          />
                           <div className="min-w-0">
                             <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
                               {card.badge}

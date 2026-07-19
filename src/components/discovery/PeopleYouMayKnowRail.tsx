@@ -4,6 +4,7 @@ import { UserPlus, Users } from 'lucide-react';
 import { RecoService } from '../../services/reco';
 import { CommunityService } from '../../services/community';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
 
 type PeopleYouMayKnowRailProps = {
   className?: string;
@@ -183,15 +184,13 @@ export default function PeopleYouMayKnowRail({
                 className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2"
               >
                 <Link to={href} className="flex min-w-0 items-center gap-2.5">
-                  <div className="h-9 w-9 overflow-hidden rounded-full border border-slate-200 bg-slate-200">
-                    {person.avatarUrl ? (
-                      <img src={person.avatarUrl} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-slate-500">
-                        {person.name.slice(0, 1).toUpperCase()}
-                      </div>
-                    )}
-                  </div>
+                  <EnterpriseAvatar
+                    src={person.avatarUrl}
+                    name={person.name}
+                    user={{ id: person.id, username: person.username }}
+                    size="sm"
+                    className="border border-slate-200"
+                  />
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-slate-900">{person.name}</div>
                     <div className="truncate text-[11px] text-slate-500">{person.reason}</div>

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import type { Conversation } from '../../types';
-import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import {
   formatRelativeMessageTime,
   getConversationAvatarParticipant,
@@ -32,7 +32,6 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
     () => getConversationAvatarParticipant(conversation, currentUserId),
     [conversation, currentUserId]
   );
-  const avatarUrl = resolveUserAvatarUrl(other) || String(other?.avatar || '').trim();
   const unread = getConversationUnreadCount(conversation);
   const preview = getConversationPreviewText(conversation, { currentUserId });
   const timestamp = formatRelativeMessageTime(
@@ -61,15 +60,14 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
       }
     >
       <div className="relative h-11 w-11 shrink-0">
-        <div className="h-11 w-11 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-slate-500">
-              {name.charAt(0).toUpperCase() || '?'}
-            </div>
-          )}
-        </div>
+        <EnterpriseAvatar
+          user={other}
+          name={name}
+          src={other?.avatar || other?.avatarUrl}
+          size="md"
+          className="!h-11 !w-11 border border-slate-200"
+          alt=""
+        />
         {isOnline ? (
           <span
             className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500"

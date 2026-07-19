@@ -5,6 +5,7 @@ import { CommunityChannel, CommunityMessage } from '../types';
 import { useUser } from '../context/UserContext';
 import { Send, Hash, Lock, Users, Smile, MoreVertical, Search, AlertTriangle, Paperclip, Shield } from 'lucide-react';
 import ReputationBadge from '../components/ReputationBadge';
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 
 const Chat = () => {
     const { user } = useUser();
@@ -122,7 +123,14 @@ const Chat = () => {
                         const isMe = msg.userId === user?.id;
                         return (
                             <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                {!isMe && <img src={msg.userAvatar} className="w-8 h-8 rounded-full mr-2 mt-1" />}
+                                {!isMe && (
+                                  <EnterpriseAvatar
+                                    src={msg.userAvatar}
+                                    name={msg.userName}
+                                    size="sm"
+                                    className="mr-2 mt-1"
+                                  />
+                                )}
                                 <div className={`max-w-[70%] ${isMe ? 'items-end' : 'items-start'} flex flex-col`}>
                                     {!isMe && (
                                         <div className="flex items-center mb-1 gap-2">

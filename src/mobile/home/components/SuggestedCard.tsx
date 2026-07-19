@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import OptimizedImage from '../../../components/media/OptimizedImage';
 import { RecoSignalChips } from '../../../components/feed/FeedIntelligenceSignals';
 import FollowButton from '../../../community/components/FollowButton';
 import { useUser } from '../../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../../utils/userAvatar';
+import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 
 type SuggestedPersonOrPage = {
   id: string;
@@ -104,22 +104,13 @@ function FollowList({
                 }
                 className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 text-xs font-semibold text-slate-500">
-                  {avatarUrl ? (
-                    <OptimizedImage
-                      src={avatarUrl}
-                      width={40}
-                      height={40}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      onError={(event) => {
-                        (event.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <span aria-hidden>{String(item.name || '?').slice(0, 1).toUpperCase()}</span>
-                  )}
-                </div>
+                <EnterpriseAvatar
+                  src={avatarUrl}
+                  name={item.name}
+                  user={{ id: item.id, username: item.username }}
+                  size="md"
+                  className="border border-slate-200"
+                />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <div className="truncate text-sm font-semibold text-slate-900">{item.name}</div>

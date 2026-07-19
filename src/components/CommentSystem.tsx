@@ -6,6 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import { MessageCircle, Send, Loader2, Heart, Reply, Trash2, AlertCircle } from 'lucide-react';
 import RichTextEditor from './RichTextEditor';
 import InteractionBar from './InteractionBar';
+import EnterpriseAvatar from './common/EnterpriseAvatar';
 
 interface CommentSystemProps {
   threadId: string;
@@ -29,7 +30,7 @@ const CommentSystem: React.FC<CommentSystemProps> = ({ threadId, comments, onRef
     parent_id: comment.parent_id || comment.parentId || null,
     user_id: comment.user_id || comment.userId || '',
     user_name: comment.user_name || comment.userName || 'Anonymous',
-    user_avatar: comment.user_avatar || comment.userAvatar || 'https://ui-avatars.com/api/?name=Anonymous',
+    user_avatar: comment.user_avatar || comment.userAvatar || null,
     user_role: comment.user_role || comment.userRole || UserRole.GUEST,
     content: comment.content || '',
     created_at: comment.created_at || comment.createdAt || new Date().toISOString(),
@@ -130,10 +131,11 @@ const CommentSystem: React.FC<CommentSystemProps> = ({ threadId, comments, onRef
       <div key={comment.id} className={`${depth > 0 ? 'ml-8 mt-4 border-l-2 border-gray-200 pl-4' : ''}`}>
         <div className="bg-white rounded-lg p-4 border border-gray-200 hover:border-indigo-200 transition-colors">
           <div className="flex items-start gap-3">
-            <img 
-              src={comment.user_avatar} 
-              alt={comment.user_name}
-              className="w-10 h-10 rounded-full border-2 border-white shadow-sm flex-shrink-0"
+            <EnterpriseAvatar
+              src={comment.user_avatar}
+              name={comment.user_name}
+              size="md"
+              className="border-2 border-white shadow-sm"
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">

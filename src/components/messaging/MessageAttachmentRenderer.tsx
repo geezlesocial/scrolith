@@ -17,6 +17,7 @@ import {
   shouldAutoPreloadMessagingMedia,
   type NormalizedMessageAttachment
 } from '../../services/messagingMedia';
+import VoiceNotePlayer from './VoiceNotePlayer';
 
 type MessageAttachmentRendererProps = {
   attachment: any;
@@ -623,23 +624,20 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
 
       {normalized.type === 'audio' || normalized.type === 'voice_note' ? (
         resolvedSrc ? (
-          <audio
-            ref={audioRef}
-            controls
-            preload="metadata"
+          <VoiceNotePlayer
             src={resolvedSrc}
-            className="w-full"
-            onClick={(event) => event.stopPropagation()}
-            aria-label={
-              normalized.type === 'voice_note'
-                ? `Voice note ${normalized.name}`
-                : `Audio attachment ${normalized.name}`
+            name={normalized.name || (normalized.type === 'voice_note' ? 'Voice note' : 'Audio')}
+            outgoing={isOutgoing}
+            durationMsHint={
+              Number(
+                (normalized as any).durationMs ||
+                  (normalized as any).duration_ms ||
+                  (normalized as any).duration ||
+                  0
+              ) || 0
             }
-            onLoadedMetadata={(event) => {
-              const media = event.currentTarget;
-              if (Number.isFinite(media.duration) && media.duration > 0) {
-                setDurationLabel(formatMediaDuration(media.duration * 1000));
-              }
+            onDownload={() => {
+              void downloadMessageAttachment(normalized).catch(() => undefined);
             }}
           />
         ) : (

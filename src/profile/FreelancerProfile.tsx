@@ -23,6 +23,7 @@ import CreatorAnalyticsCard from '../components/insights/CreatorAnalyticsCard';
 import GrowthPulseCard from '../components/growth/GrowthPulseCard';
 import PeopleYouMayKnowRail from '../components/discovery/PeopleYouMayKnowRail';
 import EmptyState from '../components/ui/EmptyState';
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 
 const EditProfile = lazy(() => import('./EditProfile'));
 
@@ -692,11 +693,15 @@ const FreelancerProfile = () => {
                                 }}
                                 className="relative shrink-0 self-center sm:self-auto"
                             >
-                                <img
-                                    className={`h-24 w-24 rounded-xl border-4 border-white bg-white object-cover shadow-md sm:h-28 sm:w-28 md:h-32 md:w-32 ${
+                                <EnterpriseAvatar
+                                    className={`!h-24 !w-24 border-4 border-white shadow-md sm:!h-28 sm:!w-28 md:!h-32 md:!w-32 ${
                                       stories.length > 0 ? 'ring-4 ring-emerald-400 ring-offset-2 ring-offset-white' : ''
                                     }`}
-                                    src={resolveAssetUrl(String(publicUser?.avatar || '')) || "/placeholders/avatar.svg"}
+                                    src={resolveAssetUrl(String(publicUser?.avatar || '')) || undefined}
+                                    name={publicUser?.name || publicUser?.username || 'Profile'}
+                                    user={publicUser}
+                                    size="xl"
+                                    rounded="xl"
                                     alt={publicUser?.name || 'Profile photo'}
                                 />
                                 {storiesLoading && (
@@ -1345,10 +1350,12 @@ const FreelancerProfile = () => {
                           <div key={review.id} className="border border-gray-200 rounded-lg p-4">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
-                                <img
-                                  src={resolveAssetUrl(review.author?.avatar) || 'https://ui-avatars.com/api/?name=User'}
+                                <EnterpriseAvatar
+                                  src={resolveAssetUrl(review.author?.avatar) || undefined}
+                                  name={review.author?.name || 'Reviewer'}
+                                  user={review.author}
+                                  size="md"
                                   alt={review.author?.name || 'Reviewer'}
-                                  className="h-10 w-10 rounded-full object-cover"
                                 />
                                 <div>
                                   <div className="text-sm font-semibold text-gray-900">{review.author?.name || 'Reviewer'}</div>
@@ -1385,10 +1392,12 @@ const FreelancerProfile = () => {
                           return (
                             <div key={follower.id} className="flex items-center justify-between rounded-lg border border-gray-200 p-3">
                               <Link to={follower.username ? `/u/${follower.username}` : `/profile/${follower.id}`} className="flex items-center gap-3 min-w-0">
-                                <img
-                                  src={resolveAssetUrl(follower.avatar) || 'https://ui-avatars.com/api/?name=User'}
+                                <EnterpriseAvatar
+                                  src={resolveAssetUrl(follower.avatar) || undefined}
+                                  name={follower.name}
+                                  user={follower}
+                                  size="md"
                                   alt={follower.name}
-                                  className="h-10 w-10 rounded-full object-cover"
                                 />
                                 <div className="min-w-0">
                                   <div className="truncate text-sm font-semibold text-gray-900">{follower.name}</div>

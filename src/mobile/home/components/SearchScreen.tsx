@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeftIcon as ArrowLeft, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { mobileSearch } from '../../../services/mobileSearch';
 import OptimizedImage from '../../../components/media/OptimizedImage';
+import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedia';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
 
@@ -492,25 +493,15 @@ function SearchRow({
       ''
   });
 
-  const initials = String(title || 'R')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0] || '')
-    .join('')
-    .toUpperCase();
-
   const card = (
     <div className="flex items-center gap-3 p-3 hover:bg-slate-50">
-      <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-        {avatar ? (
-          <OptimizedImage src={avatar} alt={title} width={80} height={80} sizes="40px" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center text-[11px] font-semibold text-slate-600">
-            {initials || 'R'}
-          </div>
-        )}
-      </div>
+      <EnterpriseAvatar
+        src={avatar}
+        name={title}
+        size="md"
+        className="border border-slate-200"
+        alt={title}
+      />
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
         {subtitle ? <div className="mt-0.5 truncate text-xs text-slate-600">{subtitle}</div> : null}

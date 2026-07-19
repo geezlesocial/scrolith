@@ -6,6 +6,7 @@ import { ForumThread, CommunityComment } from '../types';
 import { ArrowLeft, User, Calendar, Tag, ShieldCheck, MoreHorizontal, AlertCircle } from 'lucide-react';
 import InteractionBar from '../components/InteractionBar';
 import CommentSystem from '../components/CommentSystem';
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 
@@ -98,7 +99,12 @@ const ThreadDetail = () => {
                     <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 mb-6 leading-tight">{thread.title}</h1>
 
                     <div className="flex items-center mb-8 pb-8 border-b border-gray-100">
-                        <img src={thread.userAvatar || thread.user_avatar || 'https://ui-avatars.com/api/?name=User'} className="w-10 h-10 rounded-full mr-3 border-2 border-white shadow-sm" />
+                        <EnterpriseAvatar
+                          src={thread.userAvatar || thread.user_avatar}
+                          name={thread.userName || thread.user_name || 'Anonymous'}
+                          size="md"
+                          className="mr-3 border-2 border-white shadow-sm"
+                        />
                         <div>
                             <div className="font-bold text-gray-900 text-sm">{thread.userName || thread.user_name || 'Anonymous'}</div>
                             <div className="text-xs text-gray-500">Original Poster</div>

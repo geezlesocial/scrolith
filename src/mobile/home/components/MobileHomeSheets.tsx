@@ -17,6 +17,7 @@ import {
   UsersIcon as Users
 } from '../../../components/icons/ShellIcons';
 import { MOBILE_SHEET_CARD_CLASS } from '../mobileShellLayout';
+import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 
 type AccountMenuConfig = {
   dashboard?: boolean;
@@ -551,10 +552,12 @@ export default function MobileHomeSheets({
         <div className="space-y-4">
           <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 p-4 text-white shadow-sm">
             <div className="flex items-center gap-3">
-              <img
-                src={userAvatar || 'https://ui-avatars.com/api/?name=User&background=1f2937&color=fff'}
+              <EnterpriseAvatar
+                src={userAvatar}
+                name={userName || 'User'}
+                size="xl"
+                className="!h-14 !w-14 border border-white/20 shadow-sm"
                 alt={userName || 'User'}
-                className="h-14 w-14 rounded-full border border-white/20 object-cover shadow-sm"
               />
               <div className="min-w-0">
                 <p className="truncate text-base font-semibold">{userName || 'Scrolith user'}</p>
@@ -649,9 +652,13 @@ export default function MobileHomeSheets({
                   className="flex w-full items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                      {avatarUrl ? <img src={avatarUrl} alt={name} className="h-full w-full object-cover" /> : null}
-                    </div>
+                    <EnterpriseAvatar
+                      src={avatarUrl}
+                      name={name}
+                      size="lg"
+                      className="!h-11 !w-11 border border-slate-200"
+                      alt={name}
+                    />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="truncate text-sm font-semibold text-slate-900">{name}</div>

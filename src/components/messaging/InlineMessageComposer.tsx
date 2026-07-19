@@ -273,7 +273,6 @@ const InlineMessageComposer: React.FC<InlineMessageComposerProps> = ({
               await onVoiceRecorded?.(blob, durationMs);
             }}
             onError={(message) => setLocalError(message)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
           />
         }
       />

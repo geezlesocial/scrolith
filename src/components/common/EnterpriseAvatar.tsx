@@ -29,7 +29,7 @@ type EnterpriseAvatarProps = {
 };
 
 /**
- * Phase 21.1.1 — Universal avatar: photo → initials → never blank white.
+ * Phase 21.1.2 — Universal avatar: uploaded/cached photo → deterministic initials → never blank white.
  */
 const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   user,
@@ -55,6 +55,12 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
 
   const [failed, setFailed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  // Reset failure when source identity changes so retries work after profile updates.
+  React.useEffect(() => {
+    setFailed(false);
+    setLoaded(false);
+  }, [resolvedSrc]);
+
   const dim = SIZE_MAP[size] || SIZE_MAP.md;
   const radius =
     rounded === 'full' ? 'rounded-full' : rounded === '2xl' ? 'rounded-2xl' : 'rounded-xl';
@@ -68,7 +74,7 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
       role="img"
       aria-label={alt || `${displayName} avatar`}
       data-testid="enterprise-avatar"
-      data-phase="21.1.1"
+      data-phase="21.1.2"
       data-has-image={showImage ? 'true' : 'false'}
     >
       {/* Initials always present underneath to avoid white flash */}

@@ -258,12 +258,18 @@ export const resolveListingMediaCandidates = (data: any): string[] => {
 };
 
 export const SafeAvatarName = (userLike: any, fallback = 'Member'): string => {
+  if (typeof userLike === 'string' || typeof userLike === 'number') {
+    const direct = SafeText(userLike, '');
+    if (direct) return direct;
+  }
   const name = SafeText(
     userLike?.displayName ||
       userLike?.name ||
       userLike?.fullName ||
       userLike?.full_name ||
-      [userLike?.firstName, userLike?.lastName].filter(Boolean).join(' ') ||
+      [userLike?.firstName || userLike?.first_name, userLike?.lastName || userLike?.last_name]
+        .filter(Boolean)
+        .join(' ') ||
       userLike?.username ||
       userLike?.handle,
     fallback
@@ -273,6 +279,16 @@ export const SafeAvatarName = (userLike: any, fallback = 'Member'): string => {
 
 /** Initials for avatar (1–2 chars). */
 export const SafeAvatarInitials = (userLike: any, fallback = '?'): string => {
+  if (typeof userLike === 'string' || typeof userLike === 'number') {
+    const cleaned = SafeText(userLike, '').replace(/[@._-]+/g, ' ').trim();
+    if (cleaned) {
+      const parts = cleaned.split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) {
+        return `${parts[0][0] || ''}${parts[1][0] || ''}`.toUpperCase().slice(0, 2) || fallback;
+      }
+      return cleaned.slice(0, 2).toUpperCase() || fallback;
+    }
+  }
   const name = SafeAvatarName(userLike, '');
   if (!name) return fallback;
   const cleaned = name.replace(/[@._-]+/g, ' ').trim();

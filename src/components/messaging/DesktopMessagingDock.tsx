@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, MessageSquare, RefreshCw } from 'lucide-react';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import {
   formatMessagingBadgeCount,
   isDesktopMessagingViewport,
@@ -321,15 +322,20 @@ const DesktopMessagingDock: React.FC = () => {
             }
           >
             <div className={`relative shrink-0 ${isIconOnly ? 'h-8 w-8' : 'h-7 w-7'}`}>
-              <div
-                className={`overflow-hidden rounded-full border border-white/20 bg-slate-700 ${
-                  isIconOnly ? 'h-8 w-8' : 'h-7 w-7'
-                }`}
-              >
+              <div className={isIconOnly ? 'h-8 w-8' : 'h-7 w-7'}>
                 {avatarUrl ? (
-                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                  <EnterpriseAvatar
+                    src={avatarUrl}
+                    name="Messaging"
+                    size={isIconOnly ? 'sm' : 'xs'}
+                    className={`border border-white/20 ${isIconOnly ? '!h-8 !w-8' : '!h-7 !w-7'}`}
+                  />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center">
+                  <div
+                    className={`flex items-center justify-center overflow-hidden rounded-full border border-white/20 bg-slate-700 ${
+                      isIconOnly ? 'h-8 w-8' : 'h-7 w-7'
+                    }`}
+                  >
                     <MessageSquare className={isIconOnly ? 'h-4 w-4' : 'h-3.5 w-3.5'} />
                   </div>
                 )}
@@ -381,10 +387,19 @@ const DesktopMessagingDock: React.FC = () => {
           >
             <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-900 px-2.5 py-2 text-white">
               <div className="relative h-7 w-7 shrink-0">
-                <div className="h-7 w-7 overflow-hidden rounded-full border border-white/20 bg-slate-700">
+                <div className="h-7 w-7">
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-                  ) : null}
+                    <EnterpriseAvatar
+                      src={avatarUrl}
+                      name="Messaging"
+                      size="xs"
+                      className="!h-7 !w-7 border border-white/20"
+                    />
+                  ) : (
+                    <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border border-white/20 bg-slate-700">
+                      <MessageSquare className="h-3.5 w-3.5" />
+                    </div>
+                  )}
                 </div>
                 <span
                   className="absolute bottom-0 right-0 h-2 w-2 rounded-full border-2 border-slate-900 bg-emerald-400"

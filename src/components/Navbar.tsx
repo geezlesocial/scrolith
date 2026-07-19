@@ -37,6 +37,7 @@ import { useMessages } from "../context/MessageContext";
 import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
+import EnterpriseAvatar from "./common/EnterpriseAvatar";
 import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
 import { HeaderMessagesPopover } from "./messaging";
@@ -922,11 +923,9 @@ const Navbar = () => {
     )
   );
   const avatarName = String(pick(uobj, 'name', 'username', 'email') ?? '');
+  // Phase 21.1.2 — raw photo URL only; EnterpriseAvatar handles initials fallback (no ui-avatars / blank white).
   const avatarUrl = resolveResponsiveAssetUrl(
-    String(
-      pick(uobj, 'avatar') ??
-      (avatarName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(avatarName)}&background=0D8ABC&color=fff` : '')
-    ),
+    String(pick(uobj, 'avatar') ?? ''),
     { width: 96, height: 96, fit: 'cover' }
   );
 
@@ -1660,24 +1659,14 @@ const Navbar = () => {
           aria-expanded={showProfileDropdown}
           aria-haspopup="menu"
         >
-          {avatarUrl ? (
-            <img
-              className="scrolith-header-profile__avatar"
-              src={avatarUrl}
-              alt=""
-              width={36}
-              height={36}
-              loading="lazy"
-              decoding="async"
-            />
-          ) : (
-            <div
-              className="scrolith-header-profile__avatar flex items-center justify-center bg-slate-200 text-xs font-bold text-slate-600"
-              aria-hidden="true"
-            >
-              {(avatarName || "U").slice(0, 1).toUpperCase()}
-            </div>
-          )}
+          <EnterpriseAvatar
+            user={user}
+            src={avatarUrl || undefined}
+            name={avatarName}
+            size="sm"
+            className="scrolith-header-profile__avatar !h-9 !w-9"
+            alt=""
+          />
           <span className="hidden max-w-[7.5rem] truncate text-sm font-semibold text-slate-800 2xl:block">
             {avatarName || "Account"}
           </span>

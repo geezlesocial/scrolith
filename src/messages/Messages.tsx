@@ -24,6 +24,7 @@ import { useContent } from '../context/ContentContext';
 import ProBadge from '../components/ProBadge';
 import { FileService } from '../services/files';
 import VoiceRecorder from './VoiceRecorder';
+import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 import VoiceCallModal from './VoiceCallModal';
 import { VoiceCallProvider, useVoiceCall } from './VoiceCallProvider';
 import { BriefsService } from '../services/briefs';
@@ -2691,28 +2692,43 @@ const Messages = () => {
           showNotification('error', 'Voice notes', 'Voice notes are disabled for this account.');
           return;
       }
+      if (!blob || Number(blob.size || 0) < 256) {
+          showNotification('error', 'Voice notes', 'Recording was empty or too short. Try again.');
+          return;
+      }
       setVoiceNoteBusy(true);
       try {
-          const extension = blob.type.includes('ogg') ? 'ogg' : 'webm';
+          const mime = String(blob.type || 'audio/webm').split(';')[0] || 'audio/webm';
+          const extension = mime.includes('ogg')
+            ? 'ogg'
+            : mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')
+              ? 'm4a'
+              : mime.includes('mpeg') || mime.includes('mp3')
+                ? 'mp3'
+                : 'webm';
           const file = new File([blob], `voice-note-${Date.now()}.${extension}`, {
-              type: blob.type || 'audio/webm'
+              type: mime
           });
           const uploaded = await FileService.uploadFile(file, 'document', {
               role: user.role,
               userId: user.id,
               visibility: 'private'
           });
+          const fileId = String(uploaded.id || uploaded.fileId || '').trim();
+          if (!fileId) {
+              throw new Error('Voice upload did not return a file id. Please retry.');
+          }
 
           const clientSendId = buildClientSendId(activeConvoId, Date.now());
           trackOutgoingMessage({
               clientSendId,
               conversationId: activeConvoId,
               text: 'Voice note',
-              attachmentIds: [String(uploaded.id || uploaded.fileId || '').trim()],
+              attachmentIds: [fileId],
               state: 'sending'
           });
           const message = await MessagingService.sendVoiceNote(activeConvoId, {
-              fileId: String(uploaded.id || uploaded.fileId || '').trim(),
+              fileId,
               durationMs: Math.max(1, Math.trunc(durationMs))
           });
           const reconciled = {
@@ -3249,7 +3265,7 @@ const Messages = () => {
                                                 }}
                                                 className="mr-3 rounded-full"
                                             >
-                                                <img
+                                                <EnterpriseAvatar
                                                     src={
                                                       resolveScrolithaAvatar(
                                                         isScrolithaConvo
@@ -3257,11 +3273,16 @@ const Messages = () => {
                                                           : participant
                                                       ) ||
                                                       participant?.avatar ||
-                                                      (isScrolithaConvo
-                                                        ? getScrolithaProfilePhotoUrl()
-                                                        : 'https://ui-avatars.com/api/?name=User')
+                                                      (isScrolithaConvo ? getScrolithaProfilePhotoUrl() : null)
                                                     }
-                                                    className={`w-10 h-10 rounded-full border object-cover ${isScrolithaConvo ? 'border-indigo-200 ring-2 ring-indigo-100' : 'border-gray-200'}`}
+                                                    name={participant?.name || (isScrolithaConvo ? 'Scrolitha' : 'User')}
+                                                    user={participant}
+                                                    size="md"
+                                                    className={
+                                                      isScrolithaConvo
+                                                        ? 'border border-indigo-200 ring-2 ring-indigo-100'
+                                                        : 'border border-gray-200'
+                                                    }
                                                     alt={participant?.name || 'Profile'}
                                                 />
                                             </button>
@@ -3401,7 +3422,7 @@ const Messages = () => {
                                     onClick={() => navigate(resolveParticipantProfileUrl(otherParticipant))}
                                     className="mr-3 rounded-full"
                                 >
-                                    <img
+                                    <EnterpriseAvatar
                                         src={
                                           resolveScrolithaAvatar(
                                             isActiveScrolithaConversation
@@ -3409,11 +3430,12 @@ const Messages = () => {
                                               : otherParticipant
                                           ) ||
                                           otherParticipant?.avatar ||
-                                          (isActiveScrolithaConversation
-                                            ? getScrolithaProfilePhotoUrl()
-                                            : 'https://ui-avatars.com/api/?name=User')
+                                          (isActiveScrolithaConversation ? getScrolithaProfilePhotoUrl() : null)
                                         }
-                                        className="h-9 w-9 rounded-full border border-gray-200 object-cover md:h-10 md:w-10"
+                                        name={otherParticipant?.name || (isActiveScrolithaConversation ? 'Scrolitha' : 'User')}
+                                        user={otherParticipant}
+                                        size="md"
+                                        className="border border-gray-200 !h-9 !w-9 md:!h-10 md:!w-10"
                                         alt={otherParticipant?.name || 'Profile'}
                                     />
                                 </button>

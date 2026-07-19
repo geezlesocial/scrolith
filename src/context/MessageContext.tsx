@@ -1073,17 +1073,32 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       sendingIdsRef.current.add(id);
       setSendingConversationIds((prev) => ({ ...prev, [id]: true }));
       try {
-        const extension = payload.blob.type.includes('ogg') ? 'ogg' : 'webm';
+        if (!payload.blob || Number(payload.blob.size || 0) < 256) {
+          throw new Error('Recording was empty or too short. Try again and speak for a moment.');
+        }
+        const mime = String(payload.blob.type || 'audio/webm').split(';')[0] || 'audio/webm';
+        const extension = mime.includes('ogg')
+          ? 'ogg'
+          : mime.includes('mp4') || mime.includes('m4a') || mime.includes('aac')
+            ? 'm4a'
+            : mime.includes('mpeg') || mime.includes('mp3')
+              ? 'mp3'
+              : 'webm';
         const file = new File([payload.blob], `voice-note-${Date.now()}.${extension}`, {
-          type: payload.blob.type || 'audio/webm'
+          type: mime
         });
+        // Prefer audio-capable category mapping; document remains valid backend fallback.
         const uploaded = await FileService.uploadFile(file, 'document', {
           role: user.role,
           userId: user.id,
           visibility: 'private'
         });
+        const fileId = String(uploaded.id || uploaded.fileId || '').trim();
+        if (!fileId) {
+          throw new Error('Voice upload did not return a file id. Please retry.');
+        }
         const message = await MessagingService.sendVoiceNote(id, {
-          fileId: String(uploaded.id || uploaded.fileId || '').trim(),
+          fileId,
           durationMs: Math.max(1, Math.trunc(payload.durationMs || 0))
         });
         seenMessageIdsRef.current.add(safeId(message.id));
