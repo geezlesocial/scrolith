@@ -15,6 +15,9 @@ import { resolvePostAttachmentMediaUrl } from '../../../utils/postAttachmentMedi
 import { buildScrolithaPath } from '../../../utils/scrolithaLaunch';
 import { RecoSignalChips } from '../../../components/feed/FeedIntelligenceSignals';
 import { resolveListingFitReasons } from '../../../utils/feedIntelligence';
+import { SafePrice, SafeText } from '../../../utils/safeRender';
+import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
+import EnterpriseImage from '../../../components/common/EnterpriseImage';
 
 type JobLike = {
   id: string;
@@ -71,27 +74,14 @@ type GigLike = {
 };
 
 const formatMoney = (value: any) => {
-  const amount =
-    typeof value === 'number'
-      ? value
-      : typeof value?.amount === 'number'
-        ? value.amount
-        : typeof value?.minAmount === 'number'
-          ? value.minAmount
-          : typeof value?.maxAmount === 'number'
-            ? value.maxAmount
-            : null;
-  if (amount === null) return null;
-  try {
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(amount);
-  } catch {
-    return String(amount);
-  }
+  const formatted = SafePrice(value, { maximumFractionDigits: 0 });
+  return formatted || null;
 };
 
 const firstString = (values: unknown[]): string => {
   for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
+    const text = SafeText(value);
+    if (text) return text;
   }
   return '';
 };
@@ -187,8 +177,8 @@ const isNestedInteractiveTarget = (target: EventTarget | null) => {
 };
 
 const buildListingScrolithaPrompt = (kind: 'jobs' | 'gigs', title: string, category: string) => {
-  const safeTitle = String(title || '').trim() || (kind === 'jobs' ? 'Job opportunity' : 'Service offer');
-  const safeCategory = String(category || '').trim() || (kind === 'jobs' ? 'Hiring' : 'Services');
+  const safeTitle = SafeText(title) || (kind === 'jobs' ? 'Job opportunity' : 'Service offer');
+  const safeCategory = SafeText(category) || (kind === 'jobs' ? 'Hiring' : 'Services');
   if (kind === 'jobs') {
     return `Improve this job listing summary for better applicant quality.\nTitle: ${safeTitle}\nCategory: ${safeCategory}`;
   }
@@ -299,12 +289,18 @@ export default function RecommendedListingCard({
                       to={href}
                   className="block text-base font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
                     >
-                      {job.title || 'Job opportunity'}
+                      {SafeText(job.title, 'Job opportunity')}
                     </Link>
                     <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      {job.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{job.category}</span> : null}
-                      {budget ? <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">${budget}</span> : null}
-                      {job.clientName ? <span className="break-words [overflow-wrap:anywhere]">by {job.clientName}</span> : null}
+                      {SafeText(job.category) ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5">{SafeText(job.category)}</span>
+                      ) : null}
+                      {budget ? (
+                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-emerald-700">{budget}</span>
+                      ) : null}
+                      {SafeText(job.clientName) ? (
+                        <span className="break-words [overflow-wrap:anywhere]">by {SafeText(job.clientName)}</span>
+                      ) : null}
                       {clientVerificationLevel ? (
                         <VerifiedBadge
                           size={16}
@@ -316,37 +312,27 @@ export default function RecommendedListingCard({
                       ) : null}
                     </div>
                   </div>
-                  <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                    {clientAvatar ? (
-                      <OptimizedImage
-                        src={clientAvatar}
-                        width={36}
-                        height={36}
-                        alt=""
-                        className="h-full w-full object-cover"
-                        onError={(event) => {
-                          (event.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : null}
-                  </div>
+                  <EnterpriseAvatar
+                    user={{
+                      name: job.clientName,
+                      avatarUrl: clientAvatar,
+                      profilePhotoFileId: job.clientProfilePhotoFileId
+                    }}
+                    size="sm"
+                  />
                 </div>
                 <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                  {canRenderImage ? (
-                    <OptimizedImage
-                      src={imageUrl}
-                      width={320}
-                      height={128}
-                      alt={job.title || 'Featured job'}
-                      className="h-40 w-full object-cover"
-                      onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
-                    />
-                  ) : (
-                    <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
-                      <ImageIcon className="h-4 w-4" />
-                      <span className="text-xs font-semibold uppercase tracking-wide">Job Image</span>
-                    </div>
-                  )}
+                  <EnterpriseImage
+                    src={canRenderImage ? imageUrl : null}
+                    candidates={[job.image, job.images]}
+                    alt={SafeText(job.title, 'Featured job')}
+                    width={320}
+                    height={160}
+                    aspectRatio="16 / 9"
+                    rounded="rounded-xl"
+                    placeholder="job"
+                    className="h-40 w-full"
+                  />
                 </Link>
                 <RecoSignalChips
                   reasons={resolveListingFitReasons(job, 'job')}
@@ -380,7 +366,15 @@ export default function RecommendedListingCard({
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Scrolitha recommendation</p>
                     <button
                       type="button"
-                      onClick={() => openScrolitha(buildListingScrolithaPrompt('jobs', String(job.title || ''), String(job.category || '')))}
+                      onClick={() =>
+                        openScrolitha(
+                          buildListingScrolithaPrompt(
+                            'jobs',
+                            SafeText(job.title, 'Job opportunity'),
+                            SafeText(job.category, 'Hiring')
+                          )
+                        )
+                      }
                       className="min-h-[32px] rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
                     >
                       Enhance
@@ -432,12 +426,18 @@ export default function RecommendedListingCard({
                     to={href}
                     className="block text-base font-semibold leading-snug text-slate-900 break-words [overflow-wrap:anywhere] hover:underline"
                   >
-                    {gig.title || 'Service offer'}
+                    {SafeText(gig.title, 'Service offer')}
                   </Link>
                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                    {gig.category ? <span className="rounded-full bg-slate-100 px-2 py-0.5">{gig.category}</span> : null}
-                    {price ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">${price}</span> : null}
-                    {gig.freelancerName ? <span className="break-words [overflow-wrap:anywhere]">by {gig.freelancerName}</span> : null}
+                    {SafeText(gig.category) ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5">{SafeText(gig.category)}</span>
+                    ) : null}
+                    {price ? (
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-700">{price}</span>
+                    ) : null}
+                    {SafeText(gig.freelancerName) ? (
+                      <span className="break-words [overflow-wrap:anywhere]">by {SafeText(gig.freelancerName)}</span>
+                    ) : null}
                     {freelancerVerificationLevel ? (
                       <VerifiedBadge
                         size={16}
@@ -453,9 +453,9 @@ export default function RecommendedListingCard({
                       <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700">
                         Trust {Math.round(freelancerTrustScore)}/100
                       </span>
-                      {freelancerTrustTier ? (
+                      {SafeText(freelancerTrustTier) ? (
                         <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-semibold capitalize text-blue-700">
-                          {freelancerTrustTier}
+                          {SafeText(freelancerTrustTier)}
                         </span>
                       ) : null}
                       {typeof freelancerCompletedJobs === 'number' && freelancerCompletedJobs > 0 ? (
@@ -464,37 +464,27 @@ export default function RecommendedListingCard({
                     </div>
                   ) : null}
                 </div>
-                <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100">
-                  {freelancerAvatar ? (
-                    <OptimizedImage
-                      src={freelancerAvatar}
-                      width={36}
-                      height={36}
-                      alt=""
-                      className="h-full w-full object-cover"
-                      onError={(event) => {
-                        (event.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  ) : null}
-                </div>
+                <EnterpriseAvatar
+                  user={{
+                    name: gig.freelancerName,
+                    avatarUrl: freelancerAvatar,
+                    profilePhotoFileId: gig.freelancerProfilePhotoFileId
+                  }}
+                  size="sm"
+                />
               </div>
               <Link to={href} className="mt-3 block overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                {canRenderImage ? (
-                  <OptimizedImage
-                    src={imageUrl}
-                    width={320}
-                    height={128}
-                    alt={gig.title || 'Featured gig'}
-                    className="h-40 w-full object-cover"
-                    onError={() => setFailedImages((prev) => ({ ...prev, [imageKey]: true }))}
-                  />
-                ) : (
-                  <div className="flex h-40 w-full items-center justify-center gap-2 bg-gradient-to-br from-slate-100 via-slate-50 to-white text-slate-500">
-                    <ImageIcon className="h-4 w-4" />
-                    <span className="text-xs font-semibold uppercase tracking-wide">Gig Image</span>
-                  </div>
-                )}
+                <EnterpriseImage
+                  src={canRenderImage ? imageUrl : null}
+                  candidates={[gig.image, gig.images]}
+                  alt={SafeText(gig.title, 'Featured gig')}
+                  width={320}
+                  height={160}
+                  aspectRatio="16 / 9"
+                  rounded="rounded-xl"
+                  placeholder="marketplace"
+                  className="h-40 w-full"
+                />
               </Link>
               <RecoSignalChips
                 reasons={resolveListingFitReasons(gig, 'gig')}
@@ -528,7 +518,15 @@ export default function RecommendedListingCard({
                   <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Scrolitha recommendation</p>
                   <button
                     type="button"
-                    onClick={() => openScrolitha(buildListingScrolithaPrompt('gigs', String(gig.title || ''), String(gig.category || '')))}
+                    onClick={() =>
+                      openScrolitha(
+                        buildListingScrolithaPrompt(
+                          'gigs',
+                          SafeText(gig.title, 'Service offer'),
+                          SafeText(gig.category, 'Services')
+                        )
+                      )
+                    }
                     className="rounded-full border border-emerald-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase text-emerald-700"
                   >
                     Enhance
