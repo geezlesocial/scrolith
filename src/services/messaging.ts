@@ -7,6 +7,7 @@ import {
   isRetryableWriteError
 } from '../mobile/runtime/requestRecovery';
 import { getConversationMergeKey, mergeDirectConversations } from './messagingMerge';
+import { formatConversationPreview } from './conversationPreview';
 
 export {
   getConversationMergeKey,
@@ -14,6 +15,13 @@ export {
   mergeDirectConversations,
   messageMatchesConversation
 } from './messagingMerge';
+export {
+  formatConversationPreview,
+  getConversationPreviewText,
+  getMessagePreviewText,
+  MESSAGE_PREVIEW_DEFAULTS,
+  MESSAGE_PREVIEW_KEYS
+} from './conversationPreview';
 
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
@@ -166,9 +174,18 @@ const normalizeParticipant = (participant: any) => {
 const normalizeConversation = (raw: any): Conversation => {
   const participants = safeArray<any>(raw?.participants).map(normalizeParticipant);
   const messages = safeArray<any>(raw?.messages).map(normalizeMessage);
-  const lastMessageFromMessages = messages[messages.length - 1]?.text ?? '';
   const lastMessageAtFromMessages = messages[messages.length - 1]?.timestamp ?? '';
-  const lastMessage = safeString(raw?.lastMessage ?? raw?.last_message ?? lastMessageFromMessages);
+  // Phase 20.7.7 — never treat media-only latest message as empty conversation.
+  // Prefer API last_message (attachment-aware), then recompute from latest message.
+  const storedPreview = safeString(raw?.lastMessage ?? raw?.last_message);
+  const recomputed = formatConversationPreview({
+    message: messages[messages.length - 1] || null,
+    fallbackPreview: storedPreview
+  });
+  const lastMessage =
+    recomputed.isEmpty && !storedPreview
+      ? ''
+      : safeString(recomputed.isEmpty ? storedPreview : recomputed.text || storedPreview);
   const lastMessageAt = safeString(
     raw?.lastMessageAt ?? raw?.last_message_at ?? lastMessageAtFromMessages
   );

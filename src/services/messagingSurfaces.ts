@@ -4,6 +4,13 @@
  */
 import type { Conversation, Message } from '../types';
 import { getConversationMergeKey } from './messagingMerge';
+import {
+  formatConversationPreview,
+  getConversationPreviewText,
+  getMessagePreviewText
+} from './conversationPreview';
+
+export { formatConversationPreview, getConversationPreviewText, getMessagePreviewText };
 
 /**
  * Phase 20.7 corrective patch: dedicated full-page messaging already provides the
@@ -542,30 +549,6 @@ export const getConversationAvatarParticipant = (
   );
 };
 
-export const getMessagePreviewText = (message: Message | null | undefined): string => {
-  if (!message) return '';
-  if (Boolean((message as any).isDeleted ?? (message as any).is_deleted)) {
-    return 'Message deleted';
-  }
-  const text = safeString(message.text);
-  if (text) return text;
-  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-  if (attachments.length > 0) {
-    const first = attachments[0] as any;
-    const type = safeString(first?.type ?? first?.mimeType).toLowerCase();
-    if (type.startsWith('image') || type === 'image') return 'Photo';
-    if (type.startsWith('video') || type === 'video') return 'Video';
-    if (type.startsWith('audio') || type === 'audio' || type === 'voice_note') return 'Voice message';
-    return 'Attachment';
-  }
-  const messageType = safeString(
-    (message as any).messageType ?? (message as any).message_type
-  ).toLowerCase();
-  if (messageType === 'voice_note') return 'Voice message';
-  if (messageType === 'file') return 'Attachment';
-  return '';
-};
-
 export const formatRelativeMessageTime = (value: unknown, nowMs = Date.now()): string => {
   const raw = safeString(value);
   if (!raw) return '';
@@ -756,7 +739,11 @@ export const applyIncomingPreviewUpdate = (
   const senderId = safeString((message as any).senderId ?? (message as any).sender_id);
   const isFromOther = Boolean(senderId && currentUserId && senderId !== currentUserId);
   const isActive = activeIds.has(conversationId);
-  const preview = getMessagePreviewText(message);
+  const previewFromPayload = safeString(
+    (message as any)?.lastMessage ?? (message as any)?.last_message
+  );
+  const preview =
+    previewFromPayload || getMessagePreviewText(message) || '';
   const timestamp = safeString(message.timestamp ?? (message as any).createdAt, new Date().toISOString());
   const messageId = safeString(message.id);
 
