@@ -878,7 +878,31 @@ const SupportWidget: React.FC = () => {
 
     try {
       if (isAuthenticated && user?.id) {
-        const payloadMessage = userMsg + (currentFile ? ` [Attached: ${currentFile.name}]` : '');
+        // Phase 20.7.6 — upload via secure Phase 20.6 pipeline and pass owned attachment IDs.
+        let attachmentFileIds: string[] = [];
+        if (currentFile) {
+          try {
+            const { FileService } = await import('../services/files');
+            const uploaded = await FileService.uploadFile(currentFile, 'document', {
+              visibility: 'private'
+            });
+            const fileId = String(
+              (uploaded as any)?.id || (uploaded as any)?.fileId || (uploaded as any)?.file_id || ''
+            ).trim();
+            if (fileId) {
+              attachmentFileIds = [fileId];
+              if (attachment) attachment.id = fileId;
+            }
+          } catch (uploadError) {
+            console.warn('[SupportWidget] secure attachment upload failed', uploadError);
+          }
+        }
+
+        const payloadMessage =
+          userMsg ||
+          (attachmentFileIds.length || currentFile
+            ? `Please review the attached file${currentFile ? ` (${currentFile.name})` : ''}.`
+            : '');
         const clientRequestId =
           typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
             ? crypto.randomUUID()
@@ -892,6 +916,7 @@ const SupportWidget: React.FC = () => {
           const data = await MessagingService.scrolithaUnifiedTurn({
             message: payloadMessage,
             clientRequestId,
+            attachmentFileIds,
             source: 'support_widget',
             stream: false
           });
