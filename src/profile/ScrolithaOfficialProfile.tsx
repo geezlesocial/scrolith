@@ -19,7 +19,7 @@ import api from '../services/api';
 import { MessagingService } from '../services/messaging';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
-import { getPublicAppOrigin } from '../utils/apiBase';
+import { getCanonicalAppOrigin } from '../utils/siteUrl';
 
 type Capability = {
   id: string;
@@ -73,7 +73,7 @@ const ScrolithaOfficialProfile: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [messaging, setMessaging] = useState(false);
 
-  const origin = useMemo(() => getPublicAppOrigin().replace(/\/$/, ''), []);
+  const origin = useMemo(() => getCanonicalAppOrigin().replace(/\/$/, ''), []);
 
   useEffect(() => {
     let cancelled = false;
