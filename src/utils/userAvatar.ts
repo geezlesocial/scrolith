@@ -1,5 +1,6 @@
 import { resolveAssetUrl } from './assetUrl';
 import { looksLikeFileId, resolveMediaDescriptor, resolvePostAttachmentMediaUrl } from './postAttachmentMedia';
+import { resolveScrolithaAvatar } from './scrolithaIdentity';
 
 const pickFirstString = (...values: unknown[]) => {
   for (const value of values) {
@@ -16,6 +17,10 @@ const pickFirstString = (...values: unknown[]) => {
  */
 export const resolveUserAvatarUrl = (userLike: any): string => {
   if (!userLike) return '';
+
+  // Phase 20.7.9 — official Scrolitha system photo everywhere
+  const scrolithaAvatar = resolveScrolithaAvatar(userLike);
+  if (scrolithaAvatar) return scrolithaAvatar;
 
   // Nested media objects first (logo/cover/avatar with url + fileId + storagePath).
   const nestedCandidates = [

@@ -8,6 +8,7 @@ import {
 } from '../mobile/runtime/requestRecovery';
 import { getConversationMergeKey, mergeDirectConversations } from './messagingMerge';
 import { formatConversationPreview } from './conversationPreview';
+import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
 
 export {
   getConversationMergeKey,
@@ -142,9 +143,14 @@ const normalizeParticipant = (participant: any) => {
   );
   return {
     id: safeString(participant?.id ?? participant?.userId ?? participant?.user_id),
-    name: safeString(participant?.name, 'Unknown'),
+    name: safeString(isScrolitha ? 'Scrolitha' : participant?.name, 'Unknown'),
     avatar: safeString(
-      participant?.avatar ?? participant?.avatar_url ?? (isScrolitha ? 'https://scrolith.com/icon-192.png' : '')
+      (isScrolitha
+        ? resolveScrolithaAvatar({ ...participant, isScrolitha: true }) || getScrolithaProfilePhotoUrl()
+        : null) ||
+        participant?.avatar ||
+        participant?.avatar_url ||
+        ''
     ),
     username: safeString(participant?.username),
     gender: safeString(participant?.gender),

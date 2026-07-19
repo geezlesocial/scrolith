@@ -37,6 +37,7 @@ import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
 import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversationMenu';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
+import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
 import {
   buildThreadTimeline,
@@ -3248,7 +3249,17 @@ const Messages = () => {
                                                 className="mr-3 rounded-full"
                                             >
                                                 <img
-                                                    src={participant?.avatar || (isScrolithaConvo ? 'https://scrolith.com/icon-192.png' : 'https://ui-avatars.com/api/?name=User')}
+                                                    src={
+                                                      resolveScrolithaAvatar(
+                                                        isScrolithaConvo
+                                                          ? { ...participant, isScrolitha: true }
+                                                          : participant
+                                                      ) ||
+                                                      participant?.avatar ||
+                                                      (isScrolithaConvo
+                                                        ? getScrolithaProfilePhotoUrl()
+                                                        : 'https://ui-avatars.com/api/?name=User')
+                                                    }
                                                     className={`w-10 h-10 rounded-full border object-cover ${isScrolithaConvo ? 'border-indigo-200 ring-2 ring-indigo-100' : 'border-gray-200'}`}
                                                     alt={participant?.name || 'Profile'}
                                                 />
@@ -3389,7 +3400,17 @@ const Messages = () => {
                                     className="mr-3 rounded-full"
                                 >
                                     <img
-                                        src={otherParticipant?.avatar || 'https://ui-avatars.com/api/?name=User'}
+                                        src={
+                                          resolveScrolithaAvatar(
+                                            isActiveScrolithaConversation
+                                              ? { ...otherParticipant, isScrolitha: true }
+                                              : otherParticipant
+                                          ) ||
+                                          otherParticipant?.avatar ||
+                                          (isActiveScrolithaConversation
+                                            ? getScrolithaProfilePhotoUrl()
+                                            : 'https://ui-avatars.com/api/?name=User')
+                                        }
                                         className="h-9 w-9 rounded-full border border-gray-200 object-cover md:h-10 md:w-10"
                                         alt={otherParticipant?.name || 'Profile'}
                                     />
