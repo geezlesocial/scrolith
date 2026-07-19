@@ -1026,14 +1026,31 @@ export const getUserByUsername = async (req: Request, res: Response) => {
     if (!user) return fail(res, 404, 'User not found', 'ERR_NOT_FOUND');
 
     const pro = resolveUserProStatus(user);
+    // Phase 20.7.8 — official Scrolitha system identity (no internal email)
+    let isScrolitha = false;
+    try {
+      const { isScrolithaPlatformUserId, isScrolithaUsername } = await import(
+        '../services/scrolitha/scrolitha.platformIdentity'
+      );
+      isScrolitha =
+        isScrolithaUsername(user.username) || (await isScrolithaPlatformUserId(user.id));
+    } catch {
+      isScrolitha = String(user.username || '').toLowerCase() === 'scrolitha';
+    }
     return ok(res, {
       id: user.id,
       name: user.name || '',
-      email: user.email,
+      email: isScrolitha ? '' : user.email,
       username: user.username || '',
       avatar: user.avatar || '',
       profile_photo_file_id: user.profilePhotoFileId || null,
-      role: user.role,
+      role: isScrolitha ? 'SYSTEM_AI' : user.role,
+      is_scrolitha: isScrolitha,
+      isScrolitha,
+      identity_type: isScrolitha ? 'system_ai' : 'user',
+      identityType: isScrolitha ? 'system_ai' : 'user',
+      is_verified: isScrolitha ? true : undefined,
+      isVerified: isScrolitha ? true : undefined,
       country: user.country || '',
       created_at: user.createdAt.toISOString(),
       kyc_status: user.kycStatus ? user.kycStatus.toString().toLowerCase() : undefined,

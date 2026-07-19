@@ -188,57 +188,53 @@ export const scrolithaWorkOsPlanController = async (req: Request, res: Response)
   }
 };
 
+/**
+ * Phase 20.7.8 — Public official Scrolitha profile / accuracy manifest (auth optional).
+ * No secrets, raw flag names, or provider credentials.
+ */
+export const scrolithaPublicProfileController = async (req: Request, res: Response) => {
+  try {
+    const { buildScrolithaPublicProfile } = await import('../services/scrolitha/scrolitha.publicProfile');
+    const actor = req.user?.id ? resolveActorFromRequest(req) : null;
+    const data = await buildScrolithaPublicProfile(actor);
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return sendScrolithaPublicError(res, 'Failed to load Scrolitha public profile', error, {
+      logLabel: 'public profile error'
+    });
+  }
+};
+
+export const scrolithaPublicInfoController = scrolithaPublicProfileController;
+
+export const scrolithaMessageSecurityController = async (_req: Request, res: Response) => {
+  try {
+    const { getScrolithaMessageSecurityStatus } = await import('../services/scrolitha/scrolitha.publicProfile');
+    return res.json({ success: true, data: getScrolithaMessageSecurityStatus() });
+  } catch (error: any) {
+    return sendScrolithaPublicError(res, 'Failed to load Scrolitha security status', error, {
+      logLabel: 'security status error'
+    });
+  }
+};
+
 export const scrolithaPlatformIdentityController = async (req: Request, res: Response) => {
   try {
     const { ensureScrolithaPlatformUser } = await import('../services/scrolitha/scrolitha.platformIdentity');
     const { resolveContextualFeatureFlags } = await import('../services/scrolitha/scrolitha.contextualPost');
+    const { buildScrolithaPublicProfile } = await import('../services/scrolitha/scrolitha.publicProfile');
     const identity = await ensureScrolithaPlatformUser();
     const actor = req.user?.id ? resolveActorFromRequest(req) : null;
     const flags = await resolveContextualFeatureFlags(actor);
+    const publicProfile = await buildScrolithaPublicProfile(actor);
     return res.json({
       success: true,
       data: {
         ...identity,
-        capabilities: [
-          'explain',
-          'summarize',
-          'verify_claim',
-          'key_points',
-          'clarify',
-          'suggest_reply',
-          'follow_up',
-          'risk_highlight',
-          'freshness',
-          'platform_graph',
-          'multi_source_context',
-          'session_memory',
-          'cross_feature_assist',
-          'adaptive_recommendations',
-          'moderation_assist',
-          'skills_framework',
-          'workflow_orchestration',
-          'context_ranking',
-          'confidence_engine',
-          'explainability',
-          'event_intelligence',
-          'enterprise_cache',
-          'intelligence_os',
-          'context_fusion',
-          'action_cards',
-          'deep_search',
-          'adaptive_surface',
-          'module_collaboration'
-        ],
-        limitations: [
-          'Does not present unsupported statements as verified fact',
-          'External web search is not available',
-          'Cannot access private content outside the requesting user’s permissions',
-          'Not a substitute for legal, medical, or financial advice',
-          'Session memory is short-lived and discarded automatically',
-          'Moderation assist never auto-removes content',
-          'Event intelligence does not auto-post replies without user invocation',
-          'Incremental rendering uses answer chunking, not provider token streaming'
-        ],
+        officialProfile: publicProfile,
+        capabilities: publicProfile.capabilities.map((c) => c.id),
+        capabilityDetails: publicProfile.capabilities,
+        limitations: publicProfile.limitations,
         featureFlags: {
           enabled: flags.enabled,
           proactiveSuggestions: flags.proactiveSuggestions

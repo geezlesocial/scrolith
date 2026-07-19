@@ -1857,6 +1857,36 @@ export const updateConversationPreferences = async (req: Request, res: Response)
       return res.status(404).json({ success: false, error: 'Conversation not found' });
     }
 
+    // Phase 20.7.8 — peer controls blocked for canonical Scrolitha conversation
+    const { isCanonicalScrolithaConversation, SCROLITHA_PEER_CONTROL_BLOCKED } = await import(
+      '../services/scrolitha/scrolitha.conversationPolicy'
+    );
+    if (await isCanonicalScrolithaConversation(conversationId)) {
+      const blockedKeys = ['label', 'isMuted', 'isArchived', 'isStarred'].filter(
+        (key) => req.body?.[key] !== undefined
+      );
+      // Allow keeping star true; block mute/archive/label/unstar
+      const peerMutation =
+        req.body?.label !== undefined ||
+        req.body?.isMuted !== undefined ||
+        req.body?.isArchived !== undefined ||
+        (req.body?.isStarred !== undefined && req.body.isStarred === false);
+      if (peerMutation || blockedKeys.length) {
+        if (
+          req.body?.label !== undefined ||
+          req.body?.isMuted !== undefined ||
+          req.body?.isArchived !== undefined ||
+          (req.body?.isStarred !== undefined && Boolean(req.body.isStarred) === false)
+        ) {
+          return res.status(403).json({
+            success: false,
+            error: SCROLITHA_PEER_CONTROL_BLOCKED,
+            code: 'SCROLITHA_SYSTEM_CONVERSATION_PROTECTED'
+          });
+        }
+      }
+    }
+
     const updates: any = {};
     if (req.body?.label !== undefined) {
       const normalizedLabel = String(req.body.label || '').trim().toLowerCase();
@@ -1904,6 +1934,16 @@ export const markConversationUnread = async (req: Request, res: Response) => {
 
     const conversationId = req.params.id;
     traceMessageEvent('api.mark_unread.request', { conversationId, userId });
+    const { isCanonicalScrolithaConversation, SCROLITHA_PEER_CONTROL_BLOCKED } = await import(
+      '../services/scrolitha/scrolitha.conversationPolicy'
+    );
+    if (await isCanonicalScrolithaConversation(conversationId)) {
+      return res.status(403).json({
+        success: false,
+        error: SCROLITHA_PEER_CONTROL_BLOCKED,
+        code: 'SCROLITHA_SYSTEM_CONVERSATION_PROTECTED'
+      });
+    }
     const participant = await prisma.conversationParticipant.findUnique({
       where: {
         conversationId_userId: {
@@ -1945,6 +1985,16 @@ export const deleteConversationForUser = async (req: Request, res: Response) => 
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
     const conversationId = req.params.id;
+    const { isCanonicalScrolithaConversation, SCROLITHA_PEER_CONTROL_BLOCKED } = await import(
+      '../services/scrolitha/scrolitha.conversationPolicy'
+    );
+    if (await isCanonicalScrolithaConversation(conversationId)) {
+      return res.status(403).json({
+        success: false,
+        error: SCROLITHA_PEER_CONTROL_BLOCKED,
+        code: 'SCROLITHA_SYSTEM_CONVERSATION_PROTECTED'
+      });
+    }
     const participant = await prisma.conversationParticipant.findUnique({
       where: {
         conversationId_userId: {
@@ -2704,5 +2754,160 @@ export const deleteMessage = async (req: Request, res: Response) => {
       error: String(error?.message || error)
     });
     return res.status(500).json({ success: false, error: error.message || 'Failed to delete message' });
+  }
+};
+
+/** Phase 20.7.8 — Conversation attachment browser (member-scoped, no storage keys). */
+export const listConversationAttachments = async (req: Request, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const conversationId = String(req.params.id || '').trim();
+    if (!conversationId) return res.status(400).json({ success: false, error: 'conversationId required' });
+
+    const membership = await prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } }
+    });
+    if (!membership || membership.deletedAt) {
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+
+    const typeFilter = String(req.query?.type || 'all').toLowerCase();
+    const limit = Math.max(1, Math.min(50, Number(req.query?.limit || 30) || 30));
+    const cursor = String(req.query?.cursor || '').trim();
+
+    const messages = await prisma.directMessage.findMany({
+      where: {
+        conversationId,
+        deletedAt: null,
+        NOT: { attachments: { equals: [] } },
+        ...(cursor
+          ? {
+              createdAt: {
+                lt: Number.isFinite(Date.parse(cursor)) ? new Date(cursor) : new Date(0)
+              }
+            }
+          : {})
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(200, limit * 4 + 1),
+      select: {
+        id: true,
+        senderId: true,
+        attachments: true,
+        createdAt: true,
+        text: true,
+        messageType: true,
+        metadata: true
+      }
+    });
+
+    const withAttachments = messages.filter((m) => Array.isArray(m.attachments) && m.attachments.length > 0);
+    const allIds = withAttachments.flatMap((m) => m.attachments || []);
+    const fileMap = await buildAttachmentMap(allIds);
+
+    const items: any[] = [];
+    for (const msg of withAttachments) {
+      const mapped = mapAttachments(msg.attachments || [], fileMap);
+      for (const att of mapped) {
+        if (!att) continue;
+        const mime = String((att as any).mimeType || '').toLowerCase();
+        const kind = String((att as any).type || '').toLowerCase();
+        let category = 'document';
+        if (mime.startsWith('image/') || kind === 'image') category = 'photo';
+        else if (mime.startsWith('video/') || kind === 'video') category = 'video';
+        else if (mime.startsWith('audio/') || kind === 'audio' || kind === 'voice_note') category = 'audio';
+        else if (mime === 'application/pdf') category = 'document';
+
+        if (typeFilter === 'photos' && category !== 'photo') continue;
+        if (typeFilter === 'videos' && category !== 'video') continue;
+        if (typeFilter === 'audio' && category !== 'audio') continue;
+        if (typeFilter === 'documents' && category !== 'document') continue;
+
+        items.push({
+          id: (att as any).id,
+          fileId: (att as any).fileId || (att as any).id,
+          messageId: msg.id,
+          conversationId,
+          senderId: msg.senderId,
+          name: (att as any).name || (att as any).originalName || 'Attachment',
+          mimeType: (att as any).mimeType || null,
+          type: category,
+          size: Number((att as any).size || 0) || null,
+          createdAt: msg.createdAt.toISOString(),
+          // Auth content path only — no permanent public URL / storage key
+          contentUrl: (att as any).contentUrl || `/api/files/content/${encodeURIComponent(String((att as any).id))}`,
+          thumbnailUrl: (att as any).thumbnailUrl || null
+        });
+        if (items.length > limit) break;
+      }
+      if (items.length > limit) break;
+    }
+
+    const hasMore = items.length > limit;
+    const pageItems = items.slice(0, limit);
+
+    const { isCanonicalScrolithaConversation } = await import('../services/scrolitha/scrolitha.conversationPolicy');
+    const isScrolitha = await isCanonicalScrolithaConversation(conversationId);
+
+    return res.json({
+      success: true,
+      data: {
+        conversationId,
+        isScrolitha,
+        items: pageItems,
+        pagination: {
+          limit,
+          hasMore,
+          nextCursor:
+            hasMore && pageItems.length ? pageItems[pageItems.length - 1].createdAt : null
+        }
+      }
+    });
+  } catch (error: any) {
+    console.error('List conversation attachments error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to list attachments' });
+  }
+};
+
+/** Phase 20.7.8 — Honest message security status for a conversation. */
+export const getConversationSecurityStatus = async (req: Request, res: Response) => {
+  try {
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const conversationId = String(req.params.id || '').trim();
+    if (!conversationId) return res.status(400).json({ success: false, error: 'conversationId required' });
+
+    const membership = await prisma.conversationParticipant.findUnique({
+      where: { conversationId_userId: { conversationId, userId } }
+    });
+    if (!membership || membership.deletedAt) {
+      return res.status(404).json({ success: false, error: 'Conversation not found' });
+    }
+
+    const { isCanonicalScrolithaConversation } = await import('../services/scrolitha/scrolitha.conversationPolicy');
+    const { getScrolithaMessageSecurityStatus } = await import('../services/scrolitha/scrolitha.publicProfile');
+    const isScrolitha = await isCanonicalScrolithaConversation(conversationId);
+    const base = getScrolithaMessageSecurityStatus();
+
+    return res.json({
+      success: true,
+      data: {
+        conversationId,
+        isScrolitha,
+        ...base,
+        // Human DMs also lack client E2EE under current architecture
+        appliesToHumanDm: !isScrolitha
+          ? {
+              e2eeImplemented: false,
+              note: 'Standard Scrolith direct messages use protected transport (HTTPS/TLS) and server-side storage. End-to-end encryption verification is not available.'
+            }
+          : undefined
+      }
+    });
+  } catch (error: any) {
+    console.error('Conversation security status error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to load security status' });
   }
 };
