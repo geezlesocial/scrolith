@@ -13,6 +13,7 @@ import {
   deleteScroll,
   deleteScrollComment,
   getScrollFeed,
+  getScrollById,
   getScrollSeriesDetail,
   getScrollComments,
   engageScroll,
@@ -33,6 +34,8 @@ router.post('/series', authMiddleware, createScrollSeries);
 router.get('/series/:id', authMiddleware, getScrollSeriesDetail);
 router.put('/series/:id', authMiddleware, updateScrollSeries);
 router.delete('/series/:id', authMiddleware, deleteScrollSeries);
+// Phase 22.1B — single video deep link (before /:id/comments)
+router.get('/:id', authMiddleware, getScrollById);
 router.get('/:id/comments', authMiddleware, getScrollComments);
 router.put('/:id', authMiddleware, updateScroll);
 router.delete('/:id', authMiddleware, deleteScroll);

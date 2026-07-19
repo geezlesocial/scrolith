@@ -1709,6 +1709,60 @@ export const getScrollFeed = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Phase 22.1B — resolve one Scroll video by id for deep links (recommendation cards).
+ * GET /scroll/:id
+ */
+export const getScrollById = async (req: Request, res: Response) => {
+  try {
+    const scrollId = String(req.params.id || '').trim();
+    const userId = String((req as any)?.user?.id || '').trim() || null;
+    if (!scrollId) {
+      return res.status(400).json({ success: false, error: 'Scroll id required', code: 'SCROLL_ID_REQUIRED' });
+    }
+    const prismaAny = prisma as any;
+    const row = await prismaAny.scrollVideo.findUnique({
+      where: { id: scrollId },
+      select: scrollVideoListSelect
+    });
+    if (!row) {
+      return res.status(404).json({
+        success: false,
+        error: 'This video is no longer available.',
+        code: 'SCROLL_NOT_FOUND'
+      });
+    }
+    const privileged = isPrivilegedUser((req as any)?.user);
+    const access = await canAccessScroll(row, userId, privileged);
+    if (!access.ok) {
+      return res.status(access.status).json({
+        success: false,
+        error: access.error || 'This video is no longer available.',
+        code: access.status === 403 ? 'SCROLL_FORBIDDEN' : 'SCROLL_UNAVAILABLE'
+      });
+    }
+    const payload = await fetchScrollPayload(req, row, userId);
+    if (!payload) {
+      return res.status(404).json({
+        success: false,
+        error: 'This video is no longer available.',
+        code: 'SCROLL_NOT_FOUND'
+      });
+    }
+    return res.json({ success: true, data: payload });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('getScrollById error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load Scroll video.' });
+  }
+};
+
 export const markScrollInterested = async (req: Request, res: Response) => {
   try {
     const scrollId = String(req.params.id || '').trim();
