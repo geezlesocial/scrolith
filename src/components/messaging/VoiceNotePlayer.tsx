@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Download, Loader2, Pause, Play, RefreshCw } from 'lucide-react';
-import { formatVoiceDuration } from '../../utils/voiceRecording';
+import { formatVoiceDuration, logVoiceDiagnostic } from '../../utils/voiceRecording';
 
 type VoiceNotePlayerProps = {
   src: string;
@@ -8,13 +8,14 @@ type VoiceNotePlayerProps = {
   name?: string;
   outgoing?: boolean;
   onDownload?: () => void;
+  onRequestRefreshSrc?: () => Promise<string | null | void> | string | null | void;
   className?: string;
 };
 
 const SPEEDS = [1, 1.5, 2] as const;
 
 /**
- * Phase 21.1.2 — enterprise voice-note playback (seek, speed, retry, download).
+ * Phase 21.1.2R — enterprise voice-note playback with retry + media error capture.
  */
 const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
   src,
@@ -22,15 +23,18 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
   name = 'Voice note',
   outgoing = false,
   onDownload,
+  onRequestRefreshSrc,
   className = ''
 }) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [activeSrc, setActiveSrc] = useState(src);
   const [playing, setPlaying] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [durationMs, setDurationMs] = useState(Math.max(0, durationMsHint));
   const [speedIdx, setSpeedIdx] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const autoRetriedRef = useRef(false);
 
   const shell = outgoing
     ? 'border-white/25 bg-white/10 text-white'
@@ -40,9 +44,27 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
   const track = outgoing ? 'bg-white/25' : 'bg-slate-200';
 
   useEffect(() => {
+    setActiveSrc(src);
+    autoRetriedRef.current = false;
+  }, [src]);
+
+  useEffect(() => {
+    if (!activeSrc) {
+      setLoading(false);
+      setError('Audio unavailable');
+      return;
+    }
+
     const audio = new Audio();
     audio.preload = 'metadata';
-    audio.src = src;
+    try {
+      (audio as any).playsInline = true;
+      audio.setAttribute('playsinline', 'true');
+    } catch {
+      // ignore
+    }
+    // Blob/object URLs from messaging media do not need CORS; leave crossOrigin unset.
+    audio.src = activeSrc;
     audioRef.current = audio;
     setLoading(true);
     setError(null);
@@ -66,9 +88,53 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
       }
     };
     const onErr = () => {
+      const mediaError = audio.error;
+      const code = mediaError?.code;
+      const detail =
+        code === 1
+          ? 'aborted'
+          : code === 2
+            ? 'network'
+            : code === 3
+              ? 'decode'
+              : code === 4
+                ? 'src_not_supported'
+                : 'unknown';
+      logVoiceDiagnostic({
+        stage: 'playback_error',
+        category: detail === 'decode' || detail === 'src_not_supported' ? 'codec_failed' : 'playback_failed',
+        technical: `MediaError ${code || 0} ${detail}`
+      } as any);
       setLoading(false);
       setPlaying(false);
-      setError('Playback failed. Tap retry.');
+
+      // Auto-retry once (refresh URL if possible)
+      if (!autoRetriedRef.current) {
+        autoRetriedRef.current = true;
+        void (async () => {
+          try {
+            if (onRequestRefreshSrc) {
+              const next = await onRequestRefreshSrc();
+              if (next && String(next) !== activeSrc) {
+                setActiveSrc(String(next));
+                return;
+              }
+            }
+            // Hard reload same src
+            audio.load();
+            setLoading(true);
+            setError(null);
+          } catch {
+            setError('Playback failed. Tap retry.');
+          }
+        })();
+        return;
+      }
+      setError(
+        detail === 'src_not_supported' || detail === 'decode'
+          ? 'This voice note format is not supported on this device. Try download.'
+          : 'Playback failed. Tap retry.'
+      );
     };
     const onCanPlay = () => setLoading(false);
 
@@ -86,10 +152,14 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
       audio.removeEventListener('error', onErr);
       audio.removeEventListener('canplay', onCanPlay);
       audio.removeAttribute('src');
-      audio.load();
+      try {
+        audio.load();
+      } catch {
+        // ignore
+      }
       audioRef.current = null;
     };
-  }, [src]);
+  }, [activeSrc, onRequestRefreshSrc]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -99,7 +169,7 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
 
   const togglePlay = useCallback(async () => {
     const audio = audioRef.current;
-    if (!audio || error) return;
+    if (!audio) return;
     if (playing) {
       audio.pause();
       setPlaying(false);
@@ -109,11 +179,16 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
       setError(null);
       await audio.play();
       setPlaying(true);
-    } catch {
-      setError('Unable to play. Check permissions and retry.');
+    } catch (err: any) {
+      logVoiceDiagnostic({
+        stage: 'playback_play_reject',
+        category: 'playback_failed',
+        technical: String(err?.name || err?.message || 'play_failed')
+      } as any);
+      setError('Unable to play. Tap retry.');
       setPlaying(false);
     }
-  }, [playing, error]);
+  }, [playing]);
 
   const seek = (ratio: number) => {
     const audio = audioRef.current;
@@ -123,25 +198,40 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
     setCurrentMs(Math.round(next * 1000));
   };
 
-  const retry = () => {
-    const audio = audioRef.current;
-    if (!audio) return;
+  const retry = async () => {
     setError(null);
     setLoading(true);
+    autoRetriedRef.current = false;
     try {
-      audio.load();
-      void audio.play().then(() => setPlaying(true)).catch(() => {
-        setPlaying(false);
-        setError('Playback failed. Tap retry.');
-      });
+      if (onRequestRefreshSrc) {
+        const next = await onRequestRefreshSrc();
+        if (next) {
+          setActiveSrc(String(next));
+          return;
+        }
+      }
+      const audio = audioRef.current;
+      if (audio) {
+        audio.load();
+        try {
+          await audio.play();
+          setPlaying(true);
+          setLoading(false);
+        } catch {
+          setPlaying(false);
+          setLoading(false);
+          setError('Playback failed. Tap retry.');
+        }
+      } else {
+        setActiveSrc(`${src}${src.includes('?') ? '&' : '?'}retry=${Date.now()}`);
+      }
     } catch {
-      setError('Playback failed. Tap retry.');
       setLoading(false);
+      setError('Playback failed. Tap retry.');
     }
   };
 
   const progress = durationMs > 0 ? Math.min(1, currentMs / durationMs) : 0;
-  // Simple 12-bar pseudo-waveform (deterministic by duration) for polish without analyzing audio.
   const bars = Array.from({ length: 24 }, (_, i) => {
     const wave = 0.35 + 0.55 * Math.abs(Math.sin((i + 1) * 0.7 + (durationMs % 17) * 0.1));
     return wave;
@@ -151,7 +241,7 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
     <div
       className={`flex w-full min-w-[12rem] max-w-sm flex-col gap-1.5 rounded-2xl border px-3 py-2.5 ${shell} ${className}`}
       data-testid="voice-note-player"
-      data-phase="21.1.2"
+      data-phase="21.1.2R"
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex items-center gap-2">
@@ -172,7 +262,7 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
           ) : playing ? (
             <Pause className="h-4 w-4" />
           ) : (
-            <Play className="h-4 w-4 ml-0.5" />
+            <Play className="ml-0.5 h-4 w-4" />
           )}
         </button>
 
@@ -231,11 +321,14 @@ const VoiceNotePlayer: React.FC<VoiceNotePlayerProps> = ({
       </div>
 
       {error ? (
-        <div className={`flex items-center gap-2 text-[11px] ${outgoing ? 'text-amber-100' : 'text-amber-800'}`} role="status">
+        <div
+          className={`flex items-center gap-2 text-[11px] ${outgoing ? 'text-amber-100' : 'text-amber-800'}`}
+          role="status"
+        >
           <span className="flex-1">{error}</span>
           <button
             type="button"
-            onClick={retry}
+            onClick={() => void retry()}
             className="inline-flex items-center gap-1 font-semibold underline"
             aria-label="Retry playback"
           >

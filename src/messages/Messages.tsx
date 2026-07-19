@@ -2692,7 +2692,7 @@ const Messages = () => {
           showNotification('error', 'Voice notes', 'Voice notes are disabled for this account.');
           return;
       }
-      if (!blob || Number(blob.size || 0) < 256) {
+      if (!blob || Number(blob.size || 0) < 32) {
           showNotification('error', 'Voice notes', 'Recording was empty or too short. Try again.');
           return;
       }

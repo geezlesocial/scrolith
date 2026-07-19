@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import OptimizedImage from '../media/OptimizedImage';
-import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import {
+  profilePhotoDebugLabel,
+  resolveProfilePhotoCandidates
+} from '../../utils/profilePhoto';
 import {
   SafeAvatarColor,
   SafeAvatarInitials,
@@ -29,7 +32,9 @@ type EnterpriseAvatarProps = {
 };
 
 /**
- * Phase 21.1.2 — Universal avatar: uploaded/cached photo → deterministic initials → never blank white.
+ * Phase 21.1.2R — photo-first avatar.
+ * Initials are an underlay while loading and a fallback only after all candidates fail.
+ * Never permanently hide a valid photo because of one temporary failure.
  */
 const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   user,
@@ -47,56 +52,92 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   const initials = SafeAvatarInitials(name || user || displayName, 'M');
   const seed = SafeText(user?.id || user?.username || displayName, displayName);
   const colors = SafeAvatarColor(seed);
-  const resolvedSrc =
-    SafeText(src) ||
-    resolveUserAvatarUrl(user) ||
-    resolveUserAvatarUrl(src) ||
-    '';
 
-  const [failed, setFailed] = useState(false);
+  const candidates = useMemo(
+    () => resolveProfilePhotoCandidates({ user, src, name: displayName }),
+    // Recompute when identity-ish fields change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      src,
+      user,
+      user?.id,
+      user?.avatar,
+      user?.avatarUrl,
+      user?.avatar_url,
+      user?.profilePhotoFileId,
+      user?.avatarFileId,
+      displayName
+    ]
+  );
+
+  const [candidateIndex, setCandidateIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
-  // Reset failure when source identity changes so retries work after profile updates.
-  React.useEffect(() => {
-    setFailed(false);
+  const [failedAll, setFailedAll] = useState(false);
+
+  useEffect(() => {
+    setCandidateIndex(0);
     setLoaded(false);
-  }, [resolvedSrc]);
+    setFailedAll(false);
+  }, [candidates.join('|')]);
+
+  const activeSrc = !failedAll && candidates.length > 0 ? candidates[candidateIndex] || '' : '';
+  const showImage = Boolean(activeSrc);
 
   const dim = SIZE_MAP[size] || SIZE_MAP.md;
   const radius =
     rounded === 'full' ? 'rounded-full' : rounded === '2xl' ? 'rounded-2xl' : 'rounded-xl';
 
-  const showImage = Boolean(resolvedSrc) && !failed;
+  const onImageError = () => {
+    setLoaded(false);
+    const next = candidateIndex + 1;
+    if (next < candidates.length) {
+      setCandidateIndex(next);
+      return;
+    }
+    // Temporary network blip: do not permanently mark failedAll for single-candidate
+    // unless there is truly no next URL. Callers can remount with new src later.
+    setFailedAll(true);
+  };
 
   return (
     <div
       className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold ${dim.className} ${radius} ${className}`}
-      style={{ backgroundColor: colors.bg, color: colors.fg }}
+      style={{
+        // Once photo is loaded, solid photo covers fully — keep neutral underlay color only for initials mode
+        backgroundColor: loaded && showImage ? 'transparent' : colors.bg,
+        color: colors.fg
+      }}
       role="img"
       aria-label={alt || `${displayName} avatar`}
       data-testid="enterprise-avatar"
-      data-phase="21.1.2"
+      data-phase="21.1.2R"
       data-has-image={showImage ? 'true' : 'false'}
+      data-avatar-state={profilePhotoDebugLabel(candidates, loaded, failedAll || !candidates.length)}
     >
-      {/* Initials always present underneath to avoid white flash */}
-      <span className={`select-none ${dim.text} leading-none`} aria-hidden={showImage}>
+      {/* Initials underlay: hidden once a valid photo has decoded */}
+      <span
+        className={`select-none ${dim.text} leading-none transition-opacity duration-150 ${
+          loaded && showImage ? 'opacity-0' : 'opacity-100'
+        }`}
+        aria-hidden={loaded && showImage}
+      >
         {initials}
       </span>
       {showImage ? (
         <OptimizedImage
-          src={resolvedSrc}
+          key={activeSrc}
+          src={activeSrc}
           alt={alt || displayName}
           width={dim.px}
           height={dim.px}
+          disableSrcSet
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
             loaded ? 'opacity-100' : 'opacity-0'
           }`}
           loading="lazy"
           decoding="async"
           onLoad={() => setLoaded(true)}
-          onError={() => {
-            setFailed(true);
-            setLoaded(false);
-          }}
+          onError={onImageError}
         />
       ) : null}
     </div>

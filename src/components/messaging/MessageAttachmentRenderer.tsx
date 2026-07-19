@@ -175,16 +175,16 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
   }, []);
 
   const loadMedia = useCallback(
-    async (force = false) => {
+    async (force = false): Promise<string | null> => {
       const current = normalizeMessageAttachment(attachmentRef.current, {
         forceVoiceNote: forceVoiceNoteRef.current
       });
-      if (!current) return;
+      if (!current) return null;
       if (!current.canPreview && current.type !== 'document' && current.type !== 'generic_file') {
-        return;
+        return null;
       }
-      if (!current.fileId && !current.url) return;
-      if (current.type === 'document' || current.type === 'generic_file') return;
+      if (!current.fileId && !current.url) return null;
+      if (current.type === 'document' || current.type === 'generic_file') return null;
 
       const key = getAttachmentCacheKey(current);
       const oversized = isOversizedPrivateBlobPreview(current, MAX_PRIVATE_MEDIA_BLOB_BYTES);
@@ -196,7 +196,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         setError(null);
         setLoading(false);
         setVideoMode('direct');
-        return;
+        return current.url;
       }
 
       // Known oversized private videos: never allocate full blob; download-only fallback.
@@ -205,7 +205,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         setError('preview_too_large');
         setObjectUrl('');
         setLoading(false);
-        return;
+        return null;
       }
 
       abortRef.current?.abort();
@@ -222,14 +222,14 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
           if (retained) {
             if (!mountedRef.current || controller.signal.aborted || generation !== loadGenerationRef.current) {
               releaseAuthenticatedMediaUrl(key);
-              return;
+              return null;
             }
             releaseHeldUrl();
             heldKeyRef.current = key;
             setObjectUrl(retained);
             setDirectStreamUrl('');
             if (current.type === 'video') setVideoMode('blob');
-            return;
+            return retained;
           }
         }
 
@@ -246,7 +246,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         if (!mountedRef.current || controller.signal.aborted || generation !== loadGenerationRef.current) {
           // Stale response: release the retain performed by fetch.
           if (key) releaseAuthenticatedMediaUrl(key);
-          return;
+          return null;
         }
         releaseHeldUrl();
         heldKeyRef.current = key;
@@ -254,17 +254,18 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         setDirectStreamUrl('');
         setError(null);
         if (current.type === 'video') setVideoMode('blob');
+        return url;
       } catch (err: any) {
-        if (controller.signal.aborted || generation !== loadGenerationRef.current) return;
-        if (!mountedRef.current) return;
+        if (controller.signal.aborted || generation !== loadGenerationRef.current) return null;
+        if (!mountedRef.current) return null;
         const code = mapLoadError(err);
-        if (code === 'aborted') return;
+        if (code === 'aborted') return null;
 
         if (code === 'preview_too_large' && current.type === 'video') {
           setVideoMode('download_only');
           setError('preview_too_large');
           setObjectUrl('');
-          return;
+          return null;
         }
 
         // Direct public URL fallback when blob path fails and auth is not required.
@@ -273,15 +274,17 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
           setObjectUrl('');
           setError(null);
           if (current.type === 'video') setVideoMode('direct');
-          return;
+          return current.url;
         }
 
         setError(code);
+        return null;
       } finally {
         if (mountedRef.current && !controller.signal.aborted && generation === loadGenerationRef.current) {
           setLoading(false);
         }
       }
+      return null;
     },
     [releaseHeldUrl]
   );
@@ -638,6 +641,10 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
             }
             onDownload={() => {
               void downloadMessageAttachment(normalized).catch(() => undefined);
+            }}
+            onRequestRefreshSrc={async () => {
+              const next = await loadMedia(true);
+              return next || null;
             }}
           />
         ) : (

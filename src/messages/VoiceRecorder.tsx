@@ -1,11 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Mic, Pause, Play, Send, Square, Trash2, X } from 'lucide-react';
 import {
+  acquireMicrophoneStream,
+  classifyMicrophoneError,
   createVoiceFile,
   formatVoiceDuration,
   isUsableVoiceBlob,
-  mapMicrophoneError,
-  pickSupportedAudioMimeType
+  isVoiceRecordingSupported,
+  logVoiceDiagnostic,
+  pickSupportedAudioMimeType,
+  type VoiceErrorInfo
 } from '../utils/voiceRecording';
 
 type VoiceRecorderProps = {
@@ -16,11 +20,19 @@ type VoiceRecorderProps = {
   className?: string;
 };
 
-type Phase = 'idle' | 'recording' | 'paused' | 'preview' | 'uploading';
+type Phase =
+  | 'idle'
+  | 'requesting_permission'
+  | 'recording'
+  | 'paused'
+  | 'stopping'
+  | 'preview'
+  | 'uploading'
+  | 'error';
 
 /**
- * Phase 21.1.2 — production voice recorder.
- * High-contrast UI, pause/resume, preview-before-send, robust MediaRecorder lifecycle.
+ * Phase 21.1.2R — production voice recorder.
+ * User-gesture getUserMedia, precise errors, mobile-safe banner, lifecycle cleanup.
  */
 const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   disabled,
@@ -31,7 +43,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 }) => {
   const [phase, setPhase] = useState<Phase>('idle');
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [permissionHint, setPermissionHint] = useState<string | null>(null);
+  const [errorInfo, setErrorInfo] = useState<VoiceErrorInfo | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
 
@@ -44,6 +56,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   const timerRef = useRef<number | null>(null);
   const blobRef = useRef<Blob | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const startingRef = useRef(false);
   const maxMs = Math.max(5, maxDurationSeconds) * 1000;
 
   const clearTimer = () => {
@@ -89,6 +102,20 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   const fullCleanup = () => {
     clearTimer();
     stopTracks();
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.ondataavailable = null;
+        mediaRecorderRef.current.onerror = null;
+        mediaRecorderRef.current.onstop = null;
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
     mediaRecorderRef.current = null;
     chunksRef.current = [];
     blobRef.current = null;
@@ -100,42 +127,21 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   useEffect(() => () => fullCleanup(), []);
 
-  // Recover automatically when microphone permission is granted after a denial.
-  useEffect(() => {
-    let statusRef: PermissionStatus | null = null;
-    let cancelled = false;
-    const onChange = () => {
-      if (cancelled) return;
-      if (statusRef?.state === 'granted' && permissionHint) {
-        setPermissionHint(null);
-      }
-    };
-    try {
-      if (navigator.permissions?.query) {
-        void navigator.permissions.query({ name: 'microphone' as PermissionName }).then((status) => {
-          if (cancelled) return;
-          statusRef = status;
-          status.addEventListener('change', onChange);
-          if (status.state === 'granted' && permissionHint) {
-            setPermissionHint(null);
-          }
-        });
-      }
-    } catch {
-      // Permissions API not available (some WebViews).
-    }
-    return () => {
-      cancelled = true;
-      try {
-        statusRef?.removeEventListener('change', onChange);
-      } catch {
-        // ignore
-      }
-    };
-  }, [permissionHint]);
+  const reportError = (info: VoiceErrorInfo, stage: string) => {
+    setErrorInfo(info);
+    setPhase('error');
+    logVoiceDiagnostic({
+      stage,
+      category: info.category,
+      mimeType: mimeTypeRef.current,
+      recorderState: mediaRecorderRef.current?.state,
+      technical: info.technical
+    } as any);
+    onError?.(info.message);
+  };
 
   const tickElapsed = () => {
-    if (phase !== 'recording' && mediaRecorderRef.current?.state !== 'recording') return;
+    if (mediaRecorderRef.current?.state !== 'recording') return;
     const live = Date.now() - startedAtRef.current;
     const total = accumulatedMsRef.current + live;
     setElapsedMs(total);
@@ -149,67 +155,120 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     timerRef.current = window.setInterval(tickElapsed, 200);
   };
 
+  const beginRecorder = (stream: MediaStream) => {
+    streamRef.current = stream;
+    const mimeType = pickSupportedAudioMimeType();
+    mimeTypeRef.current = mimeType;
+    // Prefer explicit MIME when supported; else let the engine choose.
+    let recorder: MediaRecorder;
+    try {
+      recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    } catch {
+      recorder = new MediaRecorder(stream);
+    }
+    // Capture actual mime if engine negotiated a different type
+    try {
+      if (recorder.mimeType) mimeTypeRef.current = recorder.mimeType;
+    } catch {
+      // ignore
+    }
+    mediaRecorderRef.current = recorder;
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        chunksRef.current.push(event.data);
+      }
+    };
+
+    recorder.onerror = () => {
+      reportError(
+        {
+          category: 'unknown',
+          message: 'Recording failed. Please try again.',
+          retryable: true
+        },
+        'recorder_error'
+      );
+      fullCleanup();
+      setPhase('idle');
+    };
+
+    startedAtRef.current = Date.now();
+    accumulatedMsRef.current = 0;
+    setElapsedMs(0);
+    try {
+      recorder.start(250);
+    } catch {
+      try {
+        recorder.start();
+      } catch (error: any) {
+        stopTracks();
+        throw error;
+      }
+    }
+    setPhase('recording');
+    setErrorInfo(null);
+    startTimer();
+    logVoiceDiagnostic({
+      stage: 'recording_started',
+      mimeType: mimeTypeRef.current,
+      recorderState: recorder.state
+    });
+  };
+
+  /**
+   * Must be invoked from a click/touch handler (user gesture).
+   * Does not pre-probe permission on mount.
+   */
   const startRecording = async () => {
-    if (disabled || phase === 'recording' || phase === 'uploading') return;
-    setPermissionHint(null);
+    if (disabled || startingRef.current) return;
+    if (phase === 'recording' || phase === 'uploading' || phase === 'requesting_permission') return;
+
+    startingRef.current = true;
+    setErrorInfo(null);
     revokePreview();
     blobRef.current = null;
     chunksRef.current = [];
     accumulatedMsRef.current = 0;
     setElapsedMs(0);
+    setPhase('requesting_permission');
 
-    if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      const msg = mapMicrophoneError({ name: 'Unsupported' });
-      setPermissionHint(msg);
-      onError?.(msg);
+    if (!isVoiceRecordingSupported()) {
+      const info = classifyMicrophoneError({ name: 'Unsupported' });
+      reportError(info, 'unsupported');
+      setPhase('idle');
+      startingRef.current = false;
       return;
     }
 
+    // Ensure no stale stream holds the device.
+    stopTracks();
+    mediaRecorderRef.current = null;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
-      streamRef.current = stream;
-      const mimeType = pickSupportedAudioMimeType();
-      mimeTypeRef.current = mimeType;
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-      mediaRecorderRef.current = recorder;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onerror = () => {
-        const msg = 'Recording failed. Please try again.';
-        setPermissionHint(msg);
-        onError?.(msg);
-        fullCleanup();
-        setPhase('idle');
-      };
-
-      startedAtRef.current = Date.now();
-      // Timeslice improves blob completeness on Android WebView / Chrome.
+      let stream: MediaStream;
       try {
-        recorder.start(250);
-      } catch {
-        recorder.start();
+        stream = await acquireMicrophoneStream();
+      } catch (firstError) {
+        // One recovery attempt: release anything leftover and retry once.
+        stopTracks();
+        const classified = classifyMicrophoneError(firstError);
+        if (classified.category === 'microphone_busy' || classified.category === 'unknown' || classified.category === 'overconstrained') {
+          await new Promise((r) => setTimeout(r, 120));
+          stream = await acquireMicrophoneStream();
+        } else {
+          throw firstError;
+        }
       }
-      setPhase('recording');
-      startTimer();
+      beginRecorder(stream);
     } catch (error: any) {
       fullCleanup();
       setPhase('idle');
-      const msg = mapMicrophoneError(error);
-      setPermissionHint(msg);
-      onError?.(msg);
+      const info = classifyMicrophoneError(error);
+      reportError(info, 'get_user_media');
+    } finally {
+      startingRef.current = false;
     }
   };
 
@@ -253,15 +312,31 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   const stopToPreview = async () => {
     const recorder = mediaRecorderRef.current;
-    if (!recorder) return;
-    if (recorder.state === 'inactive') {
-      const blob = buildBlobFromChunks();
-      stopTracks();
+    if (!recorder || phase === 'stopping') return;
+    setPhase('stopping');
+
+    const finalize = (duration: number) => {
       clearTimer();
-      if (!isUsableVoiceBlob(blob)) {
-        const msg = 'Recording was too short or empty. Hold a moment longer, then stop.';
-        setPermissionHint(msg);
-        onError?.(msg);
+      stopTracks();
+      setElapsedMs(duration);
+      // Brief wait: some WebViews flush last chunk after stop.
+      const blob = buildBlobFromChunks();
+      chunksRef.current = [];
+      mediaRecorderRef.current = null;
+
+      const minDuration = 350;
+      if (!isUsableVoiceBlob(blob, { minBytes: 32, minDurationMs: minDuration, durationMs: duration })) {
+        const tooShort = duration < minDuration;
+        reportError(
+          {
+            category: tooShort ? 'too_short' : 'empty_blob',
+            message: tooShort
+              ? 'Recording was too short. Hold a moment longer, then stop.'
+              : 'Recording was empty. Check the microphone and try again.',
+            retryable: true
+          },
+          'blob_validate'
+        );
         fullCleanup();
         setPhase('idle');
         return;
@@ -270,47 +345,38 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       const url = URL.createObjectURL(blob!);
       setPreviewUrl(url);
       setPhase('preview');
+      setErrorInfo(null);
+      logVoiceDiagnostic({
+        stage: 'preview_ready',
+        mimeType: mimeTypeRef.current,
+        blobSize: blob!.size,
+        durationMs: duration
+      });
+    };
+
+    if (recorder.state === 'inactive') {
+      const duration = Math.max(accumulatedMsRef.current, elapsedMs);
+      finalize(duration);
       return;
     }
 
     await new Promise<void>((resolve) => {
+      let settled = false;
       const finish = () => {
-        if (recorder.state === 'recording' || recorder.state === 'paused') {
-          accumulatedMsRef.current +=
-            recorder.state === 'recording' ? Date.now() - startedAtRef.current : 0;
+        if (settled) return;
+        settled = true;
+        if (recorder.state === 'recording') {
+          accumulatedMsRef.current += Date.now() - startedAtRef.current;
         }
-        clearTimer();
-        stopTracks();
-        const duration = Math.max(accumulatedMsRef.current, elapsedMs);
-        setElapsedMs(duration);
-        const blob = buildBlobFromChunks();
-        chunksRef.current = [];
-        mediaRecorderRef.current = null;
-        if (!isUsableVoiceBlob(blob)) {
-          const msg = 'Recording was too short or empty. Hold a moment longer, then stop.';
-          setPermissionHint(msg);
-          onError?.(msg);
-          fullCleanup();
-          setPhase('idle');
+        const duration = Math.max(accumulatedMsRef.current, elapsedMs, 1);
+        // Allow late dataavailable events
+        window.setTimeout(() => {
+          finalize(duration);
           resolve();
-          return;
-        }
-        blobRef.current = blob;
-        const url = URL.createObjectURL(blob!);
-        setPreviewUrl(url);
-        setPhase('preview');
-        resolve();
+        }, 80);
       };
 
-      const previous = recorder.onstop;
-      recorder.onstop = () => {
-        try {
-          previous?.call(recorder, new Event('stop'));
-        } catch {
-          // ignore
-        }
-        finish();
-      };
+      recorder.onstop = () => finish();
 
       try {
         if (typeof recorder.requestData === 'function') recorder.requestData();
@@ -319,7 +385,6 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       }
       try {
         if (recorder.state === 'paused') {
-          // Some browsers require resume before stop after pause.
           try {
             recorder.resume();
           } catch {
@@ -330,6 +395,8 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       } catch {
         finish();
       }
+      // Safety timeout if onstop never fires
+      window.setTimeout(() => finish(), 1500);
     });
   };
 
@@ -344,7 +411,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     }
     fullCleanup();
     setPhase('idle');
-    setPermissionHint(null);
+    setErrorInfo(null);
   };
 
   const togglePreviewPlay = async () => {
@@ -368,36 +435,92 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   const sendRecording = async () => {
     const blob = blobRef.current;
-    if (!isUsableVoiceBlob(blob)) {
-      const msg = 'Nothing to send. Record again.';
-      setPermissionHint(msg);
-      onError?.(msg);
+    if (!isUsableVoiceBlob(blob, { minBytes: 32 })) {
+      reportError(
+        { category: 'empty_blob', message: 'Nothing to send. Record again.', retryable: true },
+        'send_validate'
+      );
       return;
     }
     setPhase('uploading');
+    setErrorInfo(null);
     try {
-      // Ensure File constructor consumers get a named type.
       const file = createVoiceFile(blob!, mimeTypeRef.current);
       const asBlob = file.slice(0, file.size, file.type);
       await onRecorded(asBlob, Math.max(1, elapsedMs));
       fullCleanup();
       setPhase('idle');
-      setPermissionHint(null);
+      setErrorInfo(null);
+      logVoiceDiagnostic({
+        stage: 'upload_sent',
+        mimeType: mimeTypeRef.current,
+        blobSize: blob!.size,
+        durationMs: elapsedMs
+      });
     } catch (error: any) {
       setPhase('preview');
-      const msg = error?.message || 'Failed to send voice note.';
-      setPermissionHint(msg);
-      onError?.(msg);
+      reportError(
+        {
+          category: 'upload_failed',
+          message: error?.message || 'Failed to send voice note.',
+          technical: String(error?.message || ''),
+          retryable: true
+        },
+        'upload'
+      );
+      setPhase('preview');
     }
   };
 
   const secondsLabel = formatVoiceDuration(elapsedMs);
-  const isBusy = phase === 'uploading';
-  const showMic = phase === 'idle';
+  const isBusy = phase === 'uploading' || phase === 'requesting_permission';
+  const showMic = phase === 'idle' || phase === 'error';
 
   return (
-    <div className={`inline-flex flex-col items-end gap-1 ${className}`} data-testid="voice-recorder" data-phase="21.1.2">
-      <div className="inline-flex items-center gap-1.5">
+    <div
+      className={`inline-flex w-full max-w-full flex-col items-stretch gap-1 sm:w-auto sm:items-end ${className}`}
+      data-testid="voice-recorder"
+      data-phase="21.1.2R"
+      data-voice-phase={phase}
+    >
+      {errorInfo ? (
+        <div
+          className="order-first w-full max-w-full rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-950 sm:max-w-[18rem]"
+          role="status"
+          data-testid="voice-recorder-error"
+          data-error-category={errorInfo.category}
+        >
+          <p className="font-semibold">Microphone unavailable</p>
+          <p className="mt-0.5 text-amber-900/90">{errorInfo.message}</p>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            {errorInfo.retryable && showMic ? (
+              <button
+                type="button"
+                className="rounded-full bg-amber-900 px-2.5 py-1 text-[10px] font-bold text-white"
+                onClick={() => void startRecording()}
+              >
+                Retry
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="text-[10px] font-semibold text-amber-900 underline"
+              onClick={() => setErrorInfo(null)}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+        {phase === 'requesting_permission' ? (
+          <span className="inline-flex h-9 items-center gap-2 rounded-full bg-slate-800 px-3 text-xs font-semibold text-white">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Requesting mic…
+          </span>
+        ) : null}
+
         {phase === 'recording' || phase === 'paused' ? (
           <>
             <span
@@ -415,7 +538,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               <button
                 type="button"
                 onClick={pauseRecording}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white shadow-sm hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-white shadow-sm hover:bg-slate-700"
                 title="Pause"
                 aria-label="Pause recording"
               >
@@ -425,7 +548,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               <button
                 type="button"
                 onClick={resumeRecording}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-600 text-white shadow-sm hover:bg-emerald-700"
                 title="Resume"
                 aria-label="Resume recording"
               >
@@ -435,7 +558,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <button
               type="button"
               onClick={() => void stopToPreview()}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-red-600 text-white shadow-md ring-2 ring-red-200 hover:bg-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-red-600 text-white shadow-md ring-2 ring-red-200 hover:bg-red-700"
               title="Stop"
               aria-label="Stop recording"
             >
@@ -453,38 +576,47 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           </>
         ) : null}
 
-        {phase === 'preview' ? (
+        {phase === 'preview' || phase === 'stopping' ? (
           <>
             <span className="inline-flex min-w-[3rem] items-center justify-center rounded-full bg-slate-900 px-2 py-1 text-[11px] font-bold text-white tabular-nums">
               {secondsLabel}
             </span>
-            <button
-              type="button"
-              onClick={() => void togglePreviewPlay()}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
-              title={previewPlaying ? 'Pause preview' : 'Play preview'}
-              aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
-            >
-              {previewPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-            </button>
-            <button
-              type="button"
-              onClick={cancelAll}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-              title="Discard"
-              aria-label="Discard recording"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => void sendRecording()}
-              className="inline-flex h-9 min-w-[2.25rem] items-center justify-center gap-1 rounded-full bg-blue-600 px-3 text-white shadow-md hover:bg-blue-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-              title="Send voice note"
-              aria-label="Send voice note"
-            >
-              <Send className="h-4 w-4" />
-            </button>
+            {phase === 'preview' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void togglePreviewPlay()}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-700"
+                  title={previewPlaying ? 'Pause preview' : 'Play preview'}
+                  aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
+                >
+                  {previewPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelAll}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                  title="Discard"
+                  aria-label="Discard recording"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendRecording()}
+                  className="inline-flex h-9 min-w-[2.25rem] items-center justify-center gap-1 rounded-full bg-blue-600 px-3 text-white shadow-md hover:bg-blue-700"
+                  title="Send voice note"
+                  aria-label="Send voice note"
+                >
+                  <Send className="h-4 w-4" />
+                </button>
+              </>
+            ) : (
+              <span className="inline-flex h-9 items-center gap-2 rounded-full bg-slate-700 px-3 text-xs font-semibold text-white">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Processing…
+              </span>
+            )}
           </>
         ) : null}
 
@@ -500,7 +632,7 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             type="button"
             disabled={Boolean(disabled) || isBusy}
             onClick={() => void startRecording()}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md ring-2 ring-blue-200/80 transition hover:from-blue-700 hover:to-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-md ring-2 ring-blue-200/80 transition hover:from-blue-700 hover:to-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:opacity-50"
             title="Record voice note"
             aria-label="Record voice note"
           >
@@ -508,24 +640,6 @@ const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           </button>
         ) : null}
       </div>
-
-      {permissionHint ? (
-        <div
-          className="max-w-[16rem] rounded-xl border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-snug text-amber-900"
-          role="status"
-        >
-          <p>{permissionHint}</p>
-          {phase === 'idle' ? (
-            <button
-              type="button"
-              className="mt-1 font-semibold text-amber-950 underline"
-              onClick={() => void startRecording()}
-            >
-              Retry microphone
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 };

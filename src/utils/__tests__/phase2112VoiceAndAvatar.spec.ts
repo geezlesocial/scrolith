@@ -19,8 +19,8 @@ import {
   SafeText
 } from '../safeRender';
 
-test('VOICE_RECORDING_VERSION is 21.1.2', () => {
-  assert.equal(VOICE_RECORDING_VERSION, '21.1.2');
+test('VOICE_RECORDING_VERSION is 21.1.2R lineage', () => {
+  assert.match(VOICE_RECORDING_VERSION, /^21\.1\.2/);
 });
 
 test('extensionForAudioMime maps common types', () => {

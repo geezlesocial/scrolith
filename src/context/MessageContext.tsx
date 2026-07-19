@@ -1073,7 +1073,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       sendingIdsRef.current.add(id);
       setSendingConversationIds((prev) => ({ ...prev, [id]: true }));
       try {
-        if (!payload.blob || Number(payload.blob.size || 0) < 256) {
+        if (!payload.blob || Number(payload.blob.size || 0) < 32) {
           throw new Error('Recording was empty or too short. Try again and speak for a moment.');
         }
         const mime = String(payload.blob.type || 'audio/webm').split(';')[0] || 'audio/webm';
