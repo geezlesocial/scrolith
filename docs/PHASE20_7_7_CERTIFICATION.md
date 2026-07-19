@@ -2,7 +2,9 @@
 
 ## Decision
 
-**COMPLETE — DEPLOYED, LIMITED VALIDATION** (after deploy) pending operator media E2E.
+**COMPLETE — DEPLOYED, LIMITED VALIDATION**
+
+Live on BE `scrolith-backend-00134-neh` (p2077) and FE `scrolith-frontend-00163-wer` (p2078) at 100%. Automated unit gates passed. Authenticated media E2E remains operator-confirmed.
 
 ## Gates
 
