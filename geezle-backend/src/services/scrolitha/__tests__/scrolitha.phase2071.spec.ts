@@ -146,9 +146,11 @@ test('file understanding MIME gate and context format', () => {
       name: 'resume.pdf',
       mimeType: 'application/pdf',
       size: 1000,
-      kind: 'document',
+      kind: 'pdf',
       extractedText: null,
-      note: 'Document attached'
+      note: 'Document attached',
+      status: 'partial',
+      securityStatus: 'approved'
     }
   ]);
   assert.ok(ctx.includes('UNTRUSTED_USER_ATTACHMENTS'));

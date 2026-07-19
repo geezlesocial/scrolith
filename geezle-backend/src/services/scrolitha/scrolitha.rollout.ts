@@ -112,7 +112,8 @@ const INTERNAL_CAPABILITY_DEFAULTS: ScrolithaRolloutFlags = {
   toolExecution: true,
   toolWriteActions: false,
   confirmationTokens: true,
-  fileUnderstanding: true,
+  // Phase 20.7.6 — file intelligence stays off until progressive enable (SCROLITHA_ROLLOUT_FILE_UNDERSTANDING).
+  fileUnderstanding: false,
   qualityFeedback: true
 };
 
