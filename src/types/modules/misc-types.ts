@@ -18,11 +18,28 @@ export type AdPlacement = 'feed' | 'sidebar' | 'forum_top';
 export interface Conversation {
   id: string;
   type: 'direct' | 'group';
-  participants: { id: string; name: string; avatar: string; is_online?: boolean; role?: string }[];
+  participants: {
+    id: string;
+    name: string;
+    avatar: string;
+    is_online?: boolean;
+    role?: string;
+    /** Phase 22.2 — group membership role (OWNER/ADMIN/MODERATOR/MEMBER) */
+    memberRole?: string;
+    username?: string;
+    notifications?: string;
+  }[];
   last_message: string;
   last_message_at: string;
   unread_count: number;
   messages: Message[];
+  /** Phase 22.2 — group display metadata */
+  title?: string | null;
+  description?: string | null;
+  avatarFileId?: string | null;
+  visibility?: string | null;
+  memberRole?: string | null;
+  notifications?: string | null;
 }
 
 export interface MessageReaction {

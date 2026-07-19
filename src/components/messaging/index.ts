@@ -18,3 +18,4 @@ export {
   default as MessageAttachmentRenderer,
   MessageAttachmentsList
 } from './MessageAttachmentRenderer';
+export { default as GroupManagePanel } from './GroupManagePanel';

@@ -1673,6 +1673,13 @@ const AppContent = () => {
                     <Messages />
                   </ProtectedRoute>
               } />
+
+              {/* Phase 22.2 — group invite accept deep link */}
+              <Route path="/messages/join/:inviteCode" element={
+                  <ProtectedRoute>
+                    <Messages />
+                  </ProtectedRoute>
+              } />
               
               {/* Deep link for messages */}
               <Route path="/messages/:conversationId" element={

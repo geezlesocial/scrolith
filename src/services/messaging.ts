@@ -192,7 +192,16 @@ const normalizeParticipant = (participant: any) => {
     is_verified: Boolean(participant?.isVerified ?? participant?.is_verified ?? isScrolitha),
     isVerified: Boolean(participant?.isVerified ?? participant?.is_verified ?? isScrolitha),
     system_label: isScrolitha ? 'AI assistant' : undefined,
-    systemLabel: isScrolitha ? 'AI assistant' : undefined
+    systemLabel: isScrolitha ? 'AI assistant' : undefined,
+    // Phase 22.2 — group membership role (distinct from user platform role)
+    memberRole: safeString(
+      participant?.memberRole ?? participant?.member_role ?? participant?.conversationRole,
+      'MEMBER'
+    ),
+    notifications: safeString(
+      participant?.notifications ?? participant?.notificationLevel ?? participant?.notification_level,
+      'ALL'
+    )
   };
 };
 
@@ -221,9 +230,24 @@ const normalizeConversation = (raw: any): Conversation => {
       participants.some((p: any) => p?.isScrolitha || p?.is_scrolitha)
   );
 
+  const isGroup =
+    raw?.type === 'group' ||
+    String(raw?.type || '').toUpperCase() === 'GROUP' ||
+    Boolean(raw?.title && participants.length > 2);
+
   return {
     id: safeString(raw?.id ?? raw?._id),
-    type: raw?.type === 'group' ? 'group' : 'direct',
+    type: isGroup ? 'group' : 'direct',
+    // Phase 22.2 group meta
+    title: raw?.title != null ? safeString(raw.title) || null : null,
+    description: raw?.description != null ? safeString(raw.description) || null : null,
+    avatarFileId: safeString(raw?.avatarFileId ?? raw?.avatar_file_id) || null,
+    visibility: safeString(raw?.visibility, 'PRIVATE') || 'PRIVATE',
+    memberRole: safeString(raw?.memberRole ?? raw?.member_role ?? raw?.role, 'MEMBER') || 'MEMBER',
+    notifications: safeString(
+      raw?.notifications ?? raw?.notificationLevel ?? raw?.notification_level,
+      'ALL'
+    ),
     participants,
     label: safeString(raw?.label, 'other'),
     is_starred: isScrolitha ? true : Boolean(raw?.isStarred ?? raw?.is_starred ?? false),
@@ -646,15 +670,106 @@ export const MessagingService = {
     }
   },
 
-  createConversation: async (participants: Conversation['participants']): Promise<string> => {
+  createConversation: async (
+    participants: Conversation['participants'] | string[],
+    options?: {
+      type?: 'direct' | 'group' | 'DIRECT' | 'GROUP';
+      title?: string;
+      description?: string;
+      avatarFileId?: string | null;
+      visibility?: 'PRIVATE' | 'PUBLIC' | 'UNLISTED';
+    }
+  ): Promise<string> => {
     try {
-      const response = await api.post('/messages/conversations', { participants });
+      const ids = (Array.isArray(participants) ? participants : []).map((p: any) =>
+        typeof p === 'string' ? p : p?.id || p?.userId
+      );
+      const response = await api.post('/messages/conversations', {
+        participants: ids,
+        type: options?.type,
+        title: options?.title,
+        description: options?.description,
+        avatarFileId: options?.avatarFileId,
+        visibility: options?.visibility
+      });
       const data = extractData<{ id: string } | string>(response);
+      conversationCache.clear();
       return typeof data === 'string' ? data : data.id;
     } catch (error: any) {
       const message = error?.response?.data?.error || error?.message || 'Failed to create conversation';
       throw new Error(message);
     }
+  },
+
+  /** Phase 22.2 — group meta */
+  updateGroupMeta: async (
+    conversationId: string,
+    patch: { title?: string; description?: string; avatarFileId?: string | null; visibility?: string }
+  ) => {
+    const response = await api.patch(`/messages/conversations/${conversationId}/group`, patch);
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  listGroupMembers: async (conversationId: string) => {
+    const response = await api.get(`/messages/conversations/${conversationId}/members`);
+    return safeArray<any>(extractData<any>(response));
+  },
+
+  addGroupMembers: async (conversationId: string, userIds: string[], role?: string) => {
+    const response = await api.post(`/messages/conversations/${conversationId}/members`, {
+      userIds,
+      role
+    });
+    return extractData<any>(response);
+  },
+
+  updateGroupMember: async (
+    conversationId: string,
+    memberUserId: string,
+    patch: { role?: string; notifications?: string }
+  ) => {
+    const response = await api.patch(
+      `/messages/conversations/${conversationId}/members/${memberUserId}`,
+      patch
+    );
+    return extractData<any>(response);
+  },
+
+  removeGroupMember: async (conversationId: string, memberUserId: string) => {
+    const response = await api.delete(
+      `/messages/conversations/${conversationId}/members/${memberUserId}`
+    );
+    return extractData<any>(response);
+  },
+
+  createGroupInvite: async (
+    conversationId: string,
+    options?: { inviteeUserId?: string; role?: string; expiresInHours?: number }
+  ) => {
+    const response = await api.post(`/messages/conversations/${conversationId}/invites`, options || {});
+    return extractData<any>(response);
+  },
+
+  acceptGroupInvite: async (code: string) => {
+    const response = await api.post(`/messages/invites/${encodeURIComponent(code)}/accept`);
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  /** Phase 22.2 — jump-to-message window */
+  getMessagesAround: async (conversationId: string, messageId: string, limit = 40) => {
+    const response = await api.get(
+      `/messages/conversations/${conversationId}/messages/around/${messageId}`,
+      { params: { limit } }
+    );
+    const data = extractData<any>(response);
+    const messages = safeArray<any>(data?.messages).map(normalizeMessage);
+    return {
+      messages,
+      anchorMessageId: safeString(data?.anchorMessageId || messageId),
+      count: safeNumber(data?.count, messages.length)
+    };
   },
 
   /**

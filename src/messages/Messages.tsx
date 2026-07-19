@@ -37,6 +37,7 @@ import { MessageAttachmentsList } from '../components/messaging/MessageAttachmen
 import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
 import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversationMenu';
 import SmartComposer from '../components/messaging/SmartComposer';
+import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
@@ -70,6 +71,7 @@ import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/mess
 import { setMessagingMediaConversationAffinity } from '../services/messagingMedia';
 import { generateImageBlurPreview, generateVideoPoster } from '../services/messagingEngine/mediaProgressive';
 import { uploadMessagingFileWithEngine } from '../services/messagingEngine/mediaUploadEngine';
+import { MENTION_TOKEN_HINT, splitTextWithMentions } from '../utils/messageMentions';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -207,7 +209,10 @@ const VoiceCallControls: React.FC<{
 };
 
 const Messages = () => {
-  const { conversationId } = useParams<{ conversationId: string }>();
+  const { conversationId, inviteCode: inviteCodeParam } = useParams<{
+    conversationId?: string;
+    inviteCode?: string;
+  }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useUser();
@@ -226,8 +231,14 @@ const Messages = () => {
   const [pendingAttachments, setPendingAttachments] = useState<PendingComposerAttachment[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showConversationMenu, setShowConversationMenu] = useState(false);
+  const [showGroupManage, setShowGroupManage] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [createGroupTitle, setCreateGroupTitle] = useState('');
+  const [createGroupMemberIds, setCreateGroupMemberIds] = useState('');
+  const [createGroupBusy, setCreateGroupBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [showMessageSettings, setShowMessageSettings] = useState(false);
+  const jumpAroundInFlightRef = useRef<string | null>(null);
   const [messageSettings, setMessageSettings] = useState({
       messageRequestsNotifications: true,
       allowInMail: true
@@ -709,7 +720,9 @@ const Messages = () => {
 
   // Handle URL param for deep linking
   useEffect(() => {
-      if (conversationId && dedupedConversations.length > 0) {
+      // Phase 22.2 — /messages/join/:code is not a conversation id
+      if (!conversationId || conversationId === 'join') return;
+      if (dedupedConversations.length > 0) {
           const exists = dedupedConversations.find(c => c.id === conversationId);
           if (exists) {
               setActiveConvoId(conversationId);
@@ -723,9 +736,43 @@ const Messages = () => {
                       ));
                   });
               }
+          } else {
+              setActiveConvoId(conversationId);
           }
+      } else {
+          setActiveConvoId(conversationId);
       }
   }, [conversationId, dedupedConversations.length, user]);
+
+  // Phase 22.2 — accept group invite via /messages/join/:code or ?invite=
+  useEffect(() => {
+      const code = String(inviteCodeParam || searchParams.get('invite') || '').trim();
+      if (!code || !user?.id) return;
+      let cancelled = false;
+      void (async () => {
+          try {
+              const data = await MessagingService.acceptGroupInvite(code);
+              if (cancelled) return;
+              const joinedId = String(data?.conversationId || '').trim();
+              showNotification('success', 'Group joined', 'You joined the group conversation.');
+              await refreshMessages();
+              navigate(joinedId ? `/messages/${joinedId}` : '/messages', { replace: true });
+          } catch (error: any) {
+              if (cancelled) return;
+              showNotification(
+                  'error',
+                  'Invite',
+                  error?.message || 'Could not accept group invite.'
+              );
+              navigate('/messages', { replace: true });
+          }
+      })();
+      return () => {
+          cancelled = true;
+      };
+      // intentionally once per invite code + user
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteCodeParam, user?.id]);
 
   // Keep shared messaging surfaces (header badge + dock) aligned with full-page visibility.
   useEffect(() => {
@@ -918,9 +965,41 @@ const Messages = () => {
       []
   );
 
+  // Phase 22.2 — jump-to-message (local scroll or around-window fetch)
   useEffect(() => {
       const targetMessageId = searchParams.get('messageId') || pendingSearchMessageFocusRef.current;
-      if (!activeConvoId || !targetMessageId || !activeConvo?.messages?.some((msg) => msg.id === targetMessageId)) return;
+      if (!activeConvoId || !targetMessageId) return;
+
+      const hasLocal = Boolean(activeConvo?.messages?.some((msg) => msg.id === targetMessageId));
+      if (!hasLocal) {
+          const flightKey = `${activeConvoId}:${targetMessageId}`;
+          if (jumpAroundInFlightRef.current === flightKey) return;
+          jumpAroundInFlightRef.current = flightKey;
+          void MessagingService.getMessagesAround(activeConvoId, targetMessageId, 40)
+              .then((result) => {
+                  const around = Array.isArray(result?.messages) ? result.messages : [];
+                  if (!around.length) return;
+                  setConversations((prev) =>
+                      prev.map((conversation) => {
+                          if (conversation.id !== activeConvoId) return conversation;
+                          const merged = dedupeMessagesById([
+                              ...(conversation.messages || []),
+                              ...around
+                          ]);
+                          return { ...conversation, messages: merged };
+                      })
+                  );
+              })
+              .catch(() => {
+                  /* best-effort jump */
+              })
+              .finally(() => {
+                  if (jumpAroundInFlightRef.current === flightKey) {
+                      jumpAroundInFlightRef.current = null;
+                  }
+              });
+          return;
+      }
 
       const timer = window.setTimeout(() => {
           const node = document.getElementById(`message-${targetMessageId}`);
@@ -996,6 +1075,31 @@ const Messages = () => {
       });
       return withDisplayName || others[0] || activeConvo?.participants[0];
   })();
+  const isActiveGroupConversation = Boolean(
+      activeConvo?.type === 'group' ||
+          String((activeConvo as any)?.type || '').toUpperCase() === 'GROUP' ||
+          Boolean((activeConvo as any)?.title && (activeConvo?.participants?.length || 0) > 2)
+  );
+  const activeGroupTitle = String((activeConvo as any)?.title || '').trim();
+  const activeConversationTitle = isActiveGroupConversation
+      ? activeGroupTitle ||
+        (activeConvo?.participants || [])
+            .filter((p: any) => String(p?.id || '') !== String(user?.id || ''))
+            .map((p: any) => p?.name || p?.username)
+            .filter(Boolean)
+            .slice(0, 3)
+            .join(', ') ||
+        'Group'
+      : otherParticipant?.name || 'Conversation';
+  const myGroupRole = String(
+      (activeConvo as any)?.memberRole ||
+          (activeConvo?.participants || []).find((p: any) => String(p?.id || '') === String(user?.id || ''))
+              ?.memberRole ||
+          'MEMBER'
+  ).toUpperCase();
+  const canManageActiveGroup =
+      isActiveGroupConversation &&
+      (myGroupRole === 'OWNER' || myGroupRole === 'ADMIN' || String(user?.role || '').toLowerCase().includes('admin'));
   const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
   const otherLastSeen = otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
   const resolveParticipantRole = (participant: any): 'freelancer' | 'employer' | null => {
@@ -3149,7 +3253,19 @@ const Messages = () => {
                                 {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                             </button>
                         </div>
-                        {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowCreateGroup(true)}
+                                className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-100"
+                                data-testid="messages-create-group-btn"
+                                title="Create group"
+                            >
+                                <Users className="h-3.5 w-3.5" />
+                                Group
+                            </button>
+                            {user?.role === UserRole.ADMIN && <span className="bg-purple-100 text-purple-700 text-xs px-2 py-1 rounded font-mono">ADMIN VIEW</span>}
+                        </div>
                     </div>
                     <div className="relative">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -3228,12 +3344,29 @@ const Messages = () => {
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
                             const convoStarred = Boolean(convo.isStarred ?? convo.is_starred);
+                            const isGroupConvo = Boolean(
+                                convo.type === 'group' ||
+                                    String((convo as any)?.type || '').toUpperCase() === 'GROUP' ||
+                                    Boolean((convo as any)?.title && (convo.participants?.length || 0) > 2)
+                            );
+                            const groupDisplayName =
+                                String((convo as any)?.title || '').trim() ||
+                                (convo.participants || [])
+                                    .filter((p: any) => String(p?.id || '') !== String(user?.id || ''))
+                                    .map((p: any) => p?.name || p?.username)
+                                    .filter(Boolean)
+                                    .slice(0, 3)
+                                    .join(', ') ||
+                                'Group';
                             const isScrolithaConvo = Boolean(
                                 convo.isScrolitha ??
                                     convo.is_scrolitha ??
                                     participant?.isScrolitha ??
                                     participant?.is_scrolitha
                             );
+                            const inboxTitle = isGroupConvo
+                                ? groupDisplayName
+                                : participant?.name || (isScrolithaConvo ? 'Scrolitha' : 'Conversation');
                             const previewText = String(
                                 searchMeta?.matchedMessageSnippet ||
                                 searchMeta?.lastMessage ||
@@ -3304,8 +3437,13 @@ const Messages = () => {
                                                         }}
                                                         className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
                                                     >
-                                                        {renderHighlightedText(participant?.name || (isScrolithaConvo ? 'Scrolitha' : 'Conversation'), activeMessageSearchQuery)}
+                                                        {renderHighlightedText(inboxTitle, activeMessageSearchQuery)}
                                                     </button>
+                                                    {isGroupConvo ? (
+                                                        <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+                                                            Group
+                                                        </span>
+                                                    ) : null}
                                                     {isScrolithaConvo ? (
                                                         <span className="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
                                                             AI
@@ -3419,35 +3557,61 @@ const Messages = () => {
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => navigate(resolveParticipantProfileUrl(otherParticipant))}
+                                    onClick={() => {
+                                        if (isActiveGroupConversation) {
+                                            setShowGroupManage(true);
+                                            return;
+                                        }
+                                        navigate(resolveParticipantProfileUrl(otherParticipant));
+                                    }}
                                     className="mr-3 rounded-full"
                                 >
                                     <EnterpriseAvatar
                                         src={
-                                          resolveScrolithaAvatar(
-                                            isActiveScrolithaConversation
-                                              ? { ...otherParticipant, isScrolitha: true }
-                                              : otherParticipant
-                                          ) ||
-                                          otherParticipant?.avatar ||
-                                          (isActiveScrolithaConversation ? getScrolithaProfilePhotoUrl() : null)
+                                          isActiveGroupConversation
+                                            ? undefined
+                                            : resolveScrolithaAvatar(
+                                                isActiveScrolithaConversation
+                                                  ? { ...otherParticipant, isScrolitha: true }
+                                                  : otherParticipant
+                                              ) ||
+                                              otherParticipant?.avatar ||
+                                              (isActiveScrolithaConversation ? getScrolithaProfilePhotoUrl() : null)
                                         }
-                                        name={otherParticipant?.name || (isActiveScrolithaConversation ? 'Scrolitha' : 'User')}
-                                        user={otherParticipant}
+                                        name={
+                                          isActiveGroupConversation
+                                            ? activeConversationTitle
+                                            : otherParticipant?.name || (isActiveScrolithaConversation ? 'Scrolitha' : 'User')
+                                        }
+                                        user={isActiveGroupConversation ? undefined : otherParticipant}
                                         size="md"
-                                        className="border border-gray-200 !h-9 !w-9 md:!h-10 md:!w-10"
-                                        alt={otherParticipant?.name || 'Profile'}
+                                        className={`border border-gray-200 !h-9 !w-9 md:!h-10 md:!w-10 ${
+                                          isActiveGroupConversation ? 'bg-indigo-50 text-indigo-700' : ''
+                                        }`}
+                                        alt={activeConversationTitle || 'Profile'}
                                     />
                                 </button>
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                         <button
                                             type="button"
-                                            onClick={() => navigate(resolveParticipantProfileUrl(otherParticipant))}
+                                            onClick={() => {
+                                                if (isActiveGroupConversation) {
+                                                    setShowGroupManage(true);
+                                                    return;
+                                                }
+                                                navigate(resolveParticipantProfileUrl(otherParticipant));
+                                            }}
                                             className="max-w-[9.5rem] truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600 sm:max-w-xs"
+                                            data-testid="messages-conversation-title"
                                         >
-                                            {otherParticipant?.name || 'Conversation'}
+                                            {activeConversationTitle}
                                         </button>
+                                        {isActiveGroupConversation ? (
+                                            <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 sm:inline">
+                                                Group · {(activeConvo?.participants || []).length} members
+                                            </span>
+                                        ) : null}
                                         <button
                                             type="button"
                                             onClick={() =>
@@ -3481,7 +3645,13 @@ const Messages = () => {
                                             </span>
                                         ) : null}
                                     </div>
-                                    {otherOnline ? (
+                                    {isActiveGroupConversation ? (
+                                        <span className="text-xs text-gray-500 flex items-center">
+                                            {(activeConvo as any)?.description
+                                                ? String((activeConvo as any).description).slice(0, 64)
+                                                : `${(activeConvo?.participants || []).length} members · @mentions notify even when muted`}
+                                        </span>
+                                    ) : otherOnline ? (
                                         <span className="text-xs text-green-500 flex items-center">Online</span>
                                     ) : !isMobileViewport && otherLastSeen ? (
                                         <span className="text-xs text-gray-500 flex items-center">
@@ -3495,6 +3665,18 @@ const Messages = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1.5 sm:gap-2">
+                                {isActiveGroupConversation ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowGroupManage(true)}
+                                        className="inline-flex h-10 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-indigo-700 shadow-sm transition hover:bg-indigo-100"
+                                        title="Group settings"
+                                        data-testid="messages-group-settings-btn"
+                                    >
+                                        <Users className="h-4 w-4" />
+                                        <span className="hidden sm:inline text-xs font-semibold">Group</span>
+                                    </button>
+                                ) : null}
                                 {canCreateBriefFromConversation && (
                                     <button
                                         type="button"
@@ -3624,6 +3806,19 @@ const Messages = () => {
                                                     Manage settings
                                                 </button>
                                             )}
+                                            {isActiveGroupConversation ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setShowConversationMenu(false);
+                                                        setShowGroupManage(true);
+                                                    }}
+                                                    className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50"
+                                                    data-testid="messages-menu-group-settings"
+                                                >
+                                                    Group settings & members
+                                                </button>
+                                            ) : null}
                                             {actionBusy && (
                                                 <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
                                             )}
@@ -3842,7 +4037,24 @@ const Messages = () => {
                                             >
                                                 {isScrolithaAuthoredMessage(msg)
                                                     ? normalizeScrolithaDisplayText(String(msg.text || ''))
-                                                    : msg.text || ''}
+                                                    : splitTextWithMentions(String(msg.text || '')).map((segment, idx) =>
+                                                          segment.type === 'mention' ? (
+                                                              <span
+                                                                  key={`${msg.id}-m-${idx}`}
+                                                                  className={
+                                                                      msg.senderId === user?.id
+                                                                          ? 'font-semibold text-blue-100 underline decoration-blue-200/80'
+                                                                          : 'font-semibold text-indigo-600'
+                                                                  }
+                                                              >
+                                                                  {segment.value}
+                                                              </span>
+                                                          ) : (
+                                                              <React.Fragment key={`${msg.id}-t-${idx}`}>
+                                                                  {segment.value}
+                                                              </React.Fragment>
+                                                          )
+                                                      )}
                                             </p>
                                         )}
                                         {!isDeleted && msg.senderId !== user?.id && Array.isArray((msg as any)?.metadata?.cards) && (msg as any).metadata.cards.length > 0 ? (
@@ -4328,6 +4540,115 @@ const Messages = () => {
         </div>
     </div>
     </div>
+    {activeConvoId ? (
+        <GroupManagePanel
+            conversationId={activeConvoId}
+            open={showGroupManage}
+            onClose={() => setShowGroupManage(false)}
+            isGroup={isActiveGroupConversation}
+            initialTitle={activeGroupTitle || activeConversationTitle}
+            canManage={canManageActiveGroup}
+            currentUserId={user?.id || null}
+            onUpdated={() => {
+                void refreshConversationData();
+                void refreshMessages();
+            }}
+        />
+    ) : null}
+    <MobileDialog
+        open={showCreateGroup}
+        onClose={() => !createGroupBusy && setShowCreateGroup(false)}
+        size="md"
+        title="Create group"
+        closeDisabled={createGroupBusy}
+        footer={
+            <MobileDialogFooter>
+                <button
+                    type="button"
+                    className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700"
+                    onClick={() => setShowCreateGroup(false)}
+                    disabled={createGroupBusy}
+                >
+                    Cancel
+                </button>
+                <button
+                    type="button"
+                    className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    data-testid="create-group-submit"
+                    disabled={createGroupBusy || !createGroupTitle.trim()}
+                    onClick={() => {
+                        void (async () => {
+                            if (!user?.id) return;
+                            setCreateGroupBusy(true);
+                            try {
+                                const memberIds = createGroupMemberIds
+                                    .split(/[,\s]+/)
+                                    .map((id) => id.trim())
+                                    .filter(Boolean);
+                                const participants = Array.from(new Set([user.id, ...memberIds]));
+                                const id = await MessagingService.createConversation(participants, {
+                                    type: 'GROUP',
+                                    title: createGroupTitle.trim()
+                                });
+                                setShowCreateGroup(false);
+                                setCreateGroupTitle('');
+                                setCreateGroupMemberIds('');
+                                await refreshMessages();
+                                if (id) {
+                                    setActiveConvoId(id);
+                                    navigate(`/messages/${id}`);
+                                    setShowGroupManage(true);
+                                }
+                                showNotification('success', 'Group created', 'Your group is ready.');
+                            } catch (error: any) {
+                                showNotification(
+                                    'error',
+                                    'Create group',
+                                    error?.message || 'Failed to create group.'
+                                );
+                            } finally {
+                                setCreateGroupBusy(false);
+                            }
+                        })();
+                    }}
+                >
+                    {createGroupBusy ? 'Creating…' : 'Create group'}
+                </button>
+            </MobileDialogFooter>
+        }
+    >
+        <div className="space-y-4">
+            <p className="text-xs text-gray-500">
+                Create a private group conversation. You become the Owner. Type{' '}
+                <span className="font-semibold">@username</span> in messages to mention members
+                ({MENTION_TOKEN_HINT.toLowerCase()}).
+            </p>
+            <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Group title</span>
+                <input
+                    value={createGroupTitle}
+                    onChange={(e) => setCreateGroupTitle(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                    placeholder="e.g. Product team"
+                    data-testid="create-group-title"
+                    disabled={createGroupBusy}
+                />
+            </label>
+            <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Member user ids (comma-separated)
+                </span>
+                <input
+                    value={createGroupMemberIds}
+                    onChange={(e) => setCreateGroupMemberIds(e.target.value)}
+                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
+                    placeholder="userId1, userId2"
+                    data-testid="create-group-members"
+                    disabled={createGroupBusy}
+                />
+            </label>
+        </div>
+    </MobileDialog>
     <MobileDialog
         open={showMessageSettings}
         onClose={() => setShowMessageSettings(false)}
