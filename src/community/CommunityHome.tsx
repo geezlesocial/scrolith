@@ -104,6 +104,13 @@ import {
   type PostAiInsightPreference
 } from '../utils/postAiControls';
 import { normalizeContentOfferTags } from '../utils/contentOffers';
+import {
+  enterprisePostCard,
+  enterprisePostCardPadding
+} from '../components/enterprise/enterpriseClasses';
+import PostAiCoachCard from '../components/enterprise/PostAiCoachCard';
+import { postCardSectionStackClass, postCardType } from '../components/enterprise/postCardDesign';
+import { buildScrolithaPath } from '../utils/scrolithaLaunch';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -3339,7 +3346,9 @@ const CommunityHome = () => {
                     <article
                       key={getStableFeedReactKey(post)}
                       id={`community-post-${post.id}`}
-                      className={`overflow-hidden rounded-2xl border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-22px_rgba(15,23,42,0.28)] transition-shadow duration-150 hover:shadow-[0_2px_8px_rgba(15,23,42,0.06),0_16px_36px_-22px_rgba(15,23,42,0.32)] sm:p-6 ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
+                      data-testid="enterprise-post-card"
+                      data-post-card-design="21.1.5"
+                      className={`${enterprisePostCard} ${enterprisePostCardPadding} ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}
@@ -3588,21 +3597,21 @@ const CommunityHome = () => {
                         </div>
                       ) : (
                         <>
-                          <div className="mt-4 space-y-4">
+                          <div className={postCardSectionStackClass}>
                           {focusPostId === post.id && focusMentionToken ? (
-                            <div className="mt-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
+                            <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                               You were mentioned in this post.
                             </div>
                           ) : null}
-                          <PostOriginPreview originalPost={post.originalPost} className="mt-2" />
+                          <PostOriginPreview originalPost={post.originalPost} />
                           <TranslatablePostText
                             post={post}
                             viewerId={user?.id}
                             viewerUsername={user?.username}
                             mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                             expandable
-                            titleClassName="text-left text-xl font-semibold leading-tight tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere]"
-                            contentWrapperClassName="cursor-pointer text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+                            titleClassName={`text-left transition hover:text-slate-700 [overflow-wrap:anywhere] ${postCardType.title}`}
+                            contentWrapperClassName={`cursor-pointer [overflow-wrap:anywhere] ${postCardType.body}`}
                             buttonClassName="text-slate-900"
                             translationRowClassName="text-slate-500"
                             onTitleClick={() => openPostCard(post)}
@@ -3617,12 +3626,29 @@ const CommunityHome = () => {
                           {post.tags?.length ? (
                             <div className="flex flex-wrap gap-2">
                               {post.tags.map((tag: string) => (
-                                <span key={tag} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm">
+                                <span key={tag} className="inline-flex min-h-8 items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm sm:text-xs">
                                   #{tag}
                                 </span>
                               ))}
                             </div>
                           ) : null}
+                          <PostAiCoachCard
+                            onEnhance={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              const title = String(post.title || '').trim();
+                              const content = String(post.content || '').replace(/\s+/g, ' ').trim().slice(0, 280);
+                              const prompt =
+                                title && content
+                                  ? `Improve this Scrolith post for clarity, reach, and conversion.\nTitle: ${title}\nBody: ${content}`
+                                  : title
+                                    ? `Improve this Scrolith post title and suggest a stronger body copy:\n${title}`
+                                    : content
+                                      ? `Improve this Scrolith post and suggest better engagement hooks:\n${content}`
+                                      : 'Help me draft a high-performing Scrolith post for global professional audience.';
+                              navigate(buildScrolithaPath(`${location.pathname}${location.search || ''}`, prompt));
+                            }}
+                          />
                           <ContentOfferTags offerTags={post.offerTags} />
                           {post.aiInsightGenerated && post.aiInsightText ? (
                             <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">

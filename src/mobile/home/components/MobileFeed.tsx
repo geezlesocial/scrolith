@@ -44,6 +44,12 @@ import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
 import FeedIntelligenceSignals from '../../../components/feed/FeedIntelligenceSignals';
+import PostAiCoachCard from '../../../components/enterprise/PostAiCoachCard';
+import {
+  enterprisePostCard,
+  enterprisePostCardPadding
+} from '../../../components/enterprise/enterpriseClasses';
+import { postCardSectionStackClass, postCardType } from '../../../components/enterprise/postCardDesign';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../../../components/member-home/MemberHomeHighlightsBoard';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../../utils/communityEventHighlights';
@@ -2967,7 +2973,9 @@ export default function MobileFeed({
           return (
             <React.Fragment key={postId || `post_${idx}`}>
               <article
-                className="cursor-pointer rounded-[32px] border border-slate-200/90 bg-gradient-to-b from-white via-white to-slate-50/80 p-5 shadow-[0_20px_48px_-30px_rgba(15,23,42,0.48)] ring-1 ring-slate-100/70"
+                className={`${enterprisePostCard} ${enterprisePostCardPadding} cursor-pointer`}
+                data-testid="enterprise-post-card"
+                data-post-card-design="21.1.5"
                 data-feed-post-id={postId || undefined}
                 style={feedItemPerformanceStyle}
                 onClick={(event) => {
@@ -2992,10 +3000,11 @@ export default function MobileFeed({
                       />
                     </Link>
                     <div className="min-w-0 pt-0.5">
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
                         <Link
                           to={profileUrl}
-                          className="min-w-0 text-[15px] font-semibold leading-5 text-slate-950 break-words [overflow-wrap:anywhere] hover:text-slate-700"
+                          className={`min-w-0 max-w-full truncate hover:text-slate-700 ${postCardType.name}`}
+                          title={authorName}
                         >
                           {authorName}
                         </Link>
@@ -3018,8 +3027,16 @@ export default function MobileFeed({
                           </span>
                         ) : null}
                       </div>
+                      {author?.username ? (
+                        <p
+                          className={`mt-0.5 max-w-full truncate ${postCardType.username}`}
+                          title={`@${String(author.username).replace(/^@+/, '')}`}
+                        >
+                          @{String(author.username).replace(/^@+/, '')}
+                        </p>
+                      ) : null}
                       <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        <span className="font-medium text-slate-600">{relativeTime(createdAt) || 'now'}</span>
+                        <span className={`font-medium ${postCardType.date}`}>{relativeTime(createdAt) || 'now'}</span>
                         {post?.visibility ? (
                           <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
                             {String(post.visibility).toUpperCase()}
@@ -3059,7 +3076,7 @@ export default function MobileFeed({
                           onRequireLogin={() => {
                             if (confirm('Log in to follow?')) window.location.href = '/auth/login';
                           }}
-                          className="h-8 min-h-8 border-slate-200 bg-white px-3 text-[11px] font-semibold uppercase tracking-wide text-slate-700 shadow-sm"
+                          className="h-9 min-h-9 border-slate-200 bg-white px-3.5 text-xs font-semibold uppercase tracking-wide text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
                         />
                       );
                     })()}
@@ -3087,14 +3104,14 @@ export default function MobileFeed({
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-4">
+                <div className={postCardSectionStackClass}>
                   <TranslatablePostText
                     post={post}
                     viewerId={user?.id}
                     viewerUsername={user?.username}
                     expandable
-                    titleClassName="text-left text-lg font-semibold tracking-tight text-slate-950 break-words [overflow-wrap:anywhere] hover:text-blue-700 hover:underline"
-                    contentWrapperClassName="cursor-pointer text-base leading-8 text-slate-700 break-words [overflow-wrap:anywhere]"
+                    titleClassName={`text-left break-words [overflow-wrap:anywhere] hover:text-slate-700 ${postCardType.title}`}
+                    contentWrapperClassName={`cursor-pointer break-words [overflow-wrap:anywhere] ${postCardType.body}`}
                     buttonClassName="text-slate-900"
                     translationRowClassName="text-slate-500"
                     onTitleClick={post?.title ? () => openPostCard(post) : undefined}
@@ -3113,7 +3130,7 @@ export default function MobileFeed({
                         <Link
                           key={`${postId}_tag_${tag}`}
                           to={`/community/tags/${encodeURIComponent(tag)}`}
-                          className="max-w-full break-all rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm"
+                          className="inline-flex min-h-8 max-w-full items-center break-all rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm sm:text-xs"
                         >
                           #{tag}
                         </Link>
@@ -3121,31 +3138,19 @@ export default function MobileFeed({
                     </div>
                   ) : null}
 
-                  <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-indigo-50 px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
-                        <Sparkles className="h-3 w-3" />
-                        Scrolitha coach
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          openScrolithaFromMobile(
-                            buildPostScrolithaPrompt(
-                              String(post?.title || ''),
-                              String(post?.content || post?.body || '')
-                            )
-                          );
-                        }}
-                        className="inline-flex items-center rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 transition hover:bg-violet-100"
-                      >
-                        Enhance post
-                      </button>
-                    </div>
-                    <p className="mt-1 text-xs text-slate-600">Use AI suggestions to improve clarity and engagement before publishing.</p>
-                  </div>
+                  <PostAiCoachCard
+                    description="Use AI suggestions to improve clarity and engagement before publishing."
+                    onEnhance={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      openScrolithaFromMobile(
+                        buildPostScrolithaPrompt(
+                          String(post?.title || ''),
+                          String(post?.content || post?.body || '')
+                        )
+                      );
+                    }}
+                  />
 
                   {hasAiInsight ? (
                     <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">

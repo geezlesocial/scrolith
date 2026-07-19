@@ -170,6 +170,8 @@ import {
   enterpriseWidgetHeading,
   enterpriseWidgetTitle
 } from '../enterprise/enterpriseClasses';
+import PostAiCoachCard from '../enterprise/PostAiCoachCard';
+import { postCardSectionStackClass, postCardType } from '../enterprise/postCardDesign';
 import {
   composerAttachmentTile,
   composerDraftBanner,
@@ -8988,6 +8990,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     <React.Fragment key={getStableFeedReactKey(post, postIndex)}>
                       <article
                         className={`${enterprisePostCard} ${postDensity === 'compact' ? enterprisePostCardCompact : enterprisePostCardPadding}`}
+                        data-testid="enterprise-post-card"
+                        data-post-card-design="21.1.5"
                       >
                       <PostHeader
                         author={resolvedAuthor}
@@ -9249,7 +9253,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         </div>
                       ) : (
                         <>
-                          <div className="mt-4 space-y-4">
+                          <div className={postCardSectionStackClass}>
                             {focusPostId === post.id && focusMentionToken ? (
                               <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">
                                 You were mentioned in this post.
@@ -9263,8 +9267,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 viewerUsername={user?.username}
                                 mentionToken={focusPostId === post.id ? focusMentionToken : undefined}
                                 expandable
-                                titleClassName="text-left text-[1.35rem] font-semibold leading-snug tracking-tight text-slate-950 transition hover:text-slate-700 [overflow-wrap:anywhere] sm:text-[1.4rem]"
-                                contentWrapperClassName="cursor-pointer text-[15px] leading-[1.7] text-slate-700 [overflow-wrap:anywhere] sm:text-base sm:leading-[1.75]"
+                                titleClassName={`text-left transition hover:text-slate-700 [overflow-wrap:anywhere] ${postCardType.title}`}
+                                contentWrapperClassName={`cursor-pointer [overflow-wrap:anywhere] ${postCardType.body}`}
                                 buttonClassName="text-slate-900"
                                 translationRowClassName="text-slate-500"
                                 onTitleClick={postTitle ? () => openPostCard(post) : undefined}
@@ -9288,32 +9292,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             {post.tags?.length ? (
                               <div className="flex flex-wrap gap-2">
                                 {post.tags.map((tag) => (
-                                  <span key={tag} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 shadow-sm">
+                                  <span key={tag} className="inline-flex min-h-8 items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-600 shadow-sm sm:text-xs">
                                     #{tag}
                                   </span>
                                 ))}
                               </div>
                             ) : null}
-                            <div className="rounded-2xl border border-violet-100 bg-gradient-to-r from-violet-50 to-indigo-50 px-3 py-2.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
-                                  <Sparkles className="h-3.5 w-3.5" />
-                                  Scrolitha coach
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(event) => {
-                                    event.preventDefault();
-                                    event.stopPropagation();
-                                    openScrolithaFromMemberHome(buildPostScrolithaPrompt(postTitle, postContent));
-                                  }}
-                                  className="inline-flex items-center rounded-full border border-violet-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-violet-700 transition hover:bg-violet-100"
-                                >
-                                  Enhance post
-                                </button>
-                              </div>
-                              <p className="mt-1 text-xs text-slate-600">Get recommendation prompts for stronger reach, clarity, and conversion.</p>
-                            </div>
+                            <PostAiCoachCard
+                              onEnhance={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                openScrolithaFromMemberHome(buildPostScrolithaPrompt(postTitle, postContent));
+                              }}
+                            />
                             <ContentOfferTags offerTags={post.offerTags} />
                             {post.aiInsightGenerated && post.aiInsightText ? (
                               <div className="rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3 py-2">

@@ -147,12 +147,14 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
   const shellClassName = isDark
     ? 'rounded-[22px] border border-white/12 bg-black/38 px-3.5 py-3 text-white shadow-[0_18px_48px_-28px_rgba(15,23,42,0.95)] backdrop-blur-md'
     : 'rounded-[22px] border border-slate-200/80 bg-white/92 px-3.5 py-3 text-slate-900 shadow-sm';
-  const promptClassName = isDark ? 'text-sm font-semibold text-white' : 'text-sm font-semibold text-slate-900';
+  const promptClassName = isDark
+    ? 'text-[15px] font-medium leading-snug text-white'
+    : 'text-[15px] font-medium leading-snug text-slate-900';
   const ackClassName = isDark ? 'text-sm font-medium text-white/90' : 'text-sm font-medium text-slate-700';
   const secondaryTextClassName = isDark ? 'text-[11px] text-white/65' : 'text-[11px] text-slate-500';
-  const buttonBaseClassName = isDark
-    ? 'inline-flex min-h-[42px] items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60'
-    : 'inline-flex min-h-[42px] items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60';
+  /** Equal width + height, never wrap — design-system survey buttons */
+  const buttonBaseClassName =
+    'inline-flex h-[42px] w-full min-w-0 items-center justify-center whitespace-nowrap rounded-full border px-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60';
   const interestedButtonClassName = isDark
     ? `${buttonBaseClassName} border-cyan-300/25 bg-cyan-400/14 text-cyan-50 hover:bg-cyan-400/20`
     : `${buttonBaseClassName} border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`;
@@ -196,7 +198,7 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
       ) : canPrompt ? (
         <div className="space-y-3">
           <p className={promptClassName}>{copy.prompt}</p>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2" data-testid="content-interest-actions">
             <button
               type="button"
               disabled={Boolean(busySignal)}

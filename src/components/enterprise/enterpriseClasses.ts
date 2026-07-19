@@ -6,7 +6,20 @@
  * named grid areas (`left` | `center` | `right`) so the right rail cannot fall
  * out of the primary desktop row into a full-width stacked board.
  * Tailwind utilities are progressive enhancement only — geometry is CSS-owned.
+ *
+ * Post card surface/padding/chips delegate to postCardDesign.ts (Mobile Post
+ * Card Design System) so every feed surface shares identical geometry.
  */
+
+import {
+  postCardChipClass,
+  postCardChipMatchClass,
+  postCardChipRailClass,
+  postCardChipWhyClass,
+  postCardPaddingClass,
+  postCardPaddingCompactClass,
+  postCardShellClass
+} from './postCardDesign';
 
 /** Outer page shell: centered, ~1440–1560px. Always fill available width. */
 export const enterprisePageShell =
@@ -61,7 +74,7 @@ export const enterpriseAvatarLg =
   'h-[4.5rem] w-[4.5rem] shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-4 ring-white sm:h-20 sm:w-20';
 
 export const enterpriseAvatarMd =
-  'h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-100 sm:h-14 sm:w-14';
+  'h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-100';
 
 export const enterpriseAvatarSm =
   'h-11 w-11 shrink-0 overflow-hidden rounded-full bg-slate-100';
@@ -78,15 +91,14 @@ export const enterpriseCtaPrimary =
 
 /**
  * Post card shell — stable surface, no hover lift (avoids feed shake).
+ * Delegates to the Mobile Post Card Design System (postCardDesign.ts).
  */
-export const enterprisePostCard =
-  'overflow-hidden rounded-2xl border border-slate-200/90 bg-white ' +
-  'shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-22px_rgba(15,23,42,0.28)] ' +
-  'transition-shadow duration-150 ease-out hover:shadow-[0_2px_8px_rgba(15,23,42,0.06),0_16px_36px_-22px_rgba(15,23,42,0.32)]';
+export const enterprisePostCard = postCardShellClass;
 
-export const enterprisePostCardPadding = 'p-5 sm:p-6';
+/** Always 16px horizontal padding — no surface-specific exceptions */
+export const enterprisePostCardPadding = postCardPaddingClass;
 
-export const enterprisePostCardCompact = 'p-4 sm:p-5';
+export const enterprisePostCardCompact = postCardPaddingCompactClass;
 
 export const enterpriseSponsoredLabel =
   'inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold ' +
@@ -111,20 +123,14 @@ export const enterpriseLeftColumn =
 export const enterpriseRightColumn =
   `scrolith-mh-right min-w-0 w-full space-y-4 ${enterpriseStickyRailRight}`;
 
-/* Phase 18 — feed intelligence chips (presentation-only) */
-export const enterpriseIntelRail = 'flex flex-wrap gap-1.5';
+/* Phase 18 — feed intelligence chips (presentation-only); chip heights from post card design system */
+export const enterpriseIntelRail = postCardChipRailClass;
 
-export const enterpriseIntelChip =
-  'inline-flex max-w-full items-center truncate rounded-full border border-slate-200/90 bg-slate-50 px-2.5 py-1 ' +
-  'text-[11px] font-semibold text-slate-600';
+export const enterpriseIntelChip = postCardChipClass;
 
-export const enterpriseIntelChipWhy =
-  'inline-flex max-w-full items-center truncate rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 ' +
-  'text-[11px] font-semibold text-sky-800';
+export const enterpriseIntelChipWhy = postCardChipWhyClass;
 
-export const enterpriseIntelChipMatch =
-  'inline-flex max-w-full items-center truncate rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 ' +
-  'text-[11px] font-semibold text-indigo-800';
+export const enterpriseIntelChipMatch = postCardChipMatchClass;
 
 export const enterpriseIntelChipEngagement =
-  'inline-flex max-w-full items-center truncate rounded-full border px-2.5 py-1 text-[11px] font-semibold';
+  'inline-flex min-h-8 max-w-full items-center truncate rounded-full border px-2.5 py-1.5 text-[11px] font-semibold leading-none sm:text-xs';

@@ -21,6 +21,13 @@ import ContentInterestSurvey from '../../components/recommendation/ContentIntere
 import ReactionReactorsModal from './ReactionReactorsModal';
 import ReactionSummaryButton from './ReactionSummaryButton';
 import { normalizeShareText } from '../../utils/postShare';
+import {
+  postCardActionButtonClass,
+  postCardActionIconWrapClass,
+  postCardActionsRowClass,
+  postCardStatsRowClass,
+  postCardType
+} from '../../components/enterprise/postCardDesign';
 
 type AllowedReaction = {
   key: string;
@@ -403,11 +410,10 @@ const PostEngagementBar: React.FC<Props> = ({
   const dashCountLabel = formatDashGcoin(dashTotal);
   const sendCountLabel = Math.max(0, toSafeCount(shareCount)).toLocaleString();
   const viewCountLabel = Math.max(0, toSafeCount(viewCount)).toLocaleString();
-  const actionButtonBase =
-    'group relative inline-flex min-h-[52px] w-full flex-col items-center justify-center gap-1 rounded-xl border border-transparent bg-transparent px-1 py-2 text-slate-700 transition duration-enterprise hover:bg-slate-100/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400 sm:min-h-[56px]';
-  const actionIconBase =
-    'inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition duration-enterprise group-hover:bg-slate-200 sm:h-10 sm:w-10';
-  const actionLabelBase = 'hidden text-[11px] font-semibold tracking-wide text-slate-600 sm:inline';
+  /** Equal-width action cells, min 48px, centered — design system */
+  const actionButtonBase = postCardActionButtonClass;
+  const actionIconBase = postCardActionIconWrapClass;
+  const actionLabelBase = `hidden ${postCardType.actionLabel} sm:inline`;
   const postUrl = buildPostUrl(postId);
 
   const onReactionButtonHover = () => {
@@ -481,7 +487,7 @@ const PostEngagementBar: React.FC<Props> = ({
     String(authorId || '').trim() !== String(user?.id || '').trim();
 
   return (
-    <div className={`mt-4 ${className}`}>
+    <div className={`mt-3 ${className}`} data-testid="post-engagement-bar">
       {showInterestSurvey ? (
         <ContentInterestSurvey
           entityId={postId}
@@ -494,15 +500,15 @@ const PostEngagementBar: React.FC<Props> = ({
         />
       ) : null}
 
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+      <div className="flex min-w-0 flex-col">
+        <div className={postCardStatsRowClass}>
           <ReactionSummaryButton
             counts={counts}
             allowed={allowed}
             onClick={(event) => triggerAction(event, () => openReactors(null))}
             className="max-w-full"
           />
-          <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500 sm:text-sm">
+          <div className={`flex flex-wrap items-center gap-2 ${postCardType.stats}`}>
             {Number(commentCount) > 0 ? (
               <span aria-label={`${commentCountLabel} comments`}>{commentCountLabel} comments</span>
             ) : null}
@@ -520,7 +526,7 @@ const PostEngagementBar: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="grid grid-cols-5 gap-1 border-t border-slate-100 pt-1 sm:gap-1.5">
+        <div className={postCardActionsRowClass} data-testid="post-action-row">
         {reactionsEnabled ? (
           <button
             ref={buttonRef}

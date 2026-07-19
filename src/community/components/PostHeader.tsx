@@ -5,6 +5,15 @@ import FollowButton from './FollowButton';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import EnterpriseAvatar from '../../components/common/EnterpriseAvatar';
 import { resolveVerificationLevel } from '../../utils/verification';
+import {
+  postCardAvatarClass,
+  postCardFollowButtonClass,
+  postCardHeaderClass,
+  postCardHeaderMainClass,
+  postCardHeaderRightClass,
+  postCardHeaderRowClass,
+  postCardType
+} from '../../components/enterprise/postCardDesign';
 
 type PostHeaderAuthor = {
   id?: string | null;
@@ -65,8 +74,11 @@ const formatPostHeaderTimestamp = (createdAt?: string | null) => {
 };
 
 /**
- * Enterprise post header — stable avatar, strong author name, quiet metadata.
- * Shared by member-home and /community.
+ * Enterprise post header — fixed avatar, truncated name/username, fixed right cluster.
+ * Shared by member-home, /community, and mobile feed shells.
+ *
+ * Layout: Avatar | Name + Username + Date | Spacer | Following | More
+ * Following badge never moves vertically; long usernames truncate.
  */
 const PostHeader: React.FC<PostHeaderProps> = ({
   author,
@@ -96,31 +108,31 @@ const PostHeader: React.FC<PostHeaderProps> = ({
     (isBusinessAuthor || (authorType === 'user' && String(author.id || '') !== String(currentUserId || '')));
 
   return (
-    <header className="flex min-w-0 items-start gap-3 sm:gap-3.5">
+    <header className={postCardHeaderClass} data-testid="post-header">
       <Link
         to={profileUrl}
         aria-label={`${authorName} profile`}
-        className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 shadow-sm sm:h-14 sm:w-14"
+        className={postCardAvatarClass}
       >
         <EnterpriseAvatar
           user={author}
           name={authorName}
           src={author.avatarUrl}
           size="lg"
-          className="!h-full !w-full sm:!h-full sm:!w-full"
+          className="!h-full !w-full"
           alt={`${authorName} avatar`}
         />
       </Link>
 
-      <div className="min-w-0 flex-1 pt-0.5">
+      <div className={postCardHeaderMainClass}>
         {sponsoredLabel ? <div className="mb-1.5">{sponsoredLabel}</div> : null}
 
-        <div className="flex min-w-0 items-start justify-between gap-2">
+        <div className={postCardHeaderRowClass}>
           <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+            <div className="flex min-w-0 items-center gap-x-1.5 gap-y-0.5">
               <Link
                 to={profileUrl}
-                className="block min-w-0 max-w-full truncate text-[15px] font-semibold leading-snug text-slate-950 hover:text-slate-700 sm:text-base"
+                className={`block min-w-0 max-w-full truncate hover:text-slate-700 ${postCardType.name}`}
                 title={authorName}
               >
                 {authorName}
@@ -145,21 +157,22 @@ const PostHeader: React.FC<PostHeaderProps> = ({
               ) : null}
             </div>
 
+            {authorHandle ? (
+              <p className={`mt-0.5 max-w-full truncate ${postCardType.username}`} title={`@${authorHandle}`}>
+                @{authorHandle}
+              </p>
+            ) : null}
+
             {headline ? (
-              <p className="mt-0.5 line-clamp-1 text-sm leading-snug text-slate-600" title={headline}>
+              <p className="mt-0.5 line-clamp-1 text-[13px] leading-snug text-slate-600" title={headline}>
                 {headline}
               </p>
             ) : null}
 
-            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs leading-snug text-slate-500 sm:text-[13px]">
-              <time className="whitespace-nowrap font-medium text-slate-500" dateTime={createdAt || undefined}>
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+              <time className={`whitespace-nowrap ${postCardType.date}`} dateTime={createdAt || undefined}>
                 {formattedCreatedAt}
               </time>
-              {authorHandle ? (
-                <span className="max-w-[12rem] truncate text-slate-500" title={`@${authorHandle}`}>
-                  · @{authorHandle}
-                </span>
-              ) : null}
               {authorType === 'business' ? (
                 <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
                   Page
@@ -173,7 +186,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
             ) : null}
           </div>
 
-          <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+          <div className={postCardHeaderRightClass}>
             {canShowFollow ? (
               <FollowButton
                 targetUserId={author.id}
@@ -183,7 +196,7 @@ const PostHeader: React.FC<PostHeaderProps> = ({
                 onRequireLogin={onRequireLogin}
                 onSuccess={onFollowSuccess}
                 onError={onFollowError}
-                className="h-9 min-h-9 border-slate-200 bg-white px-3.5 text-xs font-semibold uppercase tracking-wide text-slate-700 shadow-sm hover:border-slate-300 hover:bg-slate-50"
+                className={postCardFollowButtonClass}
               />
             ) : null}
             {rightSlot}

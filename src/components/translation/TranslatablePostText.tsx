@@ -3,6 +3,7 @@ import ExpandablePreviewText from '../common/ExpandablePreviewText';
 import MentionText from '../../community/components/MentionText';
 import { useI18n } from '../../i18n/I18nProvider';
 import { ContentTranslationService, type PostTranslationResult } from '../../services/contentTranslation';
+import { postCardTextBlockClass, postCardType } from '../enterprise/postCardDesign';
 
 type TranslatablePost = {
   id?: string | null;
@@ -125,26 +126,30 @@ const TranslatablePostText: React.FC<TranslatablePostTextProps> = ({
     />
   );
 
+  const resolvedTitleClass = titleClassName || `${postCardType.title} text-left [overflow-wrap:anywhere]`;
+  const resolvedBodyClass =
+    contentWrapperClassName || `cursor-pointer ${postCardType.body} [overflow-wrap:anywhere]`;
+
   return (
-    <div className="space-y-2">
+    <div className={postCardTextBlockClass} data-testid="translatable-post-text">
       {displayTitle ? (
         onTitleClick ? (
           <button
             type="button"
             onClick={onTitleClick}
-            className={titleClassName}
+            className={resolvedTitleClass}
           >
             {displayTitle}
           </button>
         ) : (
-          <div className={titleClassName}>{displayTitle}</div>
+          <div className={resolvedTitleClass}>{displayTitle}</div>
         )
       ) : null}
 
       {displayContent ? (
         onContentClick ? (
           <div
-            className={contentWrapperClassName}
+            className={resolvedBodyClass}
             role="button"
             tabIndex={0}
             onClick={onContentClick}
@@ -162,25 +167,27 @@ const TranslatablePostText: React.FC<TranslatablePostTextProps> = ({
             {expandable ? (
               <ExpandablePreviewText
                 text={displayContent}
-                className="inline"
+                useLineClamp
+                moreLabel="More..."
                 buttonClassName={buttonClassName}
                 renderText={(visibleText) => renderContent(visibleText)}
               />
             ) : (
-              <div className={contentClassName}>{renderContent(displayContent)}</div>
+              <div className={contentClassName || postCardType.body}>{renderContent(displayContent)}</div>
             )}
           </div>
         ) : expandable ? (
-          <div className={contentWrapperClassName}>
+          <div className={resolvedBodyClass}>
             <ExpandablePreviewText
               text={displayContent}
-              className="inline"
+              useLineClamp
+              moreLabel="More..."
               buttonClassName={buttonClassName}
               renderText={(visibleText) => renderContent(visibleText)}
             />
           </div>
         ) : (
-          <div className={contentClassName}>{renderContent(displayContent)}</div>
+          <div className={contentClassName || postCardType.body}>{renderContent(displayContent)}</div>
         )
       ) : null}
 

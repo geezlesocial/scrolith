@@ -111,7 +111,7 @@ export const RecoSignalChips: React.FC<RecoSignalChipsProps> = ({
   const chips = Array.isArray(reasons) ? reasons.filter(Boolean).slice(0, 4) : [];
   if (!whyRecommended && !chips.length) return null;
   return (
-    <div className={`mt-1.5 space-y-1.5 ${className}`}>
+    <div className={`space-y-1.5 ${className}`}>
       {whyRecommended ? (
         <p className="text-[11px] leading-4 text-slate-500">
           <span className="font-semibold text-slate-600">Why: </span>
@@ -119,7 +119,7 @@ export const RecoSignalChips: React.FC<RecoSignalChipsProps> = ({
         </p>
       ) : null}
       {chips.length ? (
-        <div className={enterpriseIntelRail} aria-label="Recommendation signals">
+        <div className={enterpriseIntelRail} aria-label="Recommendation signals" data-testid="reco-signal-chips">
           {chips.map((reason) => (
             <span key={reason} className={enterpriseIntelChip}>
               {reason}
