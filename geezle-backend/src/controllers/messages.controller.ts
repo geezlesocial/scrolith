@@ -4,6 +4,11 @@ import { resolveUserProStatus } from '../utils/proStatus';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
 import { notifyAdmins } from '../utils/notify';
 import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
+import {
+  formatLastMessagePreview,
+  resolveStoredLastMessageText,
+  MESSAGE_PREVIEW_LABELS
+} from '../services/messaging/lastMessagePreview';
 
 const nowIso = () => new Date().toISOString();
 const isMessagesTraceEnabled = () =>
@@ -298,14 +303,13 @@ const formatReaction = (reaction: any) => ({
   timestamp: reaction.createdAt ? reaction.createdAt.toISOString() : nowIso()
 });
 
-const resolveMessageSnippet = (message: any) => {
-  const messageType = String(message?.messageType || message?.message_type || '').toUpperCase();
-  if (messageType === 'VOICE_NOTE') return 'Voice note';
-  const text = String(message?.text || '').trim();
-  if (text) return text.slice(0, 160);
-  const attachments = Array.isArray(message?.attachments) ? message.attachments : [];
-  if (attachments.length) return 'Attachment';
-  return 'Message';
+const resolveMessageSnippet = (message: any, fallbackStoredPreview?: string | null) => {
+  const preview = formatLastMessagePreview(message, {
+    fallbackStoredPreview: fallbackStoredPreview || null,
+    maxLen: 160
+  });
+  if (preview.kind === 'empty') return MESSAGE_PREVIEW_LABELS.message;
+  return preview.text;
 };
 
 const buildReplyPreview = (message: any) => {
@@ -444,11 +448,16 @@ const buildConversationPayload = (
     formatConversationMessage(message, conversation, viewerId, lastReadAt)
   );
 
-  const lastVisibleMessage = messages[messages.length - 1];
+  const lastVisibleMessage = messages[messages.length - 1] || null;
+  const storedPreview = String(conversation?.lastMessageText || conversation?.last_message_text || '').trim();
+  const lastMessagePreview = formatLastMessagePreview(lastVisibleMessage, {
+    fallbackStoredPreview: storedPreview || null,
+    maxLen: 160
+  });
+  // Empty conversation → empty string so clients can show localized "No messages".
+  // Media-only → attachment label (never blank when a visible message exists).
   const lastMessage =
-    lastVisibleMessage?.text ||
-    String(conversation?.lastMessageText || conversation?.last_message_text || '').trim() ||
-    '';
+    lastMessagePreview.kind === 'empty' ? '' : lastMessagePreview.text;
   const lastMessageAt =
     lastVisibleMessage?.timestamp ||
     (conversation?.lastMessageAt
@@ -485,7 +494,13 @@ const buildConversationPayload = (
     type: conversation.type === 'GROUP' ? 'group' : 'direct',
     participants,
     last_message: lastMessage,
+    lastMessage: lastMessage,
+    last_message_preview_kind: lastMessagePreview.kind,
+    lastMessagePreviewKind: lastMessagePreview.kind,
+    last_message_attachment_count: lastMessagePreview.attachmentCount,
+    lastMessageAttachmentCount: lastMessagePreview.attachmentCount,
     last_message_at: lastMessageAt,
+    lastMessageAt: lastMessageAt,
     unread_count: unreadCount,
     ...(participantState ? participantState : {}),
     // Official AI assistant threads stay pinned / starred in the inbox.
@@ -497,6 +512,25 @@ const buildConversationPayload = (
     isPinned: isScrolithaConversation,
     assistant_kind: isScrolithaConversation ? 'scrolitha' : undefined,
     messages
+  };
+};
+
+const applyAttachmentAwareLastMessage = (payload: any) => {
+  const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+  const lastVisibleMessage = messages.length ? messages[messages.length - 1] : null;
+  const preview = formatLastMessagePreview(lastVisibleMessage, {
+    fallbackStoredPreview: payload?.last_message || payload?.lastMessage || null,
+    maxLen: 160
+  });
+  const lastMessage = preview.kind === 'empty' ? '' : preview.text;
+  return {
+    ...payload,
+    last_message: lastMessage,
+    lastMessage,
+    last_message_preview_kind: preview.kind,
+    lastMessagePreviewKind: preview.kind,
+    last_message_attachment_count: preview.attachmentCount,
+    lastMessageAttachmentCount: preview.attachmentCount
   };
 };
 
@@ -514,7 +548,7 @@ const buildConversationPayloadWithAttachments = async (
     ...msg,
     attachments: mapAttachments(msg.attachments || [], fileMap)
   }));
-  return { ...payload, messages };
+  return applyAttachmentAwareLastMessage({ ...payload, messages });
 };
 
 const getDirectConversationKey = (conversation: any) => {
@@ -586,15 +620,24 @@ const mergeConversationPayloads = (payloads: any[]) => {
     );
     const lastVisibleMessage = mergedMessages[mergedMessages.length - 1] || null;
     const unreadCount = ordered.reduce((sum, entry) => sum + Number(entry?.unread_count || entry?.unreadCount || 0), 0);
+    const mergedPreview = formatLastMessagePreview(lastVisibleMessage, {
+      fallbackStoredPreview: primary?.last_message || primary?.lastMessage || null,
+      maxLen: 160
+    });
+    const mergedLastText = mergedPreview.kind === 'empty' ? '' : mergedPreview.text;
     return {
       ...primary,
       id: primary?.id,
       messages: mergedMessages,
-      last_message: lastVisibleMessage?.text || primary?.last_message || '',
+      last_message: mergedLastText || primary?.last_message || '',
       last_message_at: lastVisibleMessage?.timestamp || primary?.last_message_at || '',
       unread_count: unreadCount,
-      lastMessage: lastVisibleMessage?.text || primary?.lastMessage || '',
+      lastMessage: mergedLastText || primary?.lastMessage || '',
       lastMessageAt: lastVisibleMessage?.timestamp || primary?.lastMessageAt || '',
+      last_message_preview_kind: mergedPreview.kind,
+      lastMessagePreviewKind: mergedPreview.kind,
+      last_message_attachment_count: mergedPreview.attachmentCount,
+      lastMessageAttachmentCount: mergedPreview.attachmentCount,
       unreadCount: unreadCount
     };
   });
@@ -1093,13 +1136,15 @@ export const listConversations = async (req: Request, res: Response) => {
     // Single batched file lookup for the whole page (no per-conversation attachment N+1).
     const fileMap = await buildAttachmentMap(attachmentIds);
     const payload = mergeConversationPayloads(
-      basePayload.map((conversation: any) => ({
-        ...conversation,
-        messages: conversation.messages.map((msg: any) => ({
-          ...msg,
-          attachments: mapAttachments(msg.attachments || [], fileMap)
-        }))
-      }))
+      basePayload.map((conversation: any) =>
+        applyAttachmentAwareLastMessage({
+          ...conversation,
+          messages: conversation.messages.map((msg: any) => ({
+            ...msg,
+            attachments: mapAttachments(msg.attachments || [], fileMap)
+          }))
+        })
+      )
     );
     return res.json({
       success: true,
@@ -1408,16 +1453,6 @@ export const postMessage = async (req: Request, res: Response) => {
       }
     }
 
-    const lastMessageText = text || (attachments.length ? 'Sent an attachment' : '');
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastMessageText,
-        lastMessageAt: message.createdAt,
-        lastMessageSenderId: senderId
-      }
-    });
-
     const receiverIds = conversation.participants
       .map((p) => p.userId)
       .filter((id) => id !== senderId);
@@ -1452,10 +1487,32 @@ export const postMessage = async (req: Request, res: Response) => {
     }
 
     const fileMap = attachments.length ? await buildAttachmentMap(attachments) : new Map<string, any>();
+    const mappedAttachments = mapAttachments(attachments, fileMap);
+    const previewForSocket = formatLastMessagePreview({
+      text: message.text,
+      attachments: mappedAttachments,
+      messageType: message.messageType || (attachments.length ? 'file' : 'text')
+    });
+    const resolvedLastMessageText =
+      previewForSocket.kind === 'empty' ? null : previewForSocket.text.slice(0, 240);
+
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: {
+        lastMessageText:
+          resolvedLastMessageText ||
+          (attachments.length ? MESSAGE_PREVIEW_LABELS.file : text || null),
+        lastMessageAt: message.createdAt,
+        lastMessageSenderId: senderId
+      }
+    });
+
     const payload = {
       id: message.id,
       conversation_id: conversation.id,
+      conversationId: conversation.id,
       sender_id: senderId,
+      senderId,
       receiver_id: receiverIds[0] || '',
       text: message.text,
       timestamp: message.createdAt.toISOString(),
@@ -1467,14 +1524,23 @@ export const postMessage = async (req: Request, res: Response) => {
       edited_at: null,
       editedAt: null,
       reactions: [],
-      attachments: mapAttachments(attachments, fileMap),
+      message_type: message.messageType || (attachments.length ? 'file' : 'text'),
+      messageType: message.messageType || (attachments.length ? 'file' : 'text'),
+      attachments: mappedAttachments,
       attachment_ids: attachments,
       reply_to_message_id: message.replyToMessageId || null,
       replyToMessageId: message.replyToMessageId || null,
       reply_to_snapshot: message.replyToSnapshot || null,
       replyToSnapshot: message.replyToSnapshot || null,
       reply_to: buildReplyPreview(message),
-      replyTo: buildReplyPreview(message)
+      replyTo: buildReplyPreview(message),
+      // Phase 20.7.7 — attachment-aware preview for socket inbox updates
+      last_message: resolvedLastMessageText || '',
+      lastMessage: resolvedLastMessageText || '',
+      last_message_at: message.createdAt.toISOString(),
+      lastMessageAt: message.createdAt.toISOString(),
+      last_message_preview_kind: previewForSocket.kind,
+      lastMessagePreviewKind: previewForSocket.kind
     };
 
     receiverIds.forEach((id) => emitToUser(req, id, 'messages:new', payload));
@@ -2349,14 +2415,15 @@ export const editMessage = async (req: Request, res: Response) => {
     });
 
     const latest = await prisma.directMessage.findFirst({
-      where: { conversationId: message.conversationId },
+      where: { conversationId: message.conversationId, deletedAt: null },
       orderBy: { createdAt: 'desc' }
     });
+    const latestPreviewText = resolveStoredLastMessageText(latest);
 
     await prisma.conversation.update({
       where: { id: message.conversationId },
       data: {
-        lastMessageText: latest?.text || null,
+        lastMessageText: latestPreviewText,
         lastMessageAt: latest?.createdAt || null,
         lastMessageSenderId: latest?.senderId || null
       }
@@ -2581,14 +2648,15 @@ export const deleteMessage = async (req: Request, res: Response) => {
     }
 
     const latest = await prisma.directMessage.findFirst({
-      where: { conversationId: message.conversationId },
+      where: { conversationId: message.conversationId, deletedAt: null },
       orderBy: { createdAt: 'desc' }
     });
+    const latestPreviewText = resolveStoredLastMessageText(latest);
 
     await prisma.conversation.update({
       where: { id: message.conversationId },
       data: {
-        lastMessageText: latest?.text || null,
+        lastMessageText: latestPreviewText,
         lastMessageAt: latest?.createdAt || null,
         lastMessageSenderId: latest?.senderId || null
       }
