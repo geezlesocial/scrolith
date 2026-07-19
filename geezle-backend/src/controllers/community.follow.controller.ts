@@ -533,21 +533,43 @@ export const unfollowTarget = async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
-    const followId = req.params.id;
+    const followId = String(req.params.id || '').trim();
+    if (!followId) return res.status(400).json({ success: false, error: 'Missing follow target' });
 
-    const userFollow = await prisma.userFollow.findUnique({ where: { id: followId } });
+    // Phase 20.10: accept follow-record id OR entity id (user/page) for the current actor.
+    let userFollow = await prisma.userFollow.findUnique({ where: { id: followId } });
+    if (!userFollow) {
+      userFollow = await prisma.userFollow.findUnique({
+        where: {
+          followerId_followeeId: {
+            followerId: userId,
+            followeeId: followId
+          }
+        }
+      });
+    }
     if (userFollow) {
       if (userFollow.followerId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
-      await prisma.userFollow.delete({ where: { id: followId } });
+      await prisma.userFollow.delete({ where: { id: userFollow.id } });
       emitFollowUpdated({ actorUserId: userId, targetUserId: userFollow.followeeId, isFollowing: false });
       await emitProfileCountsUpdated([userId, userFollow.followeeId]);
       return res.json({ success: true });
     }
 
-    const pageFollow = await prisma.communityBusinessPageFollower.findUnique({ where: { id: followId } });
+    let pageFollow = await prisma.communityBusinessPageFollower.findUnique({ where: { id: followId } });
+    if (!pageFollow) {
+      pageFollow = await prisma.communityBusinessPageFollower.findUnique({
+        where: {
+          pageId_userId: {
+            pageId: followId,
+            userId
+          }
+        }
+      });
+    }
     if (pageFollow) {
       if (pageFollow.userId !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
-      await prisma.communityBusinessPageFollower.delete({ where: { id: followId } });
+      await prisma.communityBusinessPageFollower.delete({ where: { id: pageFollow.id } });
       const targetPage = await prisma.communityBusinessPage.findUnique({
         where: { id: pageFollow.pageId },
         select: { ownerId: true }
