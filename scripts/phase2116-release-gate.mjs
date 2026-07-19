@@ -269,7 +269,7 @@ if (unitOk && e2eRan && !productBlockers && !envBlockers) {
 
 summary.promoteRecommended = summary.overall === 'PASS' && e2eRan && !productBlockers && !envBlockers;
 summary.trafficAction = summary.promoteRecommended
-  ? 'SAFE_TO_PROMOTE_00198_TO_100'
+  ? 'SAFE_TO_PROMOTE_P2117_STAGED_TO_100'
   : 'HOLD_STAGED_TRAFFIC';
 summary.phase2115ProductionCertified = summary.promoteRecommended;
 

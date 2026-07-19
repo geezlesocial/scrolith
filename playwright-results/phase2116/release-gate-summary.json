@@ -1,0 +1,73 @@
+{
+  "phase": "21.1.7c",
+  "generatedAt": "2026-07-19T17:42:37.000Z",
+  "requireAuth": false,
+  "allowSkipAuth": false,
+  "canAuth": true,
+  "target": {
+    "baseUrl": "https://p2117---scrolith-frontend-25ysnpjdda-as.a.run.app",
+    "imageTag": "p2117",
+    "revision": "scrolith-frontend-00203-yot",
+    "trafficPercent": 0,
+    "commit": "659937d57596adf2c0b24bc8ebb3aedce6552ffd"
+  },
+  "steps": [
+    {
+      "name": "unit-contracts",
+      "status": "PASS",
+      "exitCode": 0
+    },
+    {
+      "name": "authenticated-e2e",
+      "status": "PASS",
+      "exitCode": 0
+    },
+    {
+      "name": "feed-identity-60s-four-env",
+      "status": "PASS",
+      "exitCode": 0,
+      "note": "Separate CERT_FEED_IDENTITY_MS=60000 run: 13/13 across desktop-chrome, pixel-7, iphone-15, mobile-390"
+    }
+  ],
+  "overall": "PASS",
+  "promoteRecommended": true,
+  "blocking": [],
+  "productFailures": [],
+  "harnessFailures": [],
+  "environmentalFailures": [],
+  "missingData": [],
+  "notes": [
+    "Phase 21.1.7c fixed iOS WebKit Member Home visible_post_id_changed under soft activity.",
+    "Identity suite (60s) passed on all four projects before full gate.",
+    "Full gate: 56 passed, 1 skipped (iphone scroll survey path), 0 failed.",
+    "Public production traffic remains on prior stable revision until operator promotes."
+  ],
+  "playwrightStats": {
+    "startTime": "2026-07-19T17:25:57.313Z",
+    "duration": 1000269.102,
+    "expected": 56,
+    "skipped": 1,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "identitySuite60s": {
+    "projects": ["desktop-chrome", "pixel-7", "iphone-15", "mobile-390"],
+    "passed": 13,
+    "failed": 0,
+    "durationMs": 748180,
+    "iphoneMemberHome": "PASS"
+  },
+  "failureClassifications": [],
+  "classificationCounts": {
+    "product": 0,
+    "harness": 0,
+    "env": 0,
+    "data": 0,
+    "passed": 56,
+    "failed": 0
+  },
+  "trafficAction": "SAFE_TO_PROMOTE_P2117_STAGED_TO_100",
+  "phase2115ProductionCertified": true,
+  "phase2117IdentityCertified": true,
+  "autoTrafficShift": false
+}
