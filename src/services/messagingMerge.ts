@@ -1,4 +1,5 @@
 import type { Conversation } from '../types';
+import { formatConversationPreview } from './conversationPreview';
 
 const safeString = (value: any, fallback = ''): string => {
   return typeof value === 'string' && value.trim() !== '' ? value : fallback;
@@ -174,13 +175,18 @@ export const mergeDirectConversations = (list: Conversation[]) => {
       });
     const lastVisibleMessage = mergedMessages[mergedMessages.length - 1];
     const unreadCount = ordered.reduce((sum, entry) => sum + safeNumber(entry?.unreadCount ?? entry?.unread_count), 0);
+    const preview = formatConversationPreview({
+      message: lastVisibleMessage || null,
+      fallbackPreview: primary?.lastMessage || primary?.last_message || ''
+    });
+    const previewText = preview.isEmpty ? '' : preview.text;
 
     return {
       ...primary,
       messages: mergedMessages,
-      last_message: safeString(lastVisibleMessage?.text ?? primary?.last_message),
+      last_message: safeString(previewText || primary?.last_message),
       last_message_at: safeString(lastVisibleMessage?.timestamp ?? primary?.last_message_at),
-      lastMessage: safeString(lastVisibleMessage?.text ?? primary?.lastMessage),
+      lastMessage: safeString(previewText || primary?.lastMessage),
       lastMessageAt: safeString(lastVisibleMessage?.timestamp ?? primary?.lastMessageAt),
       unread_count: unreadCount,
       unreadCount

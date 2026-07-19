@@ -7,7 +7,9 @@ import {
   MessageSearchResult,
   getConversationMergeKey,
   mergeDirectConversations,
-  messageMatchesConversation
+  messageMatchesConversation,
+  getMessagePreviewText,
+  getConversationPreviewText
 } from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
@@ -751,14 +753,25 @@ const Messages = () => {
               return prev.map((entry) => {
                   if (entry.id !== conversationId) return entry;
                   const existing = Array.isArray(entry.messages) ? entry.messages : [];
+                  const previewFromPayload = String(
+                      (message as any)?.lastMessage ||
+                          (message as any)?.last_message ||
+                          ''
+                  ).trim();
+                  const nextPreview =
+                      previewFromPayload ||
+                      getMessagePreviewText(message, { currentUserId: user?.id }) ||
+                      entry.lastMessage ||
+                      entry.last_message ||
+                      '';
                   if (existing.some((row) => row.id === message.id)) {
                       return {
                           ...entry,
                           messages: existing.map((row) =>
                               row.id === message.id ? { ...row, ...message } : row
                           ),
-                          lastMessage: String(message.text || entry.lastMessage || ''),
-                          last_message: String(message.text || entry.last_message || ''),
+                          lastMessage: nextPreview,
+                          last_message: nextPreview,
                           lastMessageAt: message.timestamp || entry.lastMessageAt,
                           last_message_at: message.timestamp || entry.last_message_at
                       };
@@ -766,8 +779,8 @@ const Messages = () => {
                   return {
                       ...entry,
                       messages: [...existing, message],
-                      lastMessage: String(message.text || entry.lastMessage || ''),
-                      last_message: String(message.text || entry.last_message || ''),
+                      lastMessage: nextPreview,
+                      last_message: nextPreview,
                       lastMessageAt: message.timestamp || entry.lastMessageAt,
                       last_message_at: message.timestamp || entry.last_message_at
                   };
@@ -1300,16 +1313,10 @@ const Messages = () => {
 
   const resolveMessagePreviewText = (message: Partial<Message> | null | undefined) => {
       if (!message) return '';
-      if (Boolean(message.isDeleted ?? message.is_deleted)) return '[Message deleted]';
+      if (Boolean(message.isDeleted ?? message.is_deleted)) return 'This message was deleted';
       const dealFlowEvent = extractDealFlowEvent(message as Message);
       if (dealFlowEvent) return resolveDealFlowPreviewText(dealFlowEvent);
-      const messageType = String(message.messageType || message.message_type || '').toLowerCase();
-      if (messageType === 'voice_note' || message.voiceNote || message.voice_note) return 'Voice note';
-      const text = String(message.text || '').trim();
-      if (text) return text.slice(0, 160);
-      const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-      if (attachments.length) return 'Sent an attachment';
-      return 'Message';
+      return getMessagePreviewText(message as Message, { currentUserId: user?.id });
   };
 
   const applyConversationMessageChanges = (
@@ -3211,8 +3218,7 @@ const Messages = () => {
                             const previewText = String(
                                 searchMeta?.matchedMessageSnippet ||
                                 searchMeta?.lastMessage ||
-                                convo.lastMessage ||
-                                convo.last_message ||
+                                getConversationPreviewText(convo, { currentUserId: user?.id }) ||
                                 ''
                             );
                             return (

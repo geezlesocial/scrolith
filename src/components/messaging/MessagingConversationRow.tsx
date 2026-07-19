@@ -6,6 +6,7 @@ import {
   getConversationAvatarParticipant,
   getConversationCategory,
   getConversationDisplayName,
+  getConversationPreviewText,
   getConversationUnreadCount
 } from '../../services/messagingSurfaces';
 import { Paperclip, Pin, VolumeX } from 'lucide-react';
@@ -33,9 +34,7 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
   );
   const avatarUrl = resolveUserAvatarUrl(other) || String(other?.avatar || '').trim();
   const unread = getConversationUnreadCount(conversation);
-  const preview = String(
-    conversation.lastMessage || conversation.last_message || 'No messages yet'
-  ).trim();
+  const preview = getConversationPreviewText(conversation, { currentUserId });
   const timestamp = formatRelativeMessageTime(
     conversation.lastMessageAt || conversation.last_message_at
   );
@@ -43,7 +42,8 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
   const isMuted = Boolean(conversation.isMuted ?? conversation.is_muted);
   const isStarred = Boolean(conversation.isStarred ?? conversation.is_starred);
   const category = getConversationCategory(conversation);
-  const hasAttachmentHint = /photo|video|attachment|voice/i.test(preview);
+  const hasAttachmentHint =
+    /image|photo|video|audio|voice|pdf|document|file|attachment/i.test(preview);
 
   return (
     <button
