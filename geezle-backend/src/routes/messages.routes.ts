@@ -21,6 +21,16 @@ import {
   listConversationAttachments,
   getConversationSecurityStatus
 } from '../controllers/messages.controller';
+import {
+  updateGroupMeta,
+  listGroupMembers,
+  addGroupMembers,
+  removeGroupMember,
+  updateGroupMember,
+  createGroupInvite,
+  acceptGroupInvite,
+  getMessagesAround
+} from '../controllers/groupMessaging.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
@@ -36,10 +46,20 @@ router.post('/scrolitha/turn/stream', authMiddleware, postScrolithaUnifiedTurnSt
 router.get('/search', authMiddleware, searchMessages);
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
+// Phase 22.2 — group invites accept (before :id routes)
+router.post('/invites/:code/accept', authMiddleware, acceptGroupInvite);
 router.get('/conversations/:id', authMiddleware, getConversation);
 // Phase 20.7.8 — media browser + honest security status
 router.get('/conversations/:id/attachments', authMiddleware, listConversationAttachments);
 router.get('/conversations/:id/security', authMiddleware, getConversationSecurityStatus);
+// Phase 22.2 — group management
+router.patch('/conversations/:id/group', authMiddleware, updateGroupMeta);
+router.get('/conversations/:id/members', authMiddleware, listGroupMembers);
+router.post('/conversations/:id/members', authMiddleware, addGroupMembers);
+router.patch('/conversations/:id/members/:memberUserId', authMiddleware, updateGroupMember);
+router.delete('/conversations/:id/members/:memberUserId', authMiddleware, removeGroupMember);
+router.post('/conversations/:id/invites', authMiddleware, createGroupInvite);
+router.get('/conversations/:id/messages/around/:messageId', authMiddleware, getMessagesAround);
 router.post('/conversations', authMiddleware, createConversation);
 router.post('/conversations/:id/messages', authMiddleware, postMessage);
 router.post('/conversations/:id/voice-notes', authMiddleware, postVoiceNoteMessage);

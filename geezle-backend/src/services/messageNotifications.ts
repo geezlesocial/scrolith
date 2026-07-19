@@ -10,8 +10,9 @@ type DispatchMessageReceiptNotificationsInput = {
   preview?: string | null;
   fallbackPreview?: string;
   messageType?: string | null;
-  /** Optional mention ids for future 22.2 bypass; unused when empty. */
+  /** Phase 22.2 — @mentioned user ids (mention bypass when muted / MENTIONS level) */
   mentionedUserIds?: string[];
+  isGroup?: boolean;
 };
 
 const normalizePreview = (preview?: string | null, fallbackPreview?: string) => {
@@ -43,28 +44,59 @@ export const dispatchMessageReceiptNotifications = async (
     return { attempted: 0, notified: 0, suppressedMuted: 0 };
   }
 
-  // Phase 22.1 — mute-aware push: conversation mute suppresses new_message (forcePush cannot override).
+  // Phase 22.1/22.2 — mute + group notification levels (forcePush cannot override).
   let mutedUserIds: string[] = [];
+  let notificationLevelByUserId: Record<string, string> = {};
+  let isGroup = Boolean(input.isGroup);
   try {
-    const mutedRows = await prisma.conversationParticipant.findMany({
+    const rows = await prisma.conversationParticipant.findMany({
       where: {
         conversationId,
-        userId: { in: receiverIds },
-        isMuted: true
+        userId: { in: receiverIds }
       },
-      select: { userId: true }
+      select: {
+        userId: true,
+        isMuted: true,
+        notifications: true
+      } as any
     });
-    mutedUserIds = mutedRows.map((row) => String(row.userId || '').trim()).filter(Boolean);
+    mutedUserIds = rows
+      .filter((row: any) => Boolean(row.isMuted))
+      .map((row: any) => String(row.userId || '').trim())
+      .filter(Boolean);
+    rows.forEach((row: any) => {
+      const id = String(row.userId || '').trim();
+      if (id && row.notifications) notificationLevelByUserId[id] = String(row.notifications);
+    });
+    if (!isGroup) {
+      const conv = await prisma.conversation.findUnique({
+        where: { id: conversationId },
+        select: { type: true }
+      });
+      isGroup = conv?.type === 'GROUP';
+    }
   } catch (muteError) {
-    console.warn('[message-notifications] mute lookup failed; notifying all receivers', muteError);
+    // Fallback: older schema without notifications column
+    try {
+      const mutedRows = await prisma.conversationParticipant.findMany({
+        where: { conversationId, userId: { in: receiverIds }, isMuted: true },
+        select: { userId: true }
+      });
+      mutedUserIds = mutedRows.map((row) => String(row.userId || '').trim()).filter(Boolean);
+    } catch (e2) {
+      console.warn('[message-notifications] mute lookup failed; notifying all receivers', e2);
+    }
   }
 
+  const mentionedUserIds = Array.isArray(input.mentionedUserIds) ? input.mentionedUserIds : [];
   const notifyIds = filterReceiversForMessagePush({
     receiverIds,
     mutedUserIds,
     senderId,
-    allowMentionBypass: false,
-    mentionedUserIds: input.mentionedUserIds
+    allowMentionBypass: mentionedUserIds.length > 0,
+    mentionedUserIds,
+    notificationLevelByUserId,
+    isGroup
   });
   const suppressedMuted = receiverIds.filter((id) => id !== senderId).length - notifyIds.length;
 

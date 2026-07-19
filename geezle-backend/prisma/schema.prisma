@@ -3407,6 +3407,35 @@ enum ConversationType {
   GROUP
 }
 
+/// Phase 22.2 — group membership roles
+enum ConversationMemberRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+/// Phase 22.2 — per-member notification preference for groups
+enum ConversationNotificationLevel {
+  ALL
+  MENTIONS
+  NONE
+}
+
+/// Phase 22.2 — group discovery / join policy
+enum ConversationVisibility {
+  PRIVATE
+  PUBLIC
+  UNLISTED
+}
+
+enum ConversationInviteStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
 enum DirectMessageType {
   TEXT
   FILE
@@ -3817,36 +3846,49 @@ model CommunityMessage {
 
 // Direct messaging (1:1 and group)
 model Conversation {
-  id                  String           @id @default(cuid())
-  type                ConversationType @default(DIRECT)
+  id                  String                  @id @default(cuid())
+  type                ConversationType        @default(DIRECT)
   lastMessageText     String?
   lastMessageAt       DateTime?
   lastMessageSenderId String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  /// Phase 22.2 — group display metadata
+  title               String?
+  description         String?                 @db.Text
+  avatarFileId        String?
+  visibility          ConversationVisibility  @default(PRIVATE)
+  source              String?
+  sourceId            String?
 
   participants   ConversationParticipant[]
   messages       DirectMessage[]
   messageRecords DirectMessageRecord[]
   voiceCalls     VoiceCall[]
   voiceNotes     VoiceNote[]
+  invites        ConversationInvite[]
 
   @@index([updatedAt])
   @@index([updatedAt, id])
   @@index([lastMessageAt])
+  @@index([type, visibility])
+  @@index([source, sourceId])
 }
 
 model ConversationParticipant {
-  id             String    @id @default(cuid())
+  id             String                        @id @default(cuid())
   conversationId String
   userId         String
-  joinedAt       DateTime  @default(now())
+  joinedAt       DateTime                      @default(now())
   lastReadAt     DateTime?
-  label          String    @default("other")
-  isStarred      Boolean   @default(false)
-  isMuted        Boolean   @default(false)
-  isArchived     Boolean   @default(false)
+  label          String                        @default("other")
+  isStarred      Boolean                       @default(false)
+  isMuted        Boolean                       @default(false)
+  isArchived     Boolean                       @default(false)
   deletedAt      DateTime?
+  /// Phase 22.2
+  role           ConversationMemberRole        @default(MEMBER)
+  notifications  ConversationNotificationLevel @default(ALL)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -3854,6 +3896,27 @@ model ConversationParticipant {
   @@unique([conversationId, userId])
   @@index([userId])
   @@index([userId, deletedAt, conversationId])
+  @@index([conversationId, role])
+}
+
+/// Phase 22.2 — group invitations
+model ConversationInvite {
+  id             String                   @id @default(cuid())
+  conversationId String
+  code           String                   @unique
+  inviteeUserId  String?
+  invitedById    String
+  role           ConversationMemberRole   @default(MEMBER)
+  status         ConversationInviteStatus @default(PENDING)
+  expiresAt      DateTime?
+  createdAt      DateTime                 @default(now())
+  acceptedAt     DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, status])
+  @@index([inviteeUserId, status])
+  @@index([code])
 }
 
 model DirectMessage {

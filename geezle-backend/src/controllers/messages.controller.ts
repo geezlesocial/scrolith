@@ -294,6 +294,10 @@ const formatParticipant = (participant: any) => {
     isMuted: Boolean(participant.isMuted),
     is_archived: Boolean(participant.isArchived),
     isArchived: Boolean(participant.isArchived),
+    member_role: participant.role || 'MEMBER',
+    memberRole: participant.role || 'MEMBER',
+    notifications: participant.notifications || 'ALL',
+    notificationLevel: participant.notifications || 'ALL',
     is_scrolitha: isScrolitha,
     isScrolitha,
     is_verified: Boolean(participant.user?.isVerified) || isScrolitha,
@@ -498,7 +502,12 @@ const buildConversationPayload = (
         is_muted: Boolean(viewer.isMuted),
         isMuted: Boolean(viewer.isMuted),
         is_archived: Boolean(viewer.isArchived),
-        isArchived: Boolean(viewer.isArchived)
+        isArchived: Boolean(viewer.isArchived),
+        // Phase 22.2 — viewer membership role + notification level on conversation payload
+        memberRole: (viewer as any).role || 'MEMBER',
+        member_role: (viewer as any).role || 'MEMBER',
+        notifications: (viewer as any).notifications || 'ALL',
+        notificationLevel: (viewer as any).notifications || 'ALL'
       }
     : undefined;
 
@@ -509,6 +518,15 @@ const buildConversationPayload = (
   return {
     id: conversation.id,
     type: conversation.type === 'GROUP' ? 'group' : 'direct',
+    // Phase 22.2 group meta
+    title: conversation.title || null,
+    description: conversation.description || null,
+    avatarFileId: conversation.avatarFileId || null,
+    avatar_file_id: conversation.avatarFileId || null,
+    visibility: conversation.visibility || 'PRIVATE',
+    source: conversation.source || null,
+    sourceId: conversation.sourceId || null,
+    source_id: conversation.sourceId || null,
     participants,
     last_message: lastMessage,
     lastMessage: lastMessage,
@@ -1355,7 +1373,11 @@ export const createConversation = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
-    const type = uniqueIds.length > 2 ? 'GROUP' : 'DIRECT';
+    // Phase 22.2 — explicit type or auto GROUP when >2 / title provided
+    const requestedType = String(req.body?.type || '').toUpperCase();
+    const groupTitle = req.body?.title != null ? String(req.body.title || '').trim().slice(0, 120) : '';
+    const forceGroup = requestedType === 'GROUP' || Boolean(groupTitle);
+    const type = forceGroup || uniqueIds.length > 2 ? 'GROUP' : 'DIRECT';
 
     let existing: any = null;
     if (type === 'DIRECT' && uniqueIds.length === 2) {
@@ -1402,16 +1424,46 @@ export const createConversation = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'One or more participants not found' });
     }
 
+    const description =
+      req.body?.description != null ? String(req.body.description || '').trim().slice(0, 2000) : null;
+    const avatarFileId =
+      req.body?.avatarFileId != null ? String(req.body.avatarFileId || '').trim() || null : null;
+    const visibilityRaw = String(req.body?.visibility || 'PRIVATE').toUpperCase();
+    const visibility = ['PRIVATE', 'PUBLIC', 'UNLISTED'].includes(visibilityRaw)
+      ? visibilityRaw
+      : 'PRIVATE';
+    const ownerId = userId && uniqueIds.includes(userId) ? userId : uniqueIds[0];
+
     const created = await prisma.conversation.create({
       data: {
         type,
+        ...(type === 'GROUP'
+          ? {
+              title: groupTitle || null,
+              description: description || null,
+              avatarFileId,
+              visibility
+            }
+          : {}),
         participants: {
-          create: uniqueIds.map((id) => ({ userId: id }))
+          create: uniqueIds.map((id) => ({
+            userId: id as string,
+            ...(type === 'GROUP'
+              ? { role: id === ownerId ? 'OWNER' : 'MEMBER' }
+              : {})
+          })) as any
         }
-      }
+      } as any
     });
 
-    return res.json({ success: true, data: { id: created.id } });
+    return res.json({
+      success: true,
+      data: {
+        id: created.id,
+        type: type === 'GROUP' ? 'group' : 'direct',
+        title: (created as any).title || null
+      }
+    });
   } catch (error: any) {
     console.error('Create conversation error:', error);
     const message = error?.code ? `${error.message || 'Failed to create conversation'} (${error.code})` : (error.message || 'Failed to create conversation');
@@ -1797,6 +1849,24 @@ export const postMessage = async (req: Request, res: Response) => {
       });
     }
 
+    // Phase 22.2 — resolve @mentions for group notification / mute bypass
+    let mentionedUserIds: string[] = [];
+    try {
+      const { resolveMentionUserIds } = await import('./groupMessaging.controller');
+      mentionedUserIds = await resolveMentionUserIds(text);
+      if (mentionedUserIds.length && message?.id) {
+        const nextMeta = {
+          ...(message.metadata && typeof message.metadata === 'object' ? message.metadata : {}),
+          mentionedUserIds
+        };
+        await prisma.directMessage
+          .update({ where: { id: message.id }, data: { metadata: nextMeta } as any })
+          .catch(() => null);
+      }
+    } catch {
+      mentionedUserIds = [];
+    }
+
     void dispatchMessageReceiptNotifications({
       receiverIds,
       senderId,
@@ -1804,7 +1874,9 @@ export const postMessage = async (req: Request, res: Response) => {
       messageId: message.id,
       preview: text,
       fallbackPreview: attachments.length ? 'Sent an attachment' : 'New message',
-      messageType: 'text'
+      messageType: 'text',
+      mentionedUserIds,
+      isGroup: conversation.type === 'GROUP'
     }).catch((notifyError) => {
       console.warn('Failed to send message notifications', notifyError);
     });
