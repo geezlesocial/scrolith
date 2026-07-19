@@ -382,6 +382,7 @@ const BrowseJobs = React.lazy(() => import('./main/BrowseJobs'));
 const SearchResults = React.lazy(() => import('./pages/SearchResults'));
 const Messages = React.lazy(() => import('./messages/Messages'));
 const FreelancerProfile = React.lazy(() => import('./profile/FreelancerProfile'));
+const ScrolithaOfficialProfile = React.lazy(() => import('./profile/ScrolithaOfficialProfile'));
 const CompanyPage = React.lazy(() => import('./pages/CompanyPage'));
 const ContactPage = React.lazy(() => import('./pages/ContactPage'));
 const AffiliateProgram = React.lazy(() => import('./pages/AffiliateProgram'));
@@ -1641,7 +1642,10 @@ const AppContent = () => {
                 </ProtectedRoute>
               } />
               
-               {/* Profiles */}
+               {/* Profiles — Phase 20.7.8: canonical Scrolitha enterprise profile first */}
+               <Route path="/u/scrolitha" element={renderResponsiveMobilePage('Profile', <ScrolithaOfficialProfile />)} />
+               <Route path="/u/Scrolitha" element={<Navigate to="/u/scrolitha" replace />} />
+               <Route path="/community/u/scrolitha" element={<Navigate to="/u/scrolitha" replace />} />
                <Route path="/profile/:id" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
                <Route path="/u/:username" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />
                <Route path="/community/u/:username" element={renderResponsiveMobilePage('Profile', <FreelancerProfile />)} />

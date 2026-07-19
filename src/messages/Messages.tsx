@@ -34,6 +34,7 @@ import { getRecoverableActionMessage } from '../mobile/runtime/requestRecovery';
 import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDialog';
 import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
 import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
+import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversationMenu';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
@@ -3477,6 +3478,10 @@ const Messages = () => {
                                 >
                                     {isRefreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                                 </button>
+                                {/* Phase 20.7.8 — Scrolitha uses trusted system menu only */}
+                                {isActiveScrolithaConversation && activeConvoId ? (
+                                    <ScrolithaConversationMenu conversationId={activeConvoId} />
+                                ) : (
                                 <div className="relative">
                                     <button
                                         type="button"
@@ -3577,6 +3582,7 @@ const Messages = () => {
                                         </div>
                                     )}
                                 </div>
+                                )}
                             </div>
                             </div>
                         </div>
