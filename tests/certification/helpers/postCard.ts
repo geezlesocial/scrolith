@@ -36,7 +36,20 @@ export async function waitForFeed(page: Page, timeout = 45_000) {
       timeout
     })
   ]).catch(() => undefined);
-  await page.waitForTimeout(800);
+  // Phase 21.1.7 — allow orchestrator + mobile shared lifecycle to settle so
+  // cache/network races do not shift the session head under the identity probe.
+  await page.waitForTimeout(2500);
+  // Prefer a stable head id for two consecutive samples (~400ms apart)
+  try {
+    const a = await page.locator(POST_CARD).first().getAttribute('data-feed-post-id');
+    await page.waitForTimeout(400);
+    const b = await page.locator(POST_CARD).first().getAttribute('data-feed-post-id');
+    if (a && b && a !== b) {
+      await page.waitForTimeout(1500);
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function snapshotPostCard(card: Locator): Promise<PostCardSnapshot> {

@@ -1423,6 +1423,10 @@ export default function MobileFeed({
   }, [posts]);
 
   useEffect(() => {
+    // Phase 21.1.7 — when shared continuous feed owns the session, do not hydrate
+    // from localStorage. Cache races caused session-head identity swaps on slower
+    // WebKit (iPhone) when cache order differed from the orchestrator page.
+    if (USE_SHARED_FEED_LIFECYCLE) return;
     if (!feedCacheKey) return;
     try {
       const raw = localStorage.getItem(feedCacheKey);
@@ -1430,6 +1434,8 @@ export default function MobileFeed({
       const parsed = JSON.parse(raw) as { ts?: number; items?: any[]; cursor?: string | null };
       const cachedPosts = Array.isArray(parsed?.items) ? parsed.items : [];
       if (!cachedPosts.length) return;
+      // Never replace a live non-empty session with cache.
+      if (postsRef.current.length > 0) return;
       const cachedCursor = parsed?.cursor ? String(parsed.cursor) : null;
       cursorRef.current = cachedCursor;
       commitVisiblePosts(cachedPosts, cachedCursor, 'initial');
@@ -2589,28 +2595,14 @@ export default function MobileFeed({
       const post = payload?.post;
       if (!post?.id) return;
       const normalized = normalizePost(post);
-      // Phase 21.1.7 — prepend only; do not re-sort the reading session (WebKit identity).
+      // Phase 21.1.7 — do NOT auto-prepend into the live reading window.
+      // Soft-pending only: keep session head stable (parity with desktop soft isolation).
+      // User pull-to-refresh / explicit apply surfaces new posts.
       setPosts((prev) => {
         if (prev.some((p) => String(p?.id) === String(normalized.id))) return prev;
-        return [normalized, ...prev];
+        return prev;
       });
-      setFeedStream((prev) => {
-        const key = `post:${String(normalized.id)}`;
-        if (prev.some((e) => e.key === key || String(e.post?.id || '') === String(normalized.id))) {
-          return prev;
-        }
-        return [
-          {
-            key,
-            kind: 'post' as const,
-            type: 'POST',
-            post: normalized,
-            raw: normalized,
-            data: normalized
-          },
-          ...prev
-        ];
-      });
+      setStatusMessage((prev) => prev || 'New posts available — pull to refresh.');
     };
     const onUpdated = (event: Event) => {
       const payload = (event as CustomEvent).detail;
@@ -2741,7 +2733,7 @@ export default function MobileFeed({
       window.removeEventListener('community:post_ai_insight_ready', onPostAiInsightReady as EventListener);
       window.removeEventListener('post:aiInsightReady', onPostAiInsightReady as EventListener);
     };
-  }, [normalizePost, sortPosts]);
+  }, [normalizePost]);
 
   useEffect(() => {
     viewTrackedRef.current.clear();

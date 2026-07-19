@@ -529,15 +529,29 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   }, [observerRootMargin, loading, loadingMore, revealMore, load, renderedCount, stream.length]);
 
   // Online resume — soft only (pending buffer), never hard replace session.
+  // Phase 21.1.7 — ignore synthetic `online` when navigator.onLine was already true
+  // (cert harness / some WebKit paths fire the event without a real offline gap).
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    let wasOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
     const onOnline = () => {
+      const nowOnline = typeof navigator !== 'undefined' ? navigator.onLine !== false : true;
+      const recovered = !wasOnline && nowOnline;
+      wasOnline = nowOnline;
+      if (!recovered) return;
       setStatusMessage(null);
       if (streamRef.current.length === 0) void load('initial');
       else void load('soft_refresh');
     };
+    const onOffline = () => {
+      wasOnline = false;
+    };
     window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
   }, [load]);
 
   // Phase 21.1.4 — focus must not rebuild visible sequence (soft refresh only).

@@ -12,8 +12,8 @@ test.describe('Feed identity — 60s stability', () => {
     requireAuthOrSkip(test);
   });
 
-  // Full 60s × 3 surfaces can be long; mark serial
-  test.describe.configure({ mode: 'serial' });
+  // Run surfaces independently so one failure does not skip WebKit community/scroll.
+  test.describe.configure({ mode: 'parallel' });
 
   test('Member Home identity stable under soft activity', async ({ page }, testInfo) => {
     test.setTimeout(FEED_IDENTITY_MS + 90_000);
