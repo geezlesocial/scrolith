@@ -132,7 +132,10 @@ import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/c
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { CommunityClub, StructuredLocationFields } from '../../types';
-import { pickInterestSurveyCandidateId } from '../recommendation/ContentInterestSurvey';
+import {
+  pickInterestSurveyCandidateId,
+  pickInterestSurveyCandidateIds
+} from '../recommendation/ContentInterestSurvey';
 import FeedIntelligenceSignals, { RecoSignalChips } from '../feed/FeedIntelligenceSignals';
 import {
   resolveFeedRankingPresentation,
@@ -1529,19 +1532,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     dataSaver: false,
     isMobile: false
   });
-  const interestSurveyPostId = useMemo(
+  // Phase 21.1.2S — align with Community/Mobile fatigue policy (up to 4 eligible posts / batch).
+  const interestSurveyPostIds = useMemo(
     () =>
-      pickInterestSurveyCandidateId(
-        renderableFeedItems.map((post: any) => ({
-          id: post?.id,
-          authorId: post?.authorUserId || post?.authorId,
-          initialSignal: post?.userState?.interestSignal
-        })),
-        user?.id,
-        'post'
+      new Set(
+        pickInterestSurveyCandidateIds(
+          renderableFeedItems.map((post: any) => ({
+            id: post?.id,
+            authorId: post?.authorUserId || post?.authorId,
+            initialSignal: post?.userState?.interestSignal
+          })),
+          user?.id,
+          'post',
+          4
+        )
       ),
     [renderableFeedItems, user?.id]
   );
+  // Backward-compatible single id for any call sites still expecting one primary candidate.
+  const interestSurveyPostId = useMemo(() => {
+    if (interestSurveyPostIds.size) return Array.from(interestSurveyPostIds)[0] || null;
+    return pickInterestSurveyCandidateId(
+      renderableFeedItems.map((post: any) => ({
+        id: post?.id,
+        authorId: post?.authorUserId || post?.authorId,
+        initialSignal: post?.userState?.interestSignal
+      })),
+      user?.id,
+      'post'
+    );
+  }, [interestSurveyPostIds, renderableFeedItems, user?.id]);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
@@ -9239,7 +9259,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             viewCount={post.interactions?.views ?? post.viewsCount ?? 0}
                             initialReactionCounts={post.interactions?.reactions}
                             initialUserReaction={post.userState?.reaction}
-                            interestSurveyEnabled={post.id === interestSurveyPostId}
+                            interestSurveyEnabled={interestSurveyPostIds.has(post.id)}
                             initialInterestSignal={post.userState?.interestSignal}
                             focusCommentId={focusPostId === post.id ? focusCommentId : undefined}
                             focusMentionToken={focusPostId === post.id ? focusMentionToken : undefined}

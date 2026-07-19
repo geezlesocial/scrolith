@@ -180,7 +180,14 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
   };
 
   return (
-    <div className={`${shellClassName} ${className}`.trim()}>
+    <div
+      className={`${shellClassName} ${className}`.trim()}
+      data-testid="content-interest-survey"
+      data-phase="21.1.2S"
+      data-content-type={contentType}
+      data-entity-id={normalizedEntityId}
+      data-survey-state={ackVisible ? 'ack' : canPrompt ? 'prompt' : 'idle'}
+    >
       {ackVisible && ackMessage ? (
         <div className="space-y-1.5">
           <p className={ackClassName}>{ackMessage}</p>
@@ -195,6 +202,8 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
               disabled={Boolean(busySignal)}
               onClick={() => void submit('INTERESTED')}
               className={interestedButtonClassName}
+              data-testid="content-interest-yes"
+              aria-label="Interested in this content"
             >
               {busySignal === 'INTERESTED' ? 'Saving...' : 'Interested'}
             </button>
@@ -203,15 +212,21 @@ const ContentInterestSurvey: React.FC<ContentInterestSurveyProps> = ({
               disabled={Boolean(busySignal)}
               onClick={() => void submit('NOT_INTERESTED')}
               className={notInterestedButtonClassName}
+              data-testid="content-interest-no"
+              aria-label="Not interested in this content"
             >
               {busySignal === 'NOT_INTERESTED' ? 'Saving...' : 'Not interested'}
             </button>
           </div>
-          {error ? <p className={secondaryTextClassName}>{error}</p> : null}
+          {error ? (
+            <p className={secondaryTextClassName} role="alert" data-testid="content-interest-error">
+              {error}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
   );
 };
 
-export default ContentInterestSurvey;
+export default React.memo(ContentInterestSurvey);

@@ -629,6 +629,15 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
         resolvedSrc ? (
           <VoiceNotePlayer
             src={resolvedSrc}
+            attachmentId={
+              String(
+                normalized.id ||
+                  (normalized as any).fileId ||
+                  (normalized as any).file_id ||
+                  normalized.name ||
+                  ''
+              ) || undefined
+            }
             name={normalized.name || (normalized.type === 'voice_note' ? 'Voice note' : 'Audio')}
             outgoing={isOutgoing}
             durationMsHint={
@@ -643,6 +652,7 @@ const MessageAttachmentRenderer: React.FC<MessageAttachmentRendererProps> = ({
               void downloadMessageAttachment(normalized).catch(() => undefined);
             }}
             onRequestRefreshSrc={async () => {
+              // Stable identity: loadMedia(true) reuses cache keys; player holds callback via ref.
               const next = await loadMedia(true);
               return next || null;
             }}
