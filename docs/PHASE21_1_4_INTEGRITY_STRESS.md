@@ -1,5 +1,14 @@
 # Phase 21.1.4 — Feed Session Integrity Stress Test
 
+## Deployed
+
+| Item | Value |
+|------|--------|
+| Revision | `scrolith-frontend-00131-4jr` |
+| Tag | `p2114i` |
+| Commit | `cd146e66` |
+| Prior stability fix | `00130-dhz` / p2114 (`bf830417`) |
+
 ## Purpose
 
 Continuously verify that a feed session remains identity-stable during:
