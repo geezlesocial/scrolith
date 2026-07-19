@@ -30,6 +30,14 @@ html {
   --enterprise-hover-surface: rgb(248 250 252 / 0.9);
   --enterprise-transition: 160ms ease;
   --enterprise-sticky-top: 6rem;
+
+  /* Enterprise Spacing Scale (xs–xxl) — post/marketplace/feed cards consume these */
+  --scrolith-space-xs: 4px;
+  --scrolith-space-sm: 8px;
+  --scrolith-space-md: 12px;
+  --scrolith-space-lg: 16px;
+  --scrolith-space-xl: 20px;
+  --scrolith-space-xxl: 24px;
 }
 
 @media (prefers-reduced-motion: reduce) {

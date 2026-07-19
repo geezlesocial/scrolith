@@ -13,8 +13,10 @@ type PostAiCoachCardProps = {
 };
 
 /**
- * Stable AI Coach strip on post cards — min-height 72px, padding 16px,
- * CTA always right-aligned. Same footprint on every surface.
+ * Stable AI Coach strip on post cards — min-height 72px, padding from
+ * enterprise spacing.lg (16px), CTA always right-aligned.
+ * Same footprint on every surface. When omitted from a card, parent
+ * section stack keeps uniform gap between remaining siblings.
  */
 const PostAiCoachCard: React.FC<PostAiCoachCardProps> = ({
   onEnhance,
@@ -24,9 +26,10 @@ const PostAiCoachCard: React.FC<PostAiCoachCardProps> = ({
   <div
     className={`${postCardAiCoachClass} ${className}`.trim()}
     data-testid="post-ai-coach-card"
+    data-ai-coach="visible"
   >
     <div className={postCardAiCoachInnerClass}>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <span className="inline-flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
           <Sparkles className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           Scrolitha coach
