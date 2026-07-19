@@ -24,10 +24,15 @@ Phase **21.1.2 — Avatar System Completion & Enterprise Voice Notes** is **impl
 
 - `npm run build` (geezle): **PASS** (~43s)
 - Unit tests: **PASS** 19/19
+- Cloud Build image: `scrolith-frontend:p2112-6cd81db0` **SUCCESS**
+- Production revision: `scrolith-frontend-00127-p5c` @ **100%** traffic (tag `p2112`)
+- Frontend commit: `6cd81db0`
+- Docs/meta commit: `a20665ba`
 
 ## Rollback
 
-1. Route Cloud Run `scrolith-frontend` traffic to prior revision (e.g. `scrolith-frontend-00179-zav` / image tag `p2111`).
+1. Route Cloud Run `scrolith-frontend` traffic to prior revision:  
+   `gcloud run services update-traffic scrolith-frontend --region=asia-southeast1 --project=scrolith-500821 --to-revisions=scrolith-frontend-00179-zav=100`
 2. No database rollback required (frontend-only phase).
 3. Voice messages already stored remain readable via attachment pipeline.
 
