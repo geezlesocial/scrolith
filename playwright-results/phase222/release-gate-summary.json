@@ -33,5 +33,13 @@
     "inviteCode": "g1027573b7aba4413",
     "joinPath": "/messages/join/g1027573b7aba4413"
   },
-  "apiFailed": []
+  "apiFailed": [],
+  "promotedAt": "2026-07-19T21:29:22.742Z",
+  "trafficActionCompleted": true,
+  "production": {
+    "backend": "scrolith-backend-00152-sag",
+    "frontend": "scrolith-frontend-00207-rug",
+    "tag": "p222"
+  },
+  "postPromoteApiCert": "PASS"
 }
