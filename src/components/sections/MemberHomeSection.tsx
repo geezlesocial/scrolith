@@ -8992,6 +8992,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         className={`${enterprisePostCard} ${postDensity === 'compact' ? enterprisePostCardCompact : enterprisePostCardPadding}`}
                         data-testid="enterprise-post-card"
                         data-post-card-design="21.1.5"
+                        data-feed-post-id={String(post.id || '') || undefined}
+                        data-feed-session-index={postIndex}
                       >
                       <PostHeader
                         author={resolvedAuthor}

@@ -1,0 +1,18 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "https://p2115---scrolith-frontend-25ysnpjdda-as.a.run.app",
+      "localStorage": [
+        {
+          "name": "token",
+          "value": "REPLACE_WITH_REAL_JWT"
+        },
+        {
+          "name": "user",
+          "value": "{\"id\":\"REPLACE\",\"email\":\"qa@example.com\",\"displayName\":\"Cert User\"}"
+        }
+      ]
+    }
+  ]
+}

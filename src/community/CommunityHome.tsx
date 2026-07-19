@@ -3348,6 +3348,7 @@ const CommunityHome = () => {
                       id={`community-post-${post.id}`}
                       data-testid="enterprise-post-card"
                       data-post-card-design="21.1.5"
+                      data-feed-post-id={String(post.id || '') || undefined}
                       className={`${enterprisePostCard} ${enterprisePostCardPadding} ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader

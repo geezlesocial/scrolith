@@ -982,22 +982,23 @@ export default function MobileFeed({
   }, []);
 
   // Phase 21.0.2 — bind UI state to shared lifecycle (single cursor/terminal owner).
+  // Phase 21.1.7 — NEVER re-sort session posts/stream here. sortPosts was reordering
+  // visible cards on every soft_refresh/status tick (WebKit identity regression).
+  // Session order is owned by useContinuousFeed isolation; preserve it exactly.
   useEffect(() => {
     if (!USE_SHARED_FEED_LIFECYCLE) return;
-    const normalizedPosts = sortPosts(
-      (sharedFeed.posts || [])
-        .map((post) => {
-          try {
-            return normalizePost(post);
-          } catch {
-            return null;
-          }
-        })
-        .filter(Boolean)
-    );
+    const normalizedPosts = (sharedFeed.posts || [])
+      .map((post) => {
+        try {
+          return normalizePost(post);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean) as any[];
     postsRef.current = normalizedPosts;
     setPosts(normalizedPosts);
-    // Re-normalize post entries in stream for rich mobile cards.
+    // Re-normalize post entries in stream for rich mobile cards — keep entry order.
     const nextStream = (sharedFeed.stream || []).map((entry) => {
       if (entry.kind !== 'post' || !entry.post) return entry;
       try {
@@ -1031,8 +1032,7 @@ export default function MobileFeed({
     sharedFeed.error,
     sharedFeed.statusMessage,
     sharedFeed.renderedCount,
-    normalizePost,
-    sortPosts
+    normalizePost
   ]);
 
   const highlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
@@ -2589,9 +2589,27 @@ export default function MobileFeed({
       const post = payload?.post;
       if (!post?.id) return;
       const normalized = normalizePost(post);
+      // Phase 21.1.7 — prepend only; do not re-sort the reading session (WebKit identity).
       setPosts((prev) => {
         if (prev.some((p) => String(p?.id) === String(normalized.id))) return prev;
-        return sortPosts([normalized, ...prev]);
+        return [normalized, ...prev];
+      });
+      setFeedStream((prev) => {
+        const key = `post:${String(normalized.id)}`;
+        if (prev.some((e) => e.key === key || String(e.post?.id || '') === String(normalized.id))) {
+          return prev;
+        }
+        return [
+          {
+            key,
+            kind: 'post' as const,
+            type: 'POST',
+            post: normalized,
+            raw: normalized,
+            data: normalized
+          },
+          ...prev
+        ];
       });
     };
     const onUpdated = (event: Event) => {
@@ -2599,23 +2617,40 @@ export default function MobileFeed({
       const post = payload?.post;
       if (!post?.id) return;
       const normalized = normalizePost(post);
+      // Phase 21.1.7 — in-place update only; never re-sort (preserves visible head).
       setPosts((prev) =>
-        sortPosts(
-          prev.map((p) =>
-            String(p?.id) === String(normalized.id)
-              ? {
-                  ...p,
-                  ...normalized,
-                  interactions: normalized.interactions
-                    ? { ...(p?.interactions || {}), ...normalized.interactions }
-                    : p?.interactions,
-                  userState: normalized.userState
-                    ? { ...(p?.userState || {}), ...normalized.userState }
-                    : p?.userState
-                }
-              : p
-          )
+        prev.map((p) =>
+          String(p?.id) === String(normalized.id)
+            ? {
+                ...p,
+                ...normalized,
+                interactions: normalized.interactions
+                  ? { ...(p?.interactions || {}), ...normalized.interactions }
+                  : p?.interactions,
+                userState: normalized.userState
+                  ? { ...(p?.userState || {}), ...normalized.userState }
+                  : p?.userState
+              }
+            : p
         )
+      );
+      setFeedStream((prev) =>
+        prev.map((entry) => {
+          if (entry.kind !== 'post' || String(entry.post?.id || '') !== String(normalized.id)) {
+            return entry;
+          }
+          const nextPost = {
+            ...entry.post,
+            ...normalized,
+            interactions: normalized.interactions
+              ? { ...(entry.post?.interactions || {}), ...normalized.interactions }
+              : entry.post?.interactions,
+            userState: normalized.userState
+              ? { ...(entry.post?.userState || {}), ...normalized.userState }
+              : entry.post?.userState
+          };
+          return { ...entry, post: nextPost, data: nextPost };
+        })
       );
     };
     const onDeleted = (event: Event) => {

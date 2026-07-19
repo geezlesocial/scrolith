@@ -541,10 +541,17 @@ export function useContinuousFeed(options: UseContinuousFeedOptions): UseContinu
   }, [load]);
 
   // Phase 21.1.4 — focus must not rebuild visible sequence (soft refresh only).
+  // Phase 21.1.7 — only soft-refresh on a real hidden→visible transition.
+  // Synthetic `visibilitychange` events (tests / WebKit) leave visibilityState
+  // as "visible" and previously fired soft_refresh every few seconds.
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    let lastVisibility: DocumentVisibilityState = document.visibilityState;
     const onVis = () => {
-      if (document.visibilityState !== 'visible') return;
+      const next = document.visibilityState;
+      const becameVisible = lastVisibility !== 'visible' && next === 'visible';
+      lastVisibility = next;
+      if (!becameVisible) return;
       if (streamRef.current.length === 0) return;
       void load('soft_refresh');
     };
