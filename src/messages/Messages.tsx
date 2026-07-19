@@ -35,6 +35,7 @@ import MobileDialog, { MobileDialogFooter } from '../components/mobile/MobileDia
 import { MessageAttachmentsList } from '../components/messaging/MessageAttachmentRenderer';
 import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
 import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversationMenu';
+import SmartComposer from '../components/messaging/SmartComposer';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
@@ -4090,7 +4091,12 @@ const Messages = () => {
                             )}
 
                             {pendingAttachments.length > 0 && (
-                                <div className="mb-3 grid gap-2 sm:grid-cols-2">
+                                <div
+                                  className="mb-3 flex gap-2 overflow-x-auto pb-1"
+                                  data-testid="composer-attachment-staging"
+                                  role="list"
+                                  aria-label="Attachments ready to send"
+                                >
                                     {pendingAttachments.map(file => {
                                         const preview = normalizeAttachmentForDisplay({
                                             ...file,
@@ -4104,8 +4110,9 @@ const Messages = () => {
                                         return (
                                         <div
                                           key={file.clientLocalId || file.id}
+                                          role="listitem"
                                           className={[
-                                            'flex items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-xs shadow-sm',
+                                            'flex min-w-[14rem] max-w-[18rem] shrink-0 items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-xs shadow-sm',
                                             isFailed
                                               ? 'border-red-200 bg-red-50 text-red-800'
                                               : 'border-gray-200 bg-gray-50 text-gray-700'
@@ -4166,35 +4173,45 @@ const Messages = () => {
                                 </div>
                             )}
 
-                            <form
+                            {/* Phase 20.8 — Smart Composer: + / input / mic / suggest / send */}
+                            <SmartComposer
+                                value={messageInput}
+                                onChange={handleMessageInputChange}
                                 onSubmit={handleSendMessage}
-                                className={`rounded-2xl border border-gray-200 bg-white/95 p-2 shadow-sm md:rounded-[22px] md:p-2.5 ${
-                                    isMobileKeyboardOpen ? 'space-y-2' : ''
-                                }`}
-                            >
-                                <div className="rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 via-white to-slate-50 p-1 transition focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100/70 md:rounded-2xl">
-                                    <textarea
-                                        ref={composerTextareaRef}
-                                        className={`w-full resize-none border-0 bg-transparent px-2.5 text-[15px] leading-6 text-gray-800 outline-none placeholder:text-gray-400 md:px-3 ${
-                                            isMobileKeyboardOpen ? 'py-1.5' : 'py-2'
-                                        }`}
-                                        placeholder={
-                                            isActiveScrolithaConversation
-                                                ? 'Ask Scrolitha to do something on Scrolith…'
-                                                : 'Write a message. Press Enter to send, Shift+Enter for a new line.'
-                                        }
-                                        value={messageInput}
-                                        onChange={(event) => handleMessageInputChange(event.target.value)}
-                                        onKeyDown={handleComposerKeyDown}
-                                        onFocus={() => scrollComposerIntoView('auto')}
-                                        onClick={() => scrollComposerIntoView('auto')}
-                                        rows={1}
-                                        data-testid="messages-composer-textarea"
-                                    />
-                                </div>
-
-                                <div className={`mt-2 ${isMobileKeyboardOpen ? 'space-y-1.5' : 'space-y-2'}`}>
-                                    <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                                textareaRef={composerTextareaRef}
+                                onKeyDown={handleComposerKeyDown}
+                                onFocus={() => scrollComposerIntoView('auto')}
+                                isMobile={isMobileViewport}
+                                keyboardOpen={isMobileKeyboardOpen}
+                                isScrolitha={isActiveScrolithaConversation}
+                                placeholder={
+                                    isActiveScrolithaConversation
+                                        ? 'Ask Scrolitha to do something on Scrolith…'
+                                        : 'Write a message. Press Enter to send, Shift+Enter for a new line.'
+                                }
+                                canSend={
+                                    Boolean(activeConvoId) &&
+                                    Boolean(messageInput.trim() || pendingAttachments.length) &&
+                                    !hasPendingUploadsInFlight(pendingAttachments) &&
+                                    !pendingAttachments.some((item) => item.uploadState === 'failed')
+                                }
+                                onPickFiles={() => uploadInputRef.current?.click()}
+                                onPickMedia={() => mediaInputRef.current?.click()}
+                                onPickCamera={() => cameraInputRef.current?.click()}
+                                onSuggestReply={() => void handleAiSuggest()}
+                                suggestLoading={isGettingAiSuggestion}
+                                showSuggestReply
+                                helperText={
+                                    hasPendingUploadsInFlight(pendingAttachments)
+                                        ? 'Uploading in background — keep chatting…'
+                                        : pendingAttachments.length > 0
+                                          ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} ready`
+                                          : isActiveScrolithaConversation
+                                            ? 'AI responses are generated — verify important details.'
+                                            : 'Private chat media stays scoped to this conversation.'
+                                }
+                                fileInputs={
+                                    <>
                                         <input
                                             ref={uploadInputRef}
                                             type="file"
@@ -4219,87 +4236,24 @@ const Messages = () => {
                                             className="hidden"
                                             onChange={(event) => void handleUploadInputChange(event)}
                                         />
-                                        <button
-                                            type="button"
-                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                                            onClick={() => uploadInputRef.current?.click()}
-                                            title="Attach files from device"
-                                        >
-                                            <Paperclip className="w-4 h-4" />
-                                            <span className="hidden sm:inline text-xs font-medium">Files</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                                            onClick={() => mediaInputRef.current?.click()}
-                                            title="Choose photo or video from device"
-                                        >
-                                            <ImageIcon className="w-5 h-5" />
-                                            <span className="hidden sm:inline text-xs font-medium">Media</span>
-                                        </button>
-                                        <button
-                                            type="button"
-                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 text-gray-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                                            onClick={() => cameraInputRef.current?.click()}
-                                            title="Capture photo or video"
-                                        >
-                                            <Camera className="w-4 h-4" />
-                                            <span className="hidden sm:inline text-xs font-medium">Camera</span>
-                                        </button>
-                                        <VoiceRecorder
-                                            disabled={
-                                                voiceNoteBusy ||
-                                                !activeConvoId ||
-                                                !voiceRuntimeConfig.enabledVoiceNotes ||
-                                                voiceRuntimeConfig.blockedForCurrentUser ||
-                                                hasPendingUploadsInFlight(pendingAttachments)
-                                            }
-                                            maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
-                                            onRecorded={handleVoiceRecorded}
-                                            onError={(message) => showNotification('error', 'Voice notes', message)}
-                                            className="h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-3 hover:border-blue-200 hover:bg-blue-50"
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={handleAiSuggest}
-                                            disabled={isGettingAiSuggestion}
-                                            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-xl border border-purple-200 bg-purple-50/70 px-3 text-purple-700 shadow-sm transition-colors hover:bg-purple-100 disabled:opacity-50"
-                                        >
-                                            {isGettingAiSuggestion ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                                            <span className="text-xs font-medium">
-                                                {isGettingAiSuggestion
-                                                    ? 'Thinking...'
-                                                    : isMobileViewport
-                                                        ? (isMobileKeyboardOpen ? 'AI' : 'AI Reply')
-                                                        : 'Suggest Reply'}
-                                            </span>
-                                        </button>
-                                    </div>
-
-                                    <div className={`flex gap-3 ${isMobileKeyboardOpen ? 'items-center' : 'items-end'} justify-between`}>
-                                        <div className="min-w-0 flex-1 text-[11px] text-gray-500">
-                                            {hasPendingUploadsInFlight(pendingAttachments)
-                                                ? 'Uploading in background — keep chatting…'
-                                                : pendingAttachments.length > 0
-                                                ? `${pendingAttachments.length} attachment${pendingAttachments.length === 1 ? '' : 's'} ready`
-                                                : 'Private chat media stays scoped to this conversation.'}
-                                        </div>
-                                        <button
-                                            type="submit"
-                                            disabled={
-                                              !activeConvoId ||
-                                              (!messageInput.trim() && pendingAttachments.length === 0) ||
-                                              hasPendingUploadsInFlight(pendingAttachments) ||
-                                              pendingAttachments.some((item) => item.uploadState === 'failed')
-                                            }
-                                            className="inline-flex h-11 min-w-[104px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 md:h-12 md:min-w-[112px]"
-                                        >
-                                            <Send className="h-4 w-4" />
-                                            <span>Send</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </form>
+                                    </>
+                                }
+                                voiceControl={
+                                    <VoiceRecorder
+                                        disabled={
+                                            voiceNoteBusy ||
+                                            !activeConvoId ||
+                                            !voiceRuntimeConfig.enabledVoiceNotes ||
+                                            voiceRuntimeConfig.blockedForCurrentUser ||
+                                            hasPendingUploadsInFlight(pendingAttachments)
+                                        }
+                                        maxDurationSeconds={voiceRuntimeConfig.maxVoiceNoteDurationSeconds}
+                                        onRecorded={handleVoiceRecorded}
+                                        onError={(message) => showNotification('error', 'Voice notes', message)}
+                                        className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 hover:border-blue-200 hover:bg-blue-50"
+                                    />
+                                }
+                            />
                         </div>
                     </>
                 ) : (
