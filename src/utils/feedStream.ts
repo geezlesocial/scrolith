@@ -90,6 +90,8 @@ export const toStreamEntry = (item: UnifiedFeedItem | any, index = 0): FeedStrea
   const payload =
     item.payload && typeof item.payload === 'object' ? { ...item.payload } : { ...item };
   const id = String(payload.id || item.id || item.sourceId || '').trim() || feedKey;
+  // Phase 22.1B — promote orchestrator media onto presentation data (Scroll previews).
+  const media = item.media ?? payload.media ?? null;
   return {
     key: feedKey || `${kind}:${id}`,
     kind,
@@ -99,9 +101,11 @@ export const toStreamEntry = (item: UnifiedFeedItem | any, index = 0): FeedStrea
     data: {
       ...payload,
       id,
+      sourceId: item.sourceId || payload.sourceId || id,
       feedKey,
       why: item.why ?? payload.why,
       author: item.author || payload.author,
+      media,
       intelligence: (item as any).intelligence || payload.intelligence,
       sponsored: kind === 'ad' ? true : payload.sponsored
     }

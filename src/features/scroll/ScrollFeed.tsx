@@ -39,6 +39,14 @@ import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '.
 import { buildPublicAppUrl } from '../../utils/siteUrl';
 import { pickInterestSurveyCandidateIds } from '../../components/recommendation/ContentInterestSurvey';
 import { postOptionsApi } from '../../services/postOptions';
+import {
+  buildScrollVideoUrl,
+  parseScrollVideoIdFromSearch
+} from '../../utils/scrollVideoRoutes';
+import {
+  trackScrollDeepLinkFailure,
+  trackScrollDeepLinkSuccess
+} from '../../utils/scrollRecommendationAnalytics';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
@@ -510,6 +518,9 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     normalizeScrollAdPolicy(DEFAULT_SCROLL_AD_POLICY)
   );
   const [activeScrollAd, setActiveScrollAd] = useState<{ ad: AdCampaign; key: string; scrollId: string } | null>(null);
+  /** Phase 22.1B — deep-link target missing / unauthorized */
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
+  const deepLinkResolvedRef = useRef<string | null>(null);
   const showLiveDiscovery = liveFeatureStatus.enabled && liveFeatureStatus.experienceConfig?.showFeaturedRailInScrollFeed !== false;
   const autoAdvanceOnEnd = !embedded && SCROLL_VIDEO_ROUTE_PATTERN.test(location.pathname);
 
@@ -756,7 +767,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
   );
 
   const buildScrollUrl = useCallback((scrollId: string) => {
-    return buildPublicAppUrl(`/scroll?scroll=${encodeURIComponent(scrollId)}`);
+    // Phase 22.1B — canonical /scroll?scroll=<id>
+    return buildPublicAppUrl(buildScrollVideoUrl(scrollId));
   }, []);
 
   const loadFeed = useCallback(
@@ -1024,6 +1036,63 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     const nextIndex = items.findIndex((entry) => entry.id === targetScrollId);
     if (nextIndex >= 0) setActiveIndex(nextIndex);
   }, [initialActiveScrollId, items]);
+
+  // Phase 22.1B — resolve ?scroll= / ?video= deep links without feed reset
+  useEffect(() => {
+    if (embedded) return;
+    const targetId =
+      parseScrollVideoIdFromSearch(location.search) ||
+      String(initialActiveScrollId || '').trim();
+    if (!targetId) {
+      setDeepLinkError(null);
+      return;
+    }
+    if (deepLinkResolvedRef.current === targetId) return;
+
+    const localIndex = items.findIndex((entry) => entry.id === targetId);
+    if (localIndex >= 0) {
+      deepLinkResolvedRef.current = targetId;
+      setDeepLinkError(null);
+      setActiveIndex(localIndex);
+      trackScrollDeepLinkSuccess(targetId);
+      return;
+    }
+
+    // Wait until initial feed load settles before remote fetch
+    if (loading) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const video = await ScrollService.getById(targetId);
+        if (cancelled || !video?.id) {
+          throw new Error('unavailable');
+        }
+        deepLinkResolvedRef.current = targetId;
+        setDeepLinkError(null);
+        setItems((prev) => {
+          if (prev.some((entry) => entry.id === video.id)) return prev;
+          // Insert at front without wiping session order of existing items
+          return [video, ...prev];
+        });
+        setActiveIndex(0);
+        trackScrollDeepLinkSuccess(targetId);
+      } catch (error: any) {
+        if (cancelled) return;
+        deepLinkResolvedRef.current = targetId;
+        const message =
+          error?.response?.data?.error ||
+          error?.message ||
+          'This video is no longer available.';
+        setDeepLinkError(message);
+        trackScrollDeepLinkFailure(targetId, message);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [embedded, initialActiveScrollId, items, loading, location.search]);
 
   useEffect(() => {
     if (!showLiveDiscovery) {
@@ -1579,7 +1648,9 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
       openedSeriesSourceRef.current = null;
       return;
     }
-    const targetScrollId = embedded ? String(initialActiveScrollId || '').trim() : String(params.get('scroll') || '').trim();
+    const targetScrollId = embedded
+      ? String(initialActiveScrollId || '').trim()
+      : parseScrollVideoIdFromSearch(params) || String(params.get('scroll') || '').trim();
     const openKey = `${embedded ? 'embedded' : 'route'}:${targetSeriesId}:${targetScrollId || ''}`;
     if (openedSeriesSourceRef.current === openKey) return;
     openedSeriesSourceRef.current = openKey;
@@ -1684,6 +1755,26 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   return (
     <div className="relative h-screen bg-black text-white">
+      {deepLinkError ? (
+        <div
+          className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/95 px-6 text-center"
+          data-testid="scroll-deeplink-unavailable"
+          role="alert"
+        >
+          <p className="text-lg font-semibold text-white">This video is no longer available.</p>
+          <p className="max-w-sm text-sm text-white/70">{deepLinkError}</p>
+          <button
+            type="button"
+            className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-900"
+            onClick={() => {
+              setDeepLinkError(null);
+              navigate('/scroll', { replace: true });
+            }}
+          >
+            Browse Scroll
+          </button>
+        </div>
+      ) : null}
       <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 py-4">
         <button
           type="button"

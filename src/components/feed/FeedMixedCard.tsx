@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Briefcase,
   Building2,
@@ -15,6 +15,7 @@ import type { FeedStreamEntry } from '../../utils/feedStream';
 import FollowButton from '../../community/components/FollowButton';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import EnterpriseImage from '../common/EnterpriseImage';
+import ScrollVideoPreview from './ScrollVideoPreview';
 import {
   SafeDate,
   SafeLocation,
@@ -26,11 +27,24 @@ import {
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import {
+  buildScrollVideoUrl,
+  normalizeScrollVideoRecommendation,
+  type ScrollVideoRecommendationTarget
+} from '../../utils/scrollVideoRoutes';
+import {
+  trackScrollPreviewAttempt,
+  trackScrollPreviewBlocked,
+  trackScrollPreviewStarted,
+  trackScrollRecommendationClick
+} from '../../utils/scrollRecommendationAnalytics';
 
 type FeedMixedCardProps = {
   entry: FeedStreamEntry;
   compact?: boolean;
   className?: string;
+  sourceSurface?: string;
+  sourcePosition?: number;
 };
 
 type CardModel = {
@@ -49,6 +63,10 @@ type CardModel = {
   followId?: string;
   followType?: 'user' | 'page';
   badge?: string;
+  /** Phase 22.1B */
+  scrollTarget?: ScrollVideoRecommendationTarget | null;
+  disabledNav?: boolean;
+  creatorHref?: string;
 };
 
 const resolveMediaUrl = (value: unknown): string => {
@@ -70,12 +88,64 @@ const resolveMediaUrl = (value: unknown): string => {
  * Phase 21.1.1 — Heterogeneous feed cards with safe rendering + media/avatar polish.
  * No ranking. Orchestrator order only.
  */
-const FeedMixedCard: React.FC<FeedMixedCardProps> = ({ entry, compact = false, className = '' }) => {
+const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
+  entry,
+  compact = false,
+  className = '',
+  sourceSurface = 'member_home',
+  sourcePosition
+}) => {
+  const navigate = useNavigate();
   const data = entry?.data || {};
   const why = SafeText(entry?.raw?.why || data?.why || data?.whyRecommended || '');
 
   const card: CardModel | null = useMemo(() => {
     switch (entry.kind) {
+      case 'scroll': {
+        const target = normalizeScrollVideoRecommendation(entry);
+        const title = SafeText(
+          target?.title || data.title || data.description || data.name,
+          'Scroll video'
+        );
+        const creatorName = SafeText(
+          target?.creatorName || data.author?.displayName || data.author?.name,
+          'Creator'
+        );
+        const creatorUsername = SafeText(
+          target?.creatorUsername || data.author?.username
+        ).replace(/^@/, '');
+        const creatorHref = creatorUsername
+          ? `/u/${encodeURIComponent(creatorUsername)}`
+          : target?.creatorId
+            ? `/profile/${encodeURIComponent(target.creatorId)}`
+            : '';
+        const href = target?.scrollVideoId
+          ? buildScrollVideoUrl(target.scrollVideoId)
+          : '';
+        const mediaCandidates = [
+          resolveMediaUrl(target?.thumbnailUrl),
+          resolveMediaUrl(target?.mediaUrl),
+          resolveMediaUrl(data.media),
+          resolveMediaUrl(entry?.raw?.media),
+          resolveUserAvatarUrl(data.author)
+        ].filter(Boolean);
+        return {
+          kind: 'scroll',
+          eyebrow: 'Scroll video',
+          title,
+          subtitle: creatorUsername ? `@${creatorUsername}` : creatorName,
+          meta: [SafeDate(data.createdAt)].filter(Boolean) as string[],
+          href: href || '#',
+          cta: 'Open',
+          mediaCandidates,
+          mediaPlaceholder: 'generic' as const,
+          avatarUser: data.author || { name: creatorName },
+          scrollTarget: target,
+          disabledNav: !target?.scrollVideoId,
+          creatorHref: creatorHref || undefined,
+          badge: 'Video'
+        };
+      }
       case 'job': {
         const title = SafeText(data.title, 'Open role');
         const href = data.id ? `/jobs/${encodeURIComponent(String(data.id))}` : '/jobs';
@@ -288,38 +358,69 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({ entry, compact = false, c
         };
       }
       default: {
+        // Phase 22.1B — never send Scroll-like unknowns to /home; use safe discovery sinks.
         const title = SafeText(data.title || data.name || data.content, 'Recommended for you').slice(
           0,
           120
         );
+        const kind = entry.kind || 'unknown';
+        const safeHref =
+          kind === 'featured' || kind === 'trending' ? '/member-home' : '/member-home';
         return {
-          kind: entry.kind || 'unknown',
-          eyebrow: entry.kind === 'unknown' ? 'For you' : SafeText(entry.kind, 'For you'),
+          kind,
+          eyebrow: kind === 'unknown' ? 'For you' : SafeText(kind, 'For you'),
           title: title || 'Discover more on Scrolith',
           subtitle: why || 'Curated for your professional graph',
           meta: [],
-          href: '/home',
+          href: safeHref,
           cta: 'Open',
           mediaCandidates: [],
           mediaPlaceholder: 'generic' as const
         };
       }
     }
-  }, [entry.kind, data, why]);
+  }, [entry, data, why]);
 
   if (!card) return null;
 
   const isMarketplaceLike = card.kind === 'marketplace' || card.kind === 'gig';
-  const showHero = isMarketplaceLike || card.kind === 'job' || card.kind === 'event' || card.kind === 'ad';
+  const isScroll = card.kind === 'scroll';
+  const showHero =
+    isMarketplaceLike || card.kind === 'job' || card.kind === 'event' || card.kind === 'ad';
+  const scrollTarget = card.scrollTarget;
+
+  const emitScrollClick = () => {
+    if (!scrollTarget?.scrollVideoId) return;
+    trackScrollRecommendationClick({
+      recommendationId: scrollTarget.recommendationId,
+      scrollVideoId: scrollTarget.scrollVideoId,
+      sourceSurface,
+      sourcePosition: sourcePosition ?? null,
+      destination: '/scroll'
+    });
+  };
 
   const body = (
     <article
       className={`overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md ${className}`}
       data-testid="feed-mixed-card"
       data-feed-kind={card.kind}
-      data-phase="21.1.1"
+      data-phase={isScroll ? '22.1B' : '21.1.1'}
+      data-scroll-video-id={scrollTarget?.scrollVideoId || undefined}
+      data-scroll-href={isScroll ? card.href : undefined}
     >
-      {showHero ? (
+      {isScroll ? (
+        <ScrollVideoPreview
+          src={scrollTarget?.previewUrl || scrollTarget?.mediaUrl}
+          poster={scrollTarget?.thumbnailUrl || card.mediaCandidates[0]}
+          title={card.title}
+          onPreviewStarted={() => {
+            trackScrollPreviewAttempt(sourceSurface);
+            trackScrollPreviewStarted(sourceSurface, scrollTarget?.scrollVideoId);
+          }}
+          onPreviewBlocked={() => trackScrollPreviewBlocked(sourceSurface)}
+        />
+      ) : showHero ? (
         <EnterpriseImage
           candidates={card.mediaCandidates}
           alt={card.title}
@@ -386,7 +487,22 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({ entry, compact = false, c
             ) : null}
 
             {card.subtitle ? (
-              <p className="mt-0.5 text-xs leading-relaxed text-slate-600 line-clamp-2">{card.subtitle}</p>
+              card.creatorHref ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigate(card.creatorHref!);
+                  }}
+                  className="mt-0.5 block max-w-full truncate text-left text-xs leading-relaxed text-slate-600 hover:text-indigo-600"
+                  data-testid="feed-mixed-card-creator"
+                >
+                  {card.subtitle}
+                </button>
+              ) : (
+                <p className="mt-0.5 text-xs leading-relaxed text-slate-600 line-clamp-2">{card.subtitle}</p>
+              )
             ) : null}
 
             {card.meta.length ? (
@@ -444,10 +560,31 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({ entry, compact = false, c
     );
   }
 
+  if (card.disabledNav || !card.href || card.href === '#') {
+    return (
+      <div
+        className="block opacity-95"
+        data-testid="feed-mixed-card-disabled-nav"
+        aria-disabled="true"
+      >
+        {body}
+        {isScroll ? (
+          <p className="px-4 pb-3 text-[11px] text-amber-700">
+            This Scroll video is unavailable right now.
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <Link
       to={card.href}
+      onClick={() => {
+        if (isScroll) emitScrollClick();
+      }}
       className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+      data-testid={isScroll ? 'feed-mixed-card-scroll-link' : undefined}
     >
       {body}
     </Link>

@@ -248,6 +248,14 @@ class ScrollService {
     return extractData<{ items: ScrollVideo[]; nextCursor?: string | null; config?: ScrollConfig }>(response);
   }
 
+  /** Phase 22.1B — fetch one Scroll video for deep-link resolution. */
+  static async getById(id: string) {
+    const scrollId = String(id || '').trim();
+    if (!scrollId) throw new Error('Scroll id required');
+    const response = await api.get(`/scroll/${encodeURIComponent(scrollId)}`);
+    return extractData<ScrollVideo>(response);
+  }
+
   static async create(payload: {
     fileId: string;
     sourceScrollId?: string;

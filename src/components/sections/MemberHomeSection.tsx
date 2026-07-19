@@ -107,6 +107,7 @@ import { MemberFeedService } from '../../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
 import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
+import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
   postAiInsightPreferenceToBoolean,
@@ -8669,7 +8670,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         <button
                           key={scroll.id}
                           type="button"
-                          onClick={() => navigate(`/scroll?scroll=${encodeURIComponent(scroll.id)}`)}
+                          onClick={() => navigate(buildScrollVideoUrl(String(scroll.id || '')))}
                           className="relative h-56 min-w-[132px] overflow-hidden rounded-2xl border border-slate-200 bg-slate-900 sm:h-60 sm:min-w-[148px]"
                         >
                           {(() => {
