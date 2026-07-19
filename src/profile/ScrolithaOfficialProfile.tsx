@@ -20,12 +20,18 @@ import { MessagingService } from '../services/messaging';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { getCanonicalAppOrigin } from '../utils/siteUrl';
+import {
+  getScrolithaCoverPhotoUrl,
+  getScrolithaProfilePhotoUrl,
+  SCROLITHA_DISPLAY_NAME
+} from '../utils/scrolithaIdentity';
 
 type Capability = {
   id: string;
   label: string;
   description?: string;
-  status: 'available' | 'limited' | 'unavailable' | string;
+  status: 'available' | 'available_with_confirmation' | 'limited' | 'unavailable' | string;
+  statusLabel?: string;
 };
 
 type PublicProfile = {
@@ -54,12 +60,15 @@ type PublicProfile = {
 
 const statusStyles: Record<string, string> = {
   available: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  available_with_confirmation: 'bg-sky-50 text-sky-800 ring-sky-200',
   limited: 'bg-amber-50 text-amber-800 ring-amber-200',
   unavailable: 'bg-slate-100 text-slate-600 ring-slate-200'
 };
 
-const statusLabel = (s: string) => {
+const statusLabel = (s: string, explicit?: string) => {
+  if (explicit) return explicit;
   if (s === 'available') return 'Available';
+  if (s === 'available_with_confirmation') return 'Available with confirmation';
   if (s === 'limited') return 'Limited';
   return 'Not currently available';
 };
@@ -181,22 +190,35 @@ const ScrolithaOfficialProfile: React.FC = () => {
     );
   }
 
-  const name = profile.displayName || 'Scrolitha';
+  const name = profile.displayName || SCROLITHA_DISPLAY_NAME;
   const username = profile.username || 'scrolitha';
-  const avatar = profile.avatarUrl || 'https://scrolith.com/icon-192.png';
+  const avatar = getScrolithaProfilePhotoUrl(
+    (profile as any).profilePhotoUrl || profile.avatarUrl
+  );
+  const cover = getScrolithaCoverPhotoUrl((profile as any).coverPhotoUrl);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-indigo-50 via-white to-slate-50">
       <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         {/* Hero */}
         <section className="overflow-hidden rounded-3xl border border-indigo-100 bg-white shadow-xl shadow-indigo-100/50">
-          <div className="bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-6 py-8 text-white sm:px-10">
+          <div
+            className="relative bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 px-6 py-8 text-white sm:px-10"
+            style={{
+              backgroundImage: `linear-gradient(120deg, rgba(49,46,129,0.88), rgba(91,33,182,0.82)), url(${cover})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center'
+            }}
+          >
             <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
               <div className="relative shrink-0">
                 <img
                   src={avatar}
                   alt=""
                   className="h-24 w-24 rounded-2xl border-4 border-white/30 object-cover shadow-lg sm:h-28 sm:w-28"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = getScrolithaProfilePhotoUrl();
+                  }}
                 />
                 <span className="absolute -bottom-2 -right-2 inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-indigo-700 shadow">
                   <Bot className="h-3 w-3" aria-hidden />
@@ -313,7 +335,7 @@ const ScrolithaOfficialProfile: React.FC = () => {
                           statusStyles[cap.status] || statusStyles.unavailable
                         }`}
                       >
-                        {statusLabel(cap.status)}
+                        {statusLabel(cap.status, cap.statusLabel)}
                       </span>
                     </div>
                     {cap.description ? (

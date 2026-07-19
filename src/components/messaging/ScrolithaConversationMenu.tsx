@@ -288,11 +288,14 @@ const ScrolithaConversationMenu: React.FC<Props> = ({ conversationId, dense }) =
                         >
                           <span>{c.label}</span>
                           <span className="text-xs font-semibold uppercase text-slate-500">
-                            {c.status === 'available'
-                              ? 'Available'
-                              : c.status === 'limited'
-                                ? 'Limited'
-                                : 'Not currently available'}
+                            {c.statusLabel ||
+                              (c.status === 'available'
+                                ? 'Available'
+                                : c.status === 'available_with_confirmation'
+                                  ? 'Available with confirmation'
+                                  : c.status === 'limited'
+                                    ? 'Limited'
+                                    : 'Not currently available')}
                           </span>
                         </li>
                       ))}
