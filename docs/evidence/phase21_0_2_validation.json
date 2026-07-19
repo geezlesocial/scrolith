@@ -1,0 +1,36 @@
+{
+  "phase": "21.0.2",
+  "collectedAt": "2026-07-19T08:03:50.663Z",
+  "durationMs": 2791,
+  "unitTests": {
+    "exitCode": 0,
+    "pass": true,
+    "stdoutTail": " mergeStreamEntries dedupes by key and can prepend\n  ---\n  duration_ms: 1.7663\n  type: 'test'\n  ...\n# Subtest: toStreamEntry rejects empty posts\nok 11 - toStreamEntry rejects empty posts\n  ---\n  duration_ms: 0.4023\n  type: 'test'\n  ...\n# Subtest: prefetch helper continuity with adaptive engine\nok 12 - prefetch helper continuity with adaptive engine\n  ---\n  duration_ms: 1.5118\n  type: 'test'\n  ...\n# Subtest: collectEntryMediaUrls pulls avatar and image fields\nok 13 - collectEntryMediaUrls pulls avatar and image fields\n  ---\n  duration_ms: 1.0959\n  type: 'test'\n  ...\n# Subtest: engine and session versions are 21.0.2-aligned\nok 14 - engine and session versions are 21.0.2-aligned\n  ---\n  duration_ms: 3.8966\n  type: 'test'\n  ...\n# Subtest: long session 500 items retains within cap without duplicates\nok 15 - long session 500 items retains within cap without duplicates\n  ---\n  duration_ms: 16.4524\n  type: 'test'\n  ...\n# Subtest: long session 1000 items stable\nok 16 - long session 1000 items stable\n  ---\n  duration_ms: 19.7595\n  type: 'test'\n  ...\n# Subtest: long session 5000 items stable memory bound\nok 17 - long session 5000 items stable memory bound\n  ---\n  duration_ms: 87.7099\n  type: 'test'\n  ...\n# Subtest: trim preserves relative order\nok 18 - trim preserves relative order\n  ---\n  duration_ms: 1.9306\n  type: 'test'\n  ...\n# Subtest: cursor integrity terminal cannot keep cursor\nok 19 - cursor integrity terminal cannot keep cursor\n  ---\n  duration_ms: 0.7919\n  type: 'test'\n  ...\n# Subtest: virtualization default-on at 12+ items\nok 20 - virtualization default-on at 12+ items\n  ---\n  duration_ms: 2.0704\n  type: 'test'\n  ...\n# Subtest: scroll restoration round-trip (sessionStorage mock)\nok 21 - scroll restoration round-trip (sessionStorage mock)\n  ---\n  duration_ms: 1.8281\n  type: 'test'\n  ...\n# Subtest: performance probe marks request span\nok 22 - performance probe marks request span\n  ---\n  duration_ms: 6.007\n  type: 'test'\n  ...\n# Subtest: merge throughput benchmark runs\nok 23 - merge throughput benchmark runs\n  ---\n  duration_ms: 5.2899\n  type: 'test'\n  ...\n# Subtest: media fallback is inline data uri\nok 24 - media fallback is inline data uri\n  ---\n  duration_ms: 2.3262\n  type: 'test'\n  ...\n# Subtest: engine version is 21.0.2\nok 25 - engine version is 21.0.2\n  ---\n  duration_ms: 2.2561\n  type: 'test'\n  ...\n# Subtest: classifyFeedNetwork maps saveData and 2g to constrained/slow\nok 26 - classifyFeedNetwork maps saveData and 2g to constrained/slow\n  ---\n  duration_ms: 0.6759\n  type: 'test'\n  ...\n# Subtest: adaptive page size shrinks for data saver and grows for fast\nok 27 - adaptive page size shrinks for data saver and grows for fast\n  ---\n  duration_ms: 1.1885\n  type: 'test'\n  ...\n# Subtest: prefetch only when progressive window nears end of loaded list\nok 28 - prefetch only when progressive window nears end of loaded list\n  ---\n  duration_ms: 1.0132\n  type: 'test'\n  ...\n# Subtest: prefetch policy returns larger rootMargin on fast networks\nok 29 - prefetch policy returns larger rootMargin on fast networks\n  ---\n  duration_ms: 0.7446\n  type: 'test'\n  ...\n# Subtest: diversity interleave avoids long runs of same type when alternatives exist\nok 30 - diversity interleave avoids long runs of same type when alternatives exist\n  ---\n  duration_ms: 0.7998\n  type: 'test'\n  ...\n# Subtest: trimFeedForMemory keeps tail within cap\nok 31 - trimFeedForMemory keeps tail within cap\n  ---\n  duration_ms: 1.1616\n  type: 'test'\n  ...\n# Subtest: caught-up suggestions always include professional discovery paths\nok 32 - caught-up suggestions always include professional discovery paths\n  ---\n  duration_ms: 1.2212\n  type: 'test'\n  ...\n# Subtest: terminal state still ends empty-cursor zero-progress pages (20.10 continuity)\nok 33 - terminal state still ends empty-cursor zero-progress pages (20.10 continuity)\n  ---\n  duration_ms: 1.1878\n  type: 'test'\n  ...\n1..33\n# tests 33\n# suites 0\n# pass 33\n# fail 0\n# cancelled 0\n# skipped 0\n# todo 0\n# duration_ms 2628.2373\n",
+    "stderrTail": ""
+  },
+  "longSession": {
+    "note": "See phase2102FeedValidation.spec.ts for 500/1000/5000 retain-cap simulations",
+    "maxRetained": 140,
+    "targets": [
+      500,
+      1000,
+      5000
+    ]
+  },
+  "virtualization": {
+    "defaultOnAt": 12,
+    "package": "@tanstack/react-virtual",
+    "shortListFullRender": true
+  },
+  "lifecycleMigration": {
+    "mobileMemberHome": "useSurfaceFeedLifecycle (USE_SHARED_FEED_LIFECYCLE=true)",
+    "desktopMemberHome": "useFeedChromeBridge + mixed stream helpers",
+    "community": "useFeedChromeBridge + soft PTR",
+    "sharedHook": "useContinuousFeed / useSurfaceFeedLifecycle"
+  },
+  "android": {
+    "note": "Wrapper inherits web bundle; rebuild AAB only after FE production validation",
+    "wrapper": "Capacitor WebView",
+    "recommended": "Phase 20.11 pipeline after FE deploy"
+  }
+}

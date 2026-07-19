@@ -13,9 +13,13 @@ const loadEnvFile = (filename) => {
 };
 
 // Mimic Vite env loading order for build-time config scripts.
+// Phase 20.11: treat `vite build` / npm run build as production so release
+// bundles never inherit VITE_DEBUG / localhost from the developer .env.
 loadEnvFile('.env');
 loadEnvFile('.env.local');
-const mode = process.env.NODE_ENV || 'development';
+const isBuild =
+  process.argv.includes('build') || process.env.npm_lifecycle_event === 'build';
+const mode = isBuild ? 'production' : (process.env.NODE_ENV || 'development');
 loadEnvFile(`.env.${mode}`);
 loadEnvFile(`.env.${mode}.local`);
 

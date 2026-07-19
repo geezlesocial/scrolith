@@ -60,6 +60,32 @@ import {
   buildNormalizedViewerFeedPreference,
   normalizeMemberFeedIntent
 } from '../../../utils/viewerFeedPreference';
+import {
+  buildObserverRootMargin,
+  classifyFeedNetwork,
+  resolveAdaptivePageSize,
+  resolvePrefetchPolicy,
+  shouldPrefetchNextPage,
+  trimFeedForMemory
+} from '../../../utils/enterpriseFeedEngine';
+import { emitFeedAnalytics, measureFeedRequest, startScrollFpsSample } from '../../../utils/feedAnalytics';
+import { observeFeedViewDuration } from '../../../utils/feedInterestSignals';
+import FeedLoadSkeleton from '../../../components/feed/FeedLoadSkeleton';
+import FeedCaughtUpPanel from '../../../components/feed/FeedCaughtUpPanel';
+import FeedMixedCard from '../../../components/feed/FeedMixedCard';
+import PullToRefresh from '../../../components/feed/PullToRefresh';
+import {
+  buildStreamFromMemberFeedPage,
+  buildStreamFromPosts,
+  mergeStreamEntries,
+  type FeedStreamEntry
+} from '../../../utils/feedStream';
+import { prefetchStreamMedia, prefetchVisibleStreamMedia } from '../../../utils/feedMediaPrefetch';
+import { useSurfaceFeedLifecycle } from '../../../hooks/useSurfaceFeedLifecycle';
+import { extractFeedItemList, extractNextCursor } from '../../../utils/feedPagination';
+
+/** Phase 21.0.2 — mobile continuous stream owns shared lifecycle (no forked cursor/terminal). */
+const USE_SHARED_FEED_LIFECYCLE = true;
 
 const MediaPreviewModal = React.lazy(() => import('../../../components/media/MediaPreviewModal'));
 const PostExpandModal = React.lazy(() => import('../../../components/post/PostExpandModal'));
@@ -515,6 +541,47 @@ export default function MobileFeed({
   const showRecommendedGigsJobs = feedSettings.showRecommendedGigsJobs !== false;
   const [isConstrainedConnection, setIsConstrainedConnection] = useState<boolean>(() => isConstrainedNetwork());
   const constrainedForFeed = isConstrainedConnection || profile.lowBandwidth || profile.dataSaver;
+
+  const sharedFeedMode = useMemo(() => {
+    const roleLike =
+      (user as any)?.role || (user as any)?.userType || (user as any)?.accountType || (user as any)?.type;
+    return (
+      buildNormalizedViewerFeedPreference({
+        feedIntent: normalizeMemberFeedIntent(
+          (user as any)?.feedIntent || (user as any)?.preferredFeedMode,
+          'for_you'
+        ),
+        roleLike,
+        source: 'member_home'
+      }).feedIntent || 'for_you'
+    );
+  }, [user]);
+
+  const sharedFeed = useSurfaceFeedLifecycle({
+    surface: 'member_home',
+    feedMode: sharedFeedMode,
+    enabled: USE_SHARED_FEED_LIFECYCLE,
+    isMobile: true,
+    dataSaver: constrainedForFeed,
+    basePageSize: Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12)),
+    isAuthenticated: Boolean(user?.id),
+    viewerKey: currentUserId,
+    compactCards: true,
+    legacyFetch: async ({ cursor, limit }) => {
+      try {
+        const resp = await CommunityService.getFeed({
+          cursor: cursor || undefined,
+          limit,
+          scope: 'discover'
+        });
+        const posts = extractFeedItemList(resp);
+        const nextCursor = extractNextCursor(resp);
+        return { posts, nextCursor, hasMore: Boolean(nextCursor) };
+      } catch {
+        return null;
+      }
+    }
+  });
   const initialRenderCount = constrainedForFeed ? 4 : 6;
   const renderStep = constrainedForFeed ? 3 : 5;
   const feedItemPerformanceStyle = useMemo(
@@ -537,6 +604,9 @@ export default function MobileFeed({
   const promotedFrequency = clamp(Number(feedSettings.promotedFrequency ?? 6) || 6, 2, 20);
 
   const [posts, setPosts] = useState<any[]>([]);
+  /** Phase 21.0.1 ordered mixed stream (orchestrator). */
+  const [feedStream, setFeedStream] = useState<FeedStreamEntry[]>([]);
+  const feedStreamRef = useRef<FeedStreamEntry[]>([]);
   const [renderedPostCount, setRenderedPostCount] = useState(initialRenderCount);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -565,6 +635,20 @@ export default function MobileFeed({
     () => deferredPosts.slice(0, Math.min(renderedPostCount, deferredPosts.length)),
     [deferredPosts, renderedPostCount]
   );
+  const visibleStream = useMemo(() => {
+    const source =
+      feedStream.length > 0 ? feedStream : buildStreamFromPosts(posts);
+    return source.slice(0, Math.min(renderedPostCount, source.length));
+  }, [feedStream, posts, renderedPostCount]);
+
+  useEffect(() => {
+    feedStreamRef.current = feedStream;
+  }, [feedStream]);
+
+  useEffect(() => {
+    if (!visibleStream.length) return;
+    prefetchStreamMedia(visibleStream, Math.max(0, visibleStream.length - 2), 4);
+  }, [visibleStream]);
   const interestSurveyPostIds = useMemo(
     () =>
       new Set(
@@ -890,6 +974,60 @@ export default function MobileFeed({
     });
   }, []);
 
+  // Phase 21.0.2 — bind UI state to shared lifecycle (single cursor/terminal owner).
+  useEffect(() => {
+    if (!USE_SHARED_FEED_LIFECYCLE) return;
+    const normalizedPosts = sortPosts(
+      (sharedFeed.posts || [])
+        .map((post) => {
+          try {
+            return normalizePost(post);
+          } catch {
+            return null;
+          }
+        })
+        .filter(Boolean)
+    );
+    postsRef.current = normalizedPosts;
+    setPosts(normalizedPosts);
+    // Re-normalize post entries in stream for rich mobile cards.
+    const nextStream = (sharedFeed.stream || []).map((entry) => {
+      if (entry.kind !== 'post' || !entry.post) return entry;
+      try {
+        const post = normalizePost(entry.post);
+        return { ...entry, post, data: post };
+      } catch {
+        return entry;
+      }
+    });
+    feedStreamRef.current = nextStream;
+    setFeedStream(nextStream);
+    cursorRef.current = sharedFeed.cursor;
+    setCursor(sharedFeed.cursor);
+    feedTerminalRef.current = sharedFeed.terminal;
+    setFeedTerminal(sharedFeed.terminal);
+    setLoading(sharedFeed.loading);
+    setLoadingMore(sharedFeed.loadingMore);
+    setError(sharedFeed.error);
+    if (sharedFeed.statusMessage) setStatusMessage(sharedFeed.statusMessage);
+    setRenderedPostCount(sharedFeed.renderedCount);
+    if (nextStream.length) {
+      prefetchVisibleStreamMedia(nextStream.slice(0, Math.min(6, sharedFeed.renderedCount || 6)));
+    }
+  }, [
+    sharedFeed.stream,
+    sharedFeed.posts,
+    sharedFeed.cursor,
+    sharedFeed.terminal,
+    sharedFeed.loading,
+    sharedFeed.loadingMore,
+    sharedFeed.error,
+    sharedFeed.statusMessage,
+    sharedFeed.renderedCount,
+    normalizePost,
+    sortPosts
+  ]);
+
   const highlightPills = useMemo<MemberHomeHighlightPill[]>(() => {
     const pills: MemberHomeHighlightPill[] = [{ label: 'Posts', value: String(posts.length) }];
     if (recommendedJobs.length) pills.push({ label: 'Jobs', value: String(recommendedJobs.length) });
@@ -1160,6 +1298,40 @@ export default function MobileFeed({
   const feedTerminalRef = useRef(false);
   const [feedTerminal, setFeedTerminal] = useState(false);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
+  // Phase 21.0 — predictive infinite feed policy (network-aware).
+  const feedNetworkClass = useMemo(
+    () =>
+      classifyFeedNetwork({
+        effectiveType: (typeof navigator !== 'undefined' && (navigator as any).connection?.effectiveType) || null,
+        downlink: (typeof navigator !== 'undefined' && (navigator as any).connection?.downlink) || null,
+        saveData: Boolean(profile.dataSaver || (typeof navigator !== 'undefined' && (navigator as any).connection?.saveData)),
+        onLine: typeof navigator !== 'undefined' ? navigator.onLine : true
+      }),
+    [profile.dataSaver, isConstrainedConnection]
+  );
+  const feedPrefetchPolicy = useMemo(
+    () =>
+      resolvePrefetchPolicy(feedNetworkClass, {
+        dataSaver: Boolean(profile.dataSaver),
+        isMobile: true
+      }),
+    [feedNetworkClass, profile.dataSaver]
+  );
+  const adaptiveFeedLimit = useMemo(
+    () =>
+      resolveAdaptivePageSize({
+        basePageSize: Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12)),
+        networkClass: feedNetworkClass,
+        dataSaver: Boolean(profile.dataSaver),
+        viewportHeight: typeof window !== 'undefined' ? window.innerHeight : 0,
+        isMobile: true
+      }),
+    [profile.feedPageSize, profile.dataSaver, feedNetworkClass, constrainedForFeed]
+  );
+  const observerRootMargin = useMemo(
+    () => buildObserverRootMargin(feedPrefetchPolicy.observerRootMarginPx),
+    [feedPrefetchPolicy.observerRootMarginPx]
+  );
   const viewTrackedRef = useRef<Set<string>>(new Set());
   const postMediaTapTimersRef = useRef<Record<string, number>>({});
   const postMediaLastTapAtRef = useRef<Record<string, number>>({});
@@ -1215,17 +1387,28 @@ export default function MobileFeed({
       feedTerminalRef.current = !resolvedCursor;
       setFeedTerminal(!resolvedCursor);
     }
-    postsRef.current = normalizedItems;
+    const retained = trimFeedForMemory(normalizedItems, feedPrefetchPolicy.maxRetainedItems);
+    postsRef.current = retained;
     cursorRef.current = resolvedCursor;
     setCursor(resolvedCursor);
     startTransition(() => {
-      setPosts(normalizedItems);
+      setPosts(retained);
     });
     if (mode === 'initial') {
-      setRenderedPostCount(Math.min(initialRenderCount, normalizedItems.length || initialRenderCount));
+      setRenderedPostCount(
+        Math.min(
+          Math.max(initialRenderCount, feedPrefetchPolicy.progressiveInitialWindow),
+          retained.length || initialRenderCount
+        )
+      );
+    } else if (uniqueAdded > 0) {
+      // Reveal a few more cards as new data arrives so prefetch feels seamless.
+      setRenderedPostCount((prev) =>
+        Math.min(retained.length, Math.max(prev, prev + Math.min(feedPrefetchPolicy.progressiveRevealStep, uniqueAdded)))
+      );
     }
     return { uniqueAdded, resolvedCursor };
-  }, [initialRenderCount, normalizePost, sortPosts]);
+  }, [feedPrefetchPolicy.maxRetainedItems, feedPrefetchPolicy.progressiveInitialWindow, feedPrefetchPolicy.progressiveRevealStep, initialRenderCount, normalizePost, sortPosts]);
 
   useEffect(() => {
     postsRef.current = posts;
@@ -1534,7 +1717,20 @@ export default function MobileFeed({
     [triggerPostDoubleTapLike]
   );
 
-  const load = useCallback(async (mode: 'initial' | 'more') => {
+  const load = useCallback(async (mode: 'initial' | 'more' | 'soft_refresh') => {
+    // Phase 21.0.2 — delegate continuous stream to shared lifecycle.
+    if (USE_SHARED_FEED_LIFECYCLE) {
+      if (mode === 'soft_refresh') {
+        await sharedFeed.softRefresh();
+        return;
+      }
+      if (mode === 'more') {
+        await sharedFeed.loadMore();
+        return;
+      }
+      await sharedFeed.load('initial');
+      return;
+    }
     const now = Date.now();
     if (rateLimitUntilRef.current && now < rateLimitUntilRef.current) {
       return;
@@ -1558,9 +1754,15 @@ export default function MobileFeed({
       return;
     }
     loadInFlightRef.current = true;
-    const feedLimit = Math.max(6, Math.min(24, Number(profile.feedPageSize || (constrainedForFeed ? 8 : 12))));
+    const feedLimit = Math.max(6, Math.min(24, adaptiveFeedLimit));
     const requestId = ++feedLoadRequestIdRef.current;
     const requestedCursor = mode === 'more' ? String(cursorRef.current || '').trim() || null : null;
+    const requestStartedAt = Date.now();
+    emitFeedAnalytics(mode === 'more' ? 'feed_prefetch' : 'feed_request_start', 'mobile_member_home', {
+      mode,
+      limit: feedLimit,
+      networkClass: feedNetworkClass
+    });
 
     try {
       if (mode === 'initial') {
@@ -1571,7 +1773,11 @@ export default function MobileFeed({
         setFeedTerminal(false);
         emptyPageStreakRef.current = 0;
         loadMoreErrorStreakRef.current = 0;
+      } else if (mode === 'soft_refresh') {
+        // Soft refresh: keep content visible; no spinner takeover.
+        setError(null);
       } else {
+        // Silent prefetch chrome — skeleton instead of blocking "Loading more..."
         setLoadingMore(true);
       }
 
@@ -1609,14 +1815,22 @@ export default function MobileFeed({
             hardFailAuth: true
           });
           if (requestId !== feedLoadRequestIdRef.current) return;
-          if (orchestrated && Array.isArray(orchestrated.posts) && (orchestrated.posts.length > 0 || orchestrated.hasMore)) {
+          if (
+            orchestrated &&
+            (Array.isArray(orchestrated.posts) || Array.isArray(orchestrated.items)) &&
+            ((orchestrated.posts?.length || 0) > 0 ||
+              (orchestrated.items?.length || 0) > 0 ||
+              orchestrated.hasMore)
+          ) {
             mobileFeedTransportRef.current = 'orchestrated';
-            nextPosts = orchestrated.posts;
+            nextPosts = orchestrated.posts || [];
             nextCursor = orchestrated.nextCursor;
             usedPostsFallback = false;
             // Skip legacy collectors when orchestrator produced a usable page.
             const shouldPreserveExistingFeed =
-              mode === 'initial' && nextPosts.length === 0 && postsRef.current.length > 0;
+              (mode === 'initial' || mode === 'soft_refresh') &&
+              nextPosts.length === 0 &&
+              postsRef.current.length > 0;
             rateLimitUntilRef.current = 0;
             setRateLimitUntil(null);
             setError(null);
@@ -1625,8 +1839,40 @@ export default function MobileFeed({
               ? postsRef.current
               : mode === 'more'
                 ? [...postsRef.current, ...nextPosts]
-                : nextPosts;
-            const commit = commitVisiblePosts(mergedPosts, nextCursor, mode);
+                : mode === 'soft_refresh'
+                  ? (() => {
+                      const existingIds = new Set(
+                        postsRef.current.map((p) => String(p?.id || '')).filter(Boolean)
+                      );
+                      const fresh = nextPosts.filter((p) => !existingIds.has(String(p?.id || '')));
+                      return [...fresh, ...postsRef.current];
+                    })()
+                  : nextPosts;
+            const commit = commitVisiblePosts(
+              mergedPosts,
+              mode === 'soft_refresh' ? cursorRef.current : nextCursor,
+              mode === 'soft_refresh' ? 'initial' : mode === 'more' ? 'more' : 'initial'
+            );
+            // Phase 21.0.1 — maintain ordered mixed stream from orchestrator items.
+            const streamIncoming = buildStreamFromMemberFeedPage(orchestrated);
+            if (mode === 'initial') {
+              feedStreamRef.current = streamIncoming;
+              setFeedStream(streamIncoming);
+            } else if (mode === 'soft_refresh') {
+              const mergedStream = mergeStreamEntries(streamIncoming, feedStreamRef.current, {
+                prepend: true,
+                maxRetained: feedPrefetchPolicy.maxRetainedItems
+              });
+              feedStreamRef.current = mergedStream.merged;
+              setFeedStream(mergedStream.merged);
+              if (mergedStream.addedCount === 0) setStatusMessage('You are up to date.');
+            } else if (mode === 'more') {
+              const mergedStream = mergeStreamEntries(feedStreamRef.current, streamIncoming, {
+                maxRetained: feedPrefetchPolicy.maxRetainedItems
+              });
+              feedStreamRef.current = mergedStream.merged;
+              setFeedStream(mergedStream.merged);
+            }
             // Stuck cursor with zero unique adds — end pagination even if API re-issues hasMore.
             if (
               mode === 'more' &&
@@ -1645,13 +1891,18 @@ export default function MobileFeed({
                   JSON.stringify({
                     ts: Date.now(),
                     cursor: cursorRef.current,
-                    items: postsRef.current.slice(0, 80)
+                    items: postsRef.current.slice(0, feedPrefetchPolicy.maxRetainedItems)
                   })
                 );
               } catch {
                 // Ignore cache write errors.
               }
             }
+            measureFeedRequest('mobile_member_home', requestStartedAt, mode === 'more' ? 'prefetch_success' : 'success', {
+              transport: 'orchestrated',
+              added: commit.uniqueAdded,
+              total: postsRef.current.length
+            });
             return;
           }
           mobileFeedTransportRef.current = 'legacy';
@@ -1839,14 +2090,21 @@ export default function MobileFeed({
               JSON.stringify({
                 ts: Date.now(),
                 cursor: cursorRef.current,
-                items: postsRef.current.slice(0, 80)
+                items: postsRef.current.slice(0, feedPrefetchPolicy.maxRetainedItems)
               })
             );
           } catch {
             // Ignore cache write errors.
           }
         }
+      measureFeedRequest('mobile_member_home', requestStartedAt, mode === 'more' ? 'prefetch_success' : 'success', {
+        transport: mobileFeedTransportRef.current,
+        total: postsRef.current.length
+      });
     } catch (e: any) {
+      measureFeedRequest('mobile_member_home', requestStartedAt, 'error', {
+        status: Number(e?.response?.status || 0)
+      });
       const status = Number(e?.response?.status || 0);
       const backendError = e?.response?.data?.error ?? e?.message ?? 'Failed to load feed.';
       if (mode === 'more') {
@@ -1902,9 +2160,94 @@ export default function MobileFeed({
       setLoadingMore(false);
       loadInFlightRef.current = false;
     }
-  }, [commitVisiblePosts, constrainedForFeed, profile.feedPageSize, feedCacheKey, initialRenderCount, user]);
+  }, [
+    adaptiveFeedLimit,
+    commitVisiblePosts,
+    constrainedForFeed,
+    feedNetworkClass,
+    feedPrefetchPolicy.maxRetainedItems,
+    feedCacheKey,
+    initialRenderCount,
+    user,
+    sharedFeed
+  ]);
+
+  // Phase 21.0 — predictive prefetch (disabled when shared lifecycle owns prefetch).
+  useEffect(() => {
+    if (USE_SHARED_FEED_LIFECYCLE) return;
+    if (
+      !shouldPrefetchNextPage({
+        loadedCount: posts.length,
+        renderedCount: renderedPostCount,
+        remainingItemThreshold: feedPrefetchPolicy.remainingItemThreshold,
+        hasCursor: Boolean(cursor),
+        isTerminal: feedTerminal || feedTerminalRef.current,
+        loadMoreInFlight: loadingMore || loadInFlightRef.current,
+        initialLoading: loading,
+        rateLimited: Boolean(rateLimitUntil && Date.now() < rateLimitUntil)
+      })
+    ) {
+      return;
+    }
+    if (loadMoreArmedRef.current) return;
+    loadMoreArmedRef.current = true;
+    void load('more').finally(() => {
+      loadMoreArmedRef.current = false;
+    });
+  }, [
+    posts.length,
+    renderedPostCount,
+    feedPrefetchPolicy.remainingItemThreshold,
+    cursor,
+    feedTerminal,
+    loadingMore,
+    loading,
+    rateLimitUntil,
+    load
+  ]);
+
+  // Phase 21.0 — soft personalization signals from dwell time on visible posts.
+  useEffect(() => {
+    if (!user?.id || !visiblePosts.length || constrainedForFeed) return;
+    const startedAt = Date.now();
+    const ids = visiblePosts
+      .slice(0, 4)
+      .map((p, index) => ({ id: String(p?.id || '').trim(), index }))
+      .filter((entry) => entry.id);
+    return () => {
+      const elapsed = Date.now() - startedAt;
+      ids.forEach((entry) => {
+        observeFeedViewDuration({
+          entityId: entry.id,
+          surface: 'mobile_member_home',
+          viewDurationMs: elapsed,
+          feedPosition: entry.index
+        });
+      });
+    };
+  }, [visiblePosts, user?.id, constrainedForFeed]);
+
+  // Lightweight scroll FPS sampling (DEV analytics path; no UI impact).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let stop: (() => void) | null = null;
+    const onScroll = () => {
+      if (stop) return;
+      stop = startScrollFpsSample('mobile_member_home', 900);
+      window.setTimeout(() => {
+        stop = null;
+      }, 1200);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      stop?.();
+    };
+  }, []);
 
   useEffect(() => {
+    // Shared lifecycle mounts its own initial load.
+    if (USE_SHARED_FEED_LIFECYCLE) return;
     void load('initial');
   }, [load]);
 
@@ -2208,14 +2551,15 @@ export default function MobileFeed({
   useEffect(() => {
     if (isConnected || !shouldAttemptLiveConnections) return;
     const id = window.setInterval(() => {
-      void load('initial');
+      // Soft refresh when sockets are down — never wipe the feed.
+      void load(USE_SHARED_FEED_LIFECYCLE ? 'soft_refresh' : 'initial');
     }, 60000);
     return () => window.clearInterval(id);
   }, [isConnected, load, shouldAttemptLiveConnections]);
 
   useEffect(() => {
     if (!isOnline || recoveryTick <= 0) return;
-    void load('initial');
+    void load(USE_SHARED_FEED_LIFECYCLE ? 'soft_refresh' : 'initial');
   }, [isOnline, recoveryTick, load]);
 
   useEffect(() => {
@@ -2386,8 +2730,11 @@ export default function MobileFeed({
       (entries) => {
         const entry = entries[0];
         if (!entry?.isIntersecting) return;
-        if (renderedPostCount < posts.length) {
-          setRenderedPostCount((prev) => Math.min(posts.length, prev + renderStep));
+        const loadedCap = Math.max(posts.length, feedStreamRef.current.length);
+        if (renderedPostCount < loadedCap) {
+          setRenderedPostCount((prev) =>
+            Math.min(loadedCap, prev + Math.max(renderStep, feedPrefetchPolicy.progressiveRevealStep))
+          );
           return;
         }
         if (feedTerminalRef.current || feedTerminal) return;
@@ -2399,18 +2746,29 @@ export default function MobileFeed({
           loadMoreArmedRef.current = false;
         });
       },
-      // Phase 20.10 — tighter rootMargin reduces perpetual re-fire while spinner visible
-      { rootMargin: '280px 0px', threshold: 0.01 }
+      // Phase 21.0 — network-aware rootMargin for predictive infinite scroll
+      { rootMargin: observerRootMargin, threshold: 0.01 }
     );
     obs.observe(node);
     return () => obs.disconnect();
-  }, [cursor, feedTerminal, loading, loadingMore, load, posts.length, renderStep, renderedPostCount]);
+  }, [
+    cursor,
+    feedTerminal,
+    feedPrefetchPolicy.progressiveRevealStep,
+    loading,
+    loadingMore,
+    load,
+    observerRootMargin,
+    posts.length,
+    renderStep,
+    renderedPostCount
+  ]);
 
   const showTagsCard = feedSettings.showTrendingTags !== false && trendingTags.length > 0;
   const showPeopleCard = feedSettings.showSuggestedPeople !== false && suggestedPeople.length > 0;
   const showPagesCard = feedSettings.showSuggestedPages !== false && suggestedPages.length > 0;
 
-  if (loading && posts.length === 0) {
+  if (loading && posts.length === 0 && feedStream.length === 0) {
     return (
       <div className={MOBILE_PAGE_SECTION_CLASS}>
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white p-6">
@@ -2455,7 +2813,14 @@ export default function MobileFeed({
   }
 
   return (
-    <div className={MOBILE_PAGE_SECTION_CLASS}>
+    <div className={MOBILE_PAGE_SECTION_CLASS} data-feed-scroll-root="true">
+      <PullToRefresh
+        onRefresh={async () => {
+          await load('soft_refresh');
+        }}
+        disabled={loading && posts.length === 0}
+        reducedMotion={Boolean(profile.dataSaver)}
+      >
       {statusMessage ? (
         <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
           <div className="text-xs font-semibold text-amber-800">{statusMessage}</div>
@@ -2466,7 +2831,7 @@ export default function MobileFeed({
           ) : null}
           <button
             type="button"
-            onClick={() => void load('initial')}
+            onClick={() => void load('soft_refresh')}
             className="mt-2 rounded-xl bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white"
           >
             Retry feed
@@ -2528,7 +2893,11 @@ export default function MobileFeed({
             ) : null}
           </section>
         ) : null}
-        {visiblePosts.map((post, idx) => {
+        {visibleStream.map((streamEntry, idx) => {
+          if (streamEntry.kind !== 'post' || !streamEntry.post) {
+            return <FeedMixedCard key={streamEntry.key || `mixed-${idx}`} entry={streamEntry} compact />;
+          }
+          const post = streamEntry.post;
           const postId = String(post?.id || '');
           const author = post?.author || {};
           const authorName = author.displayName || post?.authorName || post?.authorUsername || 'Member';
@@ -3074,24 +3443,32 @@ export default function MobileFeed({
         </div>
 
         {loadingMore ? (
-          <div className="flex items-center justify-center gap-2 py-3 text-sm text-slate-600" role="status" aria-live="polite">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading more...
-          </div>
+          <FeedLoadSkeleton count={constrainedForFeed ? 1 : 2} compact={constrainedForFeed} label="Loading more content" />
         ) : null}
 
-        <div ref={sentinelRef} className="h-6" />
+        <div ref={sentinelRef} className="h-6" aria-hidden="true" />
 
-        {renderedPostCount < posts.length ? (
+        {renderedPostCount < Math.max(posts.length, feedStream.length) ? (
           <div className="py-3 text-center text-xs font-medium text-slate-500">
-            Scroll to reveal more posts.
+            {/* Progressive reveal — no explicit Load More control */}
+            Preparing more for you…
           </div>
         ) : feedTerminal || !cursor ? (
-          <div className="py-6 text-center text-xs text-slate-500">
-            {posts.length ? "You're all caught up." : 'No more posts.'}
+          <div className="py-4">
+            {posts.length || feedStream.length ? (
+              <FeedCaughtUpPanel
+                surface="member_home"
+                hasPeople={showPeopleCard}
+                hasJobs={recommendedJobs.length > 0}
+                hasMarketplace={recommendedGigs.length > 0}
+              />
+            ) : (
+              <div className="py-2 text-center text-xs text-slate-500">No more posts.</div>
+            )}
           </div>
         ) : null}
       </div>
+      </PullToRefresh>
 
       {(expandedPost || previewMedia) ? (
         <Suspense fallback={null}>

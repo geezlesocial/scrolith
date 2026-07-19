@@ -71,6 +71,18 @@ import {
   shouldContinueOffsetFallback
 } from '../../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../../utils/continuousFeed';
+import FeedLoadSkeleton from '../feed/FeedLoadSkeleton';
+import FeedCaughtUpPanel from '../feed/FeedCaughtUpPanel';
+import FeedMixedCard from '../feed/FeedMixedCard';
+import PullToRefresh from '../feed/PullToRefresh';
+import {
+  buildStreamFromMemberFeedPage,
+  buildStreamFromPosts,
+  mergeStreamEntries,
+  type FeedStreamEntry
+} from '../../utils/feedStream';
+import { prefetchStreamMedia } from '../../utils/feedMediaPrefetch';
+import { useFeedChromeBridge } from '../../hooks/useFeedChromeBridge';
 import {
   getStableFeedReactKey,
   isStaleFeedResponse,
@@ -1430,6 +1442,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [feedLoading, setFeedLoading] = useState(false);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedItems, setFeedItems] = useState<FeedPost[]>([]);
+  /** Phase 21.0.1 — ordered mixed stream (orchestrator order). Empty → posts-only fallback. */
+  const [feedStream, setFeedStream] = useState<FeedStreamEntry[]>([]);
+  const feedStreamRef = useRef<FeedStreamEntry[]>([]);
   const [feedNextCursor, setFeedNextCursor] = useState<string | null>(null);
   const [feedOffsetFallbackEnabled, setFeedOffsetFallbackEnabled] = useState(false);
   const [feedTerminal, setFeedTerminal] = useState(false);
@@ -1492,6 +1507,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     () => feedItems.slice(0, Math.min(renderedFeedItemCount, feedItems.length)),
     [feedItems, renderedFeedItemCount]
   );
+  /** Phase 21.0.1 mixed stream window (authoritative orchestrator order when available). */
+  const renderableFeedStream = useMemo(() => {
+    if (feedStream.length > 0) {
+      return feedStream.slice(0, Math.min(renderedFeedItemCount, feedStream.length));
+    }
+    return buildStreamFromPosts(renderableFeedItems);
+  }, [feedStream, renderedFeedItemCount, renderableFeedItems]);
+
+  useEffect(() => {
+    feedStreamRef.current = feedStream;
+  }, [feedStream]);
+
+  // Phase 21.0.2 — shared chrome: scroll restore + virtualization policy + media prefetch.
+  const feedChrome = useFeedChromeBridge({
+    surface: 'member_home',
+    viewerKey: String(user?.id || 'guest'),
+    itemCount: Math.max(feedItems.length, feedStream.length),
+    stream: renderableFeedStream,
+    renderedCount: renderedFeedItemCount,
+    dataSaver: false,
+    isMobile: false
+  });
   const interestSurveyPostId = useMemo(
     () =>
       pickInterestSurveyCandidateId(
@@ -2691,14 +2728,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           timeoutMs: desktopConstrainedFeed ? 12000 : 18000
         });
         if (isStaleFeedResponse(requestId, feedLoadRequestIdRef.current)) return;
-        if (orchestrated && Array.isArray(orchestrated.posts)) {
-          const normalized = normalizeFeedItems(orchestrated.posts);
-          if (normalized.length > 0 || orchestrated.hasMore) {
+        if (orchestrated && (Array.isArray(orchestrated.posts) || Array.isArray(orchestrated.items))) {
+          const normalized = normalizeFeedItems(orchestrated.posts || []);
+          const streamIncoming = buildStreamFromMemberFeedPage(orchestrated);
+          if (normalized.length > 0 || streamIncoming.length > 0 || orchestrated.hasMore) {
             feedTransportRef.current = 'orchestrated';
             feedOrchestratedFailedRef.current = false;
             feedEmptyPageStreakRef.current = 0;
             feedDiscoveryUsedRef.current = true; // skip Phase 1 discovery supplement while orchestrated
-            feedTerminalRef.current = !orchestrated.hasMore && normalized.length === 0;
+            feedTerminalRef.current = !orchestrated.hasMore && normalized.length === 0 && streamIncoming.length === 0;
             setFeedTerminal(feedTerminalRef.current);
             // Soft refresh: merge first page over existing pages — never drop already-loaded items.
             const nextItems =
@@ -2708,6 +2746,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             commitFeedItems(nextItems, {
               forceResetWindow: Boolean(options?.hardReset) && !hadExistingContent
             });
+            // Phase 21.0.1 — preserve orchestrator mixed order (no client ranking).
+            const streamMerged =
+              hadExistingContent && !options?.hardReset
+                ? mergeStreamEntries(streamIncoming, feedStreamRef.current, {
+                    prepend: true,
+                    maxRetained: 140
+                  }).merged
+                : streamIncoming;
+            feedStreamRef.current = streamMerged;
+            setFeedStream(streamMerged);
             // Only reset cursor on deliberate hard reset / empty prior list.
             if (!hadExistingContent || options?.hardReset) {
               feedNextCursorRef.current = orchestrated.nextCursor;
@@ -2722,7 +2770,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               sequence: requestId,
               cursor: null,
               nextCursor: orchestrated.nextCursor,
-              itemCount: normalized.length,
+              itemCount: Math.max(normalized.length, streamIncoming.length),
               hasMore: orchestrated.hasMore,
               feedCountBefore: hadExistingContent ? feedItemsRef.current.length : 0,
               feedCountAfter: normalized.length
@@ -3146,10 +3194,18 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               })
               .filter((item): item is FeedPost => Boolean(item));
             const { addedCount } = appendFeedItems(appendedItems);
-            if (addedCount > 0) feedEmptyPageStreakRef.current = 0;
+            // Phase 21.0.1 — append mixed stream in orchestrator order.
+            const streamIncoming = buildStreamFromMemberFeedPage(page);
+            const streamMerge = mergeStreamEntries(feedStreamRef.current, streamIncoming, {
+              maxRetained: 140
+            });
+            feedStreamRef.current = streamMerge.merged;
+            setFeedStream(streamMerge.merged);
+            const progressCount = Math.max(addedCount, streamMerge.addedCount);
+            if (progressCount > 0) feedEmptyPageStreakRef.current = 0;
             else feedEmptyPageStreakRef.current += 1;
             feedLastCompletedCursorRef.current = cursor;
-            feedLastCompletedAddedRef.current = addedCount;
+            feedLastCompletedAddedRef.current = progressCount;
             if (page.jobs.length) {
               setListingJobsPool((prev) =>
                 dedupeById([...((prev || []) as any[]), ...(page.jobs as any[])]) as any
@@ -3163,7 +3219,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             const stopUnchanged = shouldStopUnchangedCursorLoop({
               requestedCursor: cursor,
               returnedCursor: page.nextCursor,
-              uniqueAddedCount: addedCount,
+              uniqueAddedCount: progressCount,
               consecutiveEmptyPages: feedEmptyPageStreakRef.current,
               maxEmptyPages: 2
             });
@@ -5635,8 +5691,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         }
         void loadMoreFeedRef.current();
       },
-      // Moderate rootMargin: 900px kept the sentinel constantly intersecting on short pages.
-      { rootMargin: '320px 0px', threshold: 0 }
+      // Phase 21.0 — predictive infinite scroll (900px was too aggressive on short pages).
+      { rootMargin: '560px 0px', threshold: 0 }
     );
     obs.observe(node);
     return () => obs.disconnect();
@@ -8712,7 +8768,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               {renderDesktopComposer()}
             </div>
 
-            <div className="space-y-4">
+            <div
+              className="space-y-4"
+              data-feed-scroll-root="true"
+              data-feed-lifecycle="21.0.2"
+              data-feed-virtual-policy={feedChrome.virtualizationEnabled ? 'on' : 'off'}
+            >
+              <PullToRefresh
+                onRefresh={async () => {
+                  // Soft refresh: never hard-reset cursor or clear visible content.
+                  await loadFeed({ hardReset: false });
+                }}
+                disabled={feedLoading}
+                className="space-y-4"
+              >
               {shouldShowInitialSkeleton({ loading: feedLoading, existingItemCount: feedItems.length }) ? (
                 <div
                   className="min-h-[24rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm"
@@ -8721,14 +8790,22 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 >
                   Loading your feed...
                 </div>
-              ) : feedItems.length === 0 ? (
+              ) : feedItems.length === 0 && feedStream.length === 0 ? (
                 <div className="min-h-[12rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
                   {feedTopic || feedRegion
                     ? 'No posts match the current filters. Clear the topic or region filter to widen your feed.'
                     : 'No posts found. Follow creators or switch to Discover to explore.'}
                 </div>
               ) : (
-                renderableFeedItems.map((post, postIndex) => {
+                renderableFeedStream.map((streamEntry, postIndex) => {
+                  if (streamEntry.kind !== 'post' || !streamEntry.post) {
+                    return (
+                      <div key={streamEntry.key || `mixed-${postIndex}`} className="min-w-0">
+                        <FeedMixedCard entry={streamEntry} />
+                      </div>
+                    );
+                  }
+                  const post = streamEntry.post as FeedPost;
                   const isEditing = editingPostId === post.id && editingDraft;
                   const postBusy = Boolean(postActionBusy[post.id]);
                   const commentCount = commentCounts[post.id] ?? post.interactions?.comments ?? 0;
@@ -9185,19 +9262,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               )}
               <div ref={desktopFeedSentinelRef} className="h-10 shrink-0" aria-hidden="true" />
               {feedLoadingMore ? (
-                <div className="min-h-[2.5rem] pb-2 text-center text-xs font-medium text-slate-500" role="status" aria-live="polite">
-                  Loading more posts...
-                </div>
-              ) : renderedFeedItemCount < feedItems.length ? (
+                <FeedLoadSkeleton count={2} className="pb-2" label="Loading more posts" />
+              ) : renderedFeedItemCount < Math.max(feedItems.length, feedStream.length) ? (
                 <div className="flex min-h-[3rem] flex-col items-center gap-2 pb-2">
                   <div className="text-center text-xs font-medium text-slate-500">
-                    Scroll to reveal more posts.
+                    Preparing more for you…
                   </div>
+                  {/* Progressive reveal fallback for keyboard / reduced-motion users */}
                   <button
                     type="button"
                     onClick={() =>
                       setRenderedFeedItemCount((prev) => {
-                        const next = Math.min(feedItems.length, prev + desktopRenderStep);
+                        const cap = Math.max(feedItems.length, feedStream.length);
+                        const next = Math.min(cap, prev + desktopRenderStep);
                         renderedFeedItemCountRef.current = next;
                         return next;
                       })
@@ -9208,20 +9285,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   </button>
                 </div>
               ) : feedTerminal ? (
-                <div className="pb-3 text-center text-xs font-medium text-slate-500">
-                  You&apos;re all caught up. No more unique posts from available sources.
-                </div>
+                <FeedCaughtUpPanel surface="member_home" className="mb-3" />
               ) : feedNextCursor || feedOffsetFallbackEnabled || !feedDiscoveryUsedRef.current ? (
+                // Accessibility fallback only — infinite scroll is primary (Phase 21.0).
                 <div className="flex justify-center pb-3">
                   <button
                     type="button"
                     onClick={() => void loadMoreFeed()}
-                    className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                    className="sr-only focus:not-sr-only focus:rounded-full focus:border focus:border-slate-200 focus:bg-white focus:px-5 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-700"
                   >
                     Load more
                   </button>
                 </div>
               ) : null}
+              </PullToRefresh>
             </div>
           </div>
 

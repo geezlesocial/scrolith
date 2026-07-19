@@ -58,6 +58,10 @@ import {
   shouldContinueOffsetFallback
 } from '../utils/feedPagination';
 import { resolveFeedTerminalState, shouldHaltEmptyPageLoop } from '../utils/continuousFeed';
+import FeedLoadSkeleton from '../components/feed/FeedLoadSkeleton';
+import FeedCaughtUpPanel from '../components/feed/FeedCaughtUpPanel';
+import PullToRefresh from '../components/feed/PullToRefresh';
+import { useFeedChromeBridge } from '../hooks/useFeedChromeBridge';
 import {
   getStableFeedReactKey,
   logFeedLifecycle,
@@ -541,6 +545,16 @@ const CommunityHome = () => {
   const postsLoadingMoreRef = useRef(false);
   const storyPreviewStyle = getStoryTextStyle(storyDraft);
   const storyEditPreviewStyle = getStoryTextStyle(storyEditDraft);
+
+  // Phase 21.0.2 — shared chrome (scroll restore + virtualization policy).
+  const communityFeedChrome = useFeedChromeBridge({
+    surface: 'community',
+    viewerKey: String(user?.id || 'guest'),
+    itemCount: posts.length,
+    dataSaver: Boolean(profile?.dataSaver || profile?.lowBandwidth),
+    isMobile: viewportDevice === 'mobile' || viewportDevice === 'tablet'
+  });
+  void communityFeedChrome;
 
   useEffect(() => {
     postsRef.current = posts;
@@ -2612,7 +2626,8 @@ const CommunityHome = () => {
         }
         void loadMorePostsRef.current();
       },
-      { rootMargin: '320px 0px', threshold: 0 }
+      // Phase 21.0 — predictive margin (kept moderate to avoid perpetual re-fire)
+      { rootMargin: '560px 0px', threshold: 0 }
     );
     observer.observe(node);
     return () => observer.disconnect();
@@ -3237,7 +3252,43 @@ const CommunityHome = () => {
                 <h2 className="text-base font-bold sm:text-lg">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
                 <Link to="/community" className="inline-flex self-start rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 sm:self-auto sm:text-sm">Create Post</Link>
               </div>
-              <div className="space-y-4 bg-slate-50/40 p-3 sm:p-4">
+              <div className="space-y-4 bg-slate-50/40 p-3 sm:p-4" data-feed-scroll-root="true">
+                <PullToRefresh
+                  onRefresh={async () => {
+                    // Soft refresh: prepend fresh orchestrated items; never clear visible feed.
+                    try {
+                      const page = await MemberFeedService.tryFetchPage({
+                        surface: 'community',
+                        mode: 'for_you',
+                        limit: postsLimit,
+                        timeoutMs: 12000
+                      });
+                      if (!page?.posts?.length) return;
+                      const normalized = sortPosts(
+                        page.posts
+                          .map((post: any) => {
+                            try {
+                              return normalizePost(post);
+                            } catch {
+                              return null;
+                            }
+                          })
+                          .filter(Boolean)
+                      );
+                      setPosts((prev) => {
+                        const seen = new Set(prev.map((p) => String(p?.id || '')).filter(Boolean));
+                        const fresh = normalized.filter((p: any) => !seen.has(String(p?.id || '')));
+                        if (!fresh.length) return prev;
+                        const next = [...fresh, ...prev];
+                        postsRef.current = next;
+                        return next;
+                      });
+                    } catch {
+                      // Soft-fail: keep current posts visible.
+                    }
+                  }}
+                  disabled={postsLoadingMore}
+                >
                 {posts.length === 0 && (
                   <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-gray-500 shadow-sm">No posts yet.</div>
                 )}
@@ -3729,28 +3780,27 @@ const CommunityHome = () => {
                 })}
                 <div ref={postsSentinelRef} className="h-10 shrink-0" aria-hidden="true" />
                 {postsLoadingMore ? (
-                  <div
-                    className="min-h-[3rem] rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    Loading more posts...
-                  </div>
+                  <FeedLoadSkeleton count={2} className="pb-2" label="Loading more community posts" />
                 ) : postsFeedTerminal ? (
-                  <div className="rounded-3xl border border-slate-200 bg-white p-4 text-center text-sm text-slate-500 shadow-sm">
-                    You&apos;re all caught up. No more unique community posts right now.
-                  </div>
+                  <FeedCaughtUpPanel
+                    surface="community"
+                    title="You're all caught up"
+                    subtitle="No more unique community posts right now. Explore more of Scrolith while new conversations appear."
+                    className="mb-2"
+                  />
                 ) : postsNextCursor || postsOffsetFallbackEnabled || !discoverySupplementUsedRef.current ? (
+                  // Accessibility fallback — continuous infinite scroll is primary (Phase 21.0).
                   <div className="flex justify-center pb-2">
                     <button
                       type="button"
                       onClick={() => void loadMorePosts()}
-                      className="rounded-full border border-slate-200 bg-white px-5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                      className="sr-only focus:not-sr-only focus:rounded-full focus:border focus:border-slate-200 focus:bg-white focus:px-5 focus:py-2 focus:text-sm focus:font-semibold focus:text-slate-700"
                     >
                       Load more
                     </button>
                   </div>
                 ) : null}
+                </PullToRefresh>
               </div>
               </div>
             )}
