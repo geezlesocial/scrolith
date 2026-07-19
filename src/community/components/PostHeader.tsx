@@ -1,9 +1,11 @@
-import React from 'react';
-import { ShieldCheck, Users } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ShieldCheck } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import FollowButton from './FollowButton';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import { resolveVerificationLevel } from '../../utils/verification';
+import { resolveAssetUrl } from '../../utils/assetUrl';
+import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 
 type PostHeaderAuthor = {
   id?: string | null;
@@ -94,25 +96,39 @@ const PostHeader: React.FC<PostHeaderProps> = ({
     Boolean(author.id) &&
     (isBusinessAuthor || (authorType === 'user' && String(author.id || '') !== String(currentUserId || '')));
 
+  // Phase 20.10 — resolve + onError so broken signed/orphan URLs never show broken-image icons.
+  const resolvedAvatar =
+    resolveUserAvatarUrl(author) ||
+    resolveAssetUrl(String(author.avatarUrl || '').trim()) ||
+    '';
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [resolvedAvatar, author.id]);
+  const showAvatar = Boolean(resolvedAvatar) && !avatarFailed;
+
   return (
     <header className="flex min-w-0 items-start gap-3 sm:gap-3.5">
       <Link
         to={profileUrl}
         aria-label={`${authorName} profile`}
-        className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full border border-slate-200 bg-slate-100 shadow-sm sm:h-14 sm:w-14"
+        className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-200 bg-slate-100 shadow-sm sm:h-14 sm:w-14"
       >
-        {author.avatarUrl ? (
+        {showAvatar ? (
           <img
-            src={author.avatarUrl}
+            src={resolvedAvatar}
             alt=""
             className="h-full w-full object-cover"
             width={56}
             height={56}
             loading="lazy"
             decoding="async"
+            onError={() => setAvatarFailed(true)}
           />
         ) : (
-          <Users className="mx-auto mt-3 h-5 w-5 text-slate-400 sm:mt-3.5 sm:h-6 sm:w-6" aria-hidden="true" />
+          <span className="text-sm font-semibold text-slate-500" aria-hidden>
+            {String(authorName || '?').slice(0, 1).toUpperCase()}
+          </span>
         )}
       </Link>
 

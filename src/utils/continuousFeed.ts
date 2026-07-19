@@ -189,13 +189,19 @@ export const resolveFeedTerminalState = (params: {
   const offsetOn = Boolean(params.offsetFallbackEnabled);
   const secondary = Boolean(params.secondarySourcesRemaining);
 
+  // Phase 20.10 — zero unique progress never continues solely on secondary/hasMore flags.
+  if (params.uniqueAddedCount <= 0 && !cursor && hasMoreFlag !== true) {
+    return { canContinue: false, isTerminal: true };
+  }
   if (cursor) return { canContinue: true, isTerminal: false };
-  if (hasMoreFlag === true) return { canContinue: true, isTerminal: false };
+  if (hasMoreFlag === true && params.uniqueAddedCount > 0) {
+    return { canContinue: true, isTerminal: false };
+  }
   if (offsetOn && params.uniqueAddedCount > 0) return { canContinue: true, isTerminal: false };
-  if (secondary) return { canContinue: true, isTerminal: false };
-  if (params.uniqueAddedCount > 0 && hasMoreFlag !== false) {
+  if (secondary && params.uniqueAddedCount > 0) return { canContinue: true, isTerminal: false };
+  if (params.uniqueAddedCount > 0 && hasMoreFlag == null) {
     // Soft progress without explicit cursor — allow one more attempt only if hasMore unknown
-    return { canContinue: hasMoreFlag == null, isTerminal: hasMoreFlag === false };
+    return { canContinue: true, isTerminal: false };
   }
   return { canContinue: false, isTerminal: true };
 };

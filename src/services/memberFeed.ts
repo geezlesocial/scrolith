@@ -266,18 +266,21 @@ export async function fetchMemberFeedPage(params: FetchMemberFeedParams): Promis
     })
   );
   const nextCursor = clean(data.nextCursor || data.next_cursor || '') || null;
-  const hasMore =
+  const hasMoreFlag =
     typeof data.hasMore === 'boolean'
       ? data.hasMore
       : typeof data.has_more === 'boolean'
         ? data.has_more
-        : Boolean(nextCursor);
+        : null;
+  // Phase 20.10 — never invent infinite continuation: hasMore requires a real cursor.
+  // If server says hasMore without cursor, surface hasMore=false so clients terminal/fallback.
+  const hasMore = Boolean(nextCursor) && (hasMoreFlag !== false);
 
   return {
     items,
     ...partitioned,
     nextCursor: hasMore ? nextCursor : null,
-    hasMore: Boolean(hasMore && nextCursor),
+    hasMore,
     mode: data.mode,
     surface: data.surface || params.surface,
     source: 'orchestrated'

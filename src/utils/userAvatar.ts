@@ -18,6 +18,16 @@ const pickFirstString = (...values: unknown[]) => {
 export const resolveUserAvatarUrl = (userLike: any): string => {
   if (!userLike) return '';
 
+  // Phase 20.10 — accept bare URL / file id strings (callers sometimes pass avatarUrl only).
+  if (typeof userLike === 'string') {
+    const raw = userLike.trim();
+    if (!raw) return '';
+    if (looksLikeFileId(raw)) {
+      return resolvePostAttachmentMediaUrl({ fileId: raw }) || resolveAssetUrl(raw) || '';
+    }
+    return resolvePostAttachmentMediaUrl(raw) || resolveAssetUrl(raw) || '';
+  }
+
   // Phase 20.7.9 — official Scrolitha system photo everywhere
   const scrolithaAvatar = resolveScrolithaAvatar(userLike);
   if (scrolithaAvatar) return scrolithaAvatar;
