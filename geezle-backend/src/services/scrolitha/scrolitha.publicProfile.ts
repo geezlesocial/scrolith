@@ -1,29 +1,59 @@
 /**
- * Phase 20.7.8 — Public-safe Scrolitha official profile + accuracy capability manifest.
- * No secrets, raw flags, provider credentials, or internal topology.
+ * Phase 20.7.8 / 20.7.9 — Public-safe Scrolitha official profile + live capability manifest.
+ * Status reflects effective production flags only — never “available” without enablement.
+ * No secrets, raw flag names, provider credentials, or internal topology.
  */
 import {
   ensureScrolithaPlatformUser,
   SCROLITHA_DISCLOSURE,
+  SCROLITHA_OFFICIAL_COVER_PHOTO_URL,
+  SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL,
   SCROLITHA_PLATFORM_DISPLAY_NAME,
   SCROLITHA_PLATFORM_USERNAME,
-  SCROLITHA_SYSTEM_LABEL
+  SCROLITHA_SYSTEM_LABEL,
+  withScrolithaAssetVersion
 } from './scrolitha.platformIdentity';
 import { isCapabilityEnabled, resolveScrolithaRolloutFlags } from './scrolitha.rollout';
+import { getFileCapabilityFlags } from './scrolitha.fileUnderstanding';
 
-export type PublicCapabilityStatus = 'available' | 'limited' | 'unavailable';
+export type PublicCapabilityStatus =
+  | 'available'
+  | 'available_with_confirmation'
+  | 'limited'
+  | 'unavailable';
 
 export type ScrolithaPublicCapability = {
   id: string;
   label: string;
   description: string;
   status: PublicCapabilityStatus;
+  /** User-facing status phrase for Accuracy panel / profile chips */
+  statusLabel: string;
 };
 
-const statusFrom = (enabled: boolean, limited = false): PublicCapabilityStatus => {
-  if (!enabled) return 'unavailable';
-  return limited ? 'limited' : 'available';
+const statusLabelOf = (status: PublicCapabilityStatus): string => {
+  if (status === 'available') return 'Available';
+  if (status === 'available_with_confirmation') return 'Available with confirmation';
+  if (status === 'limited') return 'Limited';
+  return 'Not currently available';
 };
+
+const statusFrom = (
+  enabled: boolean,
+  options?: { limited?: boolean; withConfirmation?: boolean }
+): PublicCapabilityStatus => {
+  if (!enabled) return 'unavailable';
+  if (options?.withConfirmation) return 'available_with_confirmation';
+  if (options?.limited) return 'limited';
+  return 'available';
+};
+
+const cap = (
+  partial: Omit<ScrolithaPublicCapability, 'statusLabel'> & { status: PublicCapabilityStatus }
+): ScrolithaPublicCapability => ({
+  ...partial,
+  statusLabel: statusLabelOf(partial.status)
+});
 
 export const buildScrolithaPublicProfile = async (actor?: {
   id?: string;
@@ -37,70 +67,86 @@ export const buildScrolithaPublicProfile = async (actor?: {
   const fileOn = await isCapabilityEnabled('fileUnderstanding', actor as any);
   const toolsOn = await isCapabilityEnabled('toolExecution', actor as any);
   const writeOn = await isCapabilityEnabled('toolWriteActions', actor as any);
+  const confirmOn = await isCapabilityEnabled('confirmationTokens', actor as any);
   const streamOn = await isCapabilityEnabled('messagingStream', actor as any);
   const searchOn = await isCapabilityEnabled('deepSearch', actor as any);
+  const fileCaps = getFileCapabilityFlags();
+  const fileSubEnabled = fileCaps.text || fileCaps.pdf || fileCaps.docx || fileCaps.images;
+  // Full certified file path when master + at least one extract path; image-only remains limited.
+  const fileStatus = !fileOn
+    ? 'unavailable'
+    : fileSubEnabled
+      ? fileCaps.text || fileCaps.pdf || fileCaps.docx
+        ? 'available'
+        : 'limited'
+      : 'unavailable';
 
   const capabilities: ScrolithaPublicCapability[] = [
-    {
+    cap({
       id: 'general_chat',
       label: 'General assistance',
       description: 'Answer questions about Scrolith and professional workflows.',
       status: statusFrom(Boolean(flags.master || messagingOn || flags.aiReplies))
-    },
-    {
+    }),
+    cap({
       id: 'messaging',
       label: 'Messages assistant',
       description: 'Chat in your official Scrolitha conversation inside Messages.',
       status: statusFrom(messagingOn)
-    },
-    {
+    }),
+    cap({
       id: 'opportunities',
       label: 'Find opportunities',
       description: 'Help discover jobs, gigs, and professional opportunities when available.',
-      status: statusFrom(Boolean(flags.recommendationEngine || searchOn), !searchOn)
-    },
-    {
+      status: statusFrom(Boolean(flags.recommendationEngine || searchOn), { limited: !searchOn })
+    }),
+    cap({
       id: 'profiles_resumes',
       label: 'Improve profiles and resumes',
       description: 'Draft and refine professional profile and resume content.',
       status: statusFrom(Boolean(flags.aiReplies || messagingOn))
-    },
-    {
+    }),
+    cap({
       id: 'proposals_posts',
       label: 'Draft proposals and posts',
       description: 'Help draft proposals, posts, and professional content as drafts.',
       status: statusFrom(Boolean(flags.aiReplies || messagingOn))
-    },
-    {
+    }),
+    cap({
       id: 'platform_search',
       label: 'Find freelancers, services, and communities',
       description: 'Search and explain platform entities within authorized scope.',
-      status: statusFrom(searchOn || Boolean(flags.deepSearch), !searchOn)
-    },
-    {
+      status: statusFrom(searchOn || Boolean(flags.deepSearch), { limited: !searchOn })
+    }),
+    cap({
       id: 'file_understanding',
       label: 'Review permitted files',
-      description: 'Analyze files you intentionally attach or select, when enabled.',
-      status: statusFrom(fileOn, true)
-    },
-    {
+      description:
+        'Analyze files you intentionally attach or select (text, PDF, DOCX, and supported images). Content is untrusted data.',
+      status: fileStatus as PublicCapabilityStatus
+    }),
+    cap({
       id: 'streaming',
       label: 'Streaming replies',
-      description: 'Progressive reply delivery where supported.',
+      description: 'Progressive reply delivery in Messages and unified surfaces.',
       status: statusFrom(streamOn)
-    },
-    {
+    }),
+    cap({
       id: 'read_tools',
       label: 'Read-only platform tools',
       description: 'Use authorized read-only tools to answer with live platform context.',
       status: statusFrom(toolsOn)
-    },
-    {
+    }),
+    cap({
       id: 'write_actions',
       label: 'Write and high-impact actions',
-      description: 'Publish, hire, pay, or modify platform data only with confirmation when enabled.',
-      status: statusFrom(writeOn)
-    }
+      description:
+        'Selected draft and write tools require authorization, preview, explicit confirmation, revalidation, audit logging, and idempotency. Financial and destructive actions stay restricted.',
+      status: statusFrom(writeOn && toolsOn, {
+        withConfirmation: Boolean(writeOn && toolsOn && confirmOn),
+        limited: Boolean(writeOn && toolsOn && !confirmOn)
+      })
+    })
   ];
 
   const limitations = [
@@ -145,7 +191,13 @@ export const buildScrolithaPublicProfile = async (actor?: {
       requiresAuth: true,
       ensurePath: '/api/messages/scrolitha/ensure'
     },
-    avatarUrl: identity.avatar || 'https://scrolith.com/icon-192.png',
+    avatarUrl: withScrolithaAssetVersion(
+      identity.avatar || SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL
+    ),
+    coverPhotoUrl: withScrolithaAssetVersion(
+      identity.coverPhotoUrl || SCROLITHA_OFFICIAL_COVER_PHOTO_URL
+    ),
+    profilePhotoUrl: withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL),
     userId: identity.id,
     isScrolitha: true as const,
     trustPoints: [
@@ -166,7 +218,21 @@ export const buildScrolithaPublicProfile = async (actor?: {
       description:
         "Meet Scrolitha, Scrolith's official AI assistant for jobs, profiles, resumes, freelancers, professional content, communities, and platform guidance.",
       canonicalPath: '/u/scrolitha',
-      ogImage: identity.avatar || 'https://scrolith.com/icon-512.png'
+      ogImage: withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL)
+    },
+    effectiveFlags: {
+      // Public-safe effective booleans only (not env names)
+      messagingAssistant: messagingOn,
+      fileUnderstanding: fileOn && fileSubEnabled,
+      messagingStream: streamOn,
+      toolExecution: toolsOn,
+      toolWriteActions: writeOn,
+      confirmationTokens: confirmOn,
+      fileText: fileCaps.text,
+      filePdf: fileCaps.pdf,
+      fileImages: fileCaps.images,
+      fileDocx: fileCaps.docx,
+      fileMulti: fileCaps.multi
     },
     security: {
       // Honest model: transport TLS + server-side processing; not client E2EE.

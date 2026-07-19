@@ -9,6 +9,10 @@ import {
   resolveStoredLastMessageText,
   MESSAGE_PREVIEW_LABELS
 } from '../services/messaging/lastMessagePreview';
+import {
+  SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL,
+  withScrolithaAssetVersion
+} from '../services/scrolitha/scrolitha.platformIdentity';
 
 const nowIso = () => new Date().toISOString();
 const isMessagesTraceEnabled = () =>
@@ -263,12 +267,14 @@ const formatParticipant = (participant: any) => {
     : `/profile/${participant.user.id}`;
   return {
     id: participant.user.id,
-    name: participant.user.name || participant.user.email || 'User',
-    avatar: participant.user.avatar || (isScrolitha ? 'https://scrolith.com/icon-192.png' : ''),
+    name: isScrolitha ? 'Scrolitha' : participant.user.name || participant.user.email || 'User',
+    avatar: isScrolitha
+      ? withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL)
+      : participant.user.avatar || '',
     username: participant.user.username || '',
     gender: normalizeGender(participant.user?.profile?.gender),
-    profile_url: profileUrl,
-    profileUrl,
+    profile_url: isScrolitha ? '/u/scrolitha' : profileUrl,
+    profileUrl: isScrolitha ? '/u/scrolitha' : profileUrl,
     role: participant.user.role,
     is_online: isScrolitha ? true : Boolean(participant.user.isOnline),
     isOnline: isScrolitha ? true : Boolean(participant.user.isOnline),
