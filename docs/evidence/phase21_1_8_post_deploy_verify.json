@@ -1,0 +1,200 @@
+{
+  "phase": "21.1.8",
+  "generatedAt": "2026-07-19T19:26:53.801Z",
+  "productionRevision": "scrolith-frontend-00203-yot",
+  "rollbackRevision": "scrolith-frontend-00131-4jr",
+  "origin": "https://scrolith.com",
+  "html": {
+    "status": 200,
+    "cacheControl": "no-cache",
+    "scriptCount": 1,
+    "styleCount": 1,
+    "modulePreloadCount": 4,
+    "assetRefs": [
+      "https://scrolith.com/assets/index-CCZ5abQQ.js",
+      "https://scrolith.com/assets/index-DVNU449I.css",
+      "https://scrolith.com/assets/react-core-DOKuZkji.js",
+      "https://scrolith.com/assets/vendor-B9ygI19o.js",
+      "https://scrolith.com/assets/router-Djhtuahj.js",
+      "https://scrolith.com/assets/icons-GMrKlA6A.js"
+    ],
+    "hasRoot": true,
+    "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+  },
+  "assets": [
+    {
+      "url": "https://scrolith.com/assets/index-CCZ5abQQ.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 565320
+    },
+    {
+      "url": "https://scrolith.com/assets/index-DVNU449I.css",
+      "status": 200,
+      "contentType": "text/css",
+      "bytes": 257337
+    },
+    {
+      "url": "https://scrolith.com/assets/react-core-DOKuZkji.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 193789
+    },
+    {
+      "url": "https://scrolith.com/assets/vendor-B9ygI19o.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 36279
+    },
+    {
+      "url": "https://scrolith.com/assets/router-Djhtuahj.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 36748
+    },
+    {
+      "url": "https://scrolith.com/assets/icons-GMrKlA6A.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 110837
+    }
+  ],
+  "asset404": [],
+  "assetOk": [
+    {
+      "url": "https://scrolith.com/assets/index-CCZ5abQQ.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 565320
+    },
+    {
+      "url": "https://scrolith.com/assets/index-DVNU449I.css",
+      "status": 200,
+      "contentType": "text/css",
+      "bytes": 257337
+    },
+    {
+      "url": "https://scrolith.com/assets/react-core-DOKuZkji.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 193789
+    },
+    {
+      "url": "https://scrolith.com/assets/vendor-B9ygI19o.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 36279
+    },
+    {
+      "url": "https://scrolith.com/assets/router-Djhtuahj.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 36748
+    },
+    {
+      "url": "https://scrolith.com/assets/icons-GMrKlA6A.js",
+      "status": 200,
+      "contentType": "application/javascript",
+      "bytes": 110837
+    }
+  ],
+  "surfaces": {
+    "home": {
+      "path": "/",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    },
+    "community": {
+      "path": "/community",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    },
+    "scroll": {
+      "path": "/scroll",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    },
+    "profile": {
+      "path": "/profile",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    },
+    "notifications": {
+      "path": "/notifications",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    },
+    "admin": {
+      "path": "/dashboard",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    },
+    "login": {
+      "path": "/auth/login",
+      "status": 200,
+      "hasRoot": true,
+      "isSpaShell": true,
+      "assetRefs": [
+        "/assets/index-CCZ5abQQ.js",
+        "/assets/index-DVNU449I.css"
+      ],
+      "title": "Scrolith | Where Creators Become Professionals and Audiences Become Opportunities"
+    }
+  },
+  "errors": [],
+  "revisionMatch": {
+    "prodScriptTail": [
+      "index-CCZ5abQQ.js"
+    ],
+    "stagedScriptTail": [
+      "index-CCZ5abQQ.js",
+      "logo.webp"
+    ],
+    "sameEntry": false
+  },
+  "summary": {
+    "htmlOk": true,
+    "zeroAsset404": true,
+    "assetOkCount": 6,
+    "asset404Count": 0,
+    "surfacesOk": true,
+    "revisionAssetMatch": false,
+    "critical": false
+  }
+}

@@ -1,0 +1,274 @@
+{
+  "phase": "21.1.8",
+  "revision": "scrolith-frontend-00203-yot",
+  "origin": "https://scrolith.com",
+  "startedAt": "2026-07-19T19:06:01.490Z",
+  "endedAt": "2026-07-19T19:21:01.499Z",
+  "durationMs": 900009,
+  "samples": [
+    {
+      "t": 15,
+      "at": "2026-07-19T19:06:02.603Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 61122,
+      "at": "2026-07-19T19:07:03.707Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 122232,
+      "at": "2026-07-19T19:08:04.671Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 183195,
+      "at": "2026-07-19T19:09:05.843Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 244358,
+      "at": "2026-07-19T19:10:06.970Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 305495,
+      "at": "2026-07-19T19:11:07.972Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 366497,
+      "at": "2026-07-19T19:12:08.863Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 427377,
+      "at": "2026-07-19T19:13:10.291Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 488809,
+      "at": "2026-07-19T19:14:11.274Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 549798,
+      "at": "2026-07-19T19:15:12.414Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 610938,
+      "at": "2026-07-19T19:16:13.461Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 671974,
+      "at": "2026-07-19T19:17:14.601Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 733124,
+      "at": "2026-07-19T19:18:16.976Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 795488,
+      "at": "2026-07-19T19:19:18.475Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    },
+    {
+      "t": 856997,
+      "at": "2026-07-19T19:20:19.567Z",
+      "fiveXxCount": -1,
+      "errorCount": -1,
+      "homeStatus": 200,
+      "loginStatus": 200,
+      "asset404": 0,
+      "fiveSample": {
+        "error": "gcloud failed",
+        "status": null
+      },
+      "errSample": {
+        "error": "gcloud failed",
+        "status": null
+      }
+    }
+  ],
+  "summary": {
+    "sampleCount": 15,
+    "maxFiveXx": 0,
+    "maxErrors": 0,
+    "homeAllOk": true,
+    "loginAllOk": true,
+    "asset404Total": 0,
+    "healthy": true
+  }
+}
