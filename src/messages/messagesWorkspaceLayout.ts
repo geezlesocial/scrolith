@@ -6,8 +6,11 @@
 /** Desktop textarea defaults (px). */
 export const MESSAGES_COMPOSER_MIN_HEIGHT_DESKTOP = 52;
 export const MESSAGES_COMPOSER_MAX_HEIGHT_DESKTOP = 168;
-export const MESSAGES_COMPOSER_MIN_HEIGHT_MOBILE = 56;
-export const MESSAGES_COMPOSER_MAX_HEIGHT_MOBILE = 136;
+/** Phase 20.8.1 — tighter mobile bounds so keyboard leaves history room */
+export const MESSAGES_COMPOSER_MIN_HEIGHT_MOBILE = 44;
+export const MESSAGES_COMPOSER_MAX_HEIGHT_MOBILE = 120;
+export const MESSAGES_COMPOSER_MIN_HEIGHT_MOBILE_KEYBOARD = 40;
+export const MESSAGES_COMPOSER_MAX_HEIGHT_MOBILE_KEYBOARD = 96;
 
 export const computeComposerTextareaHeight = (input: {
   scrollHeight: number;
@@ -17,12 +20,12 @@ export const computeComposerTextareaHeight = (input: {
   const keyboardOpen = Boolean(input.keyboardOpen);
   const minHeight = input.isMobile
     ? keyboardOpen
-      ? 48
+      ? MESSAGES_COMPOSER_MIN_HEIGHT_MOBILE_KEYBOARD
       : MESSAGES_COMPOSER_MIN_HEIGHT_MOBILE
     : MESSAGES_COMPOSER_MIN_HEIGHT_DESKTOP;
   const maxHeight = input.isMobile
     ? keyboardOpen
-      ? 112
+      ? MESSAGES_COMPOSER_MAX_HEIGHT_MOBILE_KEYBOARD
       : MESSAGES_COMPOSER_MAX_HEIGHT_MOBILE
     : MESSAGES_COMPOSER_MAX_HEIGHT_DESKTOP;
   const height = Math.max(minHeight, Math.min(Number(input.scrollHeight) || 0, maxHeight));
@@ -30,6 +33,14 @@ export const computeComposerTextareaHeight = (input: {
     height,
     overflowY: (Number(input.scrollHeight) || 0) > maxHeight ? 'auto' : 'hidden'
   };
+};
+
+/** Short placeholders — desktop may use longer instructional copy separately. */
+export const mobileComposerPlaceholder = (isScrolitha: boolean, hasAttachment = false): string => {
+  if (hasAttachment && isScrolitha) return 'Ask about this file…';
+  if (hasAttachment) return 'Add a caption…';
+  if (isScrolitha) return 'Ask Scrolitha…';
+  return 'Message…';
 };
 
 /** Scrolitha chips: single-row horizontal scroll (not multi-row wrap). */
