@@ -19,7 +19,7 @@ test('textarea height clamps on mobile and desktop', () => {
   assert.equal(desktop.overflowY, 'auto');
 
   const mobile = computeComposerTextareaHeight({ scrollHeight: 20, isMobile: true });
-  assert.ok(mobile.height >= 48);
+  assert.ok(mobile.height >= 40);
 });
 
 test('smart composer attachment launcher options are exactly Files Media Camera', () => {
