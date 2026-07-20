@@ -2002,7 +2002,9 @@ export const getPosts = async (req: Request, res: Response) => {
       status = 'active',
       clubId: clubIdRaw,
       businessPageId: businessPageIdRaw,
-      businessPageSlug: businessPageSlugRaw
+      businessPageSlug: businessPageSlugRaw,
+      authorId: authorIdRaw,
+      mine: mineRaw
     } = req.query as any;
     const take = Math.max(1, Math.min(100, Number.parseInt(String(limit || '50'), 10) || 50));
     const skip = Math.max(0, Number.parseInt(String(offset || '0'), 10) || 0);
@@ -2013,6 +2015,24 @@ export const getPosts = async (req: Request, res: Response) => {
     const where: any = {
       status: status as string
     };
+
+    // Owner inventory: ?mine=1 or authorId=<self|other> (self can list private; others only public).
+    const wantsMine =
+      String(mineRaw || '').trim() === '1' ||
+      String(mineRaw || '').toLowerCase() === 'true' ||
+      String(mineRaw || '').toLowerCase() === 'yes';
+    const requestedAuthorId = String(authorIdRaw || '').trim();
+    if (wantsMine) {
+      if (!userId) {
+        return res.status(401).json({ success: false, error: 'Unauthorized' });
+      }
+      where.authorId = userId;
+    } else if (requestedAuthorId) {
+      where.authorId = requestedAuthorId;
+      if (!userId || requestedAuthorId !== userId) {
+        where.visibility = 'public';
+      }
+    }
 
     const clubId = String(clubIdRaw || '').trim();
     if (clubId) {
@@ -2057,11 +2077,19 @@ export const getPosts = async (req: Request, res: Response) => {
     }
 
     if (blockedAuthorIds.length) {
-      where.authorId = { notIn: blockedAuthorIds };
+      if (where.authorId && typeof where.authorId === 'string') {
+        // Specific author filter already applied — skip blocked notIn overwrite.
+        if (blockedAuthorIds.includes(where.authorId) && where.authorId !== userId) {
+          return res.json({ success: true, data: [] });
+        }
+      } else {
+        where.authorId = { notIn: blockedAuthorIds };
+      }
     }
 
-    if (userId) {
+    if (userId && !wantsMine) {
       // Per-viewer hide: excluded from list/feed responses, but still accessible directly by ID.
+      // Owner inventory (mine=1) includes posts the author may have self-hidden from feed.
       where.hiddenBy = { none: { userId } };
     }
 
