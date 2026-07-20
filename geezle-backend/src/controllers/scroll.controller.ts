@@ -1728,6 +1728,71 @@ export const getScrollFeed = async (req: Request, res: Response) => {
 };
 
 /**
+ * Owner inventory — list active Scroll videos for the signed-in user.
+ * GET /scroll/mine?limit=&cursor=
+ */
+export const getMyScrolls = async (req: Request, res: Response) => {
+  try {
+    const userId = String((req as any)?.user?.id || '').trim();
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const limit = Math.max(1, Math.min(100, toInt(req.query?.limit, 50)));
+    const cursor = String(req.query?.cursor || '').trim();
+    const prismaAny = prisma as any;
+
+    let cursorWhere: any = {};
+    if (cursor) {
+      const cursorRow = await prismaAny.scrollVideo.findUnique({
+        where: { id: cursor },
+        select: { id: true, createdAt: true }
+      });
+      if (cursorRow) {
+        cursorWhere = {
+          OR: [
+            { createdAt: { lt: cursorRow.createdAt } },
+            { createdAt: cursorRow.createdAt, id: { lt: cursorRow.id } }
+          ]
+        };
+      }
+    }
+
+    const rows = await prismaAny.scrollVideo.findMany({
+      where: {
+        authorId: userId,
+        status: 'active',
+        ...cursorWhere
+      },
+      select: scrollVideoListSelect,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1
+    });
+
+    const hasNext = rows.length > limit;
+    const slice = hasNext ? rows.slice(0, limit) : rows;
+    const items = await fetchScrollPayloadList(req, slice, userId);
+    const nextCursor = hasNext && slice.length ? String(slice[slice.length - 1]?.id || '') || null : null;
+
+    return res.json({
+      success: true,
+      data: {
+        items: Array.isArray(items) ? items : [],
+        nextCursor
+      }
+    });
+  } catch (error: any) {
+    if (isScrollSchemaMissingError(error)) {
+      return res.status(503).json({
+        success: false,
+        error: 'Scroll module tables are not ready. Run the latest backend migration.',
+        code: 'SCROLL_SCHEMA_MISSING'
+      });
+    }
+    console.error('getMyScrolls error:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load your Scroll videos.' });
+  }
+};
+
+/**
  * Phase 22.1B — resolve one Scroll video by id for deep links (recommendation cards).
  * GET /scroll/:id
  */
