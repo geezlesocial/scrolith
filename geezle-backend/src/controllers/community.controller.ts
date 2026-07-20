@@ -612,6 +612,10 @@ const resolvePostAuthorIdentity = (
 const buildPostTranslationMetadata = (post: {
   sourceLanguage?: string | null;
   sourceLanguageConfidence?: number | null;
+  languageDetectionStatus?: string | null;
+  isMixedLanguage?: boolean | null;
+  detectedLanguageCodes?: string[] | null;
+  languageManuallySet?: boolean | null;
   contentHash?: string | null;
   translationVersion?: string | null;
 }) => ({
@@ -620,6 +624,10 @@ const buildPostTranslationMetadata = (post: {
     typeof post?.sourceLanguageConfidence === 'number' && Number.isFinite(post.sourceLanguageConfidence)
       ? post.sourceLanguageConfidence
       : null,
+  languageDetectionStatus: String(post?.languageDetectionStatus || '').trim() || null,
+  isMixedLanguage: Boolean(post?.isMixedLanguage),
+  detectedLanguageCodes: Array.isArray(post?.detectedLanguageCodes) ? post.detectedLanguageCodes : [],
+  languageManuallySet: Boolean(post?.languageManuallySet),
   contentHash: String(post?.contentHash || '').trim() || null,
   translationVersion: String(post?.translationVersion || '').trim() || null
 });
@@ -699,6 +707,10 @@ const communityPostFeedSelect: any = {
   content: true,
   sourceLanguage: true,
   sourceLanguageConfidence: true,
+  languageDetectionStatus: true,
+  isMixedLanguage: true,
+  detectedLanguageCodes: true,
+  languageManuallySet: true,
   contentHash: true,
   translationVersion: true,
   attachments: true,

@@ -56,6 +56,13 @@ model User {
   refreshToken                String?
   followOnboardingRequired    Boolean   @default(false)
   followOnboardingCompletedAt DateTime?
+  /// Phase 26 — languages the user understands (not nationality/locale)
+  understoodLanguages            String[]  @default([])
+  preferredTranslationLanguage   String?
+  languageSuggestionsEnabled     Boolean   @default(true)
+  autoTranslateEnabled           Boolean   @default(false)
+  languagePreferencesUpdatedAt   DateTime?
+  languagePreferencesConfirmed   Boolean   @default(false)
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -4121,6 +4128,12 @@ model CommunityPost {
   content                        String   @db.Text
   sourceLanguage                 String?
   sourceLanguageConfidence       Float?
+  /// Phase 26 — detection status: detected | low_confidence | mixed | no_linguistic_content | unsupported | detection_failed | not_processed
+  languageDetectionStatus        String?
+  isMixedLanguage                Boolean  @default(false)
+  detectedLanguageCodes          String[] @default([])
+  languageManuallySet            Boolean  @default(false)
+  languageDetectedAt             DateTime?
   contentHash                    String?
   translationVersion             String?
   attachments                    String[] @default([])
@@ -4179,6 +4192,8 @@ model CommunityPost {
   @@index([status])
   @@index([createdAt])
   @@index([sourceLanguage])
+  @@index([languageDetectionStatus])
+  @@index([isMixedLanguage])
   @@index([contentHash])
   @@index([businessPageId])
   @@index([clubId])

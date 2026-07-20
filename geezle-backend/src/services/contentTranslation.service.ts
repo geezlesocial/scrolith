@@ -1,5 +1,7 @@
 import { createHash } from 'crypto';
 import prisma from '../utils/prismaClient';
+import { buildLanguageDetectionResult } from './language/languageDetection.service';
+import { normalizeLanguageCode, listTranslationSupportedCodes } from './language/supportedLanguages.catalog';
 
 const CONTENT_TRANSLATION_SCOPE = 'translation_content';
 const CONTENT_ENTITY_POST = 'community_post';
@@ -82,6 +84,8 @@ const DEFAULT_CONTENT_TRANSLATION_CONFIG: StoredContentTranslationConfig = {
 const asString = (value: unknown) => String(value ?? '').trim();
 
 const normalizeLocale = (value: unknown, fallback = 'en') => {
+  const normalized = normalizeLanguageCode(value);
+  if (normalized) return normalized;
   const locale = asString(value).toLowerCase().replace(/_/g, '-');
   return locale || fallback;
 };
@@ -629,10 +633,25 @@ export const listContentTranslationAuditLogs = async (limit = 40) =>
 export const upsertCommunityPostLanguageMetadata = async (
   postId: string,
   title: string | null | undefined,
-  content: string | null | undefined
+  content: string | null | undefined,
+  options?: { force?: boolean }
 ) => {
   const normalizedPostId = asString(postId);
   if (!normalizedPostId) return null;
+
+  const existing = await prisma.communityPost.findUnique({
+    where: { id: normalizedPostId },
+    select: {
+      languageManuallySet: true,
+      sourceLanguage: true,
+      sourceLanguageConfidence: true
+    }
+  });
+
+  // Manual correction must not be overwritten by automatic reprocessing.
+  if (existing?.languageManuallySet && !options?.force) {
+    return prisma.communityPost.findUnique({ where: { id: normalizedPostId } });
+  }
 
   const normalizedTitle = asString(title);
   const normalizedContent = asString(content);
@@ -647,32 +666,60 @@ export const upsertCommunityPostLanguageMetadata = async (
       data: {
         sourceLanguage: null,
         sourceLanguageConfidence: null,
+        languageDetectionStatus: 'no_linguistic_content',
+        isMixedLanguage: false,
+        detectedLanguageCodes: [],
+        languageDetectedAt: new Date(),
         contentHash,
         translationVersion
       }
     });
   }
 
-  let detection: RuntimeDetectionResult | null = null;
+  let runtimeDetection: RuntimeDetectionResult | null = null;
+  let detectionError: string | null = null;
   if (config.enabled) {
     try {
-      detection = await detectTextLanguage(sourceText.slice(0, config.maxCharactersPerRequest), config);
-    } catch (error) {
-      console.warn('[contentTranslation] post language detection failed', normalizedPostId, error);
+      runtimeDetection = await detectTextLanguage(sourceText.slice(0, config.maxCharactersPerRequest), config);
+    } catch (error: any) {
+      detectionError = String(error?.message || error || 'detection_failed');
+      console.warn('[contentTranslation] post language detection failed', normalizedPostId, detectionError);
     }
   }
+
+  const hardened = buildLanguageDetectionResult({
+    rawText: sourceText,
+    providerLanguage: runtimeDetection?.language,
+    providerConfidence: runtimeDetection?.confidence,
+    providerKey: runtimeDetection?.detectorKey,
+    source: config.runtimeMode === 'mock' ? 'heuristic' : 'provider'
+  });
+
+  if (detectionError && !hardened.languageCode) {
+    hardened.status = 'detection_failed';
+    hardened.reason = detectionError;
+  }
+
+  const languageCode =
+    hardened.status === 'no_linguistic_content' || hardened.status === 'detection_failed'
+      ? null
+      : hardened.languageCode;
 
   const updated = await prisma.communityPost.update({
     where: { id: normalizedPostId },
     data: {
-      sourceLanguage: detection?.language || null,
-      sourceLanguageConfidence: detection?.confidence ?? null,
+      sourceLanguage: languageCode,
+      sourceLanguageConfidence: hardened.confidence || null,
+      languageDetectionStatus: hardened.status,
+      isMixedLanguage: hardened.isMixedLanguage,
+      detectedLanguageCodes: hardened.candidates.map((c) => c.languageCode).slice(0, 5),
+      languageDetectedAt: new Date(),
       contentHash,
       translationVersion
     }
   });
 
-  if (detection?.language) {
+  if (languageCode) {
     await prisma.contentLanguageDetection.upsert({
       where: {
         entityType_entityId_contentHash: {
@@ -684,23 +731,70 @@ export const upsertCommunityPostLanguageMetadata = async (
       create: {
         entityType: CONTENT_ENTITY_POST,
         entityId: normalizedPostId,
-        sourceLocale: detection.language,
-        confidence: detection.confidence ?? null,
-        detectorKey: detection.detectorKey,
+        sourceLocale: languageCode,
+        confidence: hardened.confidence ?? null,
+        detectorKey: runtimeDetection?.detectorKey || hardened.source,
         contentHash,
-        metadata: detection.metadata || {}
+        metadata: {
+          ...(runtimeDetection?.metadata || {}),
+          status: hardened.status,
+          isMixedLanguage: hardened.isMixedLanguage,
+          candidates: hardened.candidates
+        }
       },
       update: {
-        sourceLocale: detection.language,
-        confidence: detection.confidence ?? null,
-        detectorKey: detection.detectorKey,
-        metadata: detection.metadata || {}
+        sourceLocale: languageCode,
+        confidence: hardened.confidence ?? null,
+        detectorKey: runtimeDetection?.detectorKey || hardened.source,
+        metadata: {
+          ...(runtimeDetection?.metadata || {}),
+          status: hardened.status,
+          isMixedLanguage: hardened.isMixedLanguage,
+          candidates: hardened.candidates
+        }
       }
     });
   }
 
   return updated;
 };
+
+/** Author/moderator manual language override. */
+export const setCommunityPostLanguageManual = async (
+  postId: string,
+  languageCode: string,
+  actorId?: string | null
+) => {
+  const code = normalizeLanguageCode(languageCode);
+  if (!code) throw new Error('Invalid language code.');
+  const normalizedPostId = asString(postId);
+  if (!normalizedPostId) throw new Error('Post id required.');
+
+  const updated = await prisma.communityPost.update({
+    where: { id: normalizedPostId },
+    data: {
+      sourceLanguage: code,
+      sourceLanguageConfidence: 1,
+      languageDetectionStatus: 'detected',
+      isMixedLanguage: false,
+      detectedLanguageCodes: [code],
+      languageManuallySet: true,
+      languageDetectedAt: new Date()
+    }
+  });
+
+  await buildAuditLog(
+    'translation.language_manual_set',
+    { languageCode: code },
+    actorId,
+    CONTENT_ENTITY_POST,
+    normalizedPostId
+  );
+
+  return updated;
+};
+
+export const getTranslationSupportedLocales = () => listTranslationSupportedCodes();
 
 export const translateCommunityPostForLocale = async (
   postId: string,

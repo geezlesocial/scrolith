@@ -263,6 +263,17 @@ router.post('/events/:eventId/delete', authMiddleware, adminMiddleware, deleteEv
 router.get('/posts', getPosts); // Public: list posts (feed)
 router.get('/posts/:id', getPostById); // Public: get single post
 router.get('/posts/:id/translation', getPostTranslation);
+// Phase 26 — translation recommendation decision + manual language correction
+router.get(
+  '/posts/:postId/translation-decision',
+  authMiddleware,
+  require('../controllers/userLanguagePreferences.controller').evaluatePostTranslationDecisionController
+);
+router.post(
+  '/posts/:postId/language',
+  authMiddleware,
+  require('../controllers/userLanguagePreferences.controller').setPostLanguageManualController
+);
 router.get('/posts/:id/comments', getPostComments); // Public: get post comments
 router.post('/posts', authMiddleware, createPost); // Auth: create post
 router.put('/posts/:id', authMiddleware, updatePost); // Auth: update post (owner/admin/moderator)

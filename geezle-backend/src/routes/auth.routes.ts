@@ -10,6 +10,11 @@ import {
   resetPassword
 } from '../controllers/auth.controller';
 import { startOAuth, handleOAuthCallback, exchangeOAuthCode } from '../controllers/oauth.controller';
+import {
+  getLanguageCatalogController,
+  getMyLanguagePreferencesController,
+  updateMyLanguagePreferencesController
+} from '../controllers/userLanguagePreferences.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { createRateLimiter } from '../middlewares/rateLimit';
 
@@ -39,5 +44,11 @@ router.get('/me', authMiddleware, getCurrentUser);
 router.get('/follow-onboarding', authMiddleware, getFollowOnboardingController);
 router.post('/follow-onboarding/complete', authMiddleware, completeFollowOnboardingController);
 router.post('/logout', authMiddleware, logout);
+
+// Phase 26 — language catalog + understood-language preferences
+router.get('/languages/catalog', getLanguageCatalogController);
+router.get('/me/language-preferences', authMiddleware, getMyLanguagePreferencesController);
+router.put('/me/language-preferences', authMiddleware, updateMyLanguagePreferencesController);
+router.patch('/me/language-preferences', authMiddleware, updateMyLanguagePreferencesController);
 
 export default router;
