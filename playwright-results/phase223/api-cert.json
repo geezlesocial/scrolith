@@ -1,0 +1,146 @@
+{
+  "phase": "22.3A",
+  "generatedAt": "2026-07-20T03:20:21.967Z",
+  "apiBase": "https://api.scrolith.com/api",
+  "checks": {
+    "auth_token": "PASS",
+    "health": "PASS",
+    "auth_me": "PASS",
+    "presence_heartbeat": "PASS",
+    "presence_batch": "PASS",
+    "presence_privacy_everyone": "PASS",
+    "presence_privacy_contacts": "PASS",
+    "presence_privacy_nobody": "PASS",
+    "dm_list": "PASS",
+    "receipt_delivered": "PASS",
+    "receipt_read": "PASS",
+    "dm_send_compat": "PASS",
+    "dm_idempotent_221": "PASS",
+    "delivery_status_field": "PASS",
+    "group_create_222": "PASS",
+    "group_members_222": "PASS"
+  },
+  "evidence": [
+    {
+      "name": "auth_token",
+      "ok": true,
+      "source": "storage_or_env",
+      "at": "2026-07-20T03:20:21.969Z"
+    },
+    {
+      "name": "health",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:22.806Z"
+    },
+    {
+      "name": "auth_me",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:23.124Z"
+    },
+    {
+      "name": "presence_heartbeat",
+      "ok": "cmrou9k9x00fqjb7s19fslo34",
+      "status": 200,
+      "state": "offline",
+      "at": "2026-07-20T03:20:23.594Z"
+    },
+    {
+      "name": "presence_batch",
+      "ok": true,
+      "status": 200,
+      "count": 1,
+      "at": "2026-07-20T03:20:23.742Z"
+    },
+    {
+      "name": "presence_privacy_everyone",
+      "ok": true,
+      "status": 200,
+      "visibility": "EVERYONE",
+      "at": "2026-07-20T03:20:23.887Z"
+    },
+    {
+      "name": "presence_privacy_contacts",
+      "ok": true,
+      "status": 200,
+      "visibility": "CONTACTS",
+      "at": "2026-07-20T03:20:24.054Z"
+    },
+    {
+      "name": "presence_privacy_nobody",
+      "ok": true,
+      "status": 200,
+      "visibility": "NOBODY",
+      "at": "2026-07-20T03:20:24.226Z"
+    },
+    {
+      "name": "presence_privacy_everyone",
+      "ok": true,
+      "status": 200,
+      "visibility": "EVERYONE",
+      "at": "2026-07-20T03:20:24.434Z"
+    },
+    {
+      "name": "dm_list",
+      "ok": true,
+      "status": 200,
+      "count": 20,
+      "hasConvo": true,
+      "at": "2026-07-20T03:20:24.657Z"
+    },
+    {
+      "name": "receipt_delivered",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:24.817Z"
+    },
+    {
+      "name": "receipt_read",
+      "ok": true,
+      "status": 200,
+      "hasWatermark": true,
+      "at": "2026-07-20T03:20:24.988Z"
+    },
+    {
+      "name": "dm_send_compat",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:25.214Z"
+    },
+    {
+      "name": "dm_idempotent_221",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:25.389Z"
+    },
+    {
+      "name": "delivery_status_field",
+      "ok": true,
+      "status": 200,
+      "hasDeliveryStatus": true,
+      "at": "2026-07-20T03:20:25.568Z"
+    },
+    {
+      "name": "group_create_222",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:25.751Z"
+    },
+    {
+      "name": "group_members_222",
+      "ok": true,
+      "status": 200,
+      "at": "2026-07-20T03:20:25.929Z"
+    }
+  ],
+  "artifacts": {
+    "groupId": "cmrsnpwwb00kfs601il23wsme"
+  },
+  "overall": "PASS",
+  "failed": [],
+  "presence": "PASS",
+  "receipts": "PASS",
+  "dmCompat": "PASS",
+  "group222": "PASS"
+}

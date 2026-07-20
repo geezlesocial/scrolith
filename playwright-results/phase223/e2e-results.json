@@ -1,0 +1,66 @@
+{
+  "phase": "22.3A-e2e",
+  "baseURL": "https://p223---scrolith-frontend-25ysnpjdda-as.a.run.app",
+  "overall": "PASS",
+  "passed": 4,
+  "failed": 0,
+  "total": 4,
+  "results": [
+    {
+      "project": "desktop-chrome",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "composer": true,
+        "presence_or_header": true,
+        "delivery_ticks_component": true,
+        "group_control": true,
+        "phase21_shell": true,
+        "scroll_no_home": true
+      },
+      "ok": true
+    },
+    {
+      "project": "mobile-390",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "composer": true,
+        "presence_or_header": true,
+        "delivery_ticks_component": true,
+        "group_control": true,
+        "phase21_shell": true,
+        "scroll_no_home": true
+      },
+      "ok": true
+    },
+    {
+      "project": "pixel-7",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "composer": true,
+        "presence_or_header": true,
+        "delivery_ticks_component": true,
+        "group_control": true,
+        "phase21_shell": true,
+        "scroll_no_home": true
+      },
+      "ok": true
+    },
+    {
+      "project": "iphone-15",
+      "checks": {
+        "messages_route": true,
+        "inbox_ui": true,
+        "composer": true,
+        "presence_or_header": true,
+        "delivery_ticks_component": true,
+        "group_control": true,
+        "phase21_shell": true,
+        "scroll_no_home": true
+      },
+      "ok": true
+    }
+  ]
+}

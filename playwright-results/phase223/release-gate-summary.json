@@ -1,0 +1,52 @@
+{
+  "phase": "22.3A",
+  "generatedAt": "2026-07-20T03:20:40.000Z",
+  "overall": "PASS",
+  "phase223Certified": true,
+  "promoteRecommended": true,
+  "trafficActionCompleted": true,
+  "promotedAt": "2026-07-20T03:20:00.000Z",
+  "checks": {
+    "migration": "PASS",
+    "presence": "PASS",
+    "receipts": "PASS",
+    "typing": "PASS",
+    "recording": "PASS",
+    "crossPlatform": "PASS",
+    "phase21Regression": "PASS",
+    "phase221Regression": "PASS",
+    "phase221BRegression": "PASS",
+    "phase222Regression": "PASS"
+  },
+  "matrix": {
+    "unit221": "PASS",
+    "unit222": "PASS",
+    "unit223": "PASS",
+    "phase21CertUnit": "54/54",
+    "apiCertTagged": "PASS",
+    "apiCertProduction": "PASS",
+    "e2e": "4/4 PASS"
+  },
+  "deploy": {
+    "migration": "20260720160000_phase223_presence_receipts",
+    "migrationStatus": "APPLIED",
+    "backendImage": "scrolith-backend:p223",
+    "backendRevision": "scrolith-backend-00156-jor",
+    "backendTag": "p223",
+    "backendTagUrl": "https://p223---scrolith-backend-25ysnpjdda-as.a.run.app",
+    "frontendImage": "scrolith-frontend:p223",
+    "frontendRevision": "scrolith-frontend-00211-kev",
+    "frontendTag": "p223",
+    "frontendTagUrl": "https://p223---scrolith-frontend-25ysnpjdda-as.a.run.app",
+    "traffic": "100%",
+    "rollbackBackend": "scrolith-backend-00154-cit",
+    "rollbackFrontend": "scrolith-frontend-00209-yet",
+    "frontendCommit": "26ccaadb",
+    "backendCommit": "e7443284"
+  },
+  "postPromote": {
+    "prodApiHealth": 200,
+    "prodFeHealth": 200,
+    "apiCertOverall": "PASS"
+  }
+}
