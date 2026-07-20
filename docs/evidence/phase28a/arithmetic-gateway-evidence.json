@@ -1,0 +1,16 @@
+﻿{
+  "exactArithmetic": {
+    "case": "USD 10.00 * 57.25 = PHP 572.50",
+    "inputMinor": "1000",
+    "outputMinor": "57250",
+    "outputMajor": "572.50",
+    "floatResidue": false,
+    "unitTest": "PASS"
+  },
+  "jpyZeroDecimal": "PASS",
+  "sameCurrencyIdentity": "PASS",
+  "negativeRateRejected": "PASS",
+  "gatewayActiveOnly": ["stripe","paypal","wallet when enabled"],
+  "inactiveHidden": ["paystack","flutterwave","payoneer","paymongo"],
+  "unitTests": { "suites": 3, "tests": 22, "failed": 0 }
+}

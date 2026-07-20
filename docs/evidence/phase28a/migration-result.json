@@ -1,0 +1,21 @@
+﻿{
+  "migrationRequired": true,
+  "migrationName": "20260721090000_phase28_multi_currency",
+  "migrationSafety": "ADDITIVE",
+  "destructiveChanges": false,
+  "historicalAmountsRewritten": false,
+  "walletBalancesRewritten": false,
+  "gatewayConfigurationChanged": false,
+  "status": "APPLIED",
+  "database": "scrolith-postgres-prod",
+  "startedAt": "2026-07-20T23:29:08.618Z",
+  "endedAt": "2026-07-20T23:29:14.656Z",
+  "durationMs": 6035,
+  "userCountBefore": 70,
+  "userCountAfter": 70,
+  "walletCountBefore": 5,
+  "userColumnsAfter": ["preferred_currency", "currency_preference_updated_at"],
+  "fxQuotesAfter": true,
+  "backup": "Cloud SQL on-demand backup created before migration (scrolith-postgres-prod)",
+  "fix": "Migration SQL corrected from users to User table before apply"
+}
