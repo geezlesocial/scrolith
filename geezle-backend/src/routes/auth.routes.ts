@@ -9,7 +9,7 @@ import {
   forgotPassword,
   resetPassword
 } from '../controllers/auth.controller';
-import { startOAuth, handleOAuthCallback } from '../controllers/oauth.controller';
+import { startOAuth, handleOAuthCallback, exchangeOAuthCode } from '../controllers/oauth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { createRateLimiter } from '../middlewares/rateLimit';
 
@@ -27,6 +27,12 @@ router.post('/forgot-password', createRateLimiter({ windowMs: 60 * 1000, max: 5 
 router.post('/reset-password', createRateLimiter({ windowMs: 60 * 1000, max: 10 }), resetPassword);
 router.get('/oauth/:provider', startOAuth);
 router.get('/oauth/:provider/callback', handleOAuthCallback);
+// Phase 25B — exchange one-time OAuth completion code for session JWT (never in URL).
+router.post(
+  '/oauth/exchange',
+  createRateLimiter({ windowMs: 60 * 1000, max: 30 }),
+  exchangeOAuthCode
+);
 
 // Protected routes
 router.get('/me', authMiddleware, getCurrentUser);

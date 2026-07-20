@@ -4,14 +4,25 @@ import jwt from 'jsonwebtoken';
 import prisma from '../utils/prismaClient';
 import { Role } from '@prisma/client';
 import { defaultAuthPagesConfig, normalizeAuthPagesConfig } from '../utils/authPagesConfig';
+import {
+  getApiPublicOrigin,
+  getFrontendOrigin,
+  getProviderOAuthCallbackUrl,
+  sanitizeInternalRedirect
+} from '../utils/frontendOrigin';
+import { redactAuthLogMessage, safeOAuthLog } from '../utils/authLogRedaction';
+import {
+  consumeOAuthExchangeCode,
+  createOAuthExchangeCode
+} from '../services/oauthExchange.service';
 
 type OAuthProviderKey = 'google' | 'facebook' | 'twitter' | 'linkedin';
 type OAuthMode = 'login' | 'signup';
 type ClientReturnTarget = 'web' | 'app';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_jwt_secret';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const STATE_EXPIRES_IN = '10m';
+const OAUTH_SUCCESS_PATH = String(process.env.OAUTH_SUCCESS_PATH || '/auth/oauth/callback').trim() || '/auth/oauth/callback';
 
 const providerKeys: OAuthProviderKey[] = ['google', 'facebook', 'twitter', 'linkedin'];
 
@@ -31,48 +42,54 @@ const resolveDashboardPath = (role?: Role | string) => {
   return '/';
 };
 
-const sanitizeRedirect = (value?: string) => {
-  const raw = (value || '').toString().trim();
-  if (!raw) return '';
-  if (raw.startsWith('/')) return raw;
-  const frontend = process.env.FRONTEND_URL || '';
-  if (frontend) {
-    try {
-      const frontendUrl = new URL(frontend);
-      const incoming = new URL(raw);
-      if (incoming.origin === frontendUrl.origin) {
-        return `${incoming.pathname}${incoming.search}${incoming.hash}`;
-      }
-    } catch {}
-  }
-  return '';
-};
-
 const normalizeReturnTarget = (value?: string): ClientReturnTarget =>
   String(value || '').trim().toLowerCase() === 'app' ? 'app' : 'web';
 
 const getBackendBaseUrl = (req: Request) => {
-  const envBase = process.env.BACKEND_URL || process.env.API_BASE_URL;
-  if (envBase) return String(envBase).replace(/\/$/, '');
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http';
   const host = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'localhost';
-  return `${proto}://${host}`;
-};
-
-const getFrontendBaseUrl = () => {
-  const envBase = process.env.FRONTEND_URL || process.env.CLIENT_URL;
-  return (envBase || 'http://localhost:3000').replace(/\/$/, '');
+  return getApiPublicOrigin(`${proto}://${host}`);
 };
 
 const getNativeAppCallbackUrl = () =>
   String(process.env.MOBILE_APP_CALLBACK_URL || 'scrolith://auth/oauth/callback').trim();
 
+/**
+ * Final browser completion URL (frontend), never the provider callback.
+ * Production always resolves via getFrontendOrigin() — never localhost fallback.
+ */
 const buildClientCallbackUrl = (params: URLSearchParams, returnTarget: ClientReturnTarget) => {
   if (returnTarget === 'app') {
     const appCallback = getNativeAppCallbackUrl();
-    return `${appCallback}${appCallback.includes('?') ? '&' : '?'}${params.toString()}`;
+    const joiner = appCallback.includes('?') ? '&' : '?';
+    return `${appCallback}${joiner}${params.toString()}`;
   }
-  return `${getFrontendBaseUrl()}/auth/oauth/callback?${params.toString()}`;
+  const origin = getFrontendOrigin();
+  const path = OAUTH_SUCCESS_PATH.startsWith('/') ? OAUTH_SUCCESS_PATH : `/${OAUTH_SUCCESS_PATH}`;
+  return `${origin}${path}?${params.toString()}`;
+};
+
+const resolveProviderCallbackUri = (
+  provider: OAuthProviderKey,
+  req: Request,
+  providerConfig: { redirect_uri?: string } | null | undefined
+) => {
+  const configured = String(providerConfig?.redirect_uri || '').trim();
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      // Production: force HTTPS API host; reject localhost provider callbacks in prod runtime.
+      if (getFrontendOrigin().startsWith('https://') || process.env.K_SERVICE) {
+        if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+          return getProviderOAuthCallbackUrl(provider, getBackendBaseUrl(req));
+        }
+      }
+      return configured.replace(/\/$/, '');
+    } catch {
+      // fall through
+    }
+  }
+  return getProviderOAuthCallbackUrl(provider, getBackendBaseUrl(req));
 };
 
 const getAuthPagesConfig = async () => {
@@ -115,8 +132,15 @@ const sendOAuthError = (
   returnTarget: ClientReturnTarget = 'web'
 ) => {
   const params = new URLSearchParams();
-  params.set('error', encodeURIComponent(message));
-  if (redirect) params.set('redirect', redirect);
+  params.set('error', message.slice(0, 200));
+  params.set('status', 'error');
+  const safeRedirect = sanitizeInternalRedirect(redirect, '/auth/login');
+  params.set('redirect', safeRedirect);
+  safeOAuthLog('warn', 'oauth_callback_failed', {
+    message: redactAuthLogMessage(message),
+    redirect: safeRedirect,
+    returnTarget
+  });
   res.redirect(buildClientCallbackUrl(params, returnTarget));
 };
 
@@ -133,7 +157,7 @@ const fetchJson = async (url: string, options: any) => {
     const message =
       (data && (data.error_description || data.error?.message || data.error || data.message)) ||
       `HTTP ${response.status}`;
-    throw new Error(message);
+    throw new Error(String(message));
   }
   return data;
 };
@@ -146,13 +170,15 @@ export const startOAuth = async (req: Request, res: Response) => {
 
   const mode: OAuthMode = (req.query.mode as string) === 'signup' ? 'signup' : 'login';
   const requestedRole = normalizeRole(req.query.role as string);
-  const redirect = sanitizeRedirect(req.query.redirect as string);
+  const redirect = sanitizeInternalRedirect(req.query.redirect as string, '');
   const returnTarget = normalizeReturnTarget(
-    (req.query.returnTarget as string) ||
-    ((req.query.native as string) === '1' ? 'app' : '')
+    (req.query.returnTarget as string) || ((req.query.native as string) === '1' ? 'app' : '')
   );
 
   try {
+    // Ensure production origin is resolvable before starting (surfaces misconfig early).
+    getFrontendOrigin();
+
     const { social, providerConfig } = await getProviderConfig(provider);
     if (!social?.enabled) return res.status(400).json({ error: 'Social login is disabled' });
     if (!providerConfig?.enabled) return res.status(400).json({ error: 'Provider is disabled' });
@@ -178,9 +204,7 @@ export const startOAuth = async (req: Request, res: Response) => {
       }
     }
 
-    const redirectUri =
-      providerConfig.redirect_uri ||
-      `${getBackendBaseUrl(req)}/api/auth/oauth/${provider}/callback`;
+    const redirectUri = resolveProviderCallbackUri(provider, req, providerConfig);
 
     const pkce = provider === 'twitter' ? createPkce() : null;
     const state = buildState({
@@ -222,9 +246,26 @@ export const startOAuth = async (req: Request, res: Response) => {
         break;
     }
 
+    safeOAuthLog('info', 'oauth_start', {
+      provider,
+      mode,
+      returnTarget,
+      redirect: redirect || '/',
+      providerCallbackHost: (() => {
+        try {
+          return new URL(redirectUri).host;
+        } catch {
+          return 'invalid';
+        }
+      })()
+    });
+
     return res.redirect(authUrl);
   } catch (error: any) {
-    console.error('[oauth] start error', error?.message || error);
+    safeOAuthLog('error', 'oauth_start_error', {
+      provider,
+      message: redactAuthLogMessage(error?.message || error)
+    });
     return res.status(500).json({ error: 'Failed to start OAuth flow' });
   }
 };
@@ -239,14 +280,20 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
 
   if (error) {
     let returnTarget: ClientReturnTarget = 'web';
-    let redirect = sanitizeRedirect(req.query.redirect as string);
+    let redirect = sanitizeInternalRedirect(req.query.redirect as string, '/auth/login');
     if (state) {
       try {
         const statePayload = decodeState(state);
         returnTarget = normalizeReturnTarget(statePayload.returnTarget as string);
-        redirect = sanitizeRedirect((statePayload.redirect as string) || redirect);
-      } catch {}
+        redirect = sanitizeInternalRedirect((statePayload.redirect as string) || redirect, '/auth/login');
+      } catch {
+        // ignore invalid state on provider error
+      }
     }
+    safeOAuthLog('warn', 'oauth_provider_error', {
+      provider,
+      error: redactAuthLogMessage(error_description || error)
+    });
     return sendOAuthError(
       res,
       error_description || error || 'OAuth failed',
@@ -256,18 +303,21 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
   }
 
   if (!code || !state) {
+    safeOAuthLog('warn', 'oauth_invalid_state', { provider, reason: 'missing_code_or_state' });
     return sendOAuthError(res, 'Missing OAuth code or state', '/auth/login');
   }
 
   let statePayload: Record<string, any>;
   try {
     statePayload = decodeState(state);
-  } catch (err) {
+  } catch {
+    safeOAuthLog('warn', 'oauth_invalid_state', { provider, reason: 'state_verify_failed' });
     return sendOAuthError(res, 'Invalid OAuth state', '/auth/login');
   }
   const returnTarget = normalizeReturnTarget(statePayload.returnTarget as string);
 
   if (statePayload.provider !== provider) {
+    safeOAuthLog('warn', 'oauth_invalid_state', { provider, reason: 'provider_mismatch' });
     return sendOAuthError(res, 'OAuth provider mismatch', '/auth/login', returnTarget);
   }
 
@@ -278,7 +328,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     }
 
     const mode: OAuthMode = statePayload.mode === 'signup' ? 'signup' : 'login';
-    const redirectPath = sanitizeRedirect(statePayload.redirect as string);
+    const redirectPath = sanitizeInternalRedirect(statePayload.redirect as string, '');
     const requestedRole = normalizeRole(statePayload.role as string);
 
     if (mode === 'login' && social.login_enabled === false) {
@@ -295,9 +345,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
       }
     }
 
-    const redirectUri =
-      providerConfig.redirect_uri ||
-      `${getBackendBaseUrl(req)}/api/auth/oauth/${provider}/callback`;
+    const redirectUri = resolveProviderCallbackUri(provider, req, providerConfig);
 
     // Exchange code for token
     let tokenData: any;
@@ -357,7 +405,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
 
     const accessToken = tokenData?.access_token;
     if (!accessToken) {
-      return sendOAuthError(res, 'Failed to obtain access token', '/auth/login');
+      return sendOAuthError(res, 'Failed to obtain access token', '/auth/login', returnTarget);
     }
 
     // Fetch user profile
@@ -419,7 +467,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
     })();
 
     if (!normalizedProfile.id) {
-      return sendOAuthError(res, 'Provider did not return an account id', '/auth/login');
+      return sendOAuthError(res, 'Provider did not return an account id', '/auth/login', returnTarget);
     }
 
     // Find or create user
@@ -438,7 +486,12 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
 
       if (!user) {
         if (!normalizedProfile.email) {
-          return sendOAuthError(res, 'Email permission required. Please add email scope.', '/auth/signup');
+          return sendOAuthError(
+            res,
+            'Email permission required. Please add email scope.',
+            '/auth/signup',
+            returnTarget
+          );
         }
 
         user = await prisma.user.create({
@@ -455,7 +508,6 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
           }
         });
       } else if (mode === 'signup') {
-        // Ensure requested role is honored for new signup if existing user was a guest
         if (user.role === Role.GUEST || user.role === Role.USER) {
           user = await prisma.user.update({
             where: { id: user.id },
@@ -486,35 +538,91 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
           data: { avatar: normalizedProfile.avatar }
         });
       } catch (e) {
-        console.warn('[oauth] failed to update avatar', e);
+        safeOAuthLog('warn', 'oauth_avatar_update_failed', { provider });
       }
     }
 
     try {
       await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-    } catch {}
+    } catch {
+      // non-fatal
+    }
 
-    const token = (jwt as any).sign(
-      { id: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: JWT_EXPIRES_IN as string }
-    );
-
-    res.cookie('Scrolith_token', token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      path: '/'
+    // Phase 25B: one-time exchange code instead of long-lived JWT in the browser URL.
+    const exchange = await createOAuthExchangeCode({
+      userId: user.id,
+      email: user.email,
+      role: user.role
     });
 
-    const finalRedirect = mode === 'signup' ? '/' : redirectPath || resolveDashboardPath(user.role);
+    // Cookie is scoped to the API host; SPA on scrolith.com still needs exchange.
+    // Kept as defense-in-depth for same-site API cookie consumers only.
+    res.cookie('Scrolith_token', '', {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production' || Boolean(process.env.K_SERVICE),
+      path: '/',
+      maxAge: 0
+    });
+
+    const finalRedirect =
+      mode === 'signup' ? sanitizeInternalRedirect('/', '/') : redirectPath || resolveDashboardPath(user.role);
+
     const params = new URLSearchParams();
-    params.set('token', token);
+    params.set('status', 'success');
+    params.set('code', exchange.code);
     params.set('redirect', finalRedirect);
-    return res.redirect(buildClientCallbackUrl(params, returnTarget));
+
+    const completionUrl = buildClientCallbackUrl(params, returnTarget);
+    // Assert no localhost leak in production completion URLs.
+    if ((process.env.NODE_ENV === 'production' || process.env.K_SERVICE) && /localhost|127\.0\.0\.1/i.test(completionUrl)) {
+      safeOAuthLog('error', 'oauth_localhost_redirect_blocked', { provider });
+      return res.status(500).send('OAuth misconfiguration: production frontend origin is invalid.');
+    }
+
+    safeOAuthLog('info', 'oauth_callback_success', {
+      provider,
+      mode,
+      returnTarget,
+      redirect: finalRedirect,
+      frontendOrigin: getFrontendOrigin()
+    });
+
+    return res.redirect(completionUrl);
   } catch (err: any) {
-    console.error('[oauth] callback error:', err?.message || err);
+    safeOAuthLog('error', 'oauth_callback_error', {
+      provider,
+      message: redactAuthLogMessage(err?.message || err)
+    });
     return sendOAuthError(res, err?.message || 'OAuth failed', '/auth/login', returnTarget);
   }
 };
 
+/**
+ * POST /auth/oauth/exchange
+ * Body: { code: string }
+ * Returns: { success, token }
+ *
+ * Completes OAuth without placing the session JWT in browser history.
+ */
+export const exchangeOAuthCode = async (req: Request, res: Response) => {
+  try {
+    const result = await consumeOAuthExchangeCode(req.body?.code ?? req.query?.code);
+    if (!result.ok) {
+      safeOAuthLog('warn', 'oauth_exchange_failed', { error: result.error });
+      return res.status(result.status).json({ success: false, error: result.error });
+    }
+
+    safeOAuthLog('info', 'oauth_frontend_completion', { userId: result.userId });
+    return res.json({
+      success: true,
+      token: result.token,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    safeOAuthLog('error', 'oauth_exchange_error', {
+      message: redactAuthLogMessage(error?.message || error)
+    });
+    return res.status(500).json({ success: false, error: 'Exchange failed' });
+  }
+};

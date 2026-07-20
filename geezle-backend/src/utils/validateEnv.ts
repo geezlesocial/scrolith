@@ -10,7 +10,10 @@ const REQUIRED_KEYS: EnvKey[] = [
   { key: 'DATABASE_URL', requiredInProd: true, description: 'Postgres connection URL' },
   { key: 'JWT_SECRET', requiredInProd: true, description: 'JWT signing secret' },
   { key: 'PORT', requiredInProd: false, description: 'Server port' },
-  { key: 'FRONTEND_URL', requiredInProd: false, description: 'Frontend origin for CORS' }
+  { key: 'FRONTEND_URL', requiredInProd: false, description: 'Frontend origin for CORS (legacy; prefer FRONTEND_ORIGIN)' },
+  { key: 'FRONTEND_ORIGIN', requiredInProd: false, description: 'Canonical frontend origin for OAuth completion redirects (https://scrolith.com)' },
+  { key: 'GOOGLE_OAUTH_CALLBACK_URL', requiredInProd: false, description: 'Google provider callback URL on API host' },
+  { key: 'LINKEDIN_OAUTH_CALLBACK_URL', requiredInProd: false, description: 'LinkedIn provider callback URL on API host' }
 ];
 
 const OPTIONAL_KEYS: EnvKey[] = [
