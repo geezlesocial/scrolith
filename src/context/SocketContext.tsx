@@ -187,6 +187,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'realtime:incident_resolved', fn: forward('realtime:incident_resolved') }
       ,{ ev: 'delivery:replayed', fn: forward('delivery:replayed') }
       ,{ ev: 'presence:updated', fn: forward('presence:updated') }
+      ,{ ev: 'presence:update', fn: forward('presence:updated') }
       ,{ ev: 'moderation:policy_updated', fn: forward('moderation:policy_updated') }
       ,{ ev: 'moderation:appeal_updated', fn: forward('moderation:appeal_updated') }
       ,{ ev: 'trust:profile_updated', fn: forward('trust:profile_updated') }
@@ -196,6 +197,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'reactions:updated', fn: forward('reactions:updated') }
       ,{ ev: 'messages:updated', fn: forward('messages:updated') }
       ,{ ev: 'messages:typing', fn: forward('messages:typing') }
+      ,{ ev: 'messages:recording', fn: forward('messages:recording') }
+      ,{ ev: 'messages:receipts', fn: forward('messages:receipts') }
+      ,{ ev: 'messages:read', fn: forward('messages:read') }
       ,{ ev: 'cart:updated', fn: forward('cart:updated') }
       ,{ ev: 'favorites:updated', fn: forward('favorites:updated') }
       ,{ ev: 'notifications:new', fn: forward('notifications:new') }

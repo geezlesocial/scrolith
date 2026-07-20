@@ -38,6 +38,7 @@ import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
 import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversationMenu';
 import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
+import MessageDeliveryTicks from '../components/messaging/MessageDeliveryTicks';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
@@ -1101,6 +1102,10 @@ const Messages = () => {
       isActiveGroupConversation &&
       (myGroupRole === 'OWNER' || myGroupRole === 'ADMIN' || String(user?.role || '').toLowerCase().includes('admin'));
   const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
+  const otherPresenceState = String(
+      (otherParticipant as any)?.presenceState ||
+          (otherOnline ? 'online' : 'offline')
+  ).toLowerCase();
   const otherLastSeen = otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
   const resolveParticipantRole = (participant: any): 'freelancer' | 'employer' | null => {
       if (!participant) return null;
@@ -1988,7 +1993,7 @@ const Messages = () => {
 
           if (!payload?.isTyping) {
               setTypingUser((current) =>
-                  current && current === String(payload?.name || '').trim() ? null : current
+                  current && !String(current).startsWith('recording:') ? null : current
               );
               if (typingIndicatorTimerRef.current) {
                   window.clearTimeout(typingIndicatorTimerRef.current);
@@ -2005,6 +2010,59 @@ const Messages = () => {
               setTypingUser(null);
               typingIndicatorTimerRef.current = null;
           }, 2200);
+      };
+
+      const handleRecording = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          const recUserId = String(payload?.userId || '').trim();
+          if (!convoId || convoId !== activeConvoIdRef.current) return;
+          if (!recUserId || recUserId === userIdRef.current) return;
+          if (!payload?.isRecording) {
+              setTypingUser((current) =>
+                  current && String(current).startsWith('recording:') ? null : current
+              );
+              return;
+          }
+          const name = String(payload?.name || 'Someone').trim() || 'Someone';
+          setTypingUser(`recording:${name}`);
+      };
+
+      const handleReceipts = (payload: any) => {
+          const convoId = payload?.conversationId || payload?.conversation_id;
+          if (!convoId) return;
+          const peerUserId = String(payload?.userId || '').trim();
+          if (!peerUserId || peerUserId === userIdRef.current) return;
+          const lastReadAt = payload?.lastReadAt ? new Date(payload.lastReadAt).getTime() : 0;
+          const lastDeliveredAt = payload?.lastDeliveredAt
+              ? new Date(payload.lastDeliveredAt).getTime()
+              : lastReadAt;
+          setConversations((prev) =>
+              prev.map((c) => {
+                  if (c.id !== convoId) return c;
+                  return {
+                      ...c,
+                      messages: (c.messages || []).map((m: any) => {
+                          if (String(m.senderId || m.sender_id) !== String(user?.id || '')) return m;
+                          const created = new Date(m.timestamp || 0).getTime();
+                          if (!created) return m;
+                          let deliveryStatus = m.deliveryStatus || m.delivery_status || 'sent';
+                          if (lastReadAt && created <= lastReadAt) deliveryStatus = 'read';
+                          else if (lastDeliveredAt && created <= lastDeliveredAt && deliveryStatus !== 'read') {
+                              deliveryStatus = 'delivered';
+                          }
+                          return {
+                              ...m,
+                              deliveryStatus,
+                              delivery_status: deliveryStatus,
+                              isRead: deliveryStatus === 'read',
+                              is_read: deliveryStatus === 'read',
+                              isDelivered: deliveryStatus === 'delivered' || deliveryStatus === 'read',
+                              is_delivered: deliveryStatus === 'delivered' || deliveryStatus === 'read'
+                          };
+                      })
+                  };
+              })
+          );
       };
 
       const handleMessageUpdated = (payload: any) => {
@@ -2141,8 +2199,11 @@ const Messages = () => {
       socket.on('messages:new', handleIncoming);
       socket.on('messages:sent', handleIncoming);
       socket.on('messages:read', handleRead);
+      socket.on('messages:receipts', handleReceipts);
       socket.on('messages:typing', handleTyping);
+      socket.on('messages:recording', handleRecording);
       socket.on('presence:update', handlePresence);
+      socket.on('presence:updated', handlePresence);
       socket.on('messages:updated', handleMessageUpdated);
       socket.on('messages:conversation_updated', handleConversationUpdated);
       socket.on('messages:conversation_deleted', handleConversationDeleted);
@@ -2150,8 +2211,11 @@ const Messages = () => {
           socket.off('messages:new', handleIncoming);
           socket.off('messages:sent', handleIncoming);
           socket.off('messages:read', handleRead);
+          socket.off('messages:receipts', handleReceipts);
           socket.off('messages:typing', handleTyping);
+          socket.off('messages:recording', handleRecording);
           socket.off('presence:update', handlePresence);
+          socket.off('presence:updated', handlePresence);
           socket.off('messages:updated', handleMessageUpdated);
           socket.off('messages:conversation_updated', handleConversationUpdated);
           socket.off('messages:conversation_deleted', handleConversationDeleted);
@@ -3645,16 +3709,40 @@ const Messages = () => {
                                             </span>
                                         ) : null}
                                     </div>
-                                    {isActiveGroupConversation ? (
-                                        <span className="text-xs text-gray-500 flex items-center">
-                                            {(activeConvo as any)?.description
-                                                ? String((activeConvo as any).description).slice(0, 64)
-                                                : `${(activeConvo?.participants || []).length} members · @mentions notify even when muted`}
+                                    {typingUser ? (
+                                        <span
+                                            className="text-xs text-indigo-600 flex items-center font-medium"
+                                            data-testid="messages-typing-indicator"
+                                        >
+                                            {String(typingUser).startsWith('recording:')
+                                                ? `${String(typingUser).replace(/^recording:/, '')} is recording…`
+                                                : `${typingUser} is typing…`}
                                         </span>
-                                    ) : otherOnline ? (
-                                        <span className="text-xs text-green-500 flex items-center">Online</span>
-                                    ) : !isMobileViewport && otherLastSeen ? (
+                                    ) : isActiveGroupConversation ? (
                                         <span className="text-xs text-gray-500 flex items-center">
+                                            {(() => {
+                                                const onlineCount = (activeConvo?.participants || []).filter(
+                                                    (p: any) =>
+                                                        String(p?.id || '') !== String(user?.id || '') &&
+                                                        Boolean(p?.isOnline ?? p?.is_online)
+                                                ).length;
+                                                const total = (activeConvo?.participants || []).length;
+                                                if (onlineCount > 0) {
+                                                    return `${onlineCount} online · ${total} members`;
+                                                }
+                                                return (activeConvo as any)?.description
+                                                    ? String((activeConvo as any).description).slice(0, 64)
+                                                    : `${total} members`;
+                                            })()}
+                                        </span>
+                                    ) : otherPresenceState === 'away' ? (
+                                        <span className="text-xs text-amber-600 flex items-center">Away</span>
+                                    ) : otherOnline ? (
+                                        <span className="text-xs text-green-500 flex items-center" data-testid="messages-presence-online">
+                                            Online
+                                        </span>
+                                    ) : !isMobileViewport && otherLastSeen ? (
+                                        <span className="text-xs text-gray-500 flex items-center" data-testid="messages-presence-last-seen">
                                             Last seen {new Date(otherLastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     ) : (
@@ -4095,9 +4183,13 @@ const Messages = () => {
                                             {isDeleted && (
                                                 <span className={`${msg.senderId === user?.id ? 'text-blue-100' : 'text-gray-400'}`}>(deleted)</span>
                                             )}
-                                            {msg.senderId === user?.id && (
-                                                msg.isRead ? <div className="flex"><Check className="w-3 h-3"/><Check className="w-3 h-3 -ml-1"/></div> : <Check className="w-3 h-3" />
-                                            )}
+                                            {msg.senderId === user?.id ? (
+                                                <MessageDeliveryTicks
+                                                    message={msg}
+                                                    isOutgoing
+                                                    onOutgoingBubble
+                                                />
+                                            ) : null}
                                         </div>
 
                                         {showReactionPanel && (

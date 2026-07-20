@@ -19,3 +19,4 @@ export {
   MessageAttachmentsList
 } from './MessageAttachmentRenderer';
 export { default as GroupManagePanel } from './GroupManagePanel';
+export { default as MessageDeliveryTicks } from './MessageDeliveryTicks';

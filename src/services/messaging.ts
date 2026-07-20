@@ -614,6 +614,41 @@ export const MessagingService = {
     await api.post(`/messages/conversations/${conversationId}/read`, { userId });
   },
 
+  /** Phase 22.3 — batch delivery/read watermarks */
+  postConversationReceipts: async (
+    conversationId: string,
+    body: {
+      deliveredAt?: string;
+      readAt?: string;
+      deliveredUpToMessageId?: string;
+      readUpToMessageId?: string;
+    }
+  ) => {
+    const response = await api.post(`/messages/conversations/${conversationId}/receipts`, body || {});
+    return extractData<any>(response);
+  },
+
+  /** Phase 22.3 — presence heartbeat */
+  presenceHeartbeat: async (state?: 'online' | 'away') => {
+    const response = await api.post('/messages/presence/heartbeat', state ? { state } : {});
+    return extractData<any>(response);
+  },
+
+  getPresenceBatch: async (userIds: string[]) => {
+    const ids = Array.from(new Set((userIds || []).map((id) => String(id || '').trim()).filter(Boolean))).slice(
+      0,
+      50
+    );
+    if (!ids.length) return [];
+    const response = await api.get('/messages/presence', { params: { ids: ids.join(',') } });
+    return safeArray<any>(extractData<any>(response));
+  },
+
+  updatePresencePrivacy: async (visibility: 'EVERYONE' | 'CONTACTS' | 'NOBODY') => {
+    const response = await api.patch('/messages/presence/privacy', { visibility });
+    return extractData<any>(response);
+  },
+
   markConversationUnread: async (conversationId: string): Promise<void> => {
     await api.post(`/messages/conversations/${conversationId}/unread`);
   },

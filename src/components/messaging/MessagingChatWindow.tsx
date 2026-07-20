@@ -90,7 +90,11 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
   const draft = getDraft(conversationId);
   const replyTo = getReplyTo(conversationId);
   const pendingAttachments = getPendingAttachments(conversationId);
-  const typingName = typingByConversation[conversationId] || null;
+  const typingRaw = typingByConversation[conversationId] || null;
+  const isRecordingPeer = Boolean(typingRaw && String(typingRaw).startsWith('recording:'));
+  const typingName = isRecordingPeer
+    ? String(typingRaw).replace(/^recording:/, '')
+    : typingRaw;
   const sending = Boolean(sendingConversationIds[conversationId]);
   const [sendError, setSendError] = useState<string | null>(null);
   const [stickToBottom, setStickToBottom] = useState(true);
@@ -256,7 +260,13 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
           <div className="truncate text-[11px] text-slate-500">
-            {typingName ? `${typingName} is typing…` : isOnline ? 'Online' : 'Messaging'}
+            {typingName
+              ? isRecordingPeer
+                ? `${typingName} is recording…`
+                : `${typingName} is typing…`
+              : isOnline
+                ? 'Online'
+                : 'Messaging'}
           </div>
         </div>
         <Link

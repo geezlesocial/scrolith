@@ -1598,6 +1598,20 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
 
       if (conversationId) {
+        // Phase 22.3 — delivery watermark when we receive someone else's message
+        const senderId = safeId((message as any).senderId || (message as any).sender_id);
+        if (
+          isNew &&
+          messageId &&
+          senderId &&
+          senderId !== userIdRef.current
+        ) {
+          void MessagingService.postConversationReceipts(conversationId, {
+            deliveredUpToMessageId: messageId,
+            deliveredAt: new Date().toISOString()
+          }).catch(() => null);
+        }
+
         // Inline dock threads only — full /messages keeps its own presentation state.
         setThreadCache((prev) => {
           const current = prev[conversationId];
@@ -1638,6 +1652,53 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     };
 
+    // Phase 22.3 — peer watermark receipts → update outgoing tick state
+    const handleReceipts = (payload: any) => {
+      const conversationId = safeId(payload?.conversationId ?? payload?.conversation_id);
+      const peerUserId = safeId(payload?.userId ?? payload?.user_id);
+      if (!conversationId || !peerUserId) return;
+      if (peerUserId === userIdRef.current) {
+        // Self multi-tab read watermark
+        setConversations((prev) => {
+          const next = setConversationUnreadLocal(prev, conversationId, 0);
+          recomputeUnread(next);
+          return next;
+        });
+        return;
+      }
+      const lastReadAt = payload?.lastReadAt ? new Date(payload.lastReadAt).getTime() : 0;
+      const lastDeliveredAt = payload?.lastDeliveredAt
+        ? new Date(payload.lastDeliveredAt).getTime()
+        : lastReadAt;
+      setConversations((prev) =>
+        prev.map((conversation) => {
+          if (conversation.id !== conversationId) return conversation;
+          const messages = (conversation.messages || []).map((message: any) => {
+            if (String(message.senderId || message.sender_id) !== String(userIdRef.current || '')) {
+              return message;
+            }
+            const created = new Date(message.timestamp || 0).getTime();
+            if (!created) return message;
+            let deliveryStatus = message.deliveryStatus || message.delivery_status || 'sent';
+            if (lastReadAt && created <= lastReadAt) deliveryStatus = 'read';
+            else if (lastDeliveredAt && created <= lastDeliveredAt) {
+              if (deliveryStatus !== 'read') deliveryStatus = 'delivered';
+            }
+            return {
+              ...message,
+              deliveryStatus,
+              delivery_status: deliveryStatus,
+              is_read: deliveryStatus === 'read',
+              isRead: deliveryStatus === 'read',
+              is_delivered: deliveryStatus === 'delivered' || deliveryStatus === 'read',
+              isDelivered: deliveryStatus === 'delivered' || deliveryStatus === 'read'
+            };
+          });
+          return { ...conversation, messages };
+        })
+      );
+    };
+
     const handleTyping = (payload: any) => {
       const conversationId = safeId(payload?.conversationId ?? payload?.conversation_id);
       const typingUserId = safeId(payload?.userId ?? payload?.user_id);
@@ -1674,11 +1735,15 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const handlePresence = (payload: any) => {
       const presenceUserId = safeId(payload?.userId ?? payload?.user_id);
       if (!presenceUserId) return;
-      const isOnlineUser = Boolean(payload?.isOnline ?? payload?.is_online);
+      const state = String(payload?.state || '').toLowerCase();
+      const isOnlineUser =
+        state === 'online' || state === 'away'
+          ? true
+          : Boolean(payload?.isOnline ?? payload?.is_online);
       const lastSeenAt = payload?.lastSeenAt ?? payload?.last_seen_at;
       publishMessagingEvent(
         isOnlineUser ? 'USER_ONLINE' : 'USER_OFFLINE',
-        { userId: presenceUserId, lastSeenAt },
+        { userId: presenceUserId, lastSeenAt, state: state || (isOnlineUser ? 'online' : 'offline') },
         { source: 'socket' }
       );
       setConversations((prev) =>
@@ -1690,6 +1755,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   ...participant,
                   isOnline: isOnlineUser,
                   is_online: isOnlineUser,
+                  presenceState: state || (isOnlineUser ? 'online' : 'offline'),
                   lastSeenAt,
                   last_seen_at: lastSeenAt
                 }
@@ -1697,6 +1763,26 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           )
         }))
       );
+    };
+
+    const handleRecording = (payload: any) => {
+      const conversationId = safeId(payload?.conversationId ?? payload?.conversation_id);
+      const recordingUserId = safeId(payload?.userId ?? payload?.user_id);
+      if (!conversationId || !recordingUserId || recordingUserId === userIdRef.current) return;
+      if (!payload?.isRecording) {
+        setTypingByConversation((prev) => {
+          if (prev[conversationId]?.startsWith('recording:')) {
+            return { ...prev, [conversationId]: null };
+          }
+          return prev;
+        });
+        return;
+      }
+      const name = String(payload?.name || 'Someone');
+      setTypingByConversation((prev) => ({
+        ...prev,
+        [conversationId]: `recording:${name}`
+      }));
     };
 
     const handleMessageUpdated = (payload: any) => {
@@ -1859,18 +1945,35 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     socket.on('messages:new', handleIncoming);
     socket.on('messages:sent', handleIncoming);
     socket.on('messages:read', handleRead);
+    socket.on('messages:receipts', handleReceipts);
     socket.on('messages:typing', handleTyping);
+    socket.on('messages:recording', handleRecording);
     socket.on('presence:update', handlePresence);
     socket.on('presence:updated', handlePresence);
     socket.on('messages:updated', handleMessageUpdated);
     socket.on('messages:conversation_updated', handleConversationUpdated);
     socket.on('messages:conversation_deleted', handleConversationDeleted);
 
+    // Phase 22.3 — presence heartbeat (~30s) + socket pulse
+    const heartbeat = () => {
+      try {
+        socket.emit('presence:heartbeat', { state: 'online' });
+      } catch {
+        /* ignore */
+      }
+      void MessagingService.presenceHeartbeat('online').catch(() => null);
+    };
+    heartbeat();
+    const heartbeatTimer = window.setInterval(heartbeat, 30_000);
+
     return () => {
+      window.clearInterval(heartbeatTimer);
       socket.off('messages:new', handleIncoming);
       socket.off('messages:sent', handleIncoming);
       socket.off('messages:read', handleRead);
+      socket.off('messages:receipts', handleReceipts);
       socket.off('messages:typing', handleTyping);
+      socket.off('messages:recording', handleRecording);
       socket.off('presence:update', handlePresence);
       socket.off('presence:updated', handlePresence);
       socket.off('messages:updated', handleMessageUpdated);
