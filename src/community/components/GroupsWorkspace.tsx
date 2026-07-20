@@ -38,6 +38,18 @@ import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
 import FilePickerModal from '../../dashboard/shared/FilePickerModal';
 import MobileDialog, { MobileDialogFooter } from '../../components/mobile/MobileDialog';
+import {
+  CommunityCard,
+  CommunityCardSkeleton,
+  CommunityEmptyState,
+  CommunityFilterBar,
+  CommunitySearchBar
+} from './ui';
+import {
+  buildCommunityUrlSearch,
+  parseCommunityUrlState
+} from '../../utils/communitySessionStability';
+import { trackCommunitySignal } from '../../utils/communityLearningEngine';
 
 type GroupsWorkspaceProps = {
   embedded?: boolean;
@@ -195,21 +207,40 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   const [groupMediaLightbox, setGroupMediaLightbox] = useState<GroupMediaLightboxState>(null);
   const [displayConfig, setDisplayConfig] = useState<CommunityGroupsConfig>(defaultGroupsDisplayConfig);
   const [liveOpsState, setLiveOpsState] = useState<GroupLiveOpsState>(null);
+  const urlState = useMemo(() => parseCommunityUrlState(location.search), [location.search]);
+  const [directoryQuery, setDirectoryQuery] = useState(urlState.q);
+  const [directoryTab, setDirectoryTab] = useState(urlState.tab);
+  const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
+  const searchSeqRef = useRef(0);
+  const searchDebounceRef = useRef<number | null>(null);
 
   const activeRole = String(user?.role || '').toLowerCase();
 
-  const reloadGroups = useCallback(async () => {
+  const reloadGroups = useCallback(async (params?: { q?: string; tab?: string }) => {
+    const seq = ++searchSeqRef.current;
     setLoading(true);
     try {
-      const data = await CommunityService.getClubs();
+      const tab = String(params?.tab || directoryTab || 'all');
+      const q = String(params?.q ?? directoryQuery ?? '').trim();
+      const data = await CommunityService.getClubs({
+        q: q || undefined,
+        joinedOnly: tab === 'joined' || undefined,
+        mineOnly: tab === 'mine' || undefined,
+        limit: 80
+      });
+      if (seq !== searchSeqRef.current) return;
       setGroups(data);
-      setSelectedGroupId((current) => current || data[0]?.id || '');
+      setSelectedGroupId((current) => {
+        if (current && data.some((g) => g.id === current)) return current;
+        return data[0]?.id || '';
+      });
     } catch (error: any) {
+      if (seq !== searchSeqRef.current) return;
       showNotification('error', 'Groups', error?.message || 'Unable to load groups right now.');
     } finally {
-      setLoading(false);
+      if (seq === searchSeqRef.current) setLoading(false);
     }
-  }, [showNotification]);
+  }, [directoryQuery, directoryTab, showNotification]);
 
   const reloadSelectedGroup = useCallback(async (groupId: string) => {
     const id = String(groupId || '').trim();
@@ -284,8 +315,36 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   }, [navigate, selectedGroup?.id, showNotification]);
 
   useEffect(() => {
-    void reloadGroups();
-  }, [reloadGroups]);
+    void reloadGroups({ q: directoryQuery, tab: directoryTab });
+  }, [directoryTab]); // eslint-disable-line react-hooks/exhaustive-deps -- search debounced separately
+
+  // Phase 24 — debounced directory search + URL sync
+  useEffect(() => {
+    if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = window.setTimeout(() => {
+      const nextSearch = buildCommunityUrlSearch({
+        tab: directoryTab,
+        q: directoryQuery,
+        group: urlState.group || undefined
+      });
+      if (nextSearch !== location.search) {
+        navigate({ pathname: location.pathname, search: nextSearch }, { replace: true });
+      }
+      trackCommunitySignal('community_search', {
+        entityType: 'QUERY',
+        meta: { qLength: directoryQuery.length, tab: directoryTab }
+      });
+      void reloadGroups({ q: directoryQuery, tab: directoryTab });
+    }, 280);
+    return () => {
+      if (searchDebounceRef.current) window.clearTimeout(searchDebounceRef.current);
+    };
+  }, [directoryQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    setDirectoryQuery(urlState.q);
+    setDirectoryTab(urlState.tab);
+  }, [urlState.q, urlState.tab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -719,9 +778,28 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   };
 
   const handleJoinOrRequest = async (group: CommunityClub, payload?: { note?: string; answers?: string[] }) => {
+    const groupId = String(group.id || '').trim();
+    if (!groupId || membershipBusyId) return;
+    // Optimistic membership for open public joins
+    const joinMode = String(group.joinMode || 'open').toLowerCase();
+    const isPrivate = group.visibility === 'private';
+    const wasJoined = Boolean(group.isJoined);
+    const wasPending = Boolean(group.pendingRequest);
+    setMembershipBusyId(groupId);
+    if (!(joinMode === 'request' || isPrivate)) {
+      setGroups((prev) =>
+        prev.map((entry) =>
+          entry.id === groupId
+            ? { ...entry, isJoined: true, memberCount: Number(entry.memberCount || 0) + 1 }
+            : entry
+        )
+      );
+    } else {
+      setGroups((prev) =>
+        prev.map((entry) => (entry.id === groupId ? { ...entry, pendingRequest: true } : entry))
+      );
+    }
     try {
-      const joinMode = String(group.joinMode || 'open').toLowerCase();
-      const isPrivate = group.visibility === 'private';
       if (joinMode === 'request' || isPrivate) {
         const response = await CommunityService.requestToJoinClub(group.id, payload);
         if (response.pending) {
@@ -730,11 +808,24 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
       } else {
         await CommunityService.joinClub(group.id);
         showNotification('success', 'Joined', `You joined ${group.name}.`);
+        trackCommunitySignal('community_joined', {
+          entityId: groupId,
+          entityType: 'COMMUNITY'
+        });
       }
-      await reloadGroups();
+      await reloadGroups({ q: directoryQuery, tab: directoryTab });
       await reloadSelectedGroup(group.id);
     } catch (error: any) {
+      setGroups((prev) =>
+        prev.map((entry) =>
+          entry.id === groupId
+            ? { ...entry, isJoined: wasJoined, pendingRequest: wasPending, memberCount: entry.memberCount }
+            : entry
+        )
+      );
       showNotification('error', 'Groups', error?.message || 'Unable to join this group.');
+    } finally {
+      setMembershipBusyId(null);
     }
   };
 
@@ -759,15 +850,65 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   };
 
   const handleLeaveGroup = async (group: CommunityClub) => {
+    const groupId = String(group.id || '').trim();
+    if (!groupId || membershipBusyId) return;
+    const confirmed = window.confirm(`Leave ${group.name}? You may need approval to rejoin private groups.`);
+    if (!confirmed) return;
+    const snapshotJoined = true;
+    const snapshotCount = Number(group.memberCount || 0);
+    setMembershipBusyId(groupId);
+    setGroups((prev) =>
+      prev.map((entry) =>
+        entry.id === groupId
+          ? {
+              ...entry,
+              isJoined: false,
+              memberCount: Math.max(0, Number(entry.memberCount || 0) - 1)
+            }
+          : entry
+      )
+    );
     try {
       await CommunityService.leaveClub(group.id);
       showNotification('success', 'Membership updated', `You left ${group.name}.`);
-      await reloadGroups();
+      trackCommunitySignal('community_left', {
+        entityId: groupId,
+        entityType: 'COMMUNITY'
+      });
+      await reloadGroups({ q: directoryQuery, tab: directoryTab });
       await reloadSelectedGroup(group.id);
     } catch (error: any) {
+      setGroups((prev) =>
+        prev.map((entry) =>
+          entry.id === groupId
+            ? { ...entry, isJoined: snapshotJoined, memberCount: snapshotCount }
+            : entry
+        )
+      );
       showNotification('error', 'Groups', error?.message || 'Unable to leave this group.');
+    } finally {
+      setMembershipBusyId(null);
     }
   };
+
+  const directoryGroups = useMemo(() => {
+    let list = [...groups];
+    if (directoryTab === 'recommended') {
+      // Recommended = not joined, public/open first
+      list = list
+        .filter((g) => !g.isJoined)
+        .sort((a, b) => Number(b.memberCount || 0) - Number(a.memberCount || 0));
+    } else if (directoryTab === 'trending') {
+      list = list.sort((a, b) => Number(b.memberCount || 0) - Number(a.memberCount || 0));
+    } else if (directoryTab === 'newest') {
+      list = list.sort(
+        (a, b) =>
+          new Date(String((b as any).createdAt || 0)).getTime() -
+          new Date(String((a as any).createdAt || 0)).getTime()
+      );
+    }
+    return list;
+  }, [directoryTab, groups]);
 
   const handleRespondRequest = async (request: GroupJoinRequestSummary, decision: 'approve' | 'reject') => {
     if (!selectedGroup) return;
@@ -957,36 +1098,46 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
   };
 
   return (
-    <div className={embedded ? 'space-y-6' : 'space-y-6 rounded-[32px] bg-white/90 p-4 shadow-sm sm:p-6'}>
-      <section className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_45%,#2563eb_100%)] p-6 text-white shadow-xl">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.35em] text-blue-100">{displayConfig.heroEyebrow}</p>
-            <h2 className="mt-3 text-3xl font-bold tracking-tight">{displayConfig.heroTitle}</h2>
-            <p className="mt-3 text-sm leading-6 text-slate-200">
-              {displayConfig.heroSubtitle}
+    <div
+      className={
+        embedded
+          ? 'min-w-0 space-y-5 overflow-x-hidden'
+          : 'min-w-0 space-y-5 overflow-x-hidden rounded-[28px] bg-white/90 p-3 shadow-sm sm:rounded-[32px] sm:p-5'
+      }
+      data-testid="groups-workspace"
+    >
+      <section className="rounded-[24px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_45%,#2563eb_100%)] p-4 text-white shadow-xl sm:rounded-[28px] sm:p-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-blue-100 sm:tracking-[0.35em]">
+              {displayConfig.heroEyebrow}
             </p>
+            <h2 className="mt-2 text-2xl font-bold tracking-tight sm:mt-3 sm:text-3xl">{displayConfig.heroTitle}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-200 sm:mt-3">{displayConfig.heroSubtitle}</p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             {displayConfig.showDiscoveryStats !== false ? (
               <>
-                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.25em] text-blue-100">Visible groups</div>
-                  <div className="mt-1 text-2xl font-semibold text-white">{groups.length}</div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-blue-100 sm:text-[11px]">Visible</div>
+                  <div className="mt-0.5 text-xl font-semibold text-white sm:text-2xl">{groups.length}</div>
                 </div>
-                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.25em] text-blue-100">Joined</div>
-                  <div className="mt-1 text-2xl font-semibold text-white">{groups.filter((group) => group.isJoined).length}</div>
+                <div className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2.5 sm:px-4 sm:py-3">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-blue-100 sm:text-[11px]">Joined</div>
+                  <div className="mt-0.5 text-xl font-semibold text-white sm:text-2xl">
+                    {groups.filter((group) => group.isJoined).length}
+                  </div>
                 </div>
               </>
             ) : null}
             {canCreateGroups ? (
               <button
+                type="button"
                 onClick={() => {
                   applyGroupToForm(null);
                   setShowComposer(true);
                 }}
-                className="inline-flex items-center rounded-2xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 shadow-lg transition hover:bg-slate-100"
+                className="inline-flex min-h-11 items-center rounded-2xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 shadow-lg transition hover:bg-slate-100"
               >
                 <Plus className="mr-2 h-4 w-4" />
                 {displayConfig.createButtonLabel}
@@ -996,62 +1147,96 @@ const GroupsWorkspace: React.FC<GroupsWorkspaceProps> = ({ embedded = false }) =
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
-        <div className="space-y-4">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">{displayConfig.directoryTitle}</h3>
+      <section className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,360px),minmax(0,1fr)]">
+        <div className="min-w-0 space-y-4">
+          <div className="rounded-[24px] border border-slate-200 bg-white p-3 shadow-sm sm:rounded-[28px] sm:p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-base font-semibold text-slate-900 sm:text-lg">{displayConfig.directoryTitle}</h3>
               <button
-                onClick={() => void reloadGroups()}
-                className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                type="button"
+                onClick={() => void reloadGroups({ q: directoryQuery, tab: directoryTab })}
+                className="min-h-10 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
               >
                 Refresh
               </button>
             </div>
+            <div className="mb-3 space-y-3">
+              <CommunitySearchBar
+                value={directoryQuery}
+                onChange={setDirectoryQuery}
+                placeholder="Search communities by name, category…"
+                loading={loading}
+              />
+              <CommunityFilterBar
+                value={directoryTab}
+                onChange={(id) => {
+                  setDirectoryTab(id);
+                  trackCommunitySignal('community_filter_selected', {
+                    meta: { filter: id }
+                  });
+                  const nextSearch = buildCommunityUrlSearch({
+                    tab: id,
+                    q: directoryQuery,
+                    group: urlState.group || undefined
+                  });
+                  navigate({ pathname: location.pathname, search: nextSearch }, { replace: true });
+                  void reloadGroups({ q: directoryQuery, tab: id });
+                }}
+                options={[
+                  { id: 'all', label: 'All' },
+                  { id: 'joined', label: 'Joined' },
+                  { id: 'recommended', label: 'Recommended' },
+                  { id: 'mine', label: 'Mine' },
+                  { id: 'trending', label: 'Trending' }
+                ]}
+              />
+            </div>
             <div className="space-y-3">
               {loading ? (
-                Array.from({ length: 4 }).map((_, index) => (
-                  <div key={index} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
-                ))
-              ) : groups.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">
-                  {displayConfig.directoryEmptyState}
-                </div>
+                <CommunityCardSkeleton count={4} />
+              ) : directoryGroups.length === 0 ? (
+                <CommunityEmptyState
+                  title={directoryQuery ? 'No communities match your search' : displayConfig.directoryEmptyState}
+                  description={
+                    directoryQuery
+                      ? 'Try a different name, category, or clear filters.'
+                      : 'Create a group or explore recommended communities.'
+                  }
+                  actionLabel={canCreateGroups ? displayConfig.createButtonLabel : undefined}
+                  onAction={
+                    canCreateGroups
+                      ? () => {
+                          applyGroupToForm(null);
+                          setShowComposer(true);
+                        }
+                      : undefined
+                  }
+                  icon={<Users className="h-5 w-5" />}
+                />
               ) : (
-                groups.map((group) => {
-                  const active = selectedGroupId === group.id;
-                  const isPrivate = group.visibility === 'private';
-                  return (
-                    <button
-                      key={group.id}
-                      type="button"
-                      onClick={() => setSelectedGroupId(group.id)}
-                      className={`w-full rounded-[24px] border p-4 text-left transition ${
-                        active ? 'border-blue-300 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            {isPrivate ? <Lock className="h-4 w-4 text-slate-500" /> : <Globe className="h-4 w-4 text-slate-500" />}
-                            <span className="truncate text-base font-semibold text-slate-900">{group.name}</span>
-                          </div>
-                          <p className="mt-2 line-clamp-2 text-sm text-slate-600">{group.summary || group.description}</p>
-                        </div>
-                        {group.isJoined ? (
-                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">Joined</span>
-                        ) : group.pendingRequest ? (
-                          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">Pending</span>
-                        ) : null}
-                      </div>
-                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.memberCount || 0} members</span>
-                        {group.category ? <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.category}</span> : null}
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1">{group.joinMode || 'open'}</span>
-                      </div>
-                    </button>
-                  );
-                })
+                directoryGroups.map((group) => (
+                  <CommunityCard
+                    key={group.id}
+                    community={group}
+                    active={selectedGroupId === group.id}
+                    busy={membershipBusyId === group.id}
+                    onSelect={(next) => {
+                      setSelectedGroupId(next.id);
+                      trackCommunitySignal('community_opened', {
+                        entityId: next.id,
+                        entityType: 'COMMUNITY'
+                      });
+                      const nextSearch = buildCommunityUrlSearch({
+                        tab: directoryTab,
+                        q: directoryQuery,
+                        group: next.slug || next.id
+                      });
+                      navigate({ pathname: location.pathname, search: nextSearch }, { replace: true });
+                    }}
+                    onJoin={(next) => void handleJoinOrRequest(next)}
+                    onLeave={(next) => void handleLeaveGroup(next)}
+                  />
+                ))
               )}
             </div>
           </div>

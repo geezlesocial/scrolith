@@ -111,6 +111,8 @@ import {
 import PostAiCoachCard from '../components/enterprise/PostAiCoachCard';
 import { postCardSectionStackClass, postCardType } from '../components/enterprise/postCardDesign';
 import { buildScrolithaPath } from '../utils/scrolithaLaunch';
+import { trackCommunitySignal } from '../utils/communityLearningEngine';
+import { getCommunityItemKey } from '../utils/communitySessionStability';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -2740,12 +2742,20 @@ const CommunityHome = () => {
     isVisibleForDevice(section?.visibility, viewportDevice)
   );
 
+  // Phase 24 — community home open signal (session stable; no feed rewrite)
+  useEffect(() => {
+    trackCommunitySignal('community_opened', {
+      entityType: 'COMMUNITY',
+      meta: { surface: 'community_home' }
+    });
+  }, []);
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen min-w-0 overflow-x-hidden bg-slate-50" data-testid="community-home">
       {/* Hero Section */}
       {showHero ? (
         <div
-          className="relative overflow-hidden py-8 text-white sm:py-16"
+          className="relative overflow-hidden py-6 text-white sm:py-12 md:py-16"
           style={{
             backgroundColor: heroBackgroundColor
           }}
@@ -3344,7 +3354,7 @@ const CommunityHome = () => {
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
                     <article
-                      key={getStableFeedReactKey(post)}
+                      key={getCommunityItemKey(post) || getStableFeedReactKey(post)}
                       id={`community-post-${post.id}`}
                       data-testid="enterprise-post-card"
                       data-post-card-design="21.1.5"
