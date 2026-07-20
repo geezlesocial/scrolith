@@ -245,6 +245,28 @@ export const resolveNotificationCategory = (input: {
   const entity = coerce(input.entityType || input.metadata?.entityType || input.metadata?.entity_type);
   const haystack = `${type} ${entity} ${coerce(input.title)}`;
 
+  // Phase 27 — explicit product aliases before substring matching.
+  if (type === 'chat' || type === 'group_chat' || type === 'dm' || type === 'direct_message') {
+    return 'message';
+  }
+  if (
+    type === 'group_invite' ||
+    type === 'community_request' ||
+    type === 'group_invitation' ||
+    type.includes('group_invite')
+  ) {
+    return 'community';
+  }
+  if (
+    type === 'marketplace_inquiry' ||
+    type.includes('listing_inquiry') ||
+    type.includes('marketplace_inquiry')
+  ) {
+    return 'marketplace';
+  }
+  if (type === 'payment' || type.includes('payout') || type.includes('payment_')) {
+    return 'order';
+  }
   if (
     type === 'message' ||
     type === 'new_message' ||
@@ -487,3 +509,167 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
   }
   return null;
 };
+
+/**
+ * Phase 27 — Human-readable source label for notification chrome.
+ * Returns category area + optional actor so the user knows who/what caused it.
+ */
+export const formatNotificationSourceLabel = (input: {
+  type?: unknown;
+  category?: unknown;
+  actorName?: unknown;
+  actorUsername?: unknown;
+  title?: unknown;
+  body?: unknown;
+}): { category: string; source: string; summary: string } => {
+  const meta = getNotificationCategoryMeta(input);
+  const actor =
+    String(input.actorName || input.actorUsername || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .slice(0, 80) || '';
+  const source = actor || meta.label;
+  const body = String(input.body || input.title || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 160);
+  const summary = body || (actor ? `${actor} · ${meta.label}` : meta.label);
+  return { category: meta.label, source, summary };
+};
+
+/** Stable channel definitions for Android client createChannel + cert. */
+export const ANDROID_CHANNEL_DEFINITIONS: Array<{
+  id: AndroidChannelId;
+  name: string;
+  description: string;
+  importance: 3 | 4 | 5;
+  /** 0=private lock screen, 1=public */
+  visibility: 0 | 1;
+}> = [
+  {
+    id: ANDROID_CHANNEL_IDS.messages,
+    name: 'Messages',
+    description: 'Direct messages and chat activity',
+    importance: 5,
+    visibility: 0
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.community,
+    name: 'Community',
+    description: 'Group approvals, announcements, and community activity',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.marketplace,
+    name: 'Marketplace',
+    description: 'Listing interest and marketplace updates',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.jobs,
+    name: 'Jobs',
+    description: 'Applications, recruiter views, and hiring updates',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.gigs,
+    name: 'Gigs',
+    description: 'Orders, proposals, contracts, and freelancing',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.scroll,
+    name: 'Scroll',
+    description: 'New Scrolls and short-video activity',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.stories,
+    name: 'Stories',
+    description: 'Story updates from people you follow',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.posts,
+    name: 'Posts',
+    description: 'New posts, reactions, and publications',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.follows,
+    name: 'Follows',
+    description: 'New followers and follow activity',
+    importance: 3,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.mentions,
+    name: 'Mentions',
+    description: 'When someone mentions you',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.comments,
+    name: 'Comments',
+    description: 'Comments and replies on your content',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.orders,
+    name: 'Orders',
+    description: 'Marketplace and gig order updates',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.admin,
+    name: 'Admin',
+    description: 'Moderation and administrative notices',
+    importance: 4,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.security,
+    name: 'Security',
+    description: 'Login, password, and account security alerts',
+    importance: 5,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.system,
+    name: 'System',
+    description: 'Product updates and system notices',
+    importance: 3,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.scrolitha,
+    name: 'Scrolitha',
+    description: 'Scrolitha AI assistant notifications',
+    importance: 3,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.social,
+    name: 'Social',
+    description: 'Legacy social activity channel',
+    importance: 3,
+    visibility: 1
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.alerts,
+    name: 'Alerts',
+    description: 'Migration fallback alerts channel',
+    importance: 4,
+    visibility: 1
+  }
+];

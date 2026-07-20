@@ -7,6 +7,7 @@ import { type AppDistributionEvent } from '../services/appDistribution';
 import { trackMobileRuntimeEvent } from './mobileTelemetry';
 import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
 import {
+  ANDROID_CHANNEL_DEFINITIONS,
   ANDROID_CHANNEL_IDS,
   buildEnterprisePushDeepLink
 } from '../utils/notificationTaxonomy';
@@ -167,172 +168,21 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
 const ensureAndroidNotificationChannels = async () => {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
 
-  // Phase 25 multi-channel taxonomy (Android 8+).
-  // Importance: 5=MAX, 4=HIGH, 3=DEFAULT. Visibility 1 = public on lock screen.
+  // Phase 25/27 multi-channel taxonomy (Android 8+).
+  // Importance: 5=MAX, 4=HIGH, 3=DEFAULT.
+  // Visibility 0=private (lock-screen content hidden) · 1=public.
+  // Channel ids are stable — never recreate with new ids casually.
   // Users can mute individual channels without losing DMs.
   const channels: Channel[] = [
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.messages,
-      name: 'Messages',
-      description: 'Direct messages and chat activity',
+    ...ANDROID_CHANNEL_DEFINITIONS.map((def) => ({
+      id: def.id,
+      name: def.name,
+      description: def.description,
       sound: 'scrolith.wav',
-      importance: 5,
-      visibility: 1,
+      importance: def.importance,
+      visibility: def.visibility,
       vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.community,
-      name: 'Community',
-      description: 'Group approvals, announcements, and community activity',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.marketplace,
-      name: 'Marketplace',
-      description: 'Listing interest and marketplace updates',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.jobs,
-      name: 'Jobs',
-      description: 'Applications, recruiter views, and hiring updates',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.gigs,
-      name: 'Gigs',
-      description: 'Orders, proposals, contracts, and freelancing',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.scroll,
-      name: 'Scroll',
-      description: 'New Scrolls and short-video activity',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.stories,
-      name: 'Stories',
-      description: 'Story updates from people you follow',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.posts,
-      name: 'Posts',
-      description: 'New posts, reactions, and publications',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.follows,
-      name: 'Follows',
-      description: 'New followers and follow activity',
-      sound: 'scrolith.wav',
-      importance: 3,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.mentions,
-      name: 'Mentions',
-      description: 'When someone mentions you',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.comments,
-      name: 'Comments',
-      description: 'Comments and replies on your content',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.orders,
-      name: 'Orders',
-      description: 'Marketplace and gig order updates',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.admin,
-      name: 'Admin',
-      description: 'Moderation and administrative notices',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 0,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.scrolitha,
-      name: 'Scrolitha',
-      description: 'AI assistant completions and Scrolitha updates',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.system,
-      name: 'System',
-      description: 'Account, campaigns, and platform system notices',
-      sound: 'scrolith.wav',
-      importance: 3,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.security,
-      name: 'Security',
-      description: 'Security and sign-in alerts',
-      sound: 'scrolith.wav',
-      importance: 5,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.social,
-      name: 'Social Activity (legacy)',
-      description: 'Legacy umbrella social channel retained for prior installs',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: ANDROID_NOTIFICATION_CHANNELS.alerts,
-      name: 'Scrolith Alerts (legacy)',
-      description: 'Legacy default channel retained for prior app installs',
-      sound: 'scrolith.wav',
-      importance: 5,
-      visibility: 1,
-      vibration: true
-    },
+    })),
     // Legacy short-id channels retained so history/OS settings remain valid.
     {
       id: 'general',
