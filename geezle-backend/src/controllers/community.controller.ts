@@ -122,14 +122,23 @@ const mapAttachmentIds = (fileIds: string[], map: Map<string, any>) =>
     .map((id) => {
       const file = map.get(id);
       if (!file) return null;
-      const mimeType = file.mimeType || '';
-      const type = mimeType.startsWith('image/')
-        ? 'image'
-        : mimeType.startsWith('video/')
-          ? 'video'
-          : 'document';
+      const mimeType = String(file.mimeType || '').trim();
+      const name = String(file.originalName || '').trim();
+      const url = String(file.url || '').trim();
+      const hay = `${url} ${name}`.toLowerCase();
+      let type: 'image' | 'video' | 'document' = 'document';
+      if (mimeType.startsWith('image/') || /\.(png|jpe?g|gif|webp|avif|svg)(?:$|[?#])/.test(hay)) {
+        type = 'image';
+      } else if (
+        mimeType.startsWith('video/') ||
+        /\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay) ||
+        (mimeType === 'application/octet-stream' && /video|reel|clip|camera|record|capture|\.webm|\.mp4/i.test(hay))
+      ) {
+        type = 'video';
+      }
       return {
         id: file.id,
+        fileId: file.id,
         url: file.url,
         name: file.originalName,
         mimeType: file.mimeType,
@@ -138,6 +147,7 @@ const mapAttachmentIds = (fileIds: string[], map: Map<string, any>) =>
         height: file.height ?? undefined,
         duration: file.duration ?? undefined,
         type,
+        kind: type,
         size: Number(file.size || 0)
       };
     })

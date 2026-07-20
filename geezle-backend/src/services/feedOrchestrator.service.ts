@@ -800,6 +800,7 @@ async function collectPosts(input: {
           recipe
         });
         const author = mapAuthor(post.author, post.businessPage);
+        // Keep raw attachment ids here; hydratePostAttachmentDescriptors enriches mime/type/url.
         const attachments = Array.isArray(post.attachments) ? post.attachments : [];
         const score = Number(ranking.score || 0);
         return {
@@ -820,6 +821,11 @@ async function collectPosts(input: {
           why: ranking.reasons?.[0] || null,
           payload: {
             ...post,
+            // Preserve raw ids for hydration; do not leave FE with string-only attachments.
+            attachments,
+            attachmentFileIds: attachments
+              .map((entry: any) => (typeof entry === 'string' ? entry : entry?.id || entry?.fileId || ''))
+              .filter(Boolean),
             author: {
               id: author?.id,
               type: author?.type,
@@ -1260,6 +1266,127 @@ async function collectPeoplePages(
   }
 }
 
+const inferAttachmentMediaType = (
+  mimeType?: string | null,
+  url?: string | null,
+  name?: string | null
+): 'image' | 'video' | 'document' => {
+  const mime = String(mimeType || '').trim().toLowerCase();
+  if (mime.startsWith('video/')) return 'video';
+  if (mime.startsWith('image/')) return 'image';
+  const hay = `${String(url || '')} ${String(name || '')}`.toLowerCase();
+  if (/\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay)) return 'video';
+  if (/\.(png|jpe?g|gif|webp|avif|svg)(?:$|[?#])/.test(hay)) return 'image';
+  if (mime === 'application/pdf' || hay.endsWith('.pdf')) return 'document';
+  // Browser MediaRecorder / camera uploads sometimes land as octet-stream.
+  if (
+    mime === 'application/octet-stream' &&
+    (/video|reel|clip|camera|record|capture/i.test(hay) || /\.webm|\.mp4|\.mov/.test(hay))
+  ) {
+    return 'video';
+  }
+  return 'document';
+};
+
+/**
+ * Hydrate post attachment file ids into full media descriptors for member-home cards.
+ * Without this, orchestrated feed ships raw ids and the FE falls back to "Document".
+ */
+async function hydratePostAttachmentDescriptors(
+  items: OrchestratedFeedItem[]
+): Promise<OrchestratedFeedItem[]> {
+  const fileIds: string[] = [];
+  for (const item of items) {
+    const type = String(item?.type || '').toUpperCase();
+    if (type !== 'POST' && type !== 'COMMUNITY_POST') continue;
+    const payload = item.payload && typeof item.payload === 'object' ? (item.payload as any) : {};
+    const sources = [
+      ...(Array.isArray(payload.attachments) ? payload.attachments : []),
+      ...(Array.isArray(payload.attachmentFileIds) ? payload.attachmentFileIds : []),
+      ...(Array.isArray(item.media) ? item.media : item.media ? [item.media] : [])
+    ];
+    for (const entry of sources) {
+      const id =
+        typeof entry === 'string'
+          ? clean(entry)
+          : clean(entry?.fileId || entry?.file_id || entry?.id || '');
+      if (id) fileIds.push(id);
+    }
+  }
+
+  if (!fileIds.length) return items;
+  const mediaMap = await resolveFileMediaMap(fileIds);
+
+  return items.map((item) => {
+    const type = String(item?.type || '').toUpperCase();
+    if (type !== 'POST' && type !== 'COMMUNITY_POST') return item;
+    const payload = item.payload && typeof item.payload === 'object' ? { ...(item.payload as any) } : {};
+    const rawList = Array.isArray(payload.attachments)
+      ? payload.attachments
+      : Array.isArray(payload.attachmentFileIds)
+        ? payload.attachmentFileIds
+        : Array.isArray(item.media)
+          ? item.media
+          : [];
+
+    const resolved = rawList
+      .map((entry: any) => {
+        const id =
+          typeof entry === 'string'
+            ? clean(entry)
+            : clean(entry?.fileId || entry?.file_id || entry?.id || '');
+        if (!id) return null;
+        const file = mediaMap.get(id);
+        const mimeType = file?.mimeType || entry?.mimeType || entry?.mime_type || null;
+        const url = file?.url || entry?.url || null;
+        const name =
+          entry?.name ||
+          entry?.originalName ||
+          entry?.filename ||
+          file?.originalName ||
+          file?.filename ||
+          null;
+        const mediaType = inferAttachmentMediaType(mimeType, url, name);
+        return {
+          id,
+          fileId: id,
+          url,
+          fallbackUrl: file?.fallbackUrl || null,
+          storagePath: file?.storagePath || null,
+          name,
+          mimeType,
+          type: mediaType,
+          kind: mediaType,
+          thumbnailUrl: file?.thumbnailUrl || entry?.thumbnailUrl || null,
+          duration: file?.durationSeconds ?? entry?.duration ?? null,
+          width: file?.width ?? entry?.width ?? null,
+          height: file?.height ?? entry?.height ?? null
+        };
+      })
+      .filter(Boolean);
+
+    return {
+      ...item,
+      media: resolved.map((att: any) => ({
+        fileId: att.fileId,
+        url: att.url,
+        fallbackUrl: att.fallbackUrl,
+        mimeType: att.mimeType,
+        type: att.type,
+        thumbnailUrl: att.thumbnailUrl,
+        duration: att.duration,
+        width: att.width,
+        height: att.height
+      })),
+      payload: {
+        ...payload,
+        attachmentFileIds: resolved.map((att: any) => att.fileId),
+        attachments: resolved
+      }
+    };
+  });
+}
+
 /**
  * Batch-resolve File ids into dual-path media descriptors.
  * Prefer content URL when File exists; always attach uploads fallback from storageKey.
@@ -1279,6 +1406,8 @@ async function resolveFileMediaMap(fileIds: string[]) {
         storageKey: true,
         storageProvider: true,
         mimeType: true,
+        originalName: true,
+        filename: true,
         thumbnailUrl: true,
         width: true,
         height: true,
@@ -1310,6 +1439,8 @@ async function resolveFileMediaMap(fileIds: string[]) {
       fallbackUrl: fallback && fallback !== preferred ? fallback : null,
       storagePath: file.storageKey || null,
       mimeType: file.mimeType || null,
+      originalName: file.originalName || null,
+      filename: file.filename || null,
       thumbnailUrl: resolveDirectMediaUrl(file.thumbnailUrl, baseUrl) || file.thumbnailUrl || null,
       width: file.width ?? null,
       height: file.height ?? null,
@@ -1595,9 +1726,10 @@ export const getOrchestratedMemberFeed = async (input: {
       ? encodeMemberFeedCursor({ v: 1, k: nextSeen, w: watermark })
       : null;
 
-  // Strip internal collector fields, then attach additive intelligence envelope (no sort change).
+  // Strip internal collector fields, hydrate post media, then attach intelligence envelope (no sort change).
   const stripped: OrchestratedFeedItem[] = diversified.map(({ _source, _authorKey, ...item }) => item);
-  const items: OrchestratedFeedItem[] = mapOrchestratedItemsWithIntelligence(stripped, mode);
+  const hydrated = await hydratePostAttachmentDescriptors(stripped);
+  const items: OrchestratedFeedItem[] = mapOrchestratedItemsWithIntelligence(hydrated, mode);
 
   const result: MemberFeedResult = {
     items,
