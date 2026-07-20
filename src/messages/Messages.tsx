@@ -39,6 +39,11 @@ import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversa
 import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import MessageDeliveryTicks from '../components/messaging/MessageDeliveryTicks';
+import MessagingPrivacySettingsPanel from '../components/messaging/MessagingPrivacySettingsPanel';
+import {
+  buildConversationMenuItems,
+  groupMenuItemsBySection
+} from '../components/messaging/conversationMenuPolicy';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
@@ -239,6 +244,7 @@ const Messages = () => {
   const [createGroupBusy, setCreateGroupBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [showMessageSettings, setShowMessageSettings] = useState(false);
+  const [messageSettingsTab, setMessageSettingsTab] = useState<'privacy' | 'inbox' | 'safety'>('privacy');
   const jumpAroundInFlightRef = useRef<string | null>(null);
   const [messageSettings, setMessageSettings] = useState({
       messageRequestsNotifications: true,
@@ -2196,6 +2202,16 @@ const Messages = () => {
           }
       };
 
+      const handlePrivacyUpdated = (payload: any) => {
+          // Self-only full settings broadcast — other devices/tabs reconcile without reload.
+          if (!payload || (payload.userId && user?.id && payload.userId !== user.id)) return;
+          traceClient('socket.privacy_updated', {
+              updatedAt: payload?.updatedAt || payload?.settings?.updatedAt || null
+          });
+          // Best-effort: presence projection may change after privacy update; refresh batch presence.
+          void refreshMessages().catch(() => null);
+      };
+
       socket.on('messages:new', handleIncoming);
       socket.on('messages:sent', handleIncoming);
       socket.on('messages:read', handleRead);
@@ -2207,6 +2223,7 @@ const Messages = () => {
       socket.on('messages:updated', handleMessageUpdated);
       socket.on('messages:conversation_updated', handleConversationUpdated);
       socket.on('messages:conversation_deleted', handleConversationDeleted);
+      socket.on('messages:privacy:updated', handlePrivacyUpdated);
       return () => {
           socket.off('messages:new', handleIncoming);
           socket.off('messages:sent', handleIncoming);
@@ -2219,6 +2236,7 @@ const Messages = () => {
           socket.off('messages:updated', handleMessageUpdated);
           socket.off('messages:conversation_updated', handleConversationUpdated);
           socket.off('messages:conversation_deleted', handleConversationDeleted);
+          socket.off('messages:privacy:updated', handlePrivacyUpdated);
       };
   }, [socket, user, refreshMessages, navigate]);
   const renderReplyPreview = (message: Message) => {
@@ -3215,52 +3233,135 @@ const Messages = () => {
   };
 
   const handleConversationAction = async (
-      action: 'move_other' | 'label_jobs' | 'mark_unread' | 'toggle_star' | 'toggle_mute' | 'archive' | 'report_block' | 'delete'
+      action:
+          | 'move_other'
+          | 'label_jobs'
+          | 'mark_unread'
+          | 'toggle_star'
+          | 'toggle_mute'
+          | 'archive'
+          | 'report_block'
+          | 'delete'
+          | 'manage_settings'
+          | 'group_settings'
+          | 'leave_group'
   ) => {
       if (!activeConvoId || !activeConvo || actionBusy) return;
-      traceClient('ui.conversation_action.request', { conversationId: activeConvoId, action });
+      if (action === 'manage_settings') {
+          setShowConversationMenu(false);
+          setMessageSettingsTab('privacy');
+          setShowMessageSettings(true);
+          return;
+      }
+      if (action === 'group_settings') {
+          setShowConversationMenu(false);
+          setShowGroupManage(true);
+          return;
+      }
+      const conversationId = activeConvoId;
+      const snapshot = {
+          label: activeConversationState.label,
+          isStarred: activeConversationState.isStarred,
+          isMuted: activeConversationState.isMuted,
+          isArchived: activeConversationState.isArchived,
+          unreadCount: Number((activeConvo as any)?.unreadCount ?? (activeConvo as any)?.unread_count ?? 0)
+      };
+      const rollback = () => {
+          updateConversationStateLocally(conversationId, {
+              label: snapshot.label,
+              isStarred: snapshot.isStarred,
+              is_starred: snapshot.isStarred,
+              isMuted: snapshot.isMuted,
+              is_muted: snapshot.isMuted,
+              isArchived: snapshot.isArchived,
+              is_archived: snapshot.isArchived,
+              unreadCount: snapshot.unreadCount,
+              unread_count: snapshot.unreadCount
+          });
+      };
+      traceClient('ui.conversation_action.request', { conversationId, action });
       setActionBusy(true);
       try {
           if (action === 'move_other') {
-              await MessagingService.updateConversationPreferences(activeConvoId, { label: 'other' });
-              updateConversationStateLocally(activeConvoId, { label: 'other' });
+              updateConversationStateLocally(conversationId, { label: 'other' });
+              await MessagingService.updateConversationPreferences(conversationId, { label: 'other' });
+              showNotification('success', 'Messages', 'Moved to Other.');
           } else if (action === 'label_jobs') {
-              await MessagingService.updateConversationPreferences(activeConvoId, { label: 'jobs' });
-              updateConversationStateLocally(activeConvoId, { label: 'jobs' });
+              const nextLabel = snapshot.label === 'jobs' ? 'other' : 'jobs';
+              updateConversationStateLocally(conversationId, { label: nextLabel });
+              await MessagingService.updateConversationPreferences(conversationId, { label: nextLabel });
+              showNotification(
+                  'success',
+                  'Messages',
+                  nextLabel === 'jobs' ? 'Labeled as Jobs.' : 'Jobs label removed.'
+              );
           } else if (action === 'mark_unread') {
-              await MessagingService.markConversationUnread(activeConvoId);
-              updateConversationStateLocally(activeConvoId, { unreadCount: 1, unread_count: 1 });
+              updateConversationStateLocally(conversationId, { unreadCount: 1, unread_count: 1 });
+              await MessagingService.markConversationUnread(conversationId);
               showNotification('success', 'Messages', 'Conversation marked as unread.');
           } else if (action === 'toggle_star') {
-              const next = !activeConversationState.isStarred;
-              await MessagingService.updateConversationPreferences(activeConvoId, { isStarred: next });
-              updateConversationStateLocally(activeConvoId, { isStarred: next, is_starred: next });
+              const next = !snapshot.isStarred;
+              updateConversationStateLocally(conversationId, { isStarred: next, is_starred: next });
+              await MessagingService.updateConversationPreferences(conversationId, { isStarred: next });
+              showNotification('success', 'Messages', next ? 'Conversation starred.' : 'Star removed.');
           } else if (action === 'toggle_mute') {
-              const next = !activeConversationState.isMuted;
-              await MessagingService.updateConversationPreferences(activeConvoId, { isMuted: next });
-              updateConversationStateLocally(activeConvoId, { isMuted: next, is_muted: next });
+              const next = !snapshot.isMuted;
+              updateConversationStateLocally(conversationId, { isMuted: next, is_muted: next });
+              await MessagingService.updateConversationPreferences(conversationId, { isMuted: next });
+              showNotification('success', 'Messages', next ? 'Conversation muted.' : 'Conversation unmuted.');
           } else if (action === 'archive') {
-              await MessagingService.updateConversationPreferences(activeConvoId, { isArchived: true });
-              updateConversationStateLocally(activeConvoId, { isArchived: true, is_archived: true });
-              showNotification('success', 'Messages', 'Conversation archived.');
+              const next = !snapshot.isArchived;
+              updateConversationStateLocally(conversationId, {
+                  isArchived: next,
+                  is_archived: next
+              });
+              await MessagingService.updateConversationPreferences(conversationId, { isArchived: next });
+              showNotification(
+                  'success',
+                  'Messages',
+                  next ? 'Conversation archived.' : 'Conversation unarchived.'
+              );
           } else if (action === 'report_block') {
-              await MessagingService.reportBlockConversation(activeConvoId, { block: true });
+              const shouldProceed = window.confirm(
+                  'Report this conversation and block the participant? You can unblock later from safety settings.'
+              );
+              if (!shouldProceed) return;
+              await MessagingService.reportBlockConversation(conversationId, { block: true });
               showNotification('success', 'Messages', 'Conversation reported and blocked.');
-          } else if (action === 'delete') {
-              const shouldDelete = window.confirm('Delete this conversation from your inbox?');
+          } else if (action === 'delete' || action === 'leave_group') {
+              const isGroup = Boolean(isActiveGroupConversation);
+              const shouldDelete = window.confirm(
+                  isGroup
+                      ? 'Leave this group? You may need an invite to rejoin.'
+                      : 'Delete this conversation from your inbox?'
+              );
               if (!shouldDelete) return;
-              await MessagingService.deleteConversation(activeConvoId);
-              setConversations((prev) => prev.filter((conversation) => conversation.id !== activeConvoId));
+              await MessagingService.deleteConversation(conversationId);
+              setConversations((prev) => prev.filter((conversation) => conversation.id !== conversationId));
               setActiveConvoId(null);
               navigate('/messages');
-              showNotification('success', 'Messages', 'Conversation deleted.');
+              showNotification(
+                  'success',
+                  'Messages',
+                  isGroup ? 'You left the group.' : 'Conversation deleted.'
+              );
           }
-          traceClient('ui.conversation_action.success', { conversationId: activeConvoId, action });
+          traceClient('ui.conversation_action.success', { conversationId, action });
       } catch (error: any) {
+          if (
+              action === 'move_other' ||
+              action === 'label_jobs' ||
+              action === 'mark_unread' ||
+              action === 'toggle_star' ||
+              action === 'toggle_mute' ||
+              action === 'archive'
+          ) {
+              rollback();
+          }
           const message = error?.response?.data?.error || error?.message || 'Action failed.';
           showNotification('error', 'Messages', message);
           traceClient('ui.conversation_action.error', {
-              conversationId: activeConvoId,
+              conversationId,
               action,
               error: String(message)
           });
@@ -3809,104 +3910,53 @@ const Messages = () => {
                                         <MoreVertical className="w-5 h-5" />
                                     </button>
                                     {showConversationMenu && (
-                                        <div className="absolute right-0 top-11 z-20 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-2 shadow-xl">
-                                            {messagingControls.enableMoveToOther !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('move_other')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    Move to Other
-                                                </button>
-                                            )}
-                                            {messagingControls.enableLabelAsJobs !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('label_jobs')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    Label as Jobs
-                                                </button>
-                                            )}
-                                            {messagingControls.enableMarkUnread !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('mark_unread')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    Mark as unread
-                                                </button>
-                                            )}
-                                            {messagingControls.enableStar !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('toggle_star')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    {activeConversationState.isStarred ? 'Remove Star' : 'Star'}
-                                                </button>
-                                            )}
-                                            {messagingControls.enableMute !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('toggle_mute')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    {activeConversationState.isMuted ? 'Unmute' : 'Mute'}
-                                                </button>
-                                            )}
-                                            {messagingControls.enableArchive !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('archive')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    Archive
-                                                </button>
-                                            )}
-                                            {messagingControls.enableReportBlock !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('report_block')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    Report / Block
-                                                </button>
-                                            )}
-                                            {messagingControls.enableDeleteConversation !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleConversationAction('delete')}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                                                >
-                                                    Delete conversation
-                                                </button>
-                                            )}
-                                            {messagingControls.enableManageMessageSettings !== false && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setShowConversationMenu(false);
-                                                        setShowMessageSettings(true);
-                                                    }}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm hover:bg-gray-100"
-                                                >
-                                                    Manage settings
-                                                </button>
-                                            )}
-                                            {isActiveGroupConversation ? (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setShowConversationMenu(false);
-                                                        setShowGroupManage(true);
-                                                    }}
-                                                    className="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-indigo-700 hover:bg-indigo-50"
-                                                    data-testid="messages-menu-group-settings"
-                                                >
-                                                    Group settings & members
-                                                </button>
-                                            ) : null}
+                                        <div
+                                            className="absolute right-0 top-11 z-20 max-h-[min(70vh,28rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl"
+                                            role="menu"
+                                            aria-label="Conversation actions"
+                                            data-testid="messages-conversation-menu"
+                                        >
+                                            {groupMenuItemsBySection(
+                                                buildConversationMenuItems({
+                                                    isStarred: activeConversationState.isStarred,
+                                                    isMuted: activeConversationState.isMuted,
+                                                    isArchived: activeConversationState.isArchived,
+                                                    label: activeConversationState.label as 'jobs' | 'other',
+                                                    isGroup: Boolean(isActiveGroupConversation),
+                                                    isDm: !isActiveGroupConversation
+                                                }).filter((item) => {
+                                                    const key = item.controlKey as keyof typeof messagingControls | undefined;
+                                                    if (!key) return true;
+                                                    return messagingControls[key] !== false;
+                                                })
+                                            ).map((group, groupIndex) => (
+                                                <div key={group.section} className={groupIndex > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}>
+                                                    {group.label ? (
+                                                        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                                            {group.label}
+                                                        </div>
+                                                    ) : null}
+                                                    {group.items.map((item) => (
+                                                        <button
+                                                            key={item.id}
+                                                            type="button"
+                                                            role="menuitem"
+                                                            data-testid={`messages-menu-${item.id}`}
+                                                            disabled={actionBusy}
+                                                            onClick={() => handleConversationAction(item.id)}
+                                                            className={`w-full rounded-md px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                                                                item.destructive
+                                                                    ? 'text-red-600 hover:bg-red-50'
+                                                                    : item.id === 'group_settings'
+                                                                      ? 'font-medium text-indigo-700 hover:bg-indigo-50'
+                                                                      : 'text-gray-800 hover:bg-gray-100'
+                                                            }`}
+                                                        >
+                                                            {item.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            ))}
                                             {actionBusy && (
                                                 <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
                                             )}
@@ -4744,47 +4794,109 @@ const Messages = () => {
     <MobileDialog
         open={showMessageSettings}
         onClose={() => setShowMessageSettings(false)}
-        size="md"
-        title="Manage message settings"
+        size="lg"
+        title="Manage settings"
         closeDisabled={settingsBusy}
+        bodyClassName="space-y-1"
     >
-                <p className="mb-4 text-xs text-gray-500">
-                    User section: <span className="font-semibold">Messages {'>'} Conversation menu {'>'} Manage settings</span>
+                <div data-testid="messages-manage-settings">
+                <p className="mb-3 text-xs text-gray-500">
+                    <span className="font-semibold">Messaging privacy</span> is global across all conversations.
+                    Conversation actions (mute, archive, star) stay in the conversation menu.
                 </p>
-                <div className="space-y-5">
-                    <section className="rounded-lg border border-gray-200 p-4">
-                        <h4 className="text-sm font-semibold text-gray-900">Messages you receive</h4>
-                        <p className="mt-1 text-xs text-gray-500">
-                            Allows others to send you message requests notifications.
-                        </p>
-                        <label className="mt-3 flex items-center justify-between text-sm">
-                            Message requests
-                            <input
-                                type="checkbox"
-                                checked={Boolean(messageSettings.messageRequestsNotifications)}
-                                disabled={settingsBusy}
-                                onChange={() => handleMessageSettingToggle('messageRequestsNotifications')}
-                            />
-                        </label>
-                    </section>
-                    <section className="rounded-lg border border-gray-200 p-4">
-                        <h4 className="text-sm font-semibold text-gray-900">InMail messages</h4>
-                        <p className="mt-1 text-xs text-gray-500">
-                            Allow others to send you InMail.
-                        </p>
-                        <label className="mt-3 flex items-center justify-between text-sm">
-                            InMail messages
-                            <input
-                                type="checkbox"
-                                checked={Boolean(messageSettings.allowInMail)}
-                                disabled={settingsBusy}
-                                onChange={() => handleMessageSettingToggle('allowInMail')}
-                            />
-                        </label>
-                    </section>
-                    <div className="text-xs text-gray-500">
-                        You cannot disable messages from your 1st-degree connections. Use block for specific users.
+                <div
+                    className="mb-4 flex flex-wrap gap-1 rounded-xl bg-gray-100 p-1"
+                    role="tablist"
+                    aria-label="Settings sections"
+                >
+                    {(
+                        [
+                            { id: 'privacy' as const, label: 'Privacy' },
+                            { id: 'inbox' as const, label: 'Inbox & InMail' },
+                            { id: 'safety' as const, label: 'Safety' }
+                        ] as const
+                    ).map((tab) => (
+                        <button
+                            key={tab.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={messageSettingsTab === tab.id}
+                            data-testid={`messages-settings-tab-${tab.id}`}
+                            onClick={() => setMessageSettingsTab(tab.id)}
+                            className={`min-h-9 flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition sm:text-sm ${
+                                messageSettingsTab === tab.id
+                                    ? 'bg-white text-gray-900 shadow-sm'
+                                    : 'text-gray-600 hover:text-gray-900'
+                            }`}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
+                {messageSettingsTab === 'privacy' ? (
+                    <MessagingPrivacySettingsPanel
+                        open={showMessageSettings && messageSettingsTab === 'privacy'}
+                        onSaved={() => {
+                            showNotification('success', 'Messaging privacy', 'Settings updated.');
+                        }}
+                        onError={(message) => {
+                            showNotification('error', 'Messaging privacy', message);
+                        }}
+                    />
+                ) : null}
+                {messageSettingsTab === 'inbox' ? (
+                    <div className="space-y-5" data-testid="messages-settings-inbox">
+                        <section className="rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-sm font-semibold text-gray-900">Messages you receive</h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Allows others to send you message requests notifications.
+                            </p>
+                            <label className="mt-3 flex items-center justify-between text-sm">
+                                Message requests
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(messageSettings.messageRequestsNotifications)}
+                                    disabled={settingsBusy}
+                                    onChange={() => handleMessageSettingToggle('messageRequestsNotifications')}
+                                />
+                            </label>
+                        </section>
+                        <section className="rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-sm font-semibold text-gray-900">InMail messages</h4>
+                            <p className="mt-1 text-xs text-gray-500">Allow others to send you InMail.</p>
+                            <label className="mt-3 flex items-center justify-between text-sm">
+                                InMail messages
+                                <input
+                                    type="checkbox"
+                                    checked={Boolean(messageSettings.allowInMail)}
+                                    disabled={settingsBusy}
+                                    onChange={() => handleMessageSettingToggle('allowInMail')}
+                                />
+                            </label>
+                        </section>
+                        <div className="text-xs text-gray-500">
+                            You cannot disable messages from your 1st-degree connections. Use block for specific users.
+                        </div>
                     </div>
+                ) : null}
+                {messageSettingsTab === 'safety' ? (
+                    <div className="space-y-4" data-testid="messages-settings-safety">
+                        <section className="rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-sm font-semibold text-gray-900">Blocked accounts</h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Use <span className="font-medium">Report / Block</span> on a conversation to block a
+                                participant. Unblock is available from account safety settings when supported.
+                            </p>
+                        </section>
+                        <section className="rounded-lg border border-gray-200 p-4">
+                            <h4 className="text-sm font-semibold text-gray-900">Conversation-specific controls</h4>
+                            <p className="mt-1 text-xs text-gray-500">
+                                Mute, archive, star, labels, and notification levels live in each conversation&apos;s
+                                menu — they do not change global online or last-seen privacy.
+                            </p>
+                        </section>
+                    </div>
+                ) : null}
                 </div>
     </MobileDialog>
     <MobileDialog

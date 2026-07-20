@@ -24,6 +24,25 @@ export {
   MESSAGE_PREVIEW_KEYS
 } from './conversationPreview';
 
+/** Phase 22.3B — messaging privacy contract (mirrors backend messagingPrivacyPolicy). */
+export type {
+  PrivacyAudience,
+  GroupInviteAudience,
+  DirectMessageAudience,
+  MessagingPrivacySettings,
+  MessagingPrivacyPatch
+} from '../utils/messagingPrivacy';
+export {
+  MESSAGING_PRIVACY_DEFAULTS,
+  normalizeMessagingPrivacySettings
+} from '../utils/messagingPrivacy';
+import {
+  MESSAGING_PRIVACY_DEFAULTS,
+  normalizeMessagingPrivacySettings,
+  type MessagingPrivacyPatch,
+  type MessagingPrivacySettings
+} from '../utils/messagingPrivacy';
+
 const extractData = <T>(response: any): T => {
   if (response?.data?.data !== undefined) return response.data.data as T;
   if (response?.data !== undefined) return response.data as T;
@@ -647,6 +666,27 @@ export const MessagingService = {
   updatePresencePrivacy: async (visibility: 'EVERYONE' | 'CONTACTS' | 'NOBODY') => {
     const response = await api.patch('/messages/presence/privacy', { visibility });
     return extractData<any>(response);
+  },
+
+  /** Phase 22.3B — global messaging privacy (server-authoritative). */
+  getMessagingPrivacySettings: async (): Promise<MessagingPrivacySettings> => {
+    const response = await api.get('/messages/settings/privacy');
+    const data = extractData<any>(response) || {};
+    return normalizeMessagingPrivacySettings(data?.settings ?? data);
+  },
+
+  patchMessagingPrivacySettings: async (
+    updates: MessagingPrivacyPatch
+  ): Promise<MessagingPrivacySettings> => {
+    const body: Record<string, unknown> = { ...updates };
+    // Map app-layer onlineStatusVisibility → backend presenceVisibility field when needed
+    if (updates.onlineStatusVisibility !== undefined) {
+      body.onlineStatusVisibility = updates.onlineStatusVisibility;
+      body.presenceVisibility = updates.onlineStatusVisibility;
+    }
+    const response = await api.patch('/messages/settings/privacy', body);
+    const data = extractData<any>(response) || {};
+    return normalizeMessagingPrivacySettings(data?.settings ?? data);
   },
 
   markConversationUnread: async (conversationId: string): Promise<void> => {

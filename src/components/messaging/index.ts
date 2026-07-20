@@ -20,3 +20,10 @@ export {
 } from './MessageAttachmentRenderer';
 export { default as GroupManagePanel } from './GroupManagePanel';
 export { default as MessageDeliveryTicks } from './MessageDeliveryTicks';
+export { default as MessagingPrivacySettingsPanel } from './MessagingPrivacySettingsPanel';
+export {
+  buildConversationMenuItems,
+  groupMenuItemsBySection,
+  SECTION_LABELS,
+  SECTION_ORDER
+} from './conversationMenuPolicy';
