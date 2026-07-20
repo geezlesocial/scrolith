@@ -591,8 +591,12 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                                                     className="w-full border-gray-300 rounded-lg p-2 text-sm"
                                                     value={providerConfig.client_secret || ''}
                                                     onChange={(e) => updateProvider(provider, { client_secret: e.target.value })}
-                                                    placeholder="Leave blank to keep"
+                                                    placeholder="Leave blank to keep current secret"
+                                                    autoComplete="new-password"
                                                 />
+                                                <p className="text-[11px] text-gray-500 mt-1">
+                                                  Existing secrets are never returned by the API. Leave blank to keep the configured secret.
+                                                </p>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-medium text-gray-600 mb-1">Scopes</label>
@@ -604,13 +608,22 @@ const AuthPagesManager = ({ setView }: { setView: (view: 'list' | 'editor' | 'ca
                                                 />
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-medium text-gray-600 mb-1">Redirect URI (optional)</label>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                    Provider callback URI
+                                                </label>
+                                                <p className="text-[11px] text-gray-500 mb-1">
+                                                    Registered with the OAuth provider (backend). Not the frontend completion URL.
+                                                </p>
                                                 <input
-                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm"
+                                                    className="w-full border-gray-300 rounded-lg p-2 text-sm font-mono"
                                                     value={providerConfig.redirect_uri || ''}
                                                     onChange={(e) => updateProvider(provider, { redirect_uri: e.target.value })}
-                                                    placeholder="https://api.yoursite.com/api/auth/oauth/{provider}/callback"
+                                                    placeholder={`https://api.scrolith.com/api/auth/oauth/${provider}/callback`}
                                                 />
+                                                <p className="text-[11px] text-gray-500 mt-1">
+                                                    Frontend completion (automatic):{' '}
+                                                    <span className="font-mono">https://scrolith.com/auth/oauth/callback</span>
+                                                </p>
                                             </div>
                                             <div>
                                                 <label className="block text-xs font-medium text-gray-600 mb-1">Button Label</label>
