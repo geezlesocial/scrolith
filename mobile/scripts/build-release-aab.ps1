@@ -1,4 +1,4 @@
-# Phase 20.5 — production Android App Bundle builder
+# Phase 21.1 — production Android App Bundle builder
 # Usage (from C:\Projects\mobile):
 #   powershell -ExecutionPolicy Bypass -File scripts\build-release-aab.ps1
 $ErrorActionPreference = 'Stop'
@@ -6,25 +6,62 @@ $ErrorActionPreference = 'Stop'
 $MobileRoot = Split-Path -Parent $PSScriptRoot
 $GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.19'
-$VersionCode = 29
-$VersionName = '1.1.19'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.22'
+$VersionCode = 32
+$VersionName = '1.1.22'
+$WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
+if (-not $WebCommit) { $WebCommit = 'unknown' }
+
+# Production-only: never allow cleartext / CAP_SERVER_URL in release packaging
+Remove-Item Env:CAP_SERVER_URL -ErrorAction SilentlyContinue
+Remove-Item Env:CAP_ALLOW_CLEARTEXT -ErrorAction SilentlyContinue
+
+# Force production Vite client flags (process.env wins over .env files)
+$env:NODE_ENV = 'production'
+$env:VITE_DEBUG = 'false'
+$env:VITE_APP_ENV = 'production'
+$env:VITE_APP_NAME = 'Scrolith'
+$env:VITE_APP_URL = 'https://scrolith.com'
+$env:VITE_PUBLIC_APP_URL = 'https://scrolith.com'
+$env:VITE_PUBLIC_APP_DOMAIN = 'scrolith.com'
+$env:VITE_APP_DOMAIN = 'scrolith.com'
+$env:VITE_LOG_LEVEL = 'error'
+$env:VITE_SOCKET_TRACE = 'false'
+$env:VITE_MESSAGES_TRACE_DEBUG = 'false'
+$env:VITE_ALLOW_LOCAL_API_IN_PROD = 'false'
+$env:VITE_API_URL = 'https://scrolith-backend-1080932774304.asia-southeast1.run.app/api'
+$env:VITE_API_BASE_URL = 'https://scrolith-backend-1080932774304.asia-southeast1.run.app/api'
+$env:VITE_BACKEND_URL = 'https://scrolith-backend-1080932774304.asia-southeast1.run.app'
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$LogDir = Join-Path $OutDir 'logs'
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
-Write-Host "==> Building production web assets"
+# npm/vite write warnings to stderr; do not treat native stderr as terminating errors.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+
+Write-Host "==> Building production web assets (geezle @ $WebCommit)"
 Push-Location $GeezleRoot
-npm run build
-if ($LASTEXITCODE -ne 0) { throw "geezle build failed" }
+cmd /c "npm run build > `"$LogDir\frontend-build.log`" 2>&1"
+$feCode = $LASTEXITCODE
 Pop-Location
+if ($feCode -ne 0) {
+  Get-Content (Join-Path $LogDir 'frontend-build.log') -Tail 40
+  throw "geezle build failed (exit $feCode)"
+}
 
 Write-Host "==> Capacitor sync android"
 Push-Location $MobileRoot
-npx cap sync android
-if ($LASTEXITCODE -ne 0) { throw "cap sync failed" }
+cmd /c "npx cap sync android > `"$LogDir\cap-sync.log`" 2>&1"
+$capCode = $LASTEXITCODE
 Pop-Location
+if ($capCode -ne 0) {
+  Get-Content (Join-Path $LogDir 'cap-sync.log') -Tail 40
+  throw "cap sync failed (exit $capCode)"
+}
 
-Write-Host "==> Gradle bundleRelease"
+Write-Host "==> Gradle clean bundleRelease"
 $env:JAVA_HOME = if (Test-Path 'C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot') {
   'C:\Program Files\Microsoft\jdk-21.0.11.10-hotspot'
 } elseif ($env:JAVA_HOME) {
@@ -35,9 +72,14 @@ $env:JAVA_HOME = if (Test-Path 'C:\Program Files\Microsoft\jdk-21.0.11.10-hotspo
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 
 Push-Location $AndroidRoot
-.\gradlew.bat clean bundleRelease --no-daemon
-if ($LASTEXITCODE -ne 0) { throw "gradle bundleRelease failed" }
+cmd /c "gradlew.bat clean bundleRelease --no-daemon > `"$LogDir\gradle-bundle-release.log`" 2>&1"
+$gradleCode = $LASTEXITCODE
 Pop-Location
+$ErrorActionPreference = $prevEap
+if ($gradleCode -ne 0) {
+  Get-Content (Join-Path $LogDir 'gradle-bundle-release.log') -Tail 80
+  throw "gradle bundleRelease failed (exit $gradleCode)"
+}
 
 $AabSrc = Join-Path $AndroidRoot 'app\build\outputs\bundle\release\app-release.aab'
 if (-not (Test-Path $AabSrc)) { throw "AAB not found at $AabSrc" }
@@ -77,10 +119,17 @@ $meta = @{
   md5 = $md5
   builtAt = (Get-Date).ToString('o')
   javaHome = $env:JAVA_HOME
+  webCommit = $WebCommit
+  minifyEnabled = $true
+  shrinkResources = $true
+  phase = '21.1'
+  targetSdk = 36
+  compileSdk = 36
+  minSdk = 24
 } | ConvertTo-Json -Depth 4
 Set-Content -Encoding utf8 (Join-Path $OutDir 'artifact-metadata.json') $meta
 
 Write-Host "AAB: $AabDest"
 Write-Host "SHA-256: $sha256"
 Write-Host "Size: $size"
-Write-Host $AabDest | Set-Content (Join-Path $MobileRoot '.latest_aab_path.txt')
+Set-Content -Encoding ascii (Join-Path $MobileRoot '.latest_aab_path.txt') $AabDest

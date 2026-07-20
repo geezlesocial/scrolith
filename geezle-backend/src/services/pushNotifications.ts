@@ -7,7 +7,8 @@ import {
   formatNotificationTitleWithCategory,
   resolveAndroidChannelId,
   resolveNotificationCategory,
-  getNotificationCategoryLabel
+  getNotificationCategoryLabel,
+  resolveAndroidNotificationTag
 } from './notificationAndroidChannels';
 
 export type PushNotificationPayload = {
@@ -81,6 +82,10 @@ const INVALID_TOKEN_CODES = new Set([
 /** @deprecated Prefer resolveAndroidChannelId — kept as migration fallback */
 const SCROLITH_ANDROID_CHANNEL_ID = 'scrolith_alerts_v2';
 const SCROLITH_ANDROID_SOUND = 'scrolith';
+/** Phase 25 monochrome status icon (drawable name without extension). */
+const SCROLITH_ANDROID_SMALL_ICON = 'ic_stat_scrolith';
+/** Brand primary #0B5FFF */
+const SCROLITH_ANDROID_COLOR = '#0B5FFF';
 
 let firebaseApp: admin.app.App | null = null;
 let initAttempted = false;
@@ -406,24 +411,37 @@ const buildAndroidPushConfig = (payload?: PushNotificationPayload): admin.messag
         meta: payload.meta
       })
     : 'system';
-  // Messages + security get maximum interruption; system defaults to high for compatibility.
-  const priority: 'high' | 'normal' =
-    category === 'message' || category === 'security' || category === 'scrolitha' ? 'high' : 'high';
+  // All interactive Scrolith pushes use high priority for reliable wake on Android Doze.
+  const priority: 'high' | 'normal' = 'high';
+  const tag = resolveAndroidNotificationTag({
+    type: payload?.type || payload?.data?.type,
+    data: payload?.data,
+    meta: payload?.meta,
+    id: payload?.id
+  });
+  // Messaging-style grouping: same conversation collapses into one notification slot.
+  const collapseKey =
+    category === 'message'
+      ? String(payload?.data?.conversationId || payload?.data?.conversation_id || tag).slice(0, 64)
+      : tag;
   return {
     priority,
+    collapseKey,
     notification: {
       channelId,
       sound: SCROLITH_ANDROID_SOUND,
-      // Tag by conversation/entity when available for notification grouping.
-      tag: String(
-        payload?.data?.conversationId ||
-          payload?.data?.conversation_id ||
-          payload?.data?.entityId ||
-          payload?.data?.entity_id ||
-          payload?.id ||
-          category ||
-          'scrolith'
-      ).slice(0, 64)
+      icon: SCROLITH_ANDROID_SMALL_ICON,
+      color: SCROLITH_ANDROID_COLOR,
+      // Tag by conversation/entity for intelligent grouping (replaces prior notify).
+      tag,
+      // Click routing uses data.deepLink / data.link consumed by Capacitor push listeners.
+      visibility: category === 'admin' || category === 'security' ? 'private' : 'public',
+      notificationCount:
+        typeof payload?.data?.badgeCount === 'number'
+          ? payload.data.badgeCount
+          : typeof payload?.data?.unreadCount === 'number'
+            ? payload.data.unreadCount
+            : undefined
     }
   };
 };

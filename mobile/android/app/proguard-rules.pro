@@ -1,21 +1,45 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Scrolith Android release ProGuard / R8 rules (Phase 20.11)
+# Capacitor Bridge + plugins must not be stripped.
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+-keepattributes *Annotation*
+-keepattributes Signature
+-keepattributes InnerClasses
+-keepattributes EnclosingMethod
+-keepattributes Exceptions
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Capacitor core
+-keep class com.getcapacitor.** { *; }
+-keep class com.capacitorjs.** { *; }
+-keep interface com.getcapacitor.** { *; }
+-dontwarn com.getcapacitor.**
+-dontwarn com.capacitorjs.**
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# App package
+-keep class com.scrolith.scrolith.** { *; }
+
+# Firebase / FCM
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+
+# Phase 25 — Play Integrity
+-keep class com.google.android.play.core.integrity.** { *; }
+-dontwarn com.google.android.play.core.integrity.**
+
+# Cordova bridge residual (Capacitor cordova plugins host)
+-keep class org.apache.cordova.** { *; }
+-dontwarn org.apache.cordova.**
+
+# Biometric plugin
+-keep class com.aparajita.capacitor.biometricauth.** { *; }
+-dontwarn com.aparajita.**
+
+# WebView JS interfaces
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+
+# Do not leak file names in stack traces to public artifacts
+-renamesourcefileattribute SourceFile
+-keepattributes SourceFile,LineNumberTable

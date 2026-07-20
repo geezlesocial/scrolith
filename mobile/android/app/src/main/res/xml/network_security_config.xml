@@ -1,20 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
   <!--
-    Production hardening:
+    Phase 20.11 production hardening:
     - Release builds set usesCleartextTraffic=false via manifest placeholder.
-    - Debug builds can enable cleartext for local dev hosts.
+    - Base config never permits cleartext to production hosts.
+    - Domain-config cleartext is ONLY for local/emulator debug hosts.
+    - Production SPA origin: https://scrolith.com (Capacitor server.hostname).
   -->
   <base-config cleartextTrafficPermitted="false">
     <trust-anchors>
       <certificates src="system" />
     </trust-anchors>
   </base-config>
-  <!-- Local dev hosts (emulator/device) -->
+  <!-- Local dev hosts (emulator/device) — not used by production release traffic -->
   <domain-config cleartextTrafficPermitted="true">
     <domain includeSubdomains="true">192.168.1.168</domain>
     <domain includeSubdomains="true">10.0.2.2</domain>
     <domain includeSubdomains="true">localhost</domain>
     <domain includeSubdomains="true">127.0.0.1</domain>
+  </domain-config>
+  <domain-config cleartextTrafficPermitted="false">
+    <domain includeSubdomains="true">scrolith.com</domain>
+    <domain includeSubdomains="true">www.scrolith.com</domain>
+    <domain includeSubdomains="true">api.scrolith.com</domain>
+    <domain includeSubdomains="true">run.app</domain>
   </domain-config>
 </network-security-config>

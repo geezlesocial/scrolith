@@ -266,8 +266,18 @@ export const buildNotificationActionUrl = (
     normalizeNotificationActionUrl(data.url);
   if (explicit) return explicit;
 
-  if (type === 'followed_you') {
-    if (actorUsername) return `/u/${encodeURIComponent(actorUsername)}`;
+  // Phase 25 entity ids for expanded deep links
+  const storyId = normalizeId(data.storyId || data.story_id);
+  const scrollId = normalizeId(data.scrollId || data.scroll_id || data.scrollVideoId || data.videoId);
+  const listingId = normalizeId(data.listingId || data.listing_id || data.listingSlug);
+  const groupId = normalizeId(data.groupId || data.group_id || data.communityId || data.groupSlug);
+  const gigId = normalizeId(data.gigId || data.gig_id);
+  const liveId = normalizeId(data.liveId || data.live_id || data.sessionId || data.session_id);
+  const eventId = normalizeId(data.eventId || data.event_id);
+  const applicationId = normalizeId(data.applicationId || data.application_id);
+
+  if (type === 'followed_you' || normalizedType.includes('follow')) {
+    if (actorUsername) return `/profile/${encodeURIComponent(actorUsername)}`;
     if (actorId) return `/profile/${encodeURIComponent(actorId)}`;
     return '/community';
   }
@@ -295,7 +305,52 @@ export const buildNotificationActionUrl = (
     })}`;
   }
 
+  if (normalizedType.includes('story') && (storyId || postId || normalizeId(data.entityId))) {
+    const id = storyId || postId || normalizeId(data.entityId);
+    return `/community?story=${encodeURIComponent(id)}`;
+  }
+
+  if (
+    (normalizedType.includes('scroll') || normalizedType.includes('short_video') || normalizedType.includes('reel')) &&
+    (scrollId || postId || normalizeId(data.entityId))
+  ) {
+    const id = scrollId || postId || normalizeId(data.entityId);
+    return `/scroll?scroll=${encodeURIComponent(id)}`;
+  }
+
+  if ((normalizedType.includes('live') || normalizedType.includes('livestream')) && (liveId || normalizeId(data.entityId))) {
+    return `/live/${encodeURIComponent(liveId || normalizeId(data.entityId))}`;
+  }
+
+  if (normalizedType.includes('event') && (eventId || normalizeId(data.entityId))) {
+    return `/community/events?event=${encodeURIComponent(eventId || normalizeId(data.entityId))}`;
+  }
+
+  if (
+    (normalizedType.includes('community') || normalizedType.includes('group') || normalizedType.includes('club')) &&
+    groupId
+  ) {
+    return `/community/clubs?group=${encodeURIComponent(groupId)}`;
+  }
+
+  if ((normalizedType.includes('marketplace') || normalizedType.includes('listing')) && listingId) {
+    return `/marketplace/listing/${encodeURIComponent(listingId)}`;
+  }
+
+  if ((normalizedType.includes('gig') || normalizedType.includes('order')) && (orderId || gigId)) {
+    return `/gigs/${encodeURIComponent(orderId || gigId)}`;
+  }
+
+  if (normalizedType.includes('admin') || normalizedType.includes('moderation')) {
+    return '/admin/moderation';
+  }
+
   if (type === 'job_application_created') {
+    if (applicationId || proposalId) {
+      return `/jobs/${encodeURIComponent(jobId || applicationId || proposalId)}${toQuery({
+        application: applicationId || proposalId
+      })}`;
+    }
     return `${getDashboardBase('employer')}${toQuery({ tab: 'proposals', job: jobId, proposal: proposalId })}`;
   }
 
