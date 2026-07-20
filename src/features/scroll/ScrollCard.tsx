@@ -246,7 +246,17 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
   const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
   const series = Array.isArray(scroll.series) ? scroll.series : [];
-  const hasOwnerActions = Boolean(scroll.canEdit || scroll.canDelete);
+  // Client-side ownership fallback when API flags are missing (deep links / stale payloads).
+  const isPostBridge = Boolean(scroll.bridgeSource?.type === 'post' || String(scroll.id || '').startsWith('post-video:'));
+  const isOwner =
+    Boolean(user?.id) &&
+    !isPostBridge &&
+    (String(scroll.authorId || scroll.author?.id || '').trim() === String(user?.id || '').trim() ||
+      Boolean(scroll.canEdit) ||
+      Boolean(scroll.canDelete));
+  const canEditScroll = Boolean(scroll.canEdit) || isOwner;
+  const canDeleteScroll = Boolean(scroll.canDelete) || isOwner;
+  const hasOwnerActions = canEditScroll || canDeleteScroll;
   const overlayControlsVisible = controlsVisible || ownerMenuOpen;
   const reactionInitialCounts = useMemo(
     () => (Number(scroll.metrics?.likes || 0) > 0 ? { like: Number(scroll.metrics.likes || 0) } : undefined),
@@ -1018,7 +1028,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
         <div
           className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${
-            overlayControlsVisible ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0 pointer-events-none'
+            hasOwnerActions || overlayControlsVisible
+              ? 'translate-y-0 opacity-100'
+              : '-translate-y-2 opacity-0 pointer-events-none'
           }`}
         >
           <button
@@ -1053,15 +1065,16 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   revealControls();
                   setOwnerMenuOpen((current) => !current);
                 }}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
-                aria-label="Open scroll owner actions"
+                className="inline-flex h-10 min-w-[40px] items-center justify-center gap-1 rounded-full bg-black/55 px-2.5 text-white ring-1 ring-white/20 transition hover:bg-black/75 sm:min-w-0 sm:px-0 sm:w-10"
+                aria-label="Manage your Scroll"
                 aria-expanded={ownerMenuOpen}
               >
                 <MoreHorizontal className="h-5 w-5" />
+                <span className="pr-1 text-[11px] font-semibold sm:hidden">Manage</span>
               </button>
               {ownerMenuOpen ? (
-                <div className="absolute right-0 top-12 min-w-[180px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1.5 text-sm text-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.95)] backdrop-blur-xl">
-                  {scroll.canEdit ? (
+                <div className="absolute right-0 top-12 z-50 min-w-[200px] overflow-hidden rounded-2xl border border-white/15 bg-slate-950/95 p-1.5 text-sm text-white shadow-[0_24px_64px_-24px_rgba(15,23,42,0.95)] backdrop-blur-xl">
+                  {canEditScroll ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -1071,10 +1084,35 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                       className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
                     >
                       <Pencil className="h-4 w-4" />
-                      Edit scroll
+                      Edit / update scroll
                     </button>
                   ) : null}
-                  {scroll.canDelete ? (
+                  {canEditScroll ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOwnerMenuOpen(false);
+                        void onEdit(scroll);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
+                    >
+                      <Clapperboard className="h-4 w-4" />
+                      Replace video
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOwnerMenuOpen(false);
+                      const url = `${window.location.origin}/scroll?scroll=${encodeURIComponent(scroll.id)}`;
+                      void navigator.clipboard?.writeText(url).catch(() => undefined);
+                    }}
+                    className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white/90 transition hover:bg-white/10"
+                  >
+                    <Link2 className="h-4 w-4" />
+                    Copy link
+                  </button>
+                  {canDeleteScroll ? (
                     <button
                       type="button"
                       onClick={() => {

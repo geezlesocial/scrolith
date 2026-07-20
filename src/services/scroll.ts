@@ -256,6 +256,15 @@ class ScrollService {
     return extractData<{ items: ScrollVideo[]; nextCursor?: string | null; config?: ScrollConfig }>(response);
   }
 
+  /** Owner inventory of active Scroll videos. */
+  static async getMine(params?: { cursor?: string; limit?: number }) {
+    const query = new URLSearchParams();
+    if (params?.cursor) query.set('cursor', String(params.cursor));
+    if (typeof params?.limit !== 'undefined') query.set('limit', String(params.limit));
+    const response = await api.get(`/scroll/mine${query.toString() ? `?${query.toString()}` : ''}`);
+    return extractData<{ items: ScrollVideo[]; nextCursor?: string | null }>(response);
+  }
+
   /** Phase 22.1B — fetch one Scroll video for deep-link resolution. */
   static async getById(id: string) {
     const scrollId = String(id || '').trim();

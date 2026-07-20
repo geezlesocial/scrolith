@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  Clapperboard,
   ExternalLink,
   FileText,
   Heart,
@@ -19,6 +20,7 @@ import { useUser } from '../../context/UserContext';
 import { useNotification } from '../../context/NotificationContext';
 import { CommunityService } from '../../services/community';
 import { FileService } from '../../services/files';
+import { ScrollService, type ScrollVideo } from '../../services/scroll';
 import { resolveAssetUrl } from '../../utils/assetUrl';
 import {
   resolvePostAttachmentMediaUrl,
@@ -32,6 +34,7 @@ import {
 } from '../../utils/postAiControls';
 import OptimizedImage from '../../components/media/OptimizedImage';
 import InlineAutoplayVideo from '../../components/media/InlineAutoplayVideo';
+import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
 import { ConfirmModal } from './ConfirmModal';
 import { Skeleton } from './Skeleton';
 import { EmptyState } from './EmptyState';
@@ -104,32 +107,46 @@ const MyPosts: React.FC = () => {
   const { user } = useUser();
   const { showNotification } = useNotification();
   const [posts, setPosts] = useState<any[]>([]);
+  const [scrolls, setScrolls] = useState<ScrollVideo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [kindFilter, setKindFilter] = useState<'all' | 'posts' | 'scrolls'>('all');
   const [filter, setFilter] = useState<'all' | 'original' | 'reposts' | 'with-media' | 'highlighted'>('all');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const HIGHLIGHT_LIMIT = 3;
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteScrollId, setDeleteScrollId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [replaceLocalId, setReplaceLocalId] = useState<string | null>(null);
+  const [editingScroll, setEditingScroll] = useState<ScrollVideo | null>(null);
+  const [scrollModalOpen, setScrollModalOpen] = useState(false);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) {
       setPosts([]);
+      setScrolls([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const data = await CommunityService.getMyPosts({ limit: 100, status: 'active' });
-      setPosts(Array.isArray(data) ? data : []);
+      const [postsData, scrollsData] = await Promise.all([
+        CommunityService.getMyPosts({ limit: 100, status: 'active' }).catch((err) => {
+          throw err;
+        }),
+        ScrollService.getMine({ limit: 100 }).catch(() => ({ items: [] as ScrollVideo[] }))
+      ]);
+      setPosts(Array.isArray(postsData) ? postsData : []);
+      const scrollItems = Array.isArray(scrollsData?.items) ? scrollsData.items : [];
+      setScrolls(scrollItems);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || 'Failed to load your posts');
+      setError(err?.response?.data?.error || err?.message || 'Failed to load your content');
       setPosts([]);
+      setScrolls([]);
     } finally {
       setLoading(false);
     }
@@ -143,7 +160,14 @@ const MyPosts: React.FC = () => {
     const refresh = () => {
       void load();
     };
-    const events = ['community:post_created', 'community:post_updated', 'community:post_deleted'];
+    const events = [
+      'community:post_created',
+      'community:post_updated',
+      'community:post_deleted',
+      'scroll:created',
+      'scroll:updated',
+      'scroll:removed'
+    ];
     events.forEach((eventName) => window.addEventListener(eventName, refresh as EventListener));
     return () => {
       events.forEach((eventName) => window.removeEventListener(eventName, refresh as EventListener));
@@ -155,7 +179,8 @@ const MyPosts: React.FC = () => {
     [posts]
   );
 
-  const filtered = useMemo(() => {
+  const filteredPosts = useMemo(() => {
+    if (kindFilter === 'scrolls') return [];
     const term = query.trim().toLowerCase();
     return posts.filter((post) => {
       const isRepost = Boolean(post.originalPostId || post.originalPost);
@@ -169,7 +194,18 @@ const MyPosts: React.FC = () => {
       const hay = `${post.title || ''} ${post.content || ''} ${(post.tags || []).join(' ')}`.toLowerCase();
       return hay.includes(term);
     });
-  }, [filter, posts, query]);
+  }, [filter, kindFilter, posts, query]);
+
+  const filteredScrolls = useMemo(() => {
+    if (kindFilter === 'posts') return [];
+    if (filter === 'reposts' || filter === 'highlighted') return [];
+    const term = query.trim().toLowerCase();
+    return scrolls.filter((scroll) => {
+      if (!term) return true;
+      const hay = `${scroll.title || ''} ${scroll.description || ''} ${scroll.location || ''}`.toLowerCase();
+      return hay.includes(term);
+    });
+  }, [filter, kindFilter, query, scrolls]);
 
   const beginEdit = (post: any) => {
     setEditingId(post.id);
@@ -338,6 +374,45 @@ const MyPosts: React.FC = () => {
     }
   };
 
+  const confirmDeleteScroll = async () => {
+    if (!deleteScrollId) return;
+    setBusyId(deleteScrollId);
+    try {
+      await ScrollService.remove(deleteScrollId);
+      setScrolls((prev) => prev.filter((item) => item.id !== deleteScrollId));
+      showNotification('success', 'My Scrolls', 'Scroll video deleted.');
+      window.dispatchEvent(new CustomEvent('scroll:removed', { detail: { scrollId: deleteScrollId } }));
+    } catch (err: any) {
+      showNotification('error', 'My Scrolls', err?.response?.data?.error || err?.message || 'Delete failed');
+    } finally {
+      setBusyId(null);
+      setDeleteScrollId(null);
+    }
+  };
+
+  const openScrollEdit = (scroll: ScrollVideo) => {
+    setEditingScroll(scroll);
+    setScrollModalOpen(true);
+  };
+
+  const handleScrollUpdated = (scroll: ScrollVideo) => {
+    setScrolls((prev) => prev.map((item) => (item.id === scroll.id ? { ...item, ...scroll } : item)));
+    setScrollModalOpen(false);
+    setEditingScroll(null);
+    showNotification('success', 'My Scrolls', 'Scroll video updated.');
+    window.dispatchEvent(new CustomEvent('scroll:updated', { detail: { scroll } }));
+  };
+
+  const copyScrollLink = async (scrollId: string) => {
+    const url = `${window.location.origin}/scroll?scroll=${encodeURIComponent(scrollId)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showNotification('success', 'My Scrolls', 'Link copied.');
+    } catch {
+      showNotification('info', 'My Scrolls', url);
+    }
+  };
+
   const togglePin = async (post: any) => {
     setBusyId(post.id);
     try {
@@ -414,13 +489,13 @@ const MyPosts: React.FC = () => {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Content inventory</p>
-            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">My Posts</h2>
+            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">My Posts & Scrolls</h2>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Edit text and media, pin, highlight on profile, and delete posts. Highlights appear on your public
-              profile (max {HIGHLIGHT_LIMIT}). Changes sync in real time.
+              Manage community posts and Scroll videos in one place: edit, replace media, pin, highlight, delete.
+              Highlights (posts) appear on your profile (max {HIGHLIGHT_LIMIT}).
             </p>
             <p className="mt-2 text-[11px] font-medium text-slate-500">
-              Profile highlights in use: {highlightedCount}/{HIGHLIGHT_LIMIT}
+              Posts {posts.length} · Scrolls {scrolls.length} · Highlights {highlightedCount}/{HIGHLIGHT_LIMIT}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -433,16 +508,45 @@ const MyPosts: React.FC = () => {
               Refresh
             </button>
             <Link
+              to="/scroll?create=1"
+              className="inline-flex items-center gap-2 rounded-full border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100"
+            >
+              <Clapperboard className="h-3.5 w-3.5" />
+              New Scroll
+            </Link>
+            <Link
               to="/home"
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
             >
               <Plus className="h-3.5 w-3.5" />
-              Create on Member Home
+              New post
             </Link>
           </div>
         </div>
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="mt-4 flex flex-col gap-3">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+            {(
+              [
+                ['all', `All (${posts.length + scrolls.length})`],
+                ['posts', `Posts (${posts.length})`],
+                ['scrolls', `Scrolls (${scrolls.length})`]
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setKindFilter(id)}
+                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 ${
+                  kindFilter === id
+                    ? 'bg-indigo-600 text-white'
+                    : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {(
               [
@@ -457,7 +561,8 @@ const MyPosts: React.FC = () => {
                 key={id}
                 type="button"
                 onClick={() => setFilter(id)}
-                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 ${
+                disabled={kindFilter === 'scrolls' && id !== 'all' && id !== 'with-media'}
+                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 disabled:opacity-40 ${
                   filter === id
                     ? 'bg-slate-900 text-white'
                     : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -483,14 +588,104 @@ const MyPosts: React.FC = () => {
         </div>
       ) : error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
-      ) : filtered.length === 0 ? (
+      ) : filteredPosts.length === 0 && filteredScrolls.length === 0 ? (
         <EmptyState
-          title="No posts yet"
-          description="Publish from Member Home, then manage every post, video, and attachment here."
+          title="No content yet"
+          description="Publish a post on Member Home or create a Scroll video, then manage everything here."
         />
       ) : (
         <div className="space-y-4">
-          {filtered.map((post) => {
+          {filteredScrolls.map((scroll) => {
+            const busy = busyId === scroll.id;
+            const mediaUrl =
+              resolvePostAttachmentMediaUrl(scroll.media) ||
+              String(scroll.media?.url || '').trim() ||
+              '';
+            const poster = String(scroll.media?.thumbnailUrl || '').trim();
+            return (
+              <article
+                key={`scroll-${scroll.id}`}
+                className="rounded-2xl border border-cyan-100 bg-white p-3 shadow-sm ring-1 ring-cyan-50 sm:p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-cyan-50 px-2 py-0.5 text-[10px] font-bold uppercase text-cyan-800">
+                        <Clapperboard className="h-3 w-3" />
+                        Scroll
+                      </span>
+                      <h3 className="truncate text-sm font-semibold text-slate-900">
+                        {scroll.title || 'Untitled Scroll'}
+                      </h3>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+                        {String(scroll.visibility || 'public')}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {scroll.createdAt ? new Date(scroll.createdAt).toLocaleString() : '—'}
+                      {scroll.location ? ` · ${scroll.location}` : ''}
+                    </p>
+                    {scroll.description ? (
+                      <p className="mt-2 line-clamp-2 text-sm text-slate-700">{scroll.description}</p>
+                    ) : null}
+                  </div>
+                </div>
+                {mediaUrl ? (
+                  <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-black">
+                    <video
+                      src={mediaUrl}
+                      poster={poster || undefined}
+                      className="mx-auto max-h-64 w-full object-contain sm:max-h-72"
+                      controls
+                      playsInline
+                      preload="metadata"
+                    />
+                  </div>
+                ) : null}
+                <div
+                  className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
+                  role="group"
+                  aria-label="Scroll actions"
+                >
+                  <button
+                    type="button"
+                    onClick={() => openScrollEdit(scroll)}
+                    disabled={busy}
+                    className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
+                  >
+                    <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Edit / update
+                  </button>
+                  <Link
+                    to={`/scroll?scroll=${encodeURIComponent(scroll.id)}`}
+                    className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Open Scroll
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => void copyScrollLink(scroll.id)}
+                    disabled={busy}
+                    className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Copy link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteScrollId(scroll.id)}
+                    disabled={busy}
+                    className={`${actionBtnClass} col-span-2 border-rose-200 text-rose-600 hover:bg-rose-50 sm:col-span-1`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    Delete
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+          {filteredPosts.map((post) => {
             const busy = busyId === post.id;
             const isEditing = editingId === post.id && draft;
             const attachments = Array.isArray(post.attachments) ? post.attachments : [];
@@ -874,6 +1069,28 @@ const MyPosts: React.FC = () => {
         confirmLabel="Delete"
         onConfirm={() => void confirmDelete()}
         onCancel={() => setDeleteId(null)}
+      />
+      <ConfirmModal
+        open={Boolean(deleteScrollId)}
+        title="Delete Scroll video?"
+        description="This permanently removes the Scroll from feeds and your inventory. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => void confirmDeleteScroll()}
+        onCancel={() => setDeleteScrollId(null)}
+      />
+      <ScrollCreateModal
+        open={scrollModalOpen}
+        onClose={() => {
+          setScrollModalOpen(false);
+          setEditingScroll(null);
+        }}
+        onCreated={() => {
+          setScrollModalOpen(false);
+          setEditingScroll(null);
+          void load();
+        }}
+        onUpdated={handleScrollUpdated}
+        editScroll={editingScroll}
       />
     </div>
   );
