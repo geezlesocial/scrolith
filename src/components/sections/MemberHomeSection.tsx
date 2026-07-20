@@ -1024,7 +1024,15 @@ const inferMediaType = (media: {
   content_type?: string;
   videoUrl?: string;
   video_url?: string;
+  fallbackUrl?: string;
+  name?: string;
+  originalName?: string;
+  filename?: string;
+  fileName?: string;
 }) => {
+  // Strong explicit labels win immediately. Weak "document" does not — raw file-id
+  // attachments and octet-stream uploads were historically labeled document and must
+  // still preview as video/image when mime/url/name say so.
   const explicit = String(
     media.type ||
       media.kind ||
@@ -1034,13 +1042,23 @@ const inferMediaType = (media: {
       media.content_type ||
       ''
   ).toLowerCase();
-  if (explicit === 'image' || explicit === 'video' || explicit === 'document') return explicit;
+  if (explicit === 'image' || explicit === 'video') return explicit;
   const mime = String(media.mimeType || media.mime_type || '').toLowerCase();
-  if (mime.startsWith('image/')) return 'image';
   if (mime.startsWith('video/')) return 'video';
-  const url = String(media.url || media.videoUrl || media.video_url || '').toLowerCase();
-  if (/\.(mp4|webm|mov|m4v|ogg|avi|mkv)(\?|$)/.test(url) || url.includes('/video/')) return 'video';
-  if (/\.(png|jpe?g|gif|webp|svg)$/.test(url)) return 'image';
+  if (mime.startsWith('image/')) return 'image';
+  const url = String(media.url || media.videoUrl || media.video_url || media.fallbackUrl || '').toLowerCase();
+  const name = String(media.name || media.originalName || media.filename || media.fileName || '').toLowerCase();
+  const hay = `${url} ${name}`;
+  if (/\.(mp4|webm|mov|m4v|ogg|avi|mkv)(?:$|[?#])/.test(hay) || hay.includes('/video/')) return 'video';
+  if (/\.(png|jpe?g|gif|webp|svg|avif)(?:$|[?#])/.test(hay)) return 'image';
+  // MediaRecorder / camera blobs are often stored as octet-stream with video-ish names.
+  if (
+    mime === 'application/octet-stream' &&
+    (/video|reel|clip|camera|record|capture/.test(hay) || /\.webm|\.mp4|\.mov/.test(hay))
+  ) {
+    return 'video';
+  }
+  if (explicit === 'document') return 'document';
   return 'document';
 };
 
@@ -2498,18 +2516,46 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         : attachments.length > 0
           ? attachments.map((item: any) => item?.id || item?.fileId || item?.file_id).filter(Boolean)
           : [],
-      attachments: attachments.map((item: any) => ({
-        ...item,
-        id: item.id || item.fileId || item.file_id || resolvePostAttachmentMediaUrl(item),
-        url: resolvePostAttachmentMediaUrl(item) || item.url || '',
-        name: item.name || item.originalName || item.filename,
-        mimeType: item.mimeType || item.mime_type,
-        type: item.type || inferMediaType(item),
-        thumbnailUrl: resolvePostAttachmentPosterUrl(item) || item.thumbnailUrl || item.thumbnail_url || null,
-        duration: item.duration,
-        width: item.width,
-        height: item.height
-      })),
+      attachments: attachments
+        .map((item: any) => {
+          // Orchestrated feed historically shipped raw file-id strings — normalize first.
+          const normalized =
+            typeof item === 'string'
+              ? { id: item, fileId: item }
+              : item && typeof item === 'object'
+                ? item
+                : null;
+          if (!normalized) return null;
+          const id = normalized.id || normalized.fileId || normalized.file_id || '';
+          const url =
+            resolvePostAttachmentMediaUrl(normalized) ||
+            resolvePostAttachmentMediaUrl(id) ||
+            normalized.url ||
+            '';
+          const mimeType = normalized.mimeType || normalized.mime_type || '';
+          const name = normalized.name || normalized.originalName || normalized.filename || '';
+          // Always re-infer: never lock in a stale "document" label when mime/url says video.
+          const type = inferMediaType({ ...normalized, id, url, mimeType, name });
+          return {
+            ...normalized,
+            id: id || url,
+            fileId: normalized.fileId || normalized.file_id || id || undefined,
+            url,
+            name,
+            mimeType,
+            type,
+            kind: type,
+            thumbnailUrl:
+              resolvePostAttachmentPosterUrl(normalized) ||
+              normalized.thumbnailUrl ||
+              normalized.thumbnail_url ||
+              null,
+            duration: normalized.duration ?? normalized.durationSeconds,
+            width: normalized.width,
+            height: normalized.height
+          };
+        })
+        .filter(Boolean),
       author: {
         id: post.author?.id || (authorType === 'business' ? post.businessPage?.id : authorId),
         username: post.author?.username ?? authorUsername,
