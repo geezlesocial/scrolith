@@ -40,7 +40,25 @@ const SCROLL_ENGAGEMENT_TYPES = new Set([
   'view_10s',
   'view_25',
   'view_50',
-  'view_95'
+  'view_95',
+  // Phase 23 — Scrolitha learning signals (no public counter inflation)
+  'learn_pause',
+  'learn_replay',
+  'learn_mute',
+  'learn_unmute',
+  'learn_seek',
+  'learn_complete',
+  'learn_watch'
+]);
+
+const SCROLL_LEARNING_TYPES = new Set([
+  'learn_pause',
+  'learn_replay',
+  'learn_mute',
+  'learn_unmute',
+  'learn_seek',
+  'learn_complete',
+  'learn_watch'
 ]);
 
 const getBaseFileUrl = (req?: Request) => resolveFileBaseUrl(req);
@@ -1928,6 +1946,8 @@ export const engageScroll = async (req: Request, res: Response) => {
     const config = await getOrCreateScrollConfig();
     let created = false;
     let liked = false;
+    const isLearning = SCROLL_LEARNING_TYPES.has(type);
+    const watchedSeconds = Number(req.body?.watchedSeconds ?? req.body?.watchSeconds ?? 0);
 
     if (type === 'like') {
       const existingLike = await prismaAny.scrollEngagement.findFirst({
@@ -1952,7 +1972,6 @@ export const engageScroll = async (req: Request, res: Response) => {
       }
     } else {
       if (type === 'impression') {
-        const watchedSeconds = Number(req.body?.watchedSeconds ?? req.body?.watchSeconds ?? 0);
         const threshold = Number(config.impressionThresholdSeconds || 2);
         if (!Number.isFinite(watchedSeconds) || watchedSeconds < threshold) {
           return res.json({
@@ -1974,7 +1993,8 @@ export const engageScroll = async (req: Request, res: Response) => {
         created = false;
       }
 
-      if (created) {
+      // Public counters only for non-learning engagement types
+      if (created && !isLearning) {
         if (type === 'impression') {
           await prismaAny.scrollVideo.update({
             where: { id: scrollId },
@@ -1992,6 +2012,62 @@ export const engageScroll = async (req: Request, res: Response) => {
       }
     }
 
+    // Phase 23 — feed intent learning for Scroll recommendations (not community feed identity)
+    if (created || type === 'like') {
+      try {
+        if (type === 'view_95' || type === 'learn_complete' || type === 'learn_replay') {
+          await recordFeedIntentSignal({
+            userId,
+            entityId: scrollId,
+            entityType: 'SCROLL',
+            signal: type === 'learn_replay' ? 'REPLAY' : 'COMPLETE',
+            surface: 'scroll',
+            weight: type === 'learn_replay' ? 1.4 : 1.8,
+            meta: {
+              engagementType: type,
+              watchedSeconds: Number.isFinite(watchedSeconds) ? watchedSeconds : null,
+              topics: extractInterestKeywords(scroll?.title, scroll?.description, scroll?.location)
+            }
+          });
+        } else if (type === 'like' && liked) {
+          await recordFeedIntentSignal({
+            userId,
+            entityId: scrollId,
+            entityType: 'SCROLL',
+            signal: 'LIKE',
+            surface: 'scroll',
+            weight: 1.5,
+            meta: { engagementType: type }
+          });
+        } else if (type === 'share' || type === 'send' || type === 'repost') {
+          await recordFeedIntentSignal({
+            userId,
+            entityId: scrollId,
+            entityType: 'SCROLL',
+            signal: type.toUpperCase(),
+            surface: 'scroll',
+            weight: 1.3,
+            meta: { engagementType: type }
+          });
+        } else if (isLearning && (type === 'learn_watch' || type === 'learn_seek')) {
+          await recordFeedIntentSignal({
+            userId,
+            entityId: scrollId,
+            entityType: 'SCROLL',
+            signal: 'WATCH',
+            surface: 'scroll',
+            weight: type === 'learn_watch' ? 0.6 : 0.35,
+            meta: {
+              engagementType: type,
+              watchedSeconds: Number.isFinite(watchedSeconds) ? watchedSeconds : null
+            }
+          });
+        }
+      } catch {
+        /* intent table optional / non-blocking */
+      }
+    }
+
     const updated = await prismaAny.scrollVideo.findUnique({ where: { id: scrollId } });
     const payload = {
       scrollId,
@@ -1999,6 +2075,7 @@ export const engageScroll = async (req: Request, res: Response) => {
       userId,
       created,
       liked,
+      learning: isLearning,
       metrics: {
         impressions: Number(updated?.impressions || 0),
         views3s: Number(updated?.views3s || 0),
@@ -2014,8 +2091,11 @@ export const engageScroll = async (req: Request, res: Response) => {
       }
     };
 
-    const eventName = type === 'impression' ? 'scroll:impression_update' : 'scroll:engagement_update';
-    emitScrollEvent(req, eventName, payload);
+    // Learning events: self-only quiet ack (avoid peer metric spam)
+    if (!isLearning) {
+      const eventName = type === 'impression' ? 'scroll:impression_update' : 'scroll:engagement_update';
+      emitScrollEvent(req, eventName, payload);
+    }
     return res.json({ success: true, data: payload });
   } catch (error: any) {
     if (isScrollSchemaMissingError(error)) {
