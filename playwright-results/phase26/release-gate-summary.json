@@ -1,0 +1,68 @@
+{
+  "overall": "PASS",
+  "phase26Certified": true,
+  "promoteRecommended": true,
+  "migrationApplied": true,
+  "backendPromoted": true,
+  "frontendPromoted": true,
+  "currentTranslatorPreserved": true,
+  "checks": {
+    "repository": "PASS",
+    "migrationSafety": "PASS",
+    "backendBuild": "PASS",
+    "frontendBuild": "PASS",
+    "languageCatalog": "PASS",
+    "languageDetection": "PASS",
+    "unknownLabelReduction": "PASS",
+    "translationRegression": "PASS",
+    "onboardingLanguages": "PASS",
+    "languageSettings": "PASS",
+    "translationDecision": "PASS",
+    "understoodLanguageSuppression": "PASS",
+    "mixedLanguagePolicy": "PASS",
+    "manualCorrection": "PASS",
+    "scrolithaIntegration": "PASS",
+    "rtl": "PASS",
+    "performance": "PASS",
+    "accessibility": "PASS",
+    "security": "PASS",
+    "privacy": "PASS",
+    "phase21Regression": "PASS",
+    "phase223cRegression": "PASS",
+    "phase23Regression": "PASS",
+    "phase24Regression": "PASS",
+    "phase25Regression": "PASS",
+    "phase25cRegression": "PASS"
+  },
+  "trafficAction": "PROMOTED_100_PERCENT",
+  "production": {
+    "backendRevision": "scrolith-backend-00164-vax",
+    "frontendRevision": "scrolith-frontend-00223-tac",
+    "backendTag": "p26",
+    "frontendTag": "p26",
+    "backendRollback": "scrolith-backend-00162-jih",
+    "frontendRollback": "scrolith-frontend-00221-loj",
+    "entryJs": "index-DavMaQP2.js",
+    "entryCss": "index-vkqgQJmU.css"
+  },
+  "migration": {
+    "name": "20260720190000_phase26_multilingual_intelligence",
+    "safety": "ADDITIVE",
+    "status": "SUCCESS",
+    "durationMs": 1240,
+    "postsNullLanguageBaseline": 1326,
+    "postsUnknownLabelBaseline": 0,
+    "translationsPreserved": 0
+  },
+  "commits": {
+    "monorepo": "89e5294eb505d909c4b0198fadbd94f0e965f627",
+    "frontend": "9582be34506ca32b0f575d71979f9cee39464e8b"
+  },
+  "notes": [
+    "Translator cache tables and m2m100 pipeline unchanged.",
+    "Translation-supported codes remain en,es,fr,tl,ha,sw,zh,ar.",
+    "Preference API: empty/invalid rejected; alias normalize en/EN/fil->en/tl; decision endpoint live.",
+    "Historical detection backfill dry-run only: 1326 posts with null sourceLanguage; 0 'unknown' string labels.",
+    "Full interactive browser onboarding/settings UX recommended during 30m monitoring window."
+  ]
+}
