@@ -70,6 +70,31 @@ const rewriteLegacyInternalUrl = (urlValue: string) => {
       search.set('tab', 'messages');
     }
 
+    // Phase 25 — notification deep-link aliases → production routes
+    const threadMatch = nextPath.match(/^\/messages\/thread\/([^/]+)\/?$/i);
+    if (threadMatch) {
+      nextPath = `/messages/${threadMatch[1]}`;
+    }
+    const groupMatch = nextPath.match(/^\/community\/group\/([^/]+)\/?$/i);
+    if (groupMatch) {
+      nextPath = '/community/clubs';
+      search.set('group', groupMatch[1]);
+    }
+    const storyMatch = nextPath.match(/^\/story\/([^/]+)\/?$/i);
+    if (storyMatch) {
+      nextPath = '/community';
+      search.set('story', storyMatch[1]);
+    }
+    const jobAppMatch = nextPath.match(/^\/jobs\/application\/([^/]+)\/?$/i);
+    if (jobAppMatch) {
+      nextPath = `/jobs/${jobAppMatch[1]}`;
+      search.set('application', jobAppMatch[1]);
+    }
+    const gigOrderMatch = nextPath.match(/^\/gigs\/orders\/([^/]+)\/?$/i);
+    if (gigOrderMatch) {
+      nextPath = `/gigs/${gigOrderMatch[1]}`;
+    }
+
     const nextQuery = search.toString();
     return `${nextPath}${nextQuery ? `?${nextQuery}` : ''}${parsed.hash || ''}` || '/';
   } catch {

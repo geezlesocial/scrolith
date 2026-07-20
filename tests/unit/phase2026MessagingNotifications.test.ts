@@ -29,19 +29,23 @@ test('notification taxonomy maps message types to Message channel', () => {
   assert.equal(getNotificationCategoryLabel({ type: 'message' }), 'Message');
 });
 
-test('notification taxonomy maps social engagement types', () => {
+test('notification taxonomy maps social engagement types to Phase 25 channels', () => {
   assert.equal(resolveNotificationCategory({ type: 'mention_post' }), 'mention');
   assert.equal(resolveNotificationCategory({ type: 'comment_on_post' }), 'comment');
   assert.equal(resolveNotificationCategory({ type: 'reaction_on_post' }), 'reaction');
-  assert.equal(resolveAndroidChannelId({ type: 'mention_comment' }), ANDROID_CHANNEL_IDS.social);
+  assert.equal(resolveAndroidChannelId({ type: 'mention_comment' }), ANDROID_CHANNEL_IDS.mentions);
+  assert.equal(resolveAndroidChannelId({ type: 'comment_on_post' }), ANDROID_CHANNEL_IDS.comments);
+  assert.equal(resolveAndroidChannelId({ type: 'followed_you' }), ANDROID_CHANNEL_IDS.follows);
 });
 
 test('notification taxonomy maps marketplace jobs freelancing security', () => {
   assert.equal(resolveNotificationCategory({ type: 'marketplace_listing_interest' }), 'marketplace');
   assert.equal(resolveNotificationCategory({ type: 'job_application_created' }), 'job');
-  assert.equal(resolveNotificationCategory({ type: 'proposal_received' }), 'freelancing');
+  assert.equal(resolveNotificationCategory({ type: 'proposal_received' }), 'gig');
   assert.equal(resolveNotificationCategory({ type: 'security_login_new_device' }), 'security');
   assert.equal(resolveAndroidChannelId({ type: 'scrolitha_completed' }), ANDROID_CHANNEL_IDS.scrolitha);
+  assert.equal(resolveAndroidChannelId({ type: 'proposal_received' }), ANDROID_CHANNEL_IDS.gigs);
+  assert.equal(resolveAndroidChannelId({ type: 'scroll_uploaded' }), ANDROID_CHANNEL_IDS.scroll);
 });
 
 test('formatNotificationTitleWithCategory prefixes once', () => {

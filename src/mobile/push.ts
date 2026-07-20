@@ -6,7 +6,10 @@ import { tokenStore } from '../services/tokenStore';
 import { type AppDistributionEvent } from '../services/appDistribution';
 import { trackMobileRuntimeEvent } from './mobileTelemetry';
 import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
-import { ANDROID_CHANNEL_IDS } from '../utils/notificationTaxonomy';
+import {
+  ANDROID_CHANNEL_IDS,
+  buildEnterprisePushDeepLink
+} from '../utils/notificationTaxonomy';
 
 let initialized = false;
 let listenersAttached = false;
@@ -24,20 +27,31 @@ const NATIVE_REGISTER_RETRY_BASE_MS = 4000;
 const FORCE_REGISTER_COOLDOWN_MS = 15000;
 const PUSH_LOG_PREFIX = '[ScrolithPush]';
 
-/** Enterprise channel map — keep ids aligned with FCM android.notification.channelId. */
+/**
+ * Phase 25 — Enterprise channel map.
+ * Ids must match FCM android.notification.channelId + backend notificationAndroidChannels.
+ */
 export const ANDROID_NOTIFICATION_CHANNELS = {
   alerts: ANDROID_CHANNEL_IDS.alerts,
   general: ANDROID_CHANNEL_IDS.system,
   messages: ANDROID_CHANNEL_IDS.messages,
-  posts: ANDROID_CHANNEL_IDS.social,
-  social: ANDROID_CHANNEL_IDS.social,
   community: ANDROID_CHANNEL_IDS.community,
   marketplace: ANDROID_CHANNEL_IDS.marketplace,
   jobs: ANDROID_CHANNEL_IDS.jobs,
-  freelancing: ANDROID_CHANNEL_IDS.freelancing,
+  gigs: ANDROID_CHANNEL_IDS.gigs,
+  freelancing: ANDROID_CHANNEL_IDS.gigs,
+  scroll: ANDROID_CHANNEL_IDS.scroll,
+  stories: ANDROID_CHANNEL_IDS.stories,
+  posts: ANDROID_CHANNEL_IDS.posts,
+  follows: ANDROID_CHANNEL_IDS.follows,
+  mentions: ANDROID_CHANNEL_IDS.mentions,
+  comments: ANDROID_CHANNEL_IDS.comments,
+  orders: ANDROID_CHANNEL_IDS.orders,
+  admin: ANDROID_CHANNEL_IDS.admin,
   scrolitha: ANDROID_CHANNEL_IDS.scrolitha,
   system: ANDROID_CHANNEL_IDS.system,
   security: ANDROID_CHANNEL_IDS.security,
+  social: ANDROID_CHANNEL_IDS.social,
   campaigns: ANDROID_CHANNEL_IDS.system
 } as const;
 
@@ -70,11 +84,53 @@ const extractPushPathFromUrl = (url: string): string | null =>
 const normalizePushActionPath = (raw?: unknown): string | null => {
   const value = String(raw || '').trim();
   if (!value) return null;
-  if (value.startsWith('/')) return value;
-  return extractPushPathFromUrl(value);
+  if (value.startsWith('/')) return normalizePushPathAliases(value);
+  const fromUrl = extractPushPathFromUrl(value);
+  return fromUrl ? normalizePushPathAliases(fromUrl) : null;
+};
+
+const normalizePushPathAliases = (path: string): string => {
+  const raw = String(path || '').trim();
+  if (!raw.startsWith('/')) return raw;
+  try {
+    const url = new URL(raw, 'https://scrolith.com');
+    let pathname = url.pathname || '/';
+    // Phase 25 canonical aliases → production React routes
+    const threadMatch = pathname.match(/^\/messages\/thread\/([^/]+)\/?$/i);
+    if (threadMatch) pathname = `/messages/${threadMatch[1]}`;
+    const groupMatch = pathname.match(/^\/community\/group\/([^/]+)\/?$/i);
+    if (groupMatch) {
+      url.searchParams.set('group', groupMatch[1]);
+      pathname = '/community/clubs';
+    }
+    const storyMatch = pathname.match(/^\/story\/([^/]+)\/?$/i);
+    if (storyMatch) {
+      url.searchParams.set('story', storyMatch[1]);
+      pathname = '/community';
+    }
+    const jobAppMatch = pathname.match(/^\/jobs\/application\/([^/]+)\/?$/i);
+    if (jobAppMatch) {
+      url.searchParams.set('application', jobAppMatch[1]);
+      pathname = `/jobs/${jobAppMatch[1]}`;
+    }
+    const gigOrderMatch = pathname.match(/^\/gigs\/orders\/([^/]+)\/?$/i);
+    if (gigOrderMatch) pathname = `/gigs/${gigOrderMatch[1]}`;
+    const qs = url.searchParams.toString();
+    return `${pathname}${qs ? `?${qs}` : ''}${url.hash || ''}`;
+  } catch {
+    return raw
+      .replace(/^\/messages\/thread\//i, '/messages/')
+      .replace(/^\/community\/group\//i, '/community/clubs?group=')
+      .replace(/^\/story\//i, '/community?story=')
+      .replace(/^\/jobs\/application\//i, '/jobs/')
+      .replace(/^\/gigs\/orders\//i, '/gigs/');
+  }
 };
 
 const buildFallbackPathFromPushData = (data: any): string | null => {
+  const fromTaxonomy = buildEnterprisePushDeepLink(data && typeof data === 'object' ? data : {});
+  if (fromTaxonomy) return normalizePushPathAliases(fromTaxonomy);
+
   const type = String(data?.type || data?.notificationType || data?.category || '').trim().toLowerCase();
   const conversationId = String(data?.conversationId || data?.conversation_id || '').trim();
   const postId = String(data?.postId || data?.post_id || data?.entityId || data?.entity_id || '').trim();
@@ -90,7 +146,7 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
     return `/post/${encodeURIComponent(postId)}`;
   }
   if (type.includes('marketplace') && listingId) {
-    return `/marketplace?listing=${encodeURIComponent(listingId)}`;
+    return `/marketplace/listing/${encodeURIComponent(listingId)}`;
   }
   if ((type.includes('job') || type.includes('application')) && jobId) {
     return `/jobs/${encodeURIComponent(jobId)}`;
@@ -104,13 +160,15 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
   if (type === 'app_campaign' || type === 'campaign') {
     return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
   }
+  // Never invent home as a push destination when type is unknown without ids.
   return null;
 };
 
 const ensureAndroidNotificationChannels = async () => {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
 
-  // Enterprise multi-channel taxonomy (Android 8+). Importance: 5=MAX, 4=HIGH, 3=DEFAULT.
+  // Phase 25 multi-channel taxonomy (Android 8+).
+  // Importance: 5=MAX, 4=HIGH, 3=DEFAULT. Visibility 1 = public on lock screen.
   // Users can mute individual channels without losing DMs.
   const channels: Channel[] = [
     {
@@ -123,18 +181,9 @@ const ensureAndroidNotificationChannels = async () => {
       vibration: true
     },
     {
-      id: ANDROID_NOTIFICATION_CHANNELS.social,
-      name: 'Social Activity',
-      description: 'Comments, replies, mentions, reactions, follows, stories',
-      sound: 'scrolith.wav',
-      importance: 4,
-      visibility: 1,
-      vibration: true
-    },
-    {
       id: ANDROID_NOTIFICATION_CHANNELS.community,
-      name: 'Communities',
-      description: 'Community announcements and group activity',
+      name: 'Community',
+      description: 'Group approvals, announcements, and community activity',
       sound: 'scrolith.wav',
       importance: 4,
       visibility: 1,
@@ -143,7 +192,7 @@ const ensureAndroidNotificationChannels = async () => {
     {
       id: ANDROID_NOTIFICATION_CHANNELS.marketplace,
       name: 'Marketplace',
-      description: 'Listing interest, orders, and marketplace updates',
+      description: 'Listing interest and marketplace updates',
       sound: 'scrolith.wav',
       importance: 4,
       visibility: 1,
@@ -152,19 +201,91 @@ const ensureAndroidNotificationChannels = async () => {
     {
       id: ANDROID_NOTIFICATION_CHANNELS.jobs,
       name: 'Jobs',
-      description: 'Job applications, recruiter views, and hiring updates',
+      description: 'Applications, recruiter views, and hiring updates',
       sound: 'scrolith.wav',
       importance: 4,
       visibility: 1,
       vibration: true
     },
     {
-      id: ANDROID_NOTIFICATION_CHANNELS.freelancing,
-      name: 'Freelancing',
-      description: 'Project invitations, proposals, and contracts',
+      id: ANDROID_NOTIFICATION_CHANNELS.gigs,
+      name: 'Gigs',
+      description: 'Orders, proposals, contracts, and freelancing',
       sound: 'scrolith.wav',
       importance: 4,
       visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.scroll,
+      name: 'Scroll',
+      description: 'New Scrolls and short-video activity',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.stories,
+      name: 'Stories',
+      description: 'Story updates from people you follow',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.posts,
+      name: 'Posts',
+      description: 'New posts, reactions, and publications',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.follows,
+      name: 'Follows',
+      description: 'New followers and follow activity',
+      sound: 'scrolith.wav',
+      importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.mentions,
+      name: 'Mentions',
+      description: 'When someone mentions you',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.comments,
+      name: 'Comments',
+      description: 'Comments and replies on your content',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.orders,
+      name: 'Orders',
+      description: 'Marketplace and gig order updates',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.admin,
+      name: 'Admin',
+      description: 'Moderation and administrative notices',
+      sound: 'scrolith.wav',
+      importance: 4,
+      visibility: 0,
       vibration: true
     },
     {
@@ -178,7 +299,7 @@ const ensureAndroidNotificationChannels = async () => {
     },
     {
       id: ANDROID_NOTIFICATION_CHANNELS.system,
-      name: 'System Alerts',
+      name: 'System',
       description: 'Account, campaigns, and platform system notices',
       sound: 'scrolith.wav',
       importance: 3,
@@ -191,6 +312,15 @@ const ensureAndroidNotificationChannels = async () => {
       description: 'Security and sign-in alerts',
       sound: 'scrolith.wav',
       importance: 5,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: ANDROID_NOTIFICATION_CHANNELS.social,
+      name: 'Social Activity (legacy)',
+      description: 'Legacy umbrella social channel retained for prior installs',
+      sound: 'scrolith.wav',
+      importance: 4,
       visibility: 1,
       vibration: true
     },
