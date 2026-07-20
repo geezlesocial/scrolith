@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Phase 25 — Enterprise Android + push platform over 1.1.23 (33).
-        versionCode 34
-        versionName "1.1.24"
+        // Phase 27 — Android rebuild over Phase 25 push platform (1.1.24 / 34).
+        versionCode 35
+        versionName "1.1.25"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
@@ -46,6 +46,10 @@ android {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Phase 27 — native debug symbols for Play Console upload (when NDK libs present)
+            ndk {
+                debugSymbolLevel 'SYMBOL_TABLE'
+            }
             if (keystorePropertiesFile.exists()) {
                 signingConfig signingConfigs.release
             }

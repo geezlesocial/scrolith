@@ -1,0 +1,27 @@
+{
+  "phase": "27",
+  "versionName": "1.1.25",
+  "versionCode": 35,
+  "applicationId": "com.scrolith.scrolith",
+  "minSdk": 24,
+  "targetSdk": 36,
+  "compileSdk": 36,
+  "aabPath": "C:\\Projects\\mobile\\android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+  "releaseCopyPath": "C:\\Projects\\mobile\\release-artifacts\\android-1.1.25\\Scrolith-1.1.25-35-release.aab",
+  "aabSizeBytes": 10065045,
+  "aabSha256": "27920e1fbc78c1e282c308c9f5d30cdbe77daa74d988b642a79e1483808531f0",
+  "signed": true,
+  "buildStatus": "SUCCESS",
+  "nativeDebugSymbols": "NOT_AVAILABLE",
+  "nativeDebugSymbolsNote": "ndk.debugSymbolLevel=SYMBOL_TABLE configured; only prebuilt libdatastore_shared_counter.so present and could not be stripped. No native-debug-symbols.zip produced for app native code (Capacitor WebView shell).",
+  "productionFrontendRevision": "scrolith-frontend-00227-xud",
+  "productionBackendRevision": "scrolith-backend-00164-vax",
+  "androidFrontendCommit": "c4aacad1",
+  "capacitorServer": {
+    "hostname": "scrolith.com",
+    "androidScheme": "https",
+    "allowMixedContent": false
+  },
+  "deploymentPerformed": false,
+  "playUpload": "Phase 27A"
+}
