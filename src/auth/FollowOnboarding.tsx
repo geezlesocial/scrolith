@@ -53,6 +53,10 @@ const MAX_ONBOARDING_USERS = FOLLOW_ONBOARDING_MAX_USERS;
 const MAX_ONBOARDING_PAGES = FOLLOW_ONBOARDING_MAX_PAGES;
 const MAX_ONBOARDING_TOTAL = FOLLOW_ONBOARDING_MAX_TOTAL;
 
+/** Official Scrolith icon used in the compact onboarding header. */
+const SCROLITH_ICON_LOGO_URL =
+  'https://api.scrolith.com/api/files/content/78b68af8-aeb4-42d0-a065-85229a1ae6e7';
+
 const DEFAULT_STATUS: FollowOnboardingStatus = {
   required: true,
   completedAt: null,
@@ -663,10 +667,15 @@ const FollowOnboarding = () => {
     <div className="follow-onboarding-shell min-h-[100dvh] bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_36%),linear-gradient(180deg,#f8fbff_0%,#eef5ff_48%,#f8fafc_100%)] pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-[max(0.75rem,env(safe-area-inset-top,0px))] sm:pb-8">
       {/* Compact onboarding header (no full product nav) */}
       <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white shadow-sm">
-            S
-          </div>
+        <div className="flex items-center gap-2.5">
+          <img
+            src={SCROLITH_ICON_LOGO_URL}
+            alt="Scrolith"
+            width={36}
+            height={36}
+            decoding="async"
+            className="h-9 w-9 shrink-0 rounded-xl object-contain shadow-sm ring-1 ring-slate-200/80 bg-white"
+          />
           <div>
             <p className="text-sm font-semibold text-slate-900">Scrolith</p>
             <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Set up your feed</p>
