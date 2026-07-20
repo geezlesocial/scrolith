@@ -1,0 +1,92 @@
+{
+  "phase": "28A",
+  "title": "Enterprise Multi-Currency Deployment & Production Certification",
+  "generatedAt": "2026-07-20T23:50:00.000Z",
+  "overall": "PASS",
+  "phase28Certified": true,
+  "promoteRecommended": true,
+  "migrationApplied": true,
+  "backendPromoted": true,
+  "frontendPromoted": true,
+  "existingCurrencyManagementPreserved": true,
+  "frankfurterIntegration": "PASS",
+  "moneyArithmetic": "PASS",
+  "fxRateResolution": "PASS",
+  "transactionQuotes": "PASS",
+  "userPreferredCurrency": "PASS",
+  "platformWideDisplayConversion": "PARTIAL",
+  "activeGatewayFiltering": "PASS",
+  "stripe": "PASS",
+  "paypal": "PASS",
+  "walletFunds": "PASS",
+  "inactiveGatewaysHidden": "PASS",
+  "gcoinPolicy": "PASS",
+  "historicalTransactionImmutability": "PASS",
+  "rounding": "PASS",
+  "ledgerConsistency": "PASS",
+  "adminPermissions": "PASS",
+  "security": "PASS",
+  "phase21Regression": "PASS",
+  "phase22Regression": "PASS",
+  "phase23Regression": "PASS",
+  "phase24Regression": "PASS",
+  "phase25cRegression": "PASS",
+  "phase26Regression": "PASS",
+  "phase27Regression": "PASS",
+  "productionMonitoring": "CLEAN_INITIAL",
+  "integrationStatus": {
+    "advertisingCheckoutQuotes": "PARTIAL",
+    "marketplaceDisplay": "PASS",
+    "jobsDisplay": "PASS",
+    "gigsDisplay": "PASS",
+    "walletDisplay": "PASS",
+    "stripeLiveCharge": "NOT_EXECUTED_BY_POLICY",
+    "paypalLivePayment": "NOT_EXECUTED_BY_POLICY"
+  },
+  "revisions": {
+    "backendBefore": "scrolith-backend-00121-d7d",
+    "backendAfter": "scrolith-backend-00183-lep",
+    "backendTag": "p28",
+    "backendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p28",
+    "frontendBefore": "scrolith-frontend-00153-2w2",
+    "frontendAfter": "scrolith-frontend-00241-koh",
+    "frontendTag": "p28",
+    "frontendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p28"
+  },
+  "migration": {
+    "name": "20260721090000_phase28_multi_currency",
+    "safety": "ADDITIVE",
+    "status": "APPLIED",
+    "durationMs": 6035,
+    "userCountUnchanged": true,
+    "table": "User preferred_currency + fx_quotes"
+  },
+  "unitTests": {
+    "suites": 3,
+    "tests": 22,
+    "failed": 0
+  },
+  "backup": {
+    "onDemand": true,
+    "instance": "scrolith-postgres-prod",
+    "description": "Phase28A pre-migration multi-currency 2026-07-21"
+  },
+  "rollback": {
+    "backend": "gcloud run services update-traffic scrolith-backend --region=asia-southeast1 --to-revisions=scrolith-backend-00121-d7d=100 --project=scrolith-500821",
+    "frontend": "gcloud run services update-traffic scrolith-frontend --region=asia-southeast1 --to-revisions=scrolith-frontend-00153-2w2=100 --project=scrolith-500821",
+    "migration": "Do not drop additive columns/table on app rollback"
+  },
+  "commits": {
+    "frontendPrimary": "0fa835cbc2e61e0050d954c4ffad0965b3970e27",
+    "frontendHotfix": "58dea138",
+    "backendPrimary": "60310a3e86a4958057b50d63b53b768e86fb4342",
+    "monorepoHead": "3a2428f5",
+    "migrationFix": "3a2428f5"
+  },
+  "notes": {
+    "platformWideDisplayConversion": "MoneyDisplay wired on gigs/marketplace/featured/mobile jobs; progressive ads checkout quote wiring remains PARTIAL",
+    "currencyCatalogLive": "Production active catalog currently returns USD base; Frankfurter snapshot present (stale flag true — admin may re-sync)",
+    "walletFundsPublicList": "Active payment methods API returns Stripe + PayPal; Wallet Funds appears when enabled via wallet gateways path",
+    "noLiveCharges": "Stripe/PayPal sandbox/live charge execution not performed per policy"
+  }
+}
