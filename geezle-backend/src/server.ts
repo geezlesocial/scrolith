@@ -489,6 +489,13 @@ const markPresenceOnline = async (userId: string) => {
   if (!userId) return;
   const count = (presenceCounts.get(userId) || 0) + 1;
   presenceCounts.set(userId, count);
+  // Phase 22.3 — dual-write to Redis-ready presence store
+  try {
+    const { presenceStore } = require('./services/messaging/presenceStore');
+    presenceStore.markConnect(userId, new Date());
+  } catch {
+    /* optional module */
+  }
   if (count === 1) {
     const lastSeenAt = new Date();
     try {
@@ -503,6 +510,12 @@ const markPresenceOnline = async (userId: string) => {
 const markPresenceOffline = async (userId: string) => {
   if (!userId) return;
   const current = presenceCounts.get(userId) || 0;
+  try {
+    const { presenceStore } = require('./services/messaging/presenceStore');
+    presenceStore.markDisconnect(userId, new Date());
+  } catch {
+    /* optional */
+  }
   if (current <= 1) {
     presenceCounts.delete(userId);
     const lastSeenAt = new Date();
@@ -1114,6 +1127,62 @@ communityNs.on('connection', (socket) => {
     };
     void handleMessagesTyping();
   });
+
+  // Phase 22.3 — presence heartbeat (ephemeral; throttled client-side)
+  socket.on('presence:heartbeat', (payload: any) => {
+    try {
+      const userId = resolveSocketUserId(socket);
+      if (!userId) return;
+      const { presenceStore } = require('./services/messaging/presenceStore');
+      const record = presenceStore.touchHeartbeat(userId, new Date());
+      const state = String(payload?.state || record.state || 'online');
+      const out = {
+        userId,
+        isOnline: state !== 'offline',
+        state,
+        lastSeenAt: record.lastSeenAt,
+        lastHeartbeatAt: record.lastHeartbeatAt
+      };
+      communityNs.to(`community:user:${userId}`).emit('presence:updated', out);
+      communityNs.to('community:global').emit('presence:updated', out);
+    } catch (error) {
+      console.error('presence:heartbeat error:', error);
+    }
+  });
+
+  // Phase 22.3 — recording indicator (voice note), reuses typing fan-out path
+  socket.on('messages:recording', (payload: any) => {
+    const handleRecording = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const conversationId = String(payload?.conversationId || '').trim();
+        const isRecording = Boolean(payload?.isRecording);
+        if (!userId || !conversationId) return;
+        if (!shouldEmitTypingEvent(conversationId, userId, isRecording)) return;
+        const participantIds = await resolveTypingConversationParticipantIds(conversationId);
+        if (!participantIds.includes(userId)) return;
+        const targets = participantIds.filter((id) => id !== userId);
+        const providedName = String(payload?.name || '').trim();
+        const fallbackName = String((socket as any).data?.user?.email || 'Someone')
+          .split('@')[0]
+          .trim();
+        const recordingPayload = {
+          conversationId,
+          userId,
+          name: providedName || fallbackName || 'Someone',
+          isRecording,
+          at: new Date().toISOString()
+        };
+        targets.forEach((targetUserId) => {
+          communityNs.to(`community:user:${targetUserId}`).emit('messages:recording', recordingPayload);
+        });
+      } catch (error) {
+        console.error('messages:recording error:', error);
+      }
+    };
+    void handleRecording();
+  });
+
   socket.on('community:join', (payload: { userId: string }) => {
     const handleJoin = () => {
       try {

@@ -204,11 +204,14 @@ const conversationParticipantSelect: any = {
   userId: true,
   joinedAt: true,
   lastReadAt: true,
+  lastDeliveredAt: true,
   label: true,
   isStarred: true,
   isMuted: true,
   isArchived: true,
   deletedAt: true,
+  role: true,
+  notifications: true,
   user: {
     select: participantUserSelect
   }
@@ -363,7 +366,8 @@ const formatConversationMessage = (
   message: any,
   conversation: any,
   viewerId?: string,
-  lastReadAt: number = 0
+  lastReadAt: number = 0,
+  peerWatermarks: Array<{ userId: string; lastReadAt: number | null; lastDeliveredAt: number | null }> = []
 ) => {
   const receiverId =
     conversation.type === 'DIRECT'
@@ -389,6 +393,28 @@ const formatConversationMessage = (
     ? String(message.clientMessageId)
     : (metadata as any)?.clientMessageId || (metadata as any)?.clientSendId || null;
 
+  // Phase 22.3 — outgoing delivery ticks from peer watermarks
+  let deliveryStatus: 'sending' | 'sent' | 'delivered' | 'read' = 'sent';
+  if (viewerId && message.senderId === viewerId) {
+    try {
+      const { resolveOutgoingDeliveryStatus } = require('../services/messaging/receiptPolicy');
+      const peers = (peerWatermarks || []).filter((p) => p.userId && p.userId !== viewerId);
+      const memberCount = Array.isArray(conversation.participants)
+        ? conversation.participants.filter((p: any) => !p.deletedAt).length
+        : peers.length + 1;
+      deliveryStatus = resolveOutgoingDeliveryStatus({
+        messageCreatedAt: createdAt,
+        peers,
+        isGroup: conversation.type === 'GROUP',
+        memberCount
+      });
+    } catch {
+      deliveryStatus = isRead ? 'read' : 'sent';
+    }
+  } else if (isRead) {
+    deliveryStatus = 'read';
+  }
+
   return {
     id: message.id,
     conversation_id: conversation.id,
@@ -404,7 +430,12 @@ const formatConversationMessage = (
     is_scrolitha: isScrolithaMessage,
     isScrolitha: isScrolithaMessage,
     timestamp: message.createdAt ? message.createdAt.toISOString() : nowIso(),
-    is_read: Boolean(isRead),
+    is_read: Boolean(isRead) || deliveryStatus === 'read',
+    isRead: Boolean(isRead) || deliveryStatus === 'read',
+    is_delivered: deliveryStatus === 'delivered' || deliveryStatus === 'read',
+    isDelivered: deliveryStatus === 'delivered' || deliveryStatus === 'read',
+    delivery_status: deliveryStatus,
+    deliveryStatus,
     is_deleted: Boolean(message.deletedAt),
     isDeleted: Boolean(message.deletedAt),
     deleted_at: message.deletedAt ? message.deletedAt.toISOString() : null,
@@ -452,6 +483,13 @@ const buildConversationPayload = (
     ? conversation.participants.find((p: any) => p.userId === viewerId)
     : null;
   const lastReadAt = viewer?.lastReadAt ? new Date(viewer.lastReadAt).getTime() : 0;
+  const peerWatermarks = (Array.isArray(conversation.participants) ? conversation.participants : [])
+    .filter((p: any) => !p.deletedAt)
+    .map((p: any) => ({
+      userId: String(p.userId || ''),
+      lastReadAt: p.lastReadAt ? new Date(p.lastReadAt).getTime() : null,
+      lastDeliveredAt: p.lastDeliveredAt ? new Date(p.lastDeliveredAt).getTime() : null
+    }));
   const hiddenMessageIds = options?.hiddenMessageIds || new Set<string>();
 
   const visibleMessagesSource = Array.isArray(conversation.messages)
@@ -466,7 +504,7 @@ const buildConversationPayload = (
   });
 
   const messages = visibleMessagesSource.map((message: any) =>
-    formatConversationMessage(message, conversation, viewerId, lastReadAt)
+    formatConversationMessage(message, conversation, viewerId, lastReadAt, peerWatermarks)
   );
 
   const lastVisibleMessage = messages[messages.length - 1] || null;
@@ -2118,14 +2156,44 @@ export const markRead = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Conversation not found' });
     }
 
-    await prisma.conversationParticipant.update({
-      where: { id: participant.id },
-      data: { lastReadAt: new Date() }
-    });
+    const now = new Date();
+    // Phase 22.3 — advance read + delivered watermarks together
+    let updated: any;
+    try {
+      updated = await prisma.conversationParticipant.update({
+        where: { id: participant.id },
+        data: { lastReadAt: now, lastDeliveredAt: now } as any
+      });
+    } catch {
+      updated = await prisma.conversationParticipant.update({
+        where: { id: participant.id },
+        data: { lastReadAt: now }
+      });
+    }
 
     emitToUser(req, userId, 'messages:read', { conversationId });
+    // Fan-out receipts to peers (backward compatible event)
+    const receiptPayload = {
+      conversationId,
+      userId,
+      lastReadAt: updated.lastReadAt ? new Date(updated.lastReadAt).toISOString() : now.toISOString(),
+      lastDeliveredAt: (updated as any).lastDeliveredAt
+        ? new Date((updated as any).lastDeliveredAt).toISOString()
+        : now.toISOString(),
+      version: '22.3'
+    };
+    try {
+      const others = await prisma.conversationParticipant.findMany({
+        where: { conversationId, deletedAt: null, userId: { not: userId } },
+        select: { userId: true }
+      });
+      others.forEach((row) => emitToUser(req, row.userId, 'messages:receipts', receiptPayload));
+      emitToUser(req, userId, 'messages:receipts', receiptPayload);
+    } catch {
+      /* best-effort */
+    }
     traceMessageEvent('api.mark_read.success', { conversationId, userId });
-    return res.json({ success: true });
+    return res.json({ success: true, data: receiptPayload });
   } catch (error: any) {
     console.error('Mark read error:', error);
     traceMessageEvent('api.mark_read.error', {

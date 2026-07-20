@@ -25,6 +25,8 @@ model User {
   isOnline                    Boolean   @default(false)
   lastLoginAt                 DateTime?
   lastSeenAt                  DateTime?
+  /// Phase 22.3 — presence privacy (EVERYONE | CONTACTS | NOBODY)
+  presenceVisibility          String    @default("EVERYONE")
   freelancerPlanId            String?
   freelancerPlanName          String?
   freelancerPlanInterval      String?
@@ -3881,6 +3883,8 @@ model ConversationParticipant {
   userId         String
   joinedAt       DateTime                      @default(now())
   lastReadAt     DateTime?
+  /// Phase 22.3 — delivery watermark (receiver acknowledged receive)
+  lastDeliveredAt DateTime?
   label          String                        @default("other")
   isStarred      Boolean                       @default(false)
   isMuted        Boolean                       @default(false)

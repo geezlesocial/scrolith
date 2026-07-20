@@ -32,10 +32,21 @@ import {
   getMessagesAround
 } from '../controllers/groupMessaging.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
+import { postConversationReceipts } from '../controllers/messageReceipts.controller';
+import {
+  getPresenceBatch,
+  patchPresencePrivacy,
+  postPresenceHeartbeat
+} from '../controllers/presence.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = express.Router();
 const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
+
+// Phase 22.3 — presence (mounted under /api/messages for auth reuse; also used as /presence aliases via server)
+router.post('/presence/heartbeat', authMiddleware, postPresenceHeartbeat);
+router.get('/presence', authMiddleware, getPresenceBatch);
+router.patch('/presence/privacy', authMiddleware, patchPresencePrivacy);
 
 router.get('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
 router.post('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
@@ -65,6 +76,8 @@ router.post('/conversations/:id/messages', authMiddleware, postMessage);
 router.post('/conversations/:id/voice-notes', authMiddleware, postVoiceNoteMessage);
 router.get('/conversations/:id/voice-calls', authMiddleware, listVoiceCalls);
 router.post('/conversations/:id/read', authMiddleware, markRead);
+// Phase 22.3 — batch delivery/read watermarks
+router.post('/conversations/:id/receipts', authMiddleware, postConversationReceipts);
 router.post('/conversations/:id/unread', authMiddleware, markConversationUnread);
 router.patch('/conversations/:id/preferences', authMiddleware, updateConversationPreferences);
 router.post('/conversations/:id/report-block', authMiddleware, reportBlockConversation);
