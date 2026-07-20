@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Phase 20.11 — dark mode system bars -->
+<resources>
+    <color name="colorPrimary">#3D8BFF</color>
+    <color name="colorPrimaryDark">#0B5FFF</color>
+    <color name="colorAccent">#3D8BFF</color>
+    <color name="statusBarColor">#0A0A0A</color>
+    <color name="navigationBarColor">#0A0A0A</color>
+    <color name="splashBackground">#0B5FFF</color>
+</resources>
