@@ -1,26 +1,33 @@
 # Phase 22.1B — Deployment & Certification (Scroll Preview + Deep Link)
 
 **Date:** 2026-07-20  
-**Result:** **PASS_STAGED** · `scrollPreviewWorks: true` · `exactVideoDeepLinkWorks: true` · `homeFallbackCount: 0` · `phase21Regression: PASS`  
-**promoteRecommended:** **true** (operator approval required — **not auto-promoted**)
+**Result:** **PASS** · **PROMOTED** · `scrollPreviewWorks: true` · `exactVideoDeepLinkWorks: true` · `homeFallbackCount: 0` · `phase21Regression: PASS`  
+**promoteRecommended:** **true** · **trafficActionCompleted:** **true**
 
 ---
 
-## Production traffic (unchanged)
+## Production traffic (current)
 
 | Service | Revision | Tag | Traffic |
 |---------|----------|-----|---------|
-| Backend | `scrolith-backend-00152-sag` | p222 | **100%** |
-| Frontend | `scrolith-frontend-00207-rug` | p222 | **100%** |
+| Backend | `scrolith-backend-00154-cit` | p221b | **100%** |
+| Frontend | `scrolith-frontend-00209-yet` | p221b | **100%** |
 
-## Staged revision (0%)
+Promoted: 2026-07-20. Post-promote health: API 200, FE 200, `GET /api/scroll/:id` auth gate 401 (expected).
+
+## Prior production (rollback targets)
+
+| Service | Revision | Tag |
+|---------|----------|-----|
+| Backend | `scrolith-backend-00152-sag` | p222 |
+| Frontend | `scrolith-frontend-00207-rug` | p222 |
+
+## Staged tag URLs (still reachable)
 
 | Service | Image | Revision | Tag URL |
 |---------|-------|----------|---------|
 | Backend | `scrolith-backend:p221b` | `scrolith-backend-00154-cit` | https://p221b---scrolith-backend-25ysnpjdda-as.a.run.app |
 | Frontend | `scrolith-frontend:p221b` | `scrolith-frontend-00209-yet` | https://p221b---scrolith-frontend-25ysnpjdda-as.a.run.app |
-
-Health: BE 200 (after cold start), FE 200.
 
 ---
 
@@ -56,7 +63,7 @@ Gate: `geezle/playwright-results/phase221b/release-gate-summary.json`
 
 ---
 
-## Promote (when approved)
+## Promote (executed)
 
 ```bash
 gcloud run services update-traffic scrolith-backend \
@@ -84,5 +91,5 @@ gcloud run services update-traffic scrolith-frontend \
 
 ## Confirmation
 
-Scroll recommendation cards **no longer route to `/home`** under the new contract (unit + staged e2e).  
-**Not production-live until promote.**
+Scroll recommendation cards **no longer route to `/home`**.  
+**Production-live on p221b** (BE `00154-cit`, FE `00209-yet` @ 100%).
