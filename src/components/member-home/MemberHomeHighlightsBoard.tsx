@@ -312,14 +312,18 @@ const ModuleThumb = ({
     shouldRenderVideo &&
     !prefersReducedMotion &&
     (!hoverPreview || isCoarsePointer || (hoverActive && previewAllowed));
-  const optimizedPosterUrl = shouldRenderVideo
-    ? resolveResponsiveAssetUrl(posterUrl || src || fallbackMediaUrl || undefined, {
-        width: size * 2,
-        height: size * 2,
-        fit: 'cover',
-        quality: 72
-      })
-    : '';
+  const rawPoster = posterUrl || src || fallbackMediaUrl || '';
+  const hasRealPoster =
+    Boolean(rawPoster) && !/__video_fallback_thumbnail|video_fallback/i.test(String(rawPoster));
+  const optimizedPosterUrl =
+    shouldRenderVideo && hasRealPoster
+      ? resolveResponsiveAssetUrl(rawPoster, {
+          width: size * 2,
+          height: size * 2,
+          fit: 'cover',
+          quality: 72
+        })
+      : '';
 
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -388,6 +392,7 @@ const ModuleThumb = ({
           muted
           defaultMuted
           autoplayEnabled={!prefersReducedMotion}
+          eagerLoad={large || mobileAutoPreview}
           // Desktop: hover-gated. Mobile: exclusive token from viewport IO.
           active={
             hoverPreview
@@ -396,8 +401,9 @@ const ModuleThumb = ({
                 : hoverActive && previewAllowed
               : true
           }
-          threshold={0.45}
-          rootMargin="0px 0px 10% 0px"
+          threshold={0.35}
+          rootMargin="80px 0px 80px 0px"
+          preloadRootMargin="200px 0px 200px 0px"
           showMuteToggle={false}
           loadingLabel={false}
           containerClassName="relative h-full w-full opacity-100 transition-opacity duration-300 ease-out motion-reduce:transition-none"
@@ -409,8 +415,7 @@ const ModuleThumb = ({
               </span>
             ) : null
           }
-          preload="metadata"
-          preloadRootMargin="100px 0px 100px 0px"
+          preload="auto"
         />
       ) : (
         <OptimizedImage

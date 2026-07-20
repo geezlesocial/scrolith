@@ -6692,6 +6692,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             const durationLabel = formatMediaDuration((media as any)?.duration);
             if (!mediaUrl && type !== 'document') return null;
             if (type === 'video') {
+              const safePoster =
+                posterUrl && !/__video_fallback_thumbnail|video_fallback/i.test(posterUrl)
+                  ? posterUrl
+                  : undefined;
               return (
                 <div
                   key={media.id || media.url}
@@ -6716,12 +6720,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 >
                   <InlineAutoplayVideo
                     src={mediaUrl}
-                    poster={posterUrl || undefined}
+                    poster={safePoster}
                     className={`${mediaPreviewHeightClass} w-full object-cover`}
                     controls={false}
                     loop
                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                    preload="metadata"
+                    eagerLoad={isSingleAttachment}
+                    preload={isSingleAttachment ? 'auto' : 'metadata'}
+                    threshold={0.2}
+                    rootMargin="120px 0px 120px 0px"
+                    preloadRootMargin="280px 0px 280px 0px"
                     loadingLabel="Video loading"
                   />
                   {durationLabel && (

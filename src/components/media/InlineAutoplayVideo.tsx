@@ -63,6 +63,8 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   const [isInView, setIsInView] = useState(false);
   const [shouldLoadSource, setShouldLoadSource] = useState(() => eagerLoad || !autoplayEnabled || controls);
   const [isLoadingVideo, setIsLoadingVideo] = useState(() => Boolean(src));
+  const [hasPlaybackError, setHasPlaybackError] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const userPausedRef = useRef(false);
   const lastTapAtRef = useRef(0);
   const activeRef = useRef(active);
@@ -70,6 +72,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   const isInViewRef = useRef(isInView);
   const internalPauseUntilRef = useRef(0);
   const isMuted = muted ?? internalMuted;
+  const effectiveSrc = src && reloadToken >= 0 ? `${src}${src.includes('?') ? '&' : '?'}_r=${reloadToken}` : src;
   const setVideoElement = useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node;
     setVideoNode((current) => (current === node ? current : node));
@@ -131,9 +134,10 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   useEffect(() => {
     userPausedRef.current = false;
     internalPauseUntilRef.current = 0;
+    setHasPlaybackError(false);
     setIsLoadingVideo(Boolean(src));
     if (eagerLoad) setShouldLoadSource(Boolean(src));
-  }, [eagerLoad, src]);
+  }, [eagerLoad, src, reloadToken]);
 
   useEffect(() => {
     if (eagerLoad && src) setShouldLoadSource(true);
@@ -221,7 +225,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
       node.removeEventListener('loadedmetadata', playIfAllowed);
       node.removeEventListener('canplay', playIfAllowed);
     };
-  }, [active, autoplayEnabled, isInView, isMuted, loop, src]);
+  }, [active, autoplayEnabled, isInView, isMuted, loop, src, reloadToken, hasPlaybackError]);
 
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -280,6 +284,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     const handleEmptied = () => setIsLoadingVideo(Boolean(src));
     const handleError = () => {
       setIsLoadingVideo(false);
+      setHasPlaybackError(true);
       onError?.();
     };
 
@@ -369,16 +374,35 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
 
   const overlayContent = typeof overlay === 'function' ? overlay(videoNode) : overlay;
 
+  const retryPlayback = useCallback(
+    (event?: React.MouseEvent | React.PointerEvent) => {
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
+      setHasPlaybackError(false);
+      setIsLoadingVideo(Boolean(src));
+      setShouldLoadSource(true);
+      setReloadToken((token) => token + 1);
+      window.setTimeout(() => resumePlaybackFromInteraction(), 40);
+    },
+    [resumePlaybackFromInteraction, src]
+  );
+
+  // Never use the server-generated SVG placeholder as a real poster — it freezes the UI on "Video Preview".
+  const safePoster =
+    poster && !/__video_fallback_thumbnail|video_fallback|video-preview\.svg/i.test(String(poster))
+      ? poster
+      : undefined;
+
   return (
     <div className={['relative', containerClassName].filter(Boolean).join(' ')}>
       <video
         ref={setVideoElement}
-        src={shouldLoadSource ? src : undefined}
-        poster={poster || undefined}
+        src={shouldLoadSource && !hasPlaybackError ? effectiveSrc : undefined}
+        poster={safePoster || undefined}
         className={className}
         controls={controls}
         controlsList={controls ? 'nodownload' : undefined}
-        autoPlay={autoplayEnabled && active}
+        autoPlay={autoplayEnabled && active && !hasPlaybackError}
         playsInline
         muted={isMuted}
         loop={loop}
@@ -406,15 +430,39 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
         onPointerUp={(event) => {
           if (event.pointerType !== 'touch' && event.pointerType !== 'pen') return;
           if (controls) return;
+          if (hasPlaybackError) {
+            retryPlayback(event);
+            return;
+          }
           resumePlaybackFromInteraction();
         }}
         onClick={() => {
           if (controls) return;
+          if (hasPlaybackError) {
+            retryPlayback();
+            return;
+          }
           resumePlaybackFromInteraction();
         }}
         onEnded={onEnded}
       />
-      {loadingLabel !== false && shouldLoadSource && isLoadingVideo ? (
+      {hasPlaybackError ? (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-slate-950/85 px-4 text-center">
+          <p className="text-sm font-semibold text-white">Video unavailable</p>
+          <p className="max-w-[16rem] text-[11px] text-white/75">
+            The media file could not be loaded. Tap retry, or re-upload if this post was created during a storage outage.
+          </p>
+          <button
+            type="button"
+            data-inline-video-control="true"
+            onClick={retryPlayback}
+            className="rounded-full bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 shadow hover:bg-slate-100"
+          >
+            Retry playback
+          </button>
+        </div>
+      ) : null}
+      {loadingLabel !== false && shouldLoadSource && isLoadingVideo && !hasPlaybackError ? (
         <div className="pointer-events-none absolute left-3 top-3 z-10">
           <span className="rounded-full bg-black/65 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur">
             {typeof loadingLabel === 'string' && loadingLabel.trim() ? loadingLabel : 'Video loading'}
@@ -426,7 +474,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
           {overlayContent}
         </div>
       ) : null}
-      {showMuteToggle ? (
+      {showMuteToggle && !hasPlaybackError ? (
         <button
           type="button"
           onClick={(event) => {

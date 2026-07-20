@@ -184,9 +184,23 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
   const [bufferHealth, setBufferHealth] = useState(0);
+  const [mediaError, setMediaError] = useState(false);
+  const [mediaReloadToken, setMediaReloadToken] = useState(0);
   const [interestSignal, setInterestSignal] = useState<string | null>(scroll.viewer?.feedbackSignal || null);
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
   const mediaUrl = media.src;
+  const playbackSrc = mediaUrl
+    ? `${mediaUrl}${mediaUrl.includes('?') ? '&' : '?'}_r=${mediaReloadToken}`
+    : '';
+  const safePoster =
+    media.poster && !/__video_fallback_thumbnail|video_fallback/i.test(String(media.poster))
+      ? media.poster
+      : undefined;
+
+  useEffect(() => {
+    setMediaError(false);
+    setMediaReloadToken(0);
+  }, [mediaUrl, scroll.id]);
   const preloadMode = resolveScrollPreloadMode({
     isActive,
     isNeighbor,
@@ -807,14 +821,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           >
             <video
               ref={videoRef}
-              src={mediaUrl}
+              src={mediaError ? undefined : playbackSrc}
               className="relative z-0 h-full w-full object-contain"
               style={mediaFilterStyle}
               muted={muted}
               loop={!autoAdvanceOnEnd}
               playsInline
-              autoPlay={autoplayEnabled && isActive && !playbackBlocked}
-              controls={!autoplayEnabled}
+              autoPlay={autoplayEnabled && isActive && !playbackBlocked && !mediaError}
+              controls={!autoplayEnabled && !mediaError}
               controlsList={!autoplayEnabled ? 'nodownload' : undefined}
               preload={preloadMode}
               onTimeUpdate={handleTimeUpdate}
@@ -822,15 +836,42 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               onPause={handlePause}
               onPlay={handlePlay}
               onSeeked={handleSeeked}
-              poster={media.poster}
+              onError={() => setMediaError(true)}
+              poster={safePoster}
               onContextMenu={(event) => event.preventDefault()}
               onClick={(event) => {
                 event.stopPropagation();
+                if (mediaError) {
+                  setMediaError(false);
+                  setMediaReloadToken((token) => token + 1);
+                  return;
+                }
                 setControlsVisible((prev) => !prev);
                 setTouchOverlayMode(true);
                 resumePlaybackFromGesture();
               }}
             />
+            {mediaError ? (
+              <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/80 px-6 text-center">
+                <AlertTriangle className="h-8 w-8 text-amber-300" aria-hidden />
+                <p className="text-sm font-semibold text-white">Video unavailable</p>
+                <p className="max-w-xs text-xs text-white/70">
+                  This media could not be streamed. Retry, or re-upload if the file was lost during a storage outage.
+                </p>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMediaError(false);
+                    setMediaReloadToken((token) => token + 1);
+                  }}
+                  className="rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-900"
+                >
+                  Retry playback
+                </button>
+              </div>
+            ) : null}
           </GraphicWarningGate>
         </div>
       ) : (
