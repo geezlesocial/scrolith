@@ -1,0 +1,288 @@
+{
+  "base": "https://scrolith.com",
+  "startedAt": "2026-07-20T12:33:44.902Z",
+  "checks": {
+    "spaShell": "PASS",
+    "entryAssets": "PASS",
+    "followOnboardingChunk": "PASS",
+    "routeGuardWiring": "PASS",
+    "onboardingCss": "PASS",
+    "languageCatalog": "PASS",
+    "languagePrefsAuth": "PASS",
+    "followOnboardingAuth": "PASS",
+    "googleOAuthStart": "PASS",
+    "linkedinOAuthStart": "PASS",
+    "publicSpaRoutes": "PASS",
+    "viewport_m320": "PASS",
+    "viewport_m360": "PASS",
+    "viewport_m375": "PASS",
+    "viewport_m390": "PASS",
+    "viewport_m412": "PASS",
+    "viewport_t768": "PASS",
+    "viewport_d1024": "PASS",
+    "viewport_d1280": "PASS",
+    "viewport_d1440": "PASS",
+    "loginMobileLayout": "PASS",
+    "authOnboardingLayout": "SKIP_NO_AUTH",
+    "messagingDockExclusionStatic": "PASS"
+  },
+  "evidence": {
+    "spaShell": {
+      "status": 200,
+      "bytes": 7170
+    },
+    "entryJs": "index-CS7sgDI9.js",
+    "entryCss": "index-Ccp1duNg.css",
+    "entryAssets": {
+      "js": "index-CS7sgDI9.js",
+      "css": "index-Ccp1duNg.css"
+    },
+    "followOnboardingChunk": "FollowOnboarding-CA7yHNp2.js",
+    "routeGuardWiring": {
+      "hasRoute": true
+    },
+    "onboardingCss": {
+      "hasFollowOnboarding": true
+    },
+    "languageCatalog": {
+      "count": 18,
+      "arabicRtl": true,
+      "native": "العربية"
+    },
+    "languagePrefsAuth": {
+      "status": 401
+    },
+    "followOnboardingAuth": {
+      "status": 401
+    },
+    "googleOAuthStart": {
+      "status": 302,
+      "host": "accounts.google.com"
+    },
+    "linkedinOAuthStart": {
+      "status": 302,
+      "host": "www.linkedin.com"
+    },
+    "publicSpaRoutes": {
+      "paths": 7
+    },
+    "viewport_m320": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_m360": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_m375": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_m390": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_m412": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_t768": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_d1024": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_d1280": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "viewport_d1440": {
+      "url": "https://scrolith.com/auth/login",
+      "overflowX": false
+    },
+    "loginMobileLayout": {
+      "hasGoogle": true,
+      "hasLinkedIn": true
+    },
+    "authOnboardingLayout": "page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"https://scrolith.com/auth/follow-onboarding\", waiting until \"networkidle\"\n",
+    "viewports": [
+      {
+        "viewport": {
+          "name": "m320",
+          "width": 320,
+          "height": 640
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 320,
+        "clientWidth": 320,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-m320.png"
+      },
+      {
+        "viewport": {
+          "name": "m360",
+          "width": 360,
+          "height": 740
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 360,
+        "clientWidth": 360,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-m360.png"
+      },
+      {
+        "viewport": {
+          "name": "m375",
+          "width": 375,
+          "height": 812
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 375,
+        "clientWidth": 375,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-m375.png"
+      },
+      {
+        "viewport": {
+          "name": "m390",
+          "width": 390,
+          "height": 844
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 390,
+        "clientWidth": 390,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-m390.png"
+      },
+      {
+        "viewport": {
+          "name": "m412",
+          "width": 412,
+          "height": 915
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 412,
+        "clientWidth": 412,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-m412.png"
+      },
+      {
+        "viewport": {
+          "name": "t768",
+          "width": 768,
+          "height": 1024
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 760,
+        "clientWidth": 768,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-t768.png"
+      },
+      {
+        "viewport": {
+          "name": "d1024",
+          "width": 1024,
+          "height": 768
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 1016,
+        "clientWidth": 1024,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-d1024.png"
+      },
+      {
+        "viewport": {
+          "name": "d1280",
+          "width": 1280,
+          "height": 800
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 1272,
+        "clientWidth": 1280,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-d1280.png"
+      },
+      {
+        "viewport": {
+          "name": "d1440",
+          "width": 1440,
+          "height": 900
+        },
+        "url": "https://scrolith.com/auth/login",
+        "isLogin": true,
+        "isOnboarding": false,
+        "noLocalhost": true,
+        "overflowX": false,
+        "scrollWidth": 1432,
+        "clientWidth": 1440,
+        "hasNavbarDense": false,
+        "messagingDockCount": 0,
+        "consoleErrorCount": 0,
+        "screenshot": "viewport-d1440.png"
+      }
+    ],
+    "desktopDockOnOnboarding": {
+      "messagingTextCount": 0,
+      "url": "https://scrolith.com/auth/login"
+    },
+    "messagingDockExclusionStatic": {
+      "note": "unit tests + App.tsx isFollowOnboardingRoute; interactive dock requires auth",
+      "messagingTextCount": 0
+    }
+  },
+  "errors": [],
+  "finishedAt": "2026-07-20T12:36:33.010Z",
+  "failCount": 0,
+  "passCount": 22,
+  "overall": "PASS"
+}

@@ -1,0 +1,18 @@
+{
+  "windowMinutes": 20,
+  "startedAfterPromoteAt": "2026-07-20T12:34:00.000Z",
+  "frontendRevision": "scrolith-frontend-00225-fof",
+  "backendRevision": "scrolith-backend-00164-vax",
+  "checks": {
+    "productionEntryJs200": true,
+    "productionEntryCss200": true,
+    "followOnboardingChunk200": true,
+    "followOnboardingMarkersPresent": true,
+    "publicRoutes200": true,
+    "frontendErrorLogsSample": "none_in_query_window",
+    "oauthGoogleNoLocalhost": true,
+    "backendUnchanged": true
+  },
+  "status": "CLEAN",
+  "notes": "Post-promote production asset and route verification clean. Continue observing for full 20–30m operationally."
+}
