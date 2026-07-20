@@ -7,6 +7,7 @@ import { findOrderPaymentIntentByReference, settleOrderPaymentIntent } from '../
 import { encryptSecret, maybeDecryptSecret } from '../utils/secretCipher';
 import { getStripeClient, getStripeGatewayConfig, invalidateStripeConfigCache } from '../services/stripeConfig.service';
 import { handleStripeConnectWebhookEvent } from './payouts.stripe.controller';
+import { filterActiveGatewaysForUsers } from '../services/currencyPolicy.service';
 
 interface AuthRequest extends Request {
   user?: {
@@ -396,13 +397,13 @@ export const listFundingGatewaysAdmin = async (req: Request, res: Response) => {
 export const listFundingGatewaysPublic = async (req: Request, res: Response) => {
   try {
     const settings = await getOrCreateSettings();
-    const data = paymentGatewayCatalog
-      .map((gw) => mapGateway(gw, settings))
-      .filter((gw) => Boolean(gw.is_enabled ?? gw.isEnabled))
-      .map((gw) => {
-        const { config, ...rest } = gw as any;
-        return rest;
-      });
+    // Phase 28 — only enabled/live gateways reach users (Stripe, PayPal, Wallet when active).
+    // Inactive providers (Paystack, Flutterwave, Payoneer, PayMongo, etc.) stay admin-only.
+    const mapped = paymentGatewayCatalog.map((gw) => mapGateway(gw, settings));
+    const data = filterActiveGatewaysForUsers(mapped).map((gw) => {
+      const { config, ...rest } = gw as any;
+      return rest;
+    });
     return ok(res, data);
   } catch (error: any) {
     console.error('Failed to load public gateways:', error);

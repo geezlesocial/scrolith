@@ -52,6 +52,11 @@ export const getDefaultCurrencyForCountry = (country?: string | null, config?: C
   return config.baseCurrency || mapped;
 };
 
+/**
+ * Legacy major-unit conversion using catalog rates (base = 1).
+ * Prefer currencyConversion.service.convertMoney / fx quotes for settlement paths.
+ * Preview-only floating math is acceptable for non-ledger display paths.
+ */
 export const convertAmount = (
   amount: number,
   fromCurrency: string,

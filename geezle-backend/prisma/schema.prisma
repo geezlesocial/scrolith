@@ -63,6 +63,9 @@ model User {
   autoTranslateEnabled           Boolean   @default(false)
   languagePreferencesUpdatedAt   DateTime?
   languagePreferencesConfirmed   Boolean   @default(false)
+  /// Phase 28 — preferred display currency (ISO 4217). Null = use platform default.
+  preferredCurrency              String?   @map("preferred_currency")
+  currencyPreferenceUpdatedAt    DateTime? @map("currency_preference_updated_at")
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -960,6 +963,39 @@ model FxLock {
   @@unique([entityType, entityId])
   @@index([fromCurrency, toCurrency, createdAt])
   @@index([createdAt])
+}
+
+/// Phase 28 — single-use FX quote for checkout/funding confirmation windows.
+/// Historical immutability: consumed quotes are never rewritten when rates change.
+model FxQuote {
+  id                      String    @id @default(cuid())
+  userId                  String?   @map("user_id")
+  contextType             String    @map("context_type")
+  contextId               String?   @map("context_id")
+  baseAmountMinor         String    @map("base_amount_minor")
+  baseCurrency            String    @map("base_currency")
+  convertedAmountMinor    String    @map("converted_amount_minor")
+  displayCurrency         String    @map("display_currency")
+  chargeAmountMinor       String?   @map("charge_amount_minor")
+  chargeCurrency          String?   @map("charge_currency")
+  rateDecimal             String    @map("rate_decimal")
+  rateSource              String    @map("rate_source")
+  snapshotId              String?   @map("snapshot_id")
+  overrideId              String?   @map("override_id")
+  roundingAdjustmentMinor String?   @map("rounding_adjustment_minor")
+  markupBps               Int       @default(0) @map("markup_bps")
+  expiresAt               DateTime  @map("expires_at")
+  consumedAt              DateTime? @map("consumed_at")
+  status                  String    @default("active")
+  metadata                Json?
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+
+  @@index([userId, status])
+  @@index([contextType, contextId])
+  @@index([expiresAt, status])
+  @@index([createdAt])
+  @@map("fx_quotes")
 }
 
 model DeveloperPlatformConfig {
