@@ -1,0 +1,58 @@
+{
+  "phase": "22.1B-e2e",
+  "baseURL": "https://p221b---scrolith-frontend-25ysnpjdda-as.a.run.app",
+  "overall": "PASS",
+  "passed": 4,
+  "failed": 0,
+  "total": 4,
+  "results": [
+    {
+      "project": "desktop-chrome",
+      "checks": {
+        "member_home_shell": true,
+        "feed_shell": true,
+        "scroll_route_stays_on_scroll": true,
+        "no_home_redirect": true,
+        "scroll_unavailable_or_player": true,
+        "deep_link_query_shape": true
+      },
+      "ok": true
+    },
+    {
+      "project": "mobile-390",
+      "checks": {
+        "member_home_shell": true,
+        "feed_shell": true,
+        "scroll_route_stays_on_scroll": true,
+        "no_home_redirect": true,
+        "scroll_unavailable_or_player": true,
+        "deep_link_query_shape": true
+      },
+      "ok": true
+    },
+    {
+      "project": "pixel-7",
+      "checks": {
+        "member_home_shell": true,
+        "feed_shell": true,
+        "scroll_route_stays_on_scroll": true,
+        "no_home_redirect": true,
+        "scroll_unavailable_or_player": true,
+        "deep_link_query_shape": true
+      },
+      "ok": true
+    },
+    {
+      "project": "iphone-15",
+      "checks": {
+        "member_home_shell": true,
+        "feed_shell": true,
+        "scroll_route_stays_on_scroll": true,
+        "no_home_redirect": true,
+        "scroll_unavailable_or_player": true,
+        "deep_link_query_shape": true
+      },
+      "ok": true
+    }
+  ]
+}

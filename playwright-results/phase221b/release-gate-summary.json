@@ -1,0 +1,34 @@
+{
+  "phase": "22.1B",
+  "generatedAt": "2026-07-20T02:32:00.000Z",
+  "overall": "PASS_STAGED",
+  "scrollPreviewWorks": true,
+  "exactVideoDeepLinkWorks": true,
+  "homeFallbackCount": 0,
+  "phase21Regression": "PASS",
+  "phase21Tests": { "passed": 54, "failed": 0 },
+  "unit221b": { "passed": 9, "failed": 0 },
+  "e2e": { "overall": "PASS", "passed": 4, "failed": 0, "total": 4 },
+  "promoteRecommended": true,
+  "note": "Staged at 0%. Operator must approve production traffic cutover.",
+  "deploy": {
+    "backendImage": "scrolith-backend:p221b",
+    "backendRevision": "scrolith-backend-00154-cit",
+    "backendTag": "p221b",
+    "backendTagUrl": "https://p221b---scrolith-backend-25ysnpjdda-as.a.run.app",
+    "frontendImage": "scrolith-frontend:p221b",
+    "frontendRevision": "scrolith-frontend-00209-yet",
+    "frontendTag": "p221b",
+    "frontendTagUrl": "https://p221b---scrolith-frontend-25ysnpjdda-as.a.run.app",
+    "traffic": "0%",
+    "productionBackend": "scrolith-backend-00152-sag",
+    "productionFrontend": "scrolith-frontend-00207-rug",
+    "productionTag": "p222"
+  },
+  "rootCause": [
+    "FeedMixedCard missing case scroll fell through to default href=/home",
+    "toStreamEntry dropped orchestrator media from presentation data",
+    "No GET /scroll/:id for deep-link fetch when video absent from session"
+  ],
+  "confirmation": "Scroll recommendation cards no longer route to /home (contract + staged e2e)"
+}
