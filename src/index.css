@@ -920,6 +920,20 @@ svg {
 
 .follow-onboarding-shell {
   -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+  max-width: 100vw;
+}
+
+.follow-onboarding-shell .min-w-0,
+.follow-onboarding-shell [class*='flex-1'],
+.follow-onboarding-shell [class*='truncate'] {
+  min-width: 0;
+}
+
+.follow-onboarding-sticky {
+  /* Keep above content; below system overlays when possible */
+  z-index: 40;
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }
 
 .follow-reco-card {
@@ -932,6 +946,13 @@ svg {
 
 .follow-onboarding-panel {
   transition: box-shadow var(--enterprise-transition);
+}
+
+/* Mobile: single-column cards; tablet+: 2-col grid is Tailwind sm:grid-cols-2 */
+@media (max-width: 639px) {
+  .follow-onboarding-shell .follow-reco-card {
+    width: 100%;
+  }
 }
 
 .guest-hero .animate-fade-in-up {

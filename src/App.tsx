@@ -1195,6 +1195,8 @@ const AppContent = () => {
   const isMessagesRoute = /^\/messages(\/|$)/.test(location.pathname);
   const isMobileShellRoute = /^\/m(\/|$)/.test(location.pathname);
   const isScrollRoute = /^\/scroll(\/|$)/.test(location.pathname);
+  // Phase 26B — simplified chrome during follow onboarding (no dense nav / messaging dock).
+  const isFollowOnboardingRoute = /^\/auth\/follow-onboarding(\/|$)/.test(location.pathname);
   const isGigDetailRoute = /^\/gigs\/[^/]+/.test(location.pathname);
   const activeTab = new URLSearchParams(location.search).get('tab')?.toLowerCase();
   const isMessagesTabRoute = activeTab === 'messages';
@@ -1388,6 +1390,7 @@ const AppContent = () => {
         !isAdminRoute &&
         !isMobileShellRoute &&
         !isScrollRoute &&
+        !isFollowOnboardingRoute &&
         !isMobileStandaloneRoute && <Navbar />}
       {isAuthenticated &&
         user &&
@@ -1397,6 +1400,7 @@ const AppContent = () => {
         !shouldRenderForcedMobileHome &&
         // Phase 20.7 patch: full /messages workspace replaces floating dock (unmount, not hide).
         !isMessagesRoute &&
+        !isFollowOnboardingRoute &&
         nonCriticalUiReady && (
           <Suspense fallback={null}>
             <DesktopMessagingDock />

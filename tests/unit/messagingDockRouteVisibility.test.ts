@@ -27,6 +27,13 @@ test('dock hidden on /messages and nested conversation routes', () => {
   }
 });
 
+test('Phase 26B: dock hidden on follow-onboarding so sticky CTA is unobstructed', () => {
+  for (const path of ['/auth/follow-onboarding', '/auth/follow-onboarding/', '/auth/follow-onboarding/done']) {
+    assert.equal(shouldShowMessagingDock(path), false, path);
+    assert.equal(isMessagingDockExcludedPath(path), true, path);
+  }
+});
+
 test('substring false-positive routes are not excluded', () => {
   for (const path of [
     '/direct-messages',

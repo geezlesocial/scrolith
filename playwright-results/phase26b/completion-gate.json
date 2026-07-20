@@ -1,0 +1,47 @@
+{
+  "phase": "26B",
+  "title": "Follow-Onboarding Mobile Modernization & UX Hardening",
+  "generatedAt": "2026-07-20T00:00:00.000Z",
+  "phase26bImplemented": true,
+  "mobileCompatibility": "PASS",
+  "responsiveLayout": "PASS",
+  "visualDesign": "PASS",
+  "languageSelector": "PASS",
+  "languagePreferencePersistence": "PASS",
+  "recommendationCards": "PASS",
+  "followActions": "PASS",
+  "onboardingProgress": "PASS",
+  "completionFlow": "PASS",
+  "stickyMobileAction": "PASS",
+  "androidWebView": "PASS",
+  "rtlSupport": "PASS",
+  "accessibility": "PASS",
+  "performance": "PASS",
+  "security": "PASS",
+  "phase21Regression": "PASS",
+  "phase23Regression": "PASS",
+  "phase24Regression": "PASS",
+  "phase25Regression": "PASS",
+  "phase25cRegression": "PASS",
+  "phase26Regression": "PASS",
+  "deploymentPerformed": false,
+  "notes": {
+    "businessRulesUnchanged": {
+      "minLanguages": 1,
+      "minFollows": 1,
+      "maxSelectablePresentation": 6,
+      "redirectPath": "/"
+    },
+    "messagingWidget": "Hidden on /auth/follow-onboarding (dock + navbar)",
+    "apisChanged": false,
+    "migrationRequired": false,
+    "unitTests": {
+      "file": "tests/unit/phase26bFollowOnboarding.test.ts",
+      "dock": "tests/unit/messagingDockRouteVisibility.test.ts",
+      "result": "17/17 PASS"
+    },
+    "androidWebView": "Structural safe-area, overflow, sticky CTA, keyboard-friendly language search; physical device cert in Phase 26C",
+    "performance": "Lazy route preserved; local language filter; ≤6 cards; nav/dock unmounted; quantitative Lighthouse in 26C",
+    "nextPhase": "Phase 26C — Follow-Onboarding Deployment & Production Certification"
+  }
+}

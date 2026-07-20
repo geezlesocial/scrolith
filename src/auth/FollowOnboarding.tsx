@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Building2,
   CheckCircle2,
+  ChevronDown,
   Loader2,
   Sparkles,
   Users
@@ -19,6 +20,16 @@ import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
 import LanguageMultiSelect from '../components/language/LanguageMultiSelect';
 import { LanguagePreferencesService } from '../services/languagePreferences';
+import {
+  buildOnboardingMissingHint,
+  canContinueOnboarding,
+  checkFollowCaps,
+  computeOnboardingProgressPercent,
+  FOLLOW_ONBOARDING_MAX_PAGES,
+  FOLLOW_ONBOARDING_MAX_TOTAL,
+  FOLLOW_ONBOARDING_MAX_USERS,
+  resolveFollowMinimum
+} from './followOnboardingLogic';
 
 type RecommendationCard = {
   key: string;
@@ -38,9 +49,9 @@ type RecommendationCard = {
   whyRecommended: string;
 };
 
-const MAX_ONBOARDING_USERS = 3;
-const MAX_ONBOARDING_PAGES = 3;
-const MAX_ONBOARDING_TOTAL = 6;
+const MAX_ONBOARDING_USERS = FOLLOW_ONBOARDING_MAX_USERS;
+const MAX_ONBOARDING_PAGES = FOLLOW_ONBOARDING_MAX_PAGES;
+const MAX_ONBOARDING_TOTAL = FOLLOW_ONBOARDING_MAX_TOTAL;
 
 const DEFAULT_STATUS: FollowOnboardingStatus = {
   required: true,
@@ -312,6 +323,8 @@ const FollowOnboarding = () => {
   const [error, setError] = useState('');
   const [understoodLanguages, setUnderstoodLanguages] = useState<string[]>([]);
   const [languageReady, setLanguageReady] = useState(false);
+  const [whyOpen, setWhyOpen] = useState(false);
+  const [recoFilter, setRecoFilter] = useState<'all' | 'people' | 'pages'>('all');
   const rotationSeed = useMemo(() => createRotationSeed(), [user?.id]);
 
   const selectedPageCount = useMemo(
@@ -324,13 +337,15 @@ const FollowOnboarding = () => {
   );
   const followedCount = Math.min(MAX_ONBOARDING_TOTAL, selectedPageCount + selectedUserCount);
   const languagesOk = understoodLanguages.length >= 1;
-  const canContinue =
-    languagesOk && followedCount >= Math.max(1, Number(status.minimumRequired || 1));
-
-  const progressPercent = Math.max(
-    8,
-    Math.min(100, Math.round((followedCount / Math.max(1, MAX_ONBOARDING_TOTAL)) * 100))
-  );
+  const progressInput = {
+    languageCount: understoodLanguages.length,
+    followedCount,
+    minimumRequired: status.minimumRequired
+  };
+  const canContinue = canContinueOnboarding(progressInput);
+  // Progress reflects required minimum (not the recommended maximum of 6).
+  const followMin = resolveFollowMinimum(status.minimumRequired);
+  const progressPercent = computeOnboardingProgressPercent(progressInput);
 
   useEffect(() => {
     let active = true;
@@ -454,26 +469,16 @@ const FollowOnboarding = () => {
     };
   }, [navigate, rotationSeed, user?.id, user?.role]);
 
-  const summaryCopy = useMemo(() => {
-    const role = String(user?.role || '').trim().toLowerCase();
-    if (role === UserRole.EMPLOYER) {
-      return 'Follow standout freelancers and high-signal pages so your feed starts with hiring insight, creator updates, and fresh talent.';
-    }
-    return 'Follow clients, freelancers, and pages so your feed opens with real opportunities, useful posts, and trusted voices.';
-  }, [user?.role]);
-
   const handleFollow = async (card: RecommendationCard) => {
     if (card.isFollowing || busyIds[card.key] || submitting) return;
-    if (followedCount >= MAX_ONBOARDING_TOTAL) {
-      setError(`You can follow up to ${MAX_ONBOARDING_TOTAL} total recommendations in this step.`);
-      return;
-    }
-    if (card.targetType === 'page' && selectedPageCount >= MAX_ONBOARDING_PAGES) {
-      setError(`You can follow up to ${MAX_ONBOARDING_PAGES} pages during onboarding.`);
-      return;
-    }
-    if (card.targetType === 'user' && selectedUserCount >= MAX_ONBOARDING_USERS) {
-      setError(`You can follow up to ${MAX_ONBOARDING_USERS} user accounts during onboarding.`);
+    const cap = checkFollowCaps({
+      targetType: card.targetType,
+      followedTotal: followedCount,
+      selectedUsers: selectedUserCount,
+      selectedPages: selectedPageCount
+    });
+    if (!cap.ok) {
+      setError(cap.error || 'Follow limit reached for this step.');
       return;
     }
 
@@ -546,9 +551,14 @@ const FollowOnboarding = () => {
   };
 
   const activationReady = canContinue && !loading;
-  const progressLabel = `${followedCount} of ${MAX_ONBOARDING_TOTAL} selected`;
   const selectedCards = useMemo(() => cards.filter((item) => item.isFollowing), [cards]);
-  const feedPreviewNames = selectedCards.slice(0, 4).map((item) => item.name);
+  const visibleCards = useMemo(() => {
+    if (recoFilter === 'people') return cards.filter((c) => c.targetType === 'user');
+    if (recoFilter === 'pages') return cards.filter((c) => c.targetType === 'page');
+    return cards;
+  }, [cards, recoFilter]);
+
+  const missingHint = buildOnboardingMissingHint(progressInput);
 
   const reasonChipClass = (reason: string) => {
     const key = reason.toLowerCase();
@@ -562,345 +572,393 @@ const FollowOnboarding = () => {
     return 'border-slate-200 bg-slate-50 text-slate-600';
   };
 
-  return (
-    <div className="follow-onboarding-shell min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.16),_transparent_34%),linear-gradient(180deg,#f8fbff_0%,#eef5ff_46%,#f8fafc_100%)] px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-6xl flex-col justify-center">
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
-          <section
-            aria-labelledby="follow-onboarding-title"
-            className="follow-onboarding-panel rounded-[32px] border border-white/60 bg-white/85 p-6 shadow-[0_24px_60px_-30px_rgba(15,23,42,0.35)] backdrop-blur sm:p-8"
+  const renderRecoCard = (card: RecommendationCard) => {
+    const reasonChips = Array.isArray(card.reasons) ? card.reasons.slice(0, 3) : [];
+    return (
+      <article
+        key={card.key}
+        className={`follow-reco-card flex flex-col rounded-2xl border p-3.5 transition duration-200 motion-reduce:transition-none sm:p-4 ${
+          card.isFollowing
+            ? 'border-emerald-300 bg-emerald-50/70'
+            : 'border-slate-200 bg-white hover:border-blue-200'
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          <Link
+            to={card.route}
+            className="flex min-w-0 flex-1 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
           >
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-              Shape your professional identity
+            <EnterpriseAvatar
+              src={card.avatarUrl}
+              name={card.name}
+              user={{ id: card.id, username: card.username }}
+              size="lg"
+              rounded="2xl"
+              className="!h-12 !w-12 shrink-0 ring-1 ring-slate-200 sm:!h-14 sm:!w-14"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  {card.badge}
+                </span>
+                {card.isFollowing ? (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                    <CheckCircle2 className="h-3 w-3" aria-hidden />
+                    Following
+                  </span>
+                ) : null}
+              </div>
+              <h2 className="mt-1 truncate text-sm font-semibold text-slate-950 sm:text-base">{card.name}</h2>
+              <p className="truncate text-xs text-slate-500 sm:text-sm">
+                {card.username ? `@${card.username}` : card.location || 'Scrolith member'}
+              </p>
             </div>
+          </Link>
+        </div>
 
-            <h1 id="follow-onboarding-title" className="mt-5 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-              Choose the people and brands that will define your first Scrolith feed.
-            </h1>
-            <p className="mt-4 max-w-xl text-sm leading-6 text-slate-600 sm:text-base">{summaryCopy}</p>
-            <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
-              This is not a checklist — it is how you seed reputation, opportunity, and community signals for day one.
-            </p>
+        <p className="mt-3 line-clamp-2 text-sm leading-5 text-slate-600">
+          {card.headline || card.whyRecommended || 'Recommended for your first feed.'}
+        </p>
 
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
-              <LanguageMultiSelect
-                value={understoodLanguages}
-                onChange={setUnderstoodLanguages}
-                min={1}
-                max={24}
-                label="Which languages do you understand?"
-                helpText="Choose all that apply. Languages are not countries or nationality. Scrolitha uses this to avoid recommending translation for posts you already understand."
-              />
-              {!languagesOk ? (
-                <p className="mt-2 text-xs font-medium text-amber-700">Select at least one language to continue.</p>
-              ) : languageReady ? (
-                <p className="mt-2 text-xs text-emerald-700">Language preferences ready.</p>
-              ) : null}
-            </div>
+        {reasonChips.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5" aria-label={`Signals for ${card.name}`}>
+            {reasonChips.map((reason) => (
+              <span
+                key={`${card.key}-${reason}`}
+                className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold sm:text-[11px] ${reasonChipClass(reason)}`}
+              >
+                {reason}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
-            <div
-              className="mt-8 rounded-[28px] border border-slate-200 bg-slate-50/90 p-5"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
+        <div className="mt-auto flex items-center justify-between gap-2 pt-3">
+          <Link
+            to={card.route}
+            className="inline-flex min-h-[44px] items-center text-sm font-medium text-slate-500 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+          >
+            Preview
+          </Link>
+          <button
+            type="button"
+            disabled={card.isFollowing || busyIds[card.key] || submitting}
+            onClick={() => void handleFollow(card)}
+            aria-label={card.isFollowing ? `Already following ${card.name}` : `Follow ${card.name}`}
+            className={`inline-flex min-h-[44px] min-w-[5.75rem] items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+              card.isFollowing
+                ? 'bg-emerald-600 text-white'
+                : 'bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300'
+            }`}
+          >
+            {busyIds[card.key] ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+            {card.isFollowing ? 'Added' : 'Follow'}
+          </button>
+        </div>
+      </article>
+    );
+  };
+
+  return (
+    <div className="follow-onboarding-shell min-h-[100dvh] bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_36%),linear-gradient(180deg,#f8fbff_0%,#eef5ff_48%,#f8fafc_100%)] pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pt-[max(0.75rem,env(safe-area-inset-top,0px))] sm:pb-8">
+      {/* Compact onboarding header (no full product nav) */}
+      <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white shadow-sm">
+            S
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Scrolith</p>
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">Set up your feed</p>
+          </div>
+        </div>
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+          <Sparkles className="h-3.5 w-3.5" aria-hidden />
+          Onboarding
+        </div>
+      </header>
+
+      <div className="mx-auto mt-4 w-full max-w-6xl px-4 sm:mt-6 sm:px-6 lg:px-8">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.25fr)] lg:items-start lg:gap-6">
+          {/* Left / top stack */}
+          <div className="space-y-4">
+            <section
+              aria-labelledby="follow-onboarding-title"
+              className="follow-onboarding-panel rounded-3xl border border-white/70 bg-white/90 p-4 shadow-[0_20px_48px_-28px_rgba(15,23,42,0.35)] backdrop-blur sm:p-6"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Progress</p>
-                  <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-950">
-                    {followedCount}
-                    <span className="ml-2 text-sm font-medium text-slate-500">of {MAX_ONBOARDING_TOTAL} selected</span>
+              <h1
+                id="follow-onboarding-title"
+                className="text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl"
+              >
+                Build your first Scrolith feed
+              </h1>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                Choose languages you understand, then follow at least one person or page. We&apos;ll personalize
+                your first feed from these choices.
+              </p>
+
+              {/* Progress — min required, not max 6 */}
+              <div
+                className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/90 p-3.5 sm:p-4"
+                role="status"
+                aria-live="polite"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Progress</p>
+                  <p className="text-xs font-medium text-slate-600">
+                    {activationReady ? 'Ready to continue' : missingHint}
                   </p>
                 </div>
-                <div className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-                  Follow at least <span className="font-semibold text-slate-950">{status.minimumRequired}</span> to continue
-                </div>
-              </div>
-              <div
-                className="mt-4 h-3 overflow-hidden rounded-full bg-slate-200"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={MAX_ONBOARDING_TOTAL}
-                aria-valuenow={followedCount}
-                aria-label={progressLabel}
-              >
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 transition-all duration-300 motion-reduce:transition-none"
-                  style={{ width: `${progressPercent}%` }}
+                  className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200"
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progressPercent}
+                  aria-label={`Onboarding progress ${progressPercent} percent. Languages ${languagesOk ? 'done' : 'needed'}. Follows ${followedCount} of ${followMin} required.`}
+                >
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-blue-600 via-cyan-500 to-emerald-500 transition-all duration-300 motion-reduce:transition-none"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
+                <ul className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  <li className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    {languagesOk ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                    ) : (
+                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[10px] font-bold text-slate-400">
+                        1
+                      </span>
+                    )}
+                    <span>
+                      Languages{' '}
+                      <span className="font-semibold tabular-nums text-slate-950">
+                        {understoodLanguages.length}
+                      </span>
+                      <span className="text-slate-500"> · min 1</span>
+                    </span>
+                  </li>
+                  <li className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+                    {followedCount >= followMin ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                    ) : (
+                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-slate-300 text-[10px] font-bold text-slate-400">
+                        2
+                      </span>
+                    )}
+                    <span>
+                      Follows{' '}
+                      <span className="font-semibold tabular-nums text-slate-950">{followedCount}</span>
+                      <span className="text-slate-500">
+                        {' '}
+                        · min {followMin}
+                        {MAX_ONBOARDING_TOTAL > followMin ? ` · up to ${MAX_ONBOARDING_TOTAL}` : ''}
+                      </span>
+                    </span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Languages */}
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-3.5 sm:p-4">
+                <LanguageMultiSelect
+                  value={understoodLanguages}
+                  onChange={setUnderstoodLanguages}
+                  min={1}
+                  max={24}
+                  label="Languages I understand"
+                  helpText="Select all that apply. Languages are not nationality or country."
                 />
+                {!languagesOk ? (
+                  <p className="mt-2 text-xs font-medium text-amber-700">Select at least one language.</p>
+                ) : null}
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-                  <span className="font-semibold tabular-nums text-slate-950">{selectedUserCount}</span> of{' '}
-                  {MAX_ONBOARDING_USERS} user accounts selected
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-                  <span className="font-semibold tabular-nums text-slate-950">{selectedPageCount}</span> of{' '}
-                  {MAX_ONBOARDING_PAGES} pages selected
-                </div>
-              </div>
-              {activationReady ? (
-                <div className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                  <span>
-                    Identity ready. Continue to open your personalized member feed with these accounts already
-                    followed.
-                  </span>
-                </div>
-              ) : null}
-            </div>
 
-            {selectedCards.length > 0 ? (
-              <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Your feed preview</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  After you continue, posts and opportunities from{' '}
-                  <span className="font-semibold text-slate-900">
-                    {feedPreviewNames.join(', ')}
-                    {selectedCards.length > feedPreviewNames.length
-                      ? ` +${selectedCards.length - feedPreviewNames.length} more`
-                      : ''}
-                  </span>{' '}
-                  will seed your home feed — not an empty timeline.
-                </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Selected accounts">
-                  {selectedCards.map((card) => {
-                    return (
-                      <div
-                        key={`preview-${card.key}`}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 py-1 pl-1 pr-3"
-                      >
-                        <EnterpriseAvatar
-                          src={card.avatarUrl}
-                          name={card.name}
-                          user={{ id: card.id, username: card.username }}
-                          size="xs"
-                          className="!h-7 !w-7"
-                        />
-                        <span className="max-w-[7rem] truncate text-xs font-semibold text-slate-700">{card.name}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+              {/* Collapsible guidance */}
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setWhyOpen((v) => !v)}
+                  className="inline-flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                  aria-expanded={whyOpen}
+                >
+                  Why we ask this
+                  <ChevronDown
+                    className={`h-4 w-4 shrink-0 text-slate-500 transition ${whyOpen ? 'rotate-180' : ''}`}
+                    aria-hidden
+                  />
+                </button>
+                {whyOpen ? (
+                  <div className="mt-2 space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-600">
+                    <p className="flex gap-2">
+                      <Users className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+                      Follows seed your first feed with people and pages you care about.
+                    </p>
+                    <p className="flex gap-2">
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden />
+                      Languages guide translation suggestions — never nationality or location.
+                    </p>
+                    <p className="flex gap-2">
+                      <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" aria-hidden />
+                      You can change follows and languages anytime after you continue.
+                    </p>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </section>
+          </div>
 
-            <div className="mt-8 grid gap-3 text-sm text-slate-600">
-              <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                <Users className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-hidden="true" />
-                <span>
-                  Mixed freelancers, clients, and pages keep your first session rich with opportunity and conversation.
-                </span>
-              </div>
-              <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span>
-                  Follows apply immediately and unlock your signed-in member feed the moment you continue.
-                </span>
-              </div>
-              <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-                <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" aria-hidden="true" />
-                <span>
-                  Pages surface brand and community signals; people surface hiring, creator, and mutual-interest
-                  activity.
-                </span>
-              </div>
-            </div>
-          </section>
-
+          {/* Recommendations */}
           <section
             aria-labelledby="follow-recommendations-heading"
-            className="follow-onboarding-panel rounded-[32px] border border-slate-200 bg-white/92 p-4 shadow-[0_24px_60px_-30px_rgba(15,23,42,0.28)] backdrop-blur sm:p-6"
+            className="follow-onboarding-panel rounded-3xl border border-slate-200 bg-white/95 p-3.5 shadow-[0_20px_48px_-28px_rgba(15,23,42,0.28)] backdrop-blur sm:p-5"
           >
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-4">
-              <div>
-                <p id="follow-recommendations-heading" className="text-sm font-semibold text-slate-950">
-                  Recommended for your professional graph
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  Follow up to {MAX_ONBOARDING_USERS} people and {MAX_ONBOARDING_PAGES} pages. Signals show industry,
-                  verification, hiring, and trend relevance.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleContinue()}
-                disabled={!canContinue || submitting}
-                className="inline-flex min-h-[44px] items-center gap-2 rounded-full bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:bg-slate-300"
+            <div className="border-b border-slate-200 pb-3">
+              <h2 id="follow-recommendations-heading" className="text-sm font-semibold text-slate-950 sm:text-base">
+                Recommended people &amp; pages
+              </h2>
+              <p className="mt-1 text-xs text-slate-500 sm:text-sm">
+                Required: follow at least {followMin}. Optional: up to {MAX_ONBOARDING_USERS} people and{' '}
+                {MAX_ONBOARDING_PAGES} pages.
+              </p>
+
+              <div
+                className="mt-3 flex gap-1.5 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                role="tablist"
+                aria-label="Recommendation filter"
               >
-                {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <ArrowRight className="h-4 w-4" aria-hidden="true" />}
-                {submitting ? 'Opening feed…' : 'Continue to feed'}
-              </button>
+                {(
+                  [
+                    ['all', 'All'],
+                    ['people', 'People'],
+                    ['pages', 'Pages']
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={recoFilter === key}
+                    onClick={() => setRecoFilter(key)}
+                    className={`inline-flex min-h-[40px] shrink-0 items-center rounded-full px-3.5 text-xs font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
+                      recoFilter === key
+                        ? 'bg-slate-900 text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {error ? (
-              <div
-                className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-                role="alert"
-              >
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800" role="alert">
                 {error}
               </div>
             ) : null}
 
             {loading ? (
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true" aria-label="Loading recommendations">
-                {Array.from({ length: 6 }).map((_, index) => (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2" aria-busy="true" aria-label="Loading recommendations">
+                {Array.from({ length: 4 }).map((_, index) => (
                   <div
                     key={`onboarding-skeleton-${index}`}
-                    className="follow-reco-skeleton flex h-full min-h-[17rem] flex-col rounded-[26px] border border-slate-200 bg-white p-4"
+                    className="flex min-h-[11rem] flex-col rounded-2xl border border-slate-200 bg-white p-3.5"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="h-14 w-14 animate-pulse rounded-2xl bg-slate-200 motion-reduce:animate-none" />
+                    <div className="flex items-center gap-3">
+                      <div className="h-12 w-12 animate-pulse rounded-2xl bg-slate-200 motion-reduce:animate-none" />
                       <div className="min-w-0 flex-1 space-y-2">
-                        <div className="h-4 w-16 animate-pulse rounded-full bg-slate-200 motion-reduce:animate-none" />
+                        <div className="h-3 w-16 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
                         <div className="h-4 w-2/3 animate-pulse rounded bg-slate-200 motion-reduce:animate-none" />
-                        <div className="h-3 w-1/2 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
                       </div>
                     </div>
-                    <div className="mt-4 space-y-2">
-                      <div className="h-3 w-full animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
-                      <div className="h-3 w-5/6 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <div className="h-6 w-16 animate-pulse rounded-full bg-slate-100 motion-reduce:animate-none" />
-                      <div className="h-6 w-20 animate-pulse rounded-full bg-slate-100 motion-reduce:animate-none" />
-                    </div>
-                    <div className="mt-auto flex items-center justify-between pt-5">
-                      <div className="h-4 w-14 animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
+                    <div className="mt-3 h-3 w-full animate-pulse rounded bg-slate-100 motion-reduce:animate-none" />
+                    <div className="mt-auto flex justify-end pt-4">
                       <div className="h-9 w-20 animate-pulse rounded-full bg-slate-200 motion-reduce:animate-none" />
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                {cards.map((card) => {
-                  const reasonChips = Array.isArray(card.reasons) ? card.reasons : [];
-
-                  return (
-                    <article
-                      key={card.key}
-                      className={`follow-reco-card group flex h-full flex-col rounded-[26px] border p-4 transition duration-200 motion-reduce:transition-none ${
-                        card.isFollowing
-                          ? 'border-emerald-300 bg-emerald-50/70 shadow-[0_16px_30px_-22px_rgba(22,163,74,0.55)]'
-                          : 'border-slate-200 bg-white hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_18px_40px_-24px_rgba(37,99,235,0.22)] motion-reduce:hover:translate-y-0'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <Link
-                          to={card.route}
-                          className="flex min-w-0 items-center gap-3 rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-                        >
-                          <EnterpriseAvatar
-                            src={card.avatarUrl}
-                            name={card.name}
-                            user={{ id: card.id, username: card.username }}
-                            size="xl"
-                            rounded="2xl"
-                            className="!h-14 !w-14 ring-1 ring-slate-200"
-                          />
-                          <div className="min-w-0">
-                            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-                              {card.badge}
-                            </span>
-                            <h2 className="mt-2 truncate text-base font-semibold text-slate-950">{card.name}</h2>
-                            <p className="truncate text-sm text-slate-500">
-                              {card.username ? `@${card.username}` : card.location || 'Scrolith member'}
-                            </p>
-                          </div>
-                        </Link>
-                        {card.isFollowing ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                            <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
-                            Following
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <p className="mt-4 min-h-[2.75rem] text-sm leading-6 text-slate-600">
-                        {card.headline || 'Recommended to help shape your feed from the first session.'}
-                      </p>
-
-                      <p className="mt-3 text-xs leading-5 text-slate-500">
-                        <span className="font-semibold text-slate-600">Why recommended: </span>
-                        {card.whyRecommended || 'Strong match for your first-session feed quality.'}
-                      </p>
-
-                      {reasonChips.length ? (
-                        <div className="mt-3 flex flex-wrap gap-1.5" aria-label={`Signals for ${card.name}`}>
-                          {reasonChips.map((reason) => (
-                            <span
-                              key={`${card.key}-${reason}`}
-                              className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${reasonChipClass(reason)}`}
-                            >
-                              {reason}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      <div className="mt-auto flex items-center justify-between gap-3 pt-5">
-                        <Link
-                          to={card.route}
-                          className="min-h-[44px] inline-flex items-center text-sm font-medium text-slate-500 transition hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-                        >
-                          Preview
-                        </Link>
-                        <button
-                          type="button"
-                          disabled={card.isFollowing || busyIds[card.key] || submitting}
-                          onClick={() => void handleFollow(card)}
-                          aria-label={
-                            card.isFollowing
-                              ? `Already following ${card.name}`
-                              : `Follow ${card.name}`
-                          }
-                          className={`inline-flex min-h-[44px] min-w-[5.5rem] items-center justify-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
-                            card.isFollowing
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300'
-                          }`}
-                        >
-                          {busyIds[card.key] ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
-                          {card.isFollowing ? 'Added' : 'Follow'}
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-
-                {!cards.length ? (
-                  <div className="sm:col-span-2 xl:col-span-3">
-                    <div className="rounded-[26px] border border-dashed border-slate-300 bg-slate-50 px-5 py-10 text-center text-sm text-slate-600">
-                      Recommendations are still warming up. Reload this page in a moment to continue.
-                    </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {visibleCards.map((card) => renderRecoCard(card))}
+                {!visibleCards.length ? (
+                  <div className="sm:col-span-2 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">
+                    {cards.length
+                      ? 'No recommendations in this filter. Try All, People, or Pages.'
+                      : 'We couldn’t load recommendations. Retry in a moment, or search after you continue if this persists.'}
+                    {!cards.length ? (
+                      <button
+                        type="button"
+                        className="mt-3 inline-flex min-h-[44px] items-center justify-center rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-800"
+                        onClick={() => window.location.reload()}
+                      >
+                        Retry
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
             )}
 
-            {!loading && cards.length > 0 ? (
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50/60 px-4 py-4 text-sm text-slate-600">
-                <p className="font-semibold text-slate-800">What happens next</p>
-                <ol className="mt-2 list-decimal space-y-1.5 pl-4 leading-6">
-                  <li>Your follows are saved to your professional graph.</li>
-                  <li>Member home opens with a feed seeded by those accounts.</li>
-                  <li>You can refine follows anytime from recommendations and search.</li>
-                </ol>
-                {selectedCards.length > 0 ? (
-                  <p className="mt-3 text-xs font-medium text-slate-500">
-                    {selectedCards.length} selected · feed quality improves with each relevant follow
-                  </p>
-                ) : (
-                  <p className="mt-3 text-xs font-medium text-slate-500">
-                    Follow at least {status.minimumRequired} to unlock continue
-                  </p>
-                )}
+            {selectedCards.length > 0 ? (
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected for your feed</p>
+                <div className="mt-2 flex flex-wrap gap-2" aria-label="Selected accounts">
+                  {selectedCards.map((card) => (
+                    <div
+                      key={`preview-${card.key}`}
+                      className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-white py-1 pl-1 pr-2.5"
+                    >
+                      <EnterpriseAvatar
+                        src={card.avatarUrl}
+                        name={card.name}
+                        user={{ id: card.id, username: card.username }}
+                        size="xs"
+                        className="!h-6 !w-6"
+                      />
+                      <span className="max-w-[7.5rem] truncate text-xs font-semibold text-slate-700">{card.name}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
+
+            {/* Desktop continue (mobile uses sticky) */}
+            <div className="mt-5 hidden border-t border-slate-200 pt-4 sm:block">
+              <button
+                type="button"
+                onClick={() => void handleContinue()}
+                disabled={!canContinue || submitting}
+                className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
+                {submitting ? 'Opening feed…' : activationReady ? 'Continue to feed' : 'Continue'}
+              </button>
+              {!canContinue ? (
+                <p className="mt-2 text-center text-xs text-slate-500">{missingHint}</p>
+              ) : null}
+            </div>
           </section>
         </div>
+      </div>
+
+      {/* Mobile sticky continue */}
+      <div className="follow-onboarding-sticky fixed inset-x-0 bottom-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 shadow-[0_-12px_32px_-20px_rgba(15,23,42,0.35)] backdrop-blur sm:hidden">
+        <p className="mb-2 text-center text-xs font-medium text-slate-600" aria-live="polite">
+          {missingHint}
+          {selectedCards.length > 0 ? ` · ${selectedCards.length} followed` : ''}
+        </p>
+        <button
+          type="button"
+          onClick={() => void handleContinue()}
+          disabled={!canContinue || submitting}
+          className="inline-flex min-h-[48px] w-full items-center justify-center gap-2 rounded-full bg-slate-950 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-950 disabled:cursor-not-allowed disabled:bg-slate-300"
+        >
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <ArrowRight className="h-4 w-4" aria-hidden />}
+          {submitting ? 'Opening feed…' : activationReady ? 'Continue to feed' : 'Continue'}
+        </button>
       </div>
     </div>
   );

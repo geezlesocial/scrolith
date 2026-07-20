@@ -29,6 +29,9 @@ export const isMessagingDockExcludedPath = (pathname: string | null | undefined)
   // Optional locale or app prefix is not used by Scrolith today; keep segment check strict.
   if (path === '/messages') return true;
   if (path.startsWith('/messages/')) return true;
+  // Phase 26B — onboarding must not be blocked by floating messaging launcher.
+  if (path === '/auth/follow-onboarding') return true;
+  if (path.startsWith('/auth/follow-onboarding/')) return true;
   return false;
 };
 

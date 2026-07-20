@@ -64,26 +64,33 @@ const LanguageMultiSelect: React.FC<LanguageMultiSelectProps> = ({
               type="button"
               role="listitem"
               onClick={() => toggle(code)}
-              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100"
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-800 hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
             >
-              <span dir="auto">{formatLanguageLabel(code)}</span>
-              <X className="h-3 w-3" aria-hidden />
-              <span className="sr-only">Remove {code}</span>
+              <span dir="auto" lang={code}>
+                {formatLanguageLabel(code)}
+              </span>
+              <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
+              <span className="sr-only">Remove {formatLanguageLabel(code)}</span>
             </button>
           ))}
         </div>
       ) : null}
 
       <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
         <input
           id={`${id}-search`}
           type="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search languages"
-          className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm outline-none ring-blue-500 focus:ring-2"
+          placeholder="Search by name, native name, or code"
+          className="min-h-[44px] w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-base outline-none ring-blue-500 focus:ring-2 sm:text-sm"
           aria-controls={`${id}-options`}
+          aria-describedby={`${id}-status`}
         />
       </div>
 
@@ -91,7 +98,7 @@ const LanguageMultiSelect: React.FC<LanguageMultiSelectProps> = ({
         id={`${id}-options`}
         role="group"
         aria-label="Available languages"
-        className="max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-2"
+        className="max-h-[min(18rem,42dvh)] overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-white p-1.5 sm:max-h-56 sm:p-2"
       >
         {filtered.map((lang) => {
           const active = selected.has(lang.code);
@@ -101,14 +108,14 @@ const LanguageMultiSelect: React.FC<LanguageMultiSelectProps> = ({
               type="button"
               aria-pressed={active}
               onClick={() => toggle(lang.code)}
-              className={`mb-1 flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+              className={`mb-1 flex min-h-[44px] w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 ${
                 active ? 'bg-blue-600 text-white' : 'hover:bg-slate-50 text-slate-800'
               }`}
             >
-              <span dir="auto" className="font-medium">
-                {lang.nativeName !== lang.name ? `${lang.nativeName}` : lang.name}
+              <span dir="auto" className="min-w-0 font-medium" lang={lang.code}>
+                {lang.nativeName !== lang.name ? lang.nativeName : lang.name}
               </span>
-              <span className={`text-xs ${active ? 'text-blue-100' : 'text-slate-500'}`}>
+              <span className={`shrink-0 text-xs ${active ? 'text-blue-100' : 'text-slate-500'}`}>
                 {lang.nativeName !== lang.name ? lang.name : lang.code.toUpperCase()}
                 {lang.direction === 'rtl' ? ' · RTL' : ''}
               </span>
@@ -120,7 +127,7 @@ const LanguageMultiSelect: React.FC<LanguageMultiSelectProps> = ({
         ) : null}
       </div>
 
-      <p className="text-xs text-slate-500" aria-live="polite">
+      <p id={`${id}-status`} className="text-xs text-slate-500" aria-live="polite">
         {value.length} selected
         {min > 0 ? ` · select at least ${min}` : ''}
         {max ? ` · up to ${max}` : ''}
