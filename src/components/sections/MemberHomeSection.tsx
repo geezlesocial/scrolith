@@ -1622,6 +1622,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const [pipelineBusyByPostId, setPipelineBusyByPostId] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingDraft, setEditingDraft] = useState<PostDraft | null>(null);
+  const [editMediaReplaceLocalId, setEditMediaReplaceLocalId] = useState<string | null>(null);
+  const editMediaInputRef = useRef<HTMLInputElement | null>(null);
   const [postActionBusy, setPostActionBusy] = useState<Record<string, boolean>>({});
   const [profiles, setProfiles] = useState<ProfileCard[]>([]);
   const [recommendedPages, setRecommendedPages] = useState<RecommendedPageCard[]>([]);
@@ -4825,12 +4827,137 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const removeEditMedia = useCallback((localId: string) => {
     setEditingDraft((prev) => {
       if (!prev) return prev;
+      const target = prev.media.find((media) => media.localId === localId);
+      if (target?.url && String(target.url).startsWith('blob:')) {
+        try {
+          URL.revokeObjectURL(target.url);
+        } catch {
+          /* ignore */
+        }
+      }
       return { ...prev, media: prev.media.filter((media) => media.localId !== localId) };
     });
   }, []);
 
+  const uploadEditMediaFile = useCallback(
+    async (file: File, replaceLocalId?: string) => {
+      if (!user || !editingDraft) return;
+      const currentCount = replaceLocalId
+        ? editingDraft.media.length
+        : editingDraft.media.length + 1;
+      const validation = validateComposerFile(file, {
+        currentCount: replaceLocalId ? Math.max(0, currentCount - 1) : Math.max(0, currentCount - 1)
+      });
+      if (validation.ok === false) {
+        showNotification('warning', 'Attachments', validation.reason);
+        return;
+      }
+      const localId = replaceLocalId || `edit-media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const previewUrl = URL.createObjectURL(file);
+      const inferred = validation.kind;
+      setEditingDraft((prev) => {
+        if (!prev) return prev;
+        const nextItem: PostMediaItem = {
+          localId,
+          url: previewUrl,
+          name: file.name,
+          type: inferred,
+          uploading: true,
+          progress: 0
+        };
+        if (replaceLocalId) {
+          return {
+            ...prev,
+            media: prev.media.map((item) => {
+              if (item.localId !== replaceLocalId) return item;
+              if (item.url && String(item.url).startsWith('blob:')) {
+                try {
+                  URL.revokeObjectURL(item.url);
+                } catch {
+                  /* ignore */
+                }
+              }
+              return nextItem;
+            })
+          };
+        }
+        return { ...prev, media: [...prev.media, nextItem] };
+      });
+      try {
+        const uploaded = await FileService.uploadFile(file, 'community', {
+          role: user.role,
+          visibility: editingDraft.visibility === 'private' ? 'private' : 'public',
+          userId: user.id,
+          onProgress: (percent) => {
+            setEditingDraft((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                media: prev.media.map((item) =>
+                  item.localId === localId ? { ...item, progress: percent, uploading: true } : item
+                )
+              };
+            });
+          }
+        });
+        setEditingDraft((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            media: prev.media.map((item) =>
+              item.localId === localId
+                ? {
+                    ...item,
+                    id: uploaded.id,
+                    url: uploaded.url || previewUrl,
+                    type:
+                      uploaded.type === 'video'
+                        ? 'video'
+                        : uploaded.type === 'image'
+                          ? 'image'
+                          : inferred,
+                    mimeType: uploaded.mimeType || uploaded.mime_type,
+                    thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url || null,
+                    uploading: false,
+                    progress: 100,
+                    error: undefined
+                  }
+                : item
+            )
+          };
+        });
+        showNotification('success', 'Posts', replaceLocalId ? 'Media replaced.' : 'Media added.');
+      } catch (error: any) {
+        const message =
+          error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unable to upload media.';
+        setEditingDraft((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            media: prev.media.map((item) =>
+              item.localId === localId ? { ...item, uploading: false, error: message } : item
+            )
+          };
+        });
+        showNotification('error', 'Posts', message);
+      }
+    },
+    [editingDraft, showNotification, user]
+  );
+
   const submitPostEdit = useCallback(async () => {
     if (!user || !editingPostId || !editingDraft) return;
+    if (editingDraft.media.some((media) => media.uploading)) {
+      showNotification('warning', 'Posts', 'Wait for media uploads to finish before saving.');
+      return;
+    }
+    if (editingDraft.media.some((media) => media.error)) {
+      showNotification('warning', 'Posts', 'Remove failed attachments or re-upload before saving.');
+      return;
+    }
     const attachmentFileIds = editingDraft.media.map((media) => media.id).filter(Boolean) as string[];
     const hasText = Boolean(editingDraft.title.trim() || editingDraft.content.trim());
     if (!hasText && attachmentFileIds.length === 0) {
@@ -4844,6 +4971,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         title: editingDraft.title.trim(),
         content: editingDraft.content,
         attachmentFileIds,
+        attachments: attachmentFileIds,
         topic: editingDraft.topic || undefined,
         location: editingDraft.location || undefined,
         visibility: editingDraft.visibility,
@@ -9261,47 +9389,112 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600"
                             />
                           </div>
-                          {editingDraft?.media?.length ? (
-                            <div className="grid gap-3 md:grid-cols-2">
-                              {editingDraft.media.map((media) => {
-                                const type = media.type || inferMediaType(media);
-                                return (
-                                  <div key={media.localId} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                                    <button
-                                      type="button"
-                                      onClick={() => removeEditMedia(media.localId)}
-                                      className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-500 hover:text-slate-700"
-                                    >
-                                      <X className="h-4 w-4" />
-                                    </button>
-                                    {type === 'video' ? (
-                                      <video
-                                        src={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
-                                        className="h-40 w-full object-cover"
-                                        controls
-                                      />
-                                    ) : type === 'image' ? (
-                                      <OptimizedImage
-                                        src={resolvePostAttachmentPosterUrl(media) || resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
-                                        fallbackSrc={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
-                                        alt={media.name || 'Post media'}
-                                        width={960}
-                                        height={540}
-                                        sizes="(max-width: 1280px) 100vw, 420px"
-                                        className="h-40 w-full object-cover"
-                                        loading="lazy"
-                                        decoding="async"
-                                      />
-                                    ) : (
-                                      <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-slate-500">
-                                        {media.name || 'Attachment'}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
+                          <div className="space-y-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                Media (photo / video)
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditMediaReplaceLocalId(null);
+                                  if (editMediaInputRef.current) editMediaInputRef.current.value = '';
+                                  editMediaInputRef.current?.click();
+                                }}
+                                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                              >
+                                Add media
+                              </button>
                             </div>
-                          ) : null}
+                            {editingDraft?.media?.length ? (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {editingDraft.media.map((media) => {
+                                  const type = media.type || inferMediaType(media);
+                                  const mediaSrc =
+                                    (String(media.url || '').startsWith('blob:') ||
+                                    String(media.url || '').startsWith('data:')
+                                      ? media.url
+                                      : resolvePostAttachmentMediaUrl(media) ||
+                                        resolveAssetUrl(media.url) ||
+                                        media.url) || '';
+                                  return (
+                                    <div
+                                      key={media.localId}
+                                      className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                                    >
+                                      <div className="absolute right-2 top-2 z-10 flex gap-1">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditMediaReplaceLocalId(media.localId);
+                                            if (editMediaInputRef.current) editMediaInputRef.current.value = '';
+                                            editMediaInputRef.current?.click();
+                                          }}
+                                          className="rounded-full bg-white/95 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-sm hover:bg-white"
+                                        >
+                                          Replace
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => removeEditMedia(media.localId)}
+                                          className="rounded-full bg-white/95 p-1 text-slate-500 shadow-sm hover:text-slate-700"
+                                          aria-label="Remove media"
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                      {media.uploading ? (
+                                        <div className="flex h-40 w-full items-center justify-center text-xs font-semibold text-slate-600">
+                                          Uploading… {Math.round(Number(media.progress || 0))}%
+                                        </div>
+                                      ) : media.error ? (
+                                        <div className="flex h-40 w-full flex-col items-center justify-center gap-2 p-3 text-center text-xs text-rose-600">
+                                          <span>{media.error}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditMediaReplaceLocalId(media.localId);
+                                              editMediaInputRef.current?.click();
+                                            }}
+                                            className="rounded-full border border-rose-200 px-2 py-1 font-semibold"
+                                          >
+                                            Retry upload
+                                          </button>
+                                        </div>
+                                      ) : type === 'video' ? (
+                                        <video src={mediaSrc} className="h-40 w-full object-cover" controls playsInline />
+                                      ) : type === 'image' ? (
+                                        <OptimizedImage
+                                          src={
+                                            resolvePostAttachmentPosterUrl(media) ||
+                                            mediaSrc ||
+                                            resolveAssetUrl(media.url) ||
+                                            ''
+                                          }
+                                          fallbackSrc={mediaSrc || resolveAssetUrl(media.url) || ''}
+                                          alt={media.name || 'Post media'}
+                                          width={960}
+                                          height={540}
+                                          sizes="(max-width: 1280px) 100vw, 420px"
+                                          className="h-40 w-full object-cover"
+                                          loading="lazy"
+                                          decoding="async"
+                                        />
+                                      ) : (
+                                        <div className="flex h-40 w-full items-center justify-center p-4 text-xs text-slate-500">
+                                          {media.name || 'Attachment'}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-xs text-slate-500">
+                                No media attached. Add a photo or video, or keep this post text-only.
+                              </p>
+                            )}
+                          </div>
                           <div className="flex flex-wrap justify-end gap-2">
                             <button
                               type="button"
@@ -9313,7 +9506,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             <button
                               type="button"
                               onClick={submitPostEdit}
-                              disabled={postBusy}
+                              disabled={
+                                postBusy ||
+                                Boolean(editingDraft?.media?.some((media) => media.uploading))
+                              }
                               className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white disabled:opacity-60"
                             >
                               {postBusy ? 'Saving...' : 'Save changes'}
@@ -10173,6 +10369,19 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar"
         className="hidden"
         onChange={handlePostMedia}
+      />
+      <input
+        ref={editMediaInputRef}
+        type="file"
+        accept="image/*,video/*"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          void uploadEditMediaFile(file, editMediaReplaceLocalId || undefined);
+          setEditMediaReplaceLocalId(null);
+          event.target.value = '';
+        }}
       />
       <input
         ref={postCameraInputRef}

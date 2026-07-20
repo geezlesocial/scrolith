@@ -1065,6 +1065,10 @@ class CommunityService {
     clubId?: string;
     businessPageId?: string;
     businessPageSlug?: string;
+    /** Filter to a specific author */
+    authorId?: string;
+    /** Current user inventory (requires auth) */
+    mine?: boolean;
   }): Promise<any[]> {
     const search = new URLSearchParams();
     if (params?.limit !== undefined) search.set('limit', String(params.limit));
@@ -1073,9 +1077,21 @@ class CommunityService {
     if (params?.clubId) search.set('clubId', String(params.clubId));
     if (params?.businessPageId) search.set('businessPageId', String(params.businessPageId));
     if (params?.businessPageSlug) search.set('businessPageSlug', String(params.businessPageSlug));
+    if (params?.authorId) search.set('authorId', String(params.authorId));
+    if (params?.mine) search.set('mine', '1');
     const endpoint = `/community/posts${search.toString() ? `?${search.toString()}` : ''}`;
     const data = await this.get(endpoint);
     return toArray(data);
+  }
+
+  /** Signed-in user's posts (including private), newest first. */
+  static async getMyPosts(params?: { limit?: number; offset?: number; status?: string }): Promise<any[]> {
+    return this.getPosts({
+      limit: params?.limit ?? 100,
+      offset: params?.offset ?? 0,
+      status: params?.status ?? 'active',
+      mine: true
+    });
   }
 
   static async getFeed(params?: {

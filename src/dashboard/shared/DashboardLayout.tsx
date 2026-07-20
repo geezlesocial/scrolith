@@ -16,6 +16,7 @@ import {
   Menu,
   MessageCircle,
   Settings,
+  Share2,
   ShieldCheck,
   ShoppingBag,
   Star,
@@ -67,7 +68,10 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
     referrals: 'affiliate-program',
-    marketplace: 'marketplace'
+    marketplace: 'marketplace',
+    posts: 'my-posts',
+    'my-posts': 'my-posts',
+    myposts: 'my-posts'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -271,6 +275,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'overview', label: 'Overview', icon: LayoutDashboard, description: 'Live KPIs, command center, and work priorities' },
             { tab: 'community', label: 'Community', icon: Users, description: 'Posts, network momentum, and audience activity' },
+            { tab: 'my-posts', label: 'My Posts', icon: Share2, description: 'Edit, replace media, pin, and delete your posts' },
             { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Business-page command center, governance, and publishing operations' }
           ]
         },
@@ -333,6 +338,7 @@ export const DashboardLayout: React.FC<{ children: React.ReactNode }> = ({ child
           items: [
             { tab: 'overview', label: 'Overview', icon: LayoutDashboard, description: 'Live hiring command center and queue health' },
             { tab: 'community', label: 'Community', icon: Users, description: 'Audience engagement and publishing surfaces' },
+            { tab: 'my-posts', label: 'My Posts', icon: Share2, description: 'Edit, replace media, pin, and delete your posts' },
             { tab: 'manage-pages', label: 'Manage Pages', icon: Building2, description: 'Business-page command center, governance, and brand operations' }
           ]
         },

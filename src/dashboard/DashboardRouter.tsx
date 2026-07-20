@@ -35,6 +35,7 @@ const ManagePagesModule = React.lazy(() => import('./shared/ManagePagesModule'))
 const AffiliateDashboardModule = React.lazy(() => import('./shared/AffiliateDashboardModule'));
 const MyAds = React.lazy(() => import('../pages/MyAds'));
 const CommunityDashboard = React.lazy(() => import('./shared/CommunityDashboard'));
+const MyPosts = React.lazy(() => import('./shared/MyPosts'));
 const EditProfile = React.lazy(() => import('../profile/EditProfile'));
 const ResumeBuilder = React.lazy(() => import('../pages/freelancer/ResumeBuilder'));
 const ResumeReviewer = React.lazy(() => import('../pages/client/ResumeReviewer'));
@@ -87,7 +88,10 @@ const normalizeDashboardTab = (value: string, role: UserRole): string => {
     affiliates: 'affiliate-program',
     referral: 'affiliate-program',
     referrals: 'affiliate-program',
-    marketplace: 'marketplace'
+    marketplace: 'marketplace',
+    posts: 'my-posts',
+    'my-posts': 'my-posts',
+    myposts: 'my-posts'
   };
 
   if (commonMap[tab]) return commonMap[tab];
@@ -204,6 +208,8 @@ export const DashboardRouter: React.FC = () => {
           return <FreelancerOverview />;
         case 'community':
           return <CommunityDashboard />;
+        case 'my-posts':
+          return <MyPosts />;
         case 'manage-pages':
           return <ManagePagesModule />;
         case 'my-gigs':
@@ -260,6 +266,8 @@ export const DashboardRouter: React.FC = () => {
           return <EmployerOverview />;
         case 'community':
           return <CommunityDashboard />;
+        case 'my-posts':
+          return <MyPosts />;
         case 'manage-pages':
           return <ManagePagesModule />;
         case 'my-ads':

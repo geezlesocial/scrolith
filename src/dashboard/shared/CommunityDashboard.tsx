@@ -707,10 +707,9 @@ const CommunityDashboard: React.FC = () => {
       return;
     }
     try {
-      const allPosts = await CommunityService.getPosts({ limit: 250, status: 'active' });
-      const mine = (Array.isArray(allPosts) ? allPosts : [])
+      const mineRaw = await CommunityService.getMyPosts({ limit: 100, status: 'active' });
+      const mine = (Array.isArray(mineRaw) ? mineRaw : [])
         .map(normalizePost)
-        .filter((post) => resolvePostOwnerUserId(post) === String(user.id))
         .sort((a, b) => {
           const aTime = new Date(a.createdAt || 0).getTime();
           const bTime = new Date(b.createdAt || 0).getTime();
@@ -721,7 +720,7 @@ const CommunityDashboard: React.FC = () => {
       console.error('My posts load failed', error);
       setMyPosts([]);
     }
-  }, [normalizePost, resolvePostOwnerUserId, user?.id]);
+  }, [normalizePost, user?.id]);
 
   useEffect(() => {
     if (user) {
