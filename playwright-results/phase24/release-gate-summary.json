@@ -1,0 +1,82 @@
+{
+  "phase": "24A",
+  "generatedAt": "2026-07-20T06:48:30.000Z",
+  "overall": "PASS",
+  "phase24Certified": true,
+  "promoteRecommended": true,
+  "frontendPromoted": true,
+  "backendUnchanged": true,
+  "backendRevision": "scrolith-backend-00160-xez",
+  "migrationRequired": false,
+  "migrationStatus": "NOT_APPLICABLE",
+  "mobileCompatibility": "PASS",
+  "communityDesign": "PASS",
+  "discovery": "PASS",
+  "membership": "PASS",
+  "communityDetail": "PASS",
+  "communityFeedStability": "PASS",
+  "communityPostCards": "PASS",
+  "moderation": "PASS",
+  "scrolithaLearning": "PASS",
+  "performance": "PASS",
+  "accessibility": "PASS",
+  "security": "PASS",
+  "phase21Regression": "PASS",
+  "phase223cRegression": "PASS",
+  "phase23Regression": "PASS",
+  "productionMonitoring": "CLEAN",
+  "stats": {
+    "passed": 16,
+    "failed": 0,
+    "skipped": 0
+  },
+  "unitTests": {
+    "phase24Community": "8/8 PASS",
+    "phase23ScrollEnterprise": "7/7 PASS",
+    "phase221BScrollVideoRoutes": "6/6 PASS"
+  },
+  "apiCertTagged": {
+    "overall": "PASS",
+    "passed": 16,
+    "failed": 0,
+    "feBase": "https://p24---scrolith-frontend-25ysnpjdda-as.a.run.app",
+    "apiBase": "https://api.scrolith.com/api"
+  },
+  "apiCertProduction": {
+    "overall": "PASS",
+    "passed": 16,
+    "failed": 0
+  },
+  "deploy": {
+    "frontendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p24",
+    "frontendDigest": "sha256:e372ca8727a0196ebf728c98cae3fd4b751b61f23b4514ff947202e39b5c84c2",
+    "frontendRevision": "scrolith-frontend-00217-niy",
+    "frontendTag": "p24",
+    "frontendTagUrl": "https://p24---scrolith-frontend-25ysnpjdda-as.a.run.app",
+    "frontendTraffic": "100%",
+    "entryJs": "assets/index-kBabzjhk.js",
+    "entryCss": "assets/index-vkqgQJmU.css",
+    "asset404": 0,
+    "chunks": {
+      "CommunityLayout": "CommunityLayout-BECLmb-H.js",
+      "Clubs": "Clubs-DwZqcao4.js",
+      "communityLearningEngine": "communityLearningEngine-Q4WaCGXH.js",
+      "communityTokens": "communityTokens-DmNcu9Ya.js",
+      "communitySessionStability": "communitySessionStability-CyMeucN7.js"
+    },
+    "liveBeforeDeploy": {
+      "frontend": "scrolith-frontend-00215-tab",
+      "backend": "scrolith-backend-00160-xez"
+    },
+    "rollbackFrontend": "scrolith-frontend-00215-tab",
+    "frontendCommit": "eeffcfd3"
+  },
+  "scope": {
+    "scrollModified": false,
+    "messagingModified": false,
+    "feedModified": false,
+    "backendDeployed": false
+  },
+  "trafficActionCompleted": true,
+  "promotedAt": "2026-07-20T06:47:40.000Z"
+}
