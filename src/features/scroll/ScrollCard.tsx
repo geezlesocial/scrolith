@@ -189,9 +189,13 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const [interestSignal, setInterestSignal] = useState<string | null>(scroll.viewer?.feedbackSignal || null);
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
   const mediaUrl = media.src;
-  const playbackSrc = mediaUrl
-    ? `${mediaUrl}${mediaUrl.includes('?') ? '&' : '?'}_r=${mediaReloadToken}`
-    : '';
+  const playbackSrc = (() => {
+    const raw = String(mediaUrl || '').trim();
+    if (!raw) return '';
+    if (mediaReloadToken <= 0) return raw;
+    if (/^(blob:|data:)/i.test(raw)) return raw;
+    return `${raw}${raw.includes('?') ? '&' : '?'}_r=${mediaReloadToken}`;
+  })();
   const safePoster =
     media.poster && !/__video_fallback_thumbnail|video_fallback/i.test(String(media.poster))
       ? media.poster

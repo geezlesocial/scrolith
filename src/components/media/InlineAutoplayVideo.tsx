@@ -72,7 +72,16 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   const isInViewRef = useRef(isInView);
   const internalPauseUntilRef = useRef(0);
   const isMuted = muted ?? internalMuted;
-  const effectiveSrc = src && reloadToken >= 0 ? `${src}${src.includes('?') ? '&' : '?'}_r=${reloadToken}` : src;
+  // Cache-bust only http(s) URLs after an explicit retry. Never rewrite blob:/data: previews
+  // (composer local ObjectURLs break if we append ?_r=…).
+  const effectiveSrc = (() => {
+    const raw = String(src || '').trim();
+    if (!raw) return '';
+    if (reloadToken <= 0) return raw;
+    if (/^(blob:|data:)/i.test(raw)) return raw;
+    if (!/^https?:\/\//i.test(raw) && !raw.startsWith('/')) return raw;
+    return `${raw}${raw.includes('?') ? '&' : '?'}_r=${reloadToken}`;
+  })();
   const setVideoElement = useCallback((node: HTMLVideoElement | null) => {
     videoRef.current = node;
     setVideoNode((current) => (current === node ? current : node));

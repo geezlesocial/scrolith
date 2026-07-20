@@ -7337,13 +7337,25 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                     className="relative block h-48 w-full cursor-pointer overflow-hidden"
                                   >
                                     <InlineAutoplayVideo
-                                      src={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
-                                      poster={resolvePostAttachmentPosterUrl(media) || resolveAssetUrl(media.thumbnailUrl) || undefined}
+                                      src={
+                                        // Prefer local blob preview while uploading / before durable URL is ready.
+                                        (String(media.url || '').startsWith('blob:') ||
+                                        String(media.url || '').startsWith('data:')
+                                          ? media.url
+                                          : resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || media.url) ||
+                                        ''
+                                      }
+                                      poster={
+                                        resolvePostAttachmentPosterUrl(media) ||
+                                        resolveAssetUrl(media.thumbnailUrl) ||
+                                        undefined
+                                      }
                                       className="h-48 w-full object-cover"
                                       controls={false}
                                       loop
+                                      eagerLoad
                                       autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                                      preload="metadata"
+                                      preload="auto"
                                       loadingLabel="Video preview loading"
                                     />
                                     <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent px-4 pb-3 pt-10">
