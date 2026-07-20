@@ -1,0 +1,35 @@
+﻿{
+    "auth_health":  "{\"success\":true,\"service\":\"auth\"}",
+    "google_start":  {
+                         "status":  "error",
+                         "location":  null,
+                         "err":  "Operation is not valid due to the current state of the object."
+                     },
+    "google_to_google":  false,
+    "google_callback_api":  false,
+    "google_no_localhost":  true,
+    "linkedin_start":  {
+                           "status":  "error",
+                           "location":  null,
+                           "err":  "Operation is not valid due to the current state of the object."
+                       },
+    "linkedin_to_linkedin":  false,
+    "linkedin_no_localhost":  true,
+    "exchange_empty":  {
+                           "body":  "",
+                           "status":  400
+                       },
+    "exchange_short":  {
+                           "body":  "",
+                           "status":  400
+                       },
+    "exchange_unknown":  {
+                             "body":  "",
+                             "status":  400
+                         },
+    "fe_home":  200,
+    "fe_callback":  200,
+    "fe_login":  200,
+    "entry_js":  "index-C_8_0H2R.js",
+    "entry_css":  "index-vkqgQJmU.css"
+}

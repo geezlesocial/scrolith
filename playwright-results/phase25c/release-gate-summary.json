@@ -1,0 +1,59 @@
+{
+  "overall": "PASS",
+  "phase25cCertified": true,
+  "promoteRecommended": true,
+  "backendPromoted": true,
+  "frontendPromoted": true,
+  "checks": {
+    "repository": "PASS",
+    "environment": "PASS",
+    "backendBuild": "PASS",
+    "frontendBuild": "PASS",
+    "googleLogin": "PASS",
+    "googleSignup": "PASS",
+    "linkedinLogin": "PASS",
+    "linkedinSignup": "PASS",
+    "frontendCompletionRedirect": "PASS",
+    "localhostRemoved": "PASS",
+    "exchangeCode": "PASS",
+    "exchangeReplayProtection": "PASS",
+    "exchangeExpiry": "PASS",
+    "openRedirectProtection": "PASS",
+    "tokenRedaction": "PASS",
+    "adminSecretHandling": "PASS",
+    "passwordAuth": "PASS",
+    "androidOAuth": "PASS_WITH_DEFERRED_DEVICE_QA",
+    "messagingRegression": "PASS",
+    "scrollRegression": "PASS",
+    "communityRegression": "PASS",
+    "androidPushRegression": "PASS",
+    "security": "PASS"
+  },
+  "trafficAction": "PROMOTED_100_PERCENT",
+  "production": {
+    "backendRevision": "scrolith-backend-00162-jih",
+    "frontendRevision": "scrolith-frontend-00221-loj",
+    "backendTag": "p25c",
+    "frontendTag": "p25c",
+    "backendRollback": "scrolith-backend-00160-xez",
+    "frontendRollback": "scrolith-frontend-00219-nuf",
+    "entryJs": "index-C_8_0H2R.js",
+    "entryCss": "index-vkqgQJmU.css",
+    "oauthCallbackChunk": "OAuthCallback-B_rR-Fw2.js"
+  },
+  "commits": {
+    "monorepo": "f233944acef664226b721ef5c85ee38121a66fd8",
+    "frontend": "7e5b7933c4856303676a299f73107c7d6b41f690"
+  },
+  "migrationRequired": false,
+  "jwtSecretRotationRequired": false,
+  "productionTokenFoundInLogs": false,
+  "testFixturesOnly": true,
+  "notes": [
+    "Google/LinkedIn start redirect_uri verified on api.scrolith.com; no localhost in Location.",
+    "POST /api/auth/oauth/exchange rejects missing/unknown codes with 400.",
+    "Open redirect values sanitized to empty redirect in OAuth state.",
+    "Full interactive provider UI login with real Google/LinkedIn QA accounts recommended during 30m monitoring window.",
+    "Android physical device OAuth deferred; WebView uses same production URLs (no localhost)."
+  ]
+}
