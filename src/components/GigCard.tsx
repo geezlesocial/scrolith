@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, Clock3, Heart, ShoppingCart, Sparkles, Star } from 'lucide-react';
-import { useCurrency } from '../context/CurrencyContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { useCart } from '../context/CartContext';
 import { useNotification } from '../context/NotificationContext';
@@ -13,19 +12,21 @@ import OptimizedImage from './media/OptimizedImage';
 import { resolveVerificationLevel } from '../utils/verification';
 import { resolveAssetUrl } from '../utils/assetUrl';
 import { buildScrolithaPath } from '../utils/scrolithaLaunch';
+import { MoneyDisplay } from './money/MoneyDisplay';
 
 interface GigCardProps {
   gig: Gig;
 }
 
 const GigCard: React.FC<GigCardProps> = ({ gig }) => {
-  const { formatPrice } = useCurrency();
   const { toggleFavorite, isFavorite } = useFavorites();
   const { addToCart, isInCart } = useCart();
   const { showNotification } = useNotification();
   const [working, setWorking] = useState(false);
 
   const priceValue = typeof gig.price === 'number' ? gig.price : (gig as any)?.price?.amount ?? 0;
+  const priceCurrency =
+    String((gig as any)?.currency || (gig as any)?.price?.currency || '').trim().toUpperCase() || undefined;
   const imageUrl = resolveAssetUrl(gig.image || (Array.isArray(gig.images) ? gig.images[0] : '') || '');
   const freelancerAvatar = resolveAssetUrl(gig.freelancerAvatar || '');
   const isFreelancerVerified = Boolean(
@@ -217,7 +218,9 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
             <div className="flex items-end justify-between gap-3">
               <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-white/70">Starting at</p>
-                <p className="mt-1 truncate text-[1.75rem] font-bold tracking-tight text-white">{formatPrice(priceValue)}</p>
+                <p className="mt-1 truncate text-[1.75rem] font-bold tracking-tight text-white">
+                  <MoneyDisplay amount={priceValue} currency={priceCurrency} className="text-inherit font-inherit" />
+                </p>
               </div>
               <div className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-slate-950/55 px-3 py-2 text-xs font-semibold text-white backdrop-blur-md">
                 <Clock3 className="h-3.5 w-3.5 text-white/80" />
@@ -317,7 +320,9 @@ const GigCard: React.FC<GigCardProps> = ({ gig }) => {
                 <p className="truncate text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                   {packageCount > 1 ? 'Packages from' : 'Offer ready'}
                 </p>
-                <p className="mt-1 truncate text-sm font-semibold text-slate-900">{formatPrice(priceValue)}</p>
+                <p className="mt-1 truncate text-sm font-semibold text-slate-900">
+                  <MoneyDisplay amount={priceValue} currency={priceCurrency} className="text-inherit font-inherit" />
+                </p>
               </div>
               <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white">
                 View gig

@@ -45,6 +45,7 @@ import { CommunityService } from '../../services/community';
 import VerifiedBadge from '../../components/common/VerifiedBadge';
 import { FileService } from '../../services/files';
 import { FavoritesService } from '../../services/favorites';
+import { MoneyDisplay } from '../../components/money/MoneyDisplay';
 import {
   archiveMarketplaceListing,
   contactMarketplaceSeller,
@@ -174,11 +175,12 @@ const resolveDefaultCurrencyCode = (currencies: Currency[] = []) =>
 const normalizeCurrencyCode = (value: string | null | undefined, fallback = DEFAULT_CURRENCY) =>
   String(value || fallback).trim().toUpperCase();
 
+/** Listing source currency formatting (forms/admin). Prefer MoneyDisplay for user-facing cards. */
 const formatMoney = (value: MarketplaceListing['price'], currency?: string | null) => {
   const numeric = typeof value === 'number' ? value : Number(value ?? 0);
   if (!Number.isFinite(numeric)) return 'Price on request';
   try {
-    return new Intl.NumberFormat('en', {
+    return new Intl.NumberFormat(undefined, {
       style: 'currency',
       currency: normalizeCurrencyCode(currency, DEFAULT_CURRENCY),
       maximumFractionDigits: Number.isInteger(numeric) ? 0 : 2
@@ -186,6 +188,25 @@ const formatMoney = (value: MarketplaceListing['price'], currency?: string | nul
   } catch {
     return `${normalizeCurrencyCode(currency, DEFAULT_CURRENCY)} ${numeric.toLocaleString()}`;
   }
+};
+
+const ListingPrice: React.FC<{
+  price: MarketplaceListing['price'];
+  currency?: string | null;
+  className?: string;
+}> = ({ price, currency, className }) => {
+  const numeric = typeof price === 'number' ? price : Number(price ?? NaN);
+  if (!Number.isFinite(numeric)) {
+    return <span className={className}>Price on request</span>;
+  }
+  return (
+    <MoneyDisplay
+      amount={numeric}
+      currency={normalizeCurrencyCode(currency, DEFAULT_CURRENCY)}
+      showBaseSecondary={false}
+      className={className}
+    />
+  );
 };
 
 const formatDate = (value?: string | null) => {
@@ -1867,7 +1888,7 @@ const MarketplacePage: React.FC<{ variant?: MarketplaceVariant }> = ({ variant =
 
                   <div className="mt-4 flex flex-wrap items-center gap-2">
                     <div className="rounded-2xl bg-white px-4 py-3 text-xl font-bold text-slate-950 shadow-sm">
-                      {formatMoney(selectedListing.price, selectedListing.currency)}
+                      <ListingPrice price={selectedListing.price} currency={selectedListing.currency} />
                     </div>
                     {selectedListing.negotiable && <MarketplaceBadge>Negotiable</MarketplaceBadge>}
                     {selectedListing.brand && <MarketplaceBadge>{selectedListing.brand}</MarketplaceBadge>}
@@ -2481,7 +2502,7 @@ const MarketplaceListingCard: React.FC<{
               </div>
             </div>
             <div className="self-start rounded-2xl bg-slate-50 px-3 py-2 text-sm font-bold text-slate-950">
-              {formatMoney(listing.price, listing.currency)}
+              <ListingPrice price={listing.price} currency={listing.currency} />
             </div>
           </div>
           <p className="line-clamp-2 text-sm leading-6 text-slate-600">{listing.summary || listing.description || 'Scrolith marketplace listing.'}</p>

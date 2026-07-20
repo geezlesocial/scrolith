@@ -120,7 +120,10 @@ const GcoinPanel = () => {
         <div className="bg-white border rounded-xl p-5">
           <div className="text-xs text-gray-500 uppercase font-bold">Balance</div>
           <div className="text-3xl font-extrabold text-gray-900 mt-2">{wallet.balance} GC</div>
-          <div className="text-xs text-gray-500 mt-1">{formatPrice(wallet.balance * conversionRate)}</div>
+          <div className="text-xs text-gray-500 mt-1">
+            Est. fiat (admin rate, not FX): {formatPrice(wallet.balance * conversionRate)}
+          </div>
+          <div className="text-[10px] text-gray-400 mt-0.5">Gcoin is a platform utility, not a fiat currency.</div>
         </div>
         <div className="bg-white border rounded-xl p-5">
           <div className="text-xs text-gray-500 uppercase font-bold">Recipient ID</div>
@@ -167,7 +170,9 @@ const GcoinPanel = () => {
             Send Gcoin
           </button>
         </div>
-        <div className="text-xs text-gray-500">Estimated value: {formatPrice(fiatValue)}</div>
+        <div className="text-xs text-gray-500">
+          Estimated wallet funds (admin GC rate, not FX): {formatPrice(fiatValue)}
+        </div>
         {conversionRate <= 0 && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
             Conversion rate is not configured.

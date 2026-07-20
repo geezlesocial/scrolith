@@ -1123,16 +1123,27 @@ const SettingsModule = () => {
                                         </select>
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">Currency Display</label>
-                                        <select 
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                                            Preferred currency
+                                        </label>
+                                        <select
                                             className="w-full border border-gray-300 rounded-lg p-2.5"
                                             value={currency.code}
                                             onChange={(e) => setCurrency(e.target.value)}
+                                            aria-describedby="preferred-currency-help"
                                         >
-                                            {availableCurrencies.map(c => (
-                                                <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                                            {availableCurrencies.map((c) => (
+                                                <option key={c.code} value={c.code}>
+                                                    {c.code}
+                                                    {c.symbol ? ` (${c.symbol})` : ''}
+                                                    {c.name ? ` — ${c.name}` : ''}
+                                                </option>
                                             ))}
                                         </select>
+                                        <p id="preferred-currency-help" className="mt-1 text-xs text-gray-500">
+                                            Eligible prices convert from the platform base currency using approved FX
+                                            rates. Checkout locks the rate at payment time.
+                                        </p>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Theme</label>

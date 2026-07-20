@@ -3,17 +3,23 @@ import { Link } from 'react-router-dom';
 import { BriefcaseIcon as Briefcase, SearchIcon as Search } from '../../../components/icons/ShellIcons';
 import { jobsApi, Job } from '../../../services/jobs';
 import { MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
+import { useCurrency } from '../../../context/CurrencyContext';
 
-const formatBudget = (budget: Job['budget']) => {
+const formatBudget = (
+  budget: Job['budget'],
+  formatPrice?: (amount: number | string | null | undefined) => string
+) => {
   if (!budget) return '';
   if (typeof budget === 'string') return budget;
   const type = budget.type === 'hourly' ? 'Hourly' : 'Fixed';
-  if (budget.minAmount && budget.maxAmount) return `${type}: $${budget.minAmount}-$${budget.maxAmount}`;
-  if (typeof budget.amount === 'number') return `${type}: $${budget.amount}`;
+  const fmt = (n: number) => (formatPrice ? formatPrice(n) : String(n));
+  if (budget.minAmount && budget.maxAmount) return `${type}: ${fmt(budget.minAmount)}-${fmt(budget.maxAmount)}`;
+  if (typeof budget.amount === 'number') return `${type}: ${fmt(budget.amount)}`;
   return type;
 };
 
 export default function MobileJobsScreen() {
+  const { formatPrice } = useCurrency();
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -85,7 +91,9 @@ export default function MobileJobsScreen() {
                   <span className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700">{job.subcategory}</span>
                 ) : null}
                 {job.budget ? (
-                  <span className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white">{formatBudget(job.budget)}</span>
+                  <span className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white">
+                    {formatBudget(job.budget, formatPrice)}
+                  </span>
                 ) : null}
               </div>
             </Link>

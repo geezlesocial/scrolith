@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { TrustContent, CategoriesContent, HowItWorksContent, FeaturedContent, CTAContent } from '../../types';
 import { CATEGORIES, MOCK_GIGS } from '../../constants';
-import { useCurrency } from '../../context/CurrencyContext';
+import { MoneyDisplay } from '../money/MoneyDisplay';
 import { jobsApi } from '../../services/jobs';
 
 export const TrustSection = ({ content, style }: { content: TrustContent, style?: any }) => (
@@ -240,7 +240,6 @@ export const HowItWorksSection = ({ content }: { content: HowItWorksContent }) =
 };
 
 export const FeaturedSection = ({ content, style }: { content: FeaturedContent, style?: any }) => {
-  const { formatPrice } = useCurrency();
   const isGray = style?.theme === 'gray';
   const [liveJobs, setLiveJobs] = useState<any[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
@@ -320,7 +319,9 @@ export const FeaturedSection = ({ content, style }: { content: FeaturedContent, 
                          </div>
                          <div className="flex items-center justify-between border-t border-gray-100 pt-4">
                             <div className="text-xs text-gray-400 font-medium uppercase">Starting at</div>
-                            <div className="text-lg font-bold text-gray-900">{formatPrice(item.price)}</div>
+                            <div className="text-lg font-bold text-gray-900">
+                              <MoneyDisplay amount={item.price} currency={(item as any).currency} />
+                            </div>
                          </div>
                       </div>
                    </Link>
