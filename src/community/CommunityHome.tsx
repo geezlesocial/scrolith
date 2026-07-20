@@ -1558,8 +1558,12 @@ const CommunityHome = () => {
               console.warn('Failed to hydrate follow status map for community posts:', error);
             }
           }
-        } else {
-          console.error('Failed to load community posts:', feedPostsResult.reason);
+        } else if (!usedOrchestrated) {
+          const reason =
+            feedPostsResult.status === 'rejected'
+              ? feedPostsResult.reason?.message || String(feedPostsResult.reason || 'unknown')
+              : 'unavailable';
+          console.error('Failed to load community posts:', reason);
           setPostsNextCursor(null);
         }
 
@@ -2678,6 +2682,14 @@ const CommunityHome = () => {
     [posts, user?.id]
   );
 
+  // Phase 24 — must run before any early return (React hooks order; fixes #310)
+  useEffect(() => {
+    trackCommunitySignal('community_opened', {
+      entityType: 'COMMUNITY',
+      meta: { surface: 'community_home' }
+    });
+  }, []);
+
   // Full-page skeleton only on first paint with no posts — never unmount feed during soft reloads.
   if (loading && posts.length === 0) {
     return (
@@ -2741,14 +2753,6 @@ const CommunityHome = () => {
   const visibleSections = (Array.isArray(homepage?.sections) ? homepage.sections : []).filter((section: any) =>
     isVisibleForDevice(section?.visibility, viewportDevice)
   );
-
-  // Phase 24 — community home open signal (session stable; no feed rewrite)
-  useEffect(() => {
-    trackCommunitySignal('community_opened', {
-      entityType: 'COMMUNITY',
-      meta: { surface: 'community_home' }
-    });
-  }, []);
 
   return (
     <div className="min-h-screen min-w-0 overflow-x-hidden bg-slate-50" data-testid="community-home">
@@ -3354,7 +3358,7 @@ const CommunityHome = () => {
                     followTargetId ? (followStateMap[followTargetId] ?? post.viewer?.isFollowingAuthor) : undefined;
                   return (
                     <article
-                      key={getCommunityItemKey(post) || getStableFeedReactKey(post)}
+                      key={getStableFeedReactKey(post) || getCommunityItemKey(post)}
                       id={`community-post-${post.id}`}
                       data-testid="enterprise-post-card"
                       data-post-card-design="21.1.5"
