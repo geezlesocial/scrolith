@@ -4,10 +4,13 @@ import {
   AlertTriangle,
   ExternalLink,
   FileText,
+  Heart,
   Image as ImageIcon,
   Pencil,
+  Pin,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
   Video,
   X
@@ -103,9 +106,10 @@ const MyPosts: React.FC = () => {
   const [posts, setPosts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'original' | 'reposts' | 'with-media'>('all');
+  const [filter, setFilter] = useState<'all' | 'original' | 'reposts' | 'with-media' | 'highlighted'>('all');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const HIGHLIGHT_LIMIT = 3;
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
@@ -146,14 +150,21 @@ const MyPosts: React.FC = () => {
     };
   }, [load]);
 
+  const highlightedCount = useMemo(
+    () => posts.filter((post) => Boolean(post.isHighlighted ?? post.is_highlighted)).length,
+    [posts]
+  );
+
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
     return posts.filter((post) => {
       const isRepost = Boolean(post.originalPostId || post.originalPost);
       const hasMedia = Array.isArray(post.attachments) && post.attachments.length > 0;
+      const isHighlighted = Boolean(post.isHighlighted ?? post.is_highlighted);
       if (filter === 'original' && isRepost) return false;
       if (filter === 'reposts' && !isRepost) return false;
       if (filter === 'with-media' && !hasMedia) return false;
+      if (filter === 'highlighted' && !isHighlighted) return false;
       if (!term) return true;
       const hay = `${post.title || ''} ${post.content || ''} ${(post.tags || []).join(' ')}`.toLowerCase();
       return hay.includes(term);
@@ -330,9 +341,21 @@ const MyPosts: React.FC = () => {
   const togglePin = async (post: any) => {
     setBusyId(post.id);
     try {
-      const updated = await CommunityService.updatePost(post.id, { isPinned: !post.isPinned });
-      setPosts((prev) => prev.map((item) => (item.id === post.id ? { ...item, ...updated } : item)));
-      showNotification('success', 'My Posts', updated?.isPinned ? 'Pinned to profile.' : 'Unpinned.');
+      const nextPinned = !Boolean(post.isPinned);
+      const updated = await CommunityService.updatePost(post.id, { isPinned: nextPinned });
+      setPosts((prev) =>
+        prev.map((item) =>
+          item.id === post.id
+            ? { ...item, ...updated, isPinned: updated?.isPinned ?? nextPinned }
+            : item
+        )
+      );
+      showNotification(
+        'success',
+        'My Posts',
+        (updated?.isPinned ?? nextPinned) ? 'Pinned to profile.' : 'Unpinned from profile.'
+      );
+      window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { postId: post.id } }));
     } catch (err: any) {
       showNotification('error', 'My Posts', err?.response?.data?.error || err?.message || 'Pin failed');
     } finally {
@@ -340,16 +363,64 @@ const MyPosts: React.FC = () => {
     }
   };
 
+  const toggleHighlight = async (post: any) => {
+    const currentlyHighlighted = Boolean(post.isHighlighted ?? post.is_highlighted);
+    if (!currentlyHighlighted && highlightedCount >= HIGHLIGHT_LIMIT) {
+      showNotification(
+        'warning',
+        'Highlight limit',
+        `You can highlight up to ${HIGHLIGHT_LIMIT} posts on your profile. Remove a highlight first.`
+      );
+      return;
+    }
+    setBusyId(post.id);
+    try {
+      const next = !currentlyHighlighted;
+      const updated = await CommunityService.updatePost(post.id, { isHighlighted: next });
+      setPosts((prev) =>
+        prev.map((item) =>
+          item.id === post.id
+            ? {
+                ...item,
+                ...updated,
+                isHighlighted: updated?.isHighlighted ?? updated?.is_highlighted ?? next
+              }
+            : item
+        )
+      );
+      showNotification(
+        'success',
+        'Highlight',
+        next ? 'Post highlighted on your profile.' : 'Highlight removed from profile.'
+      );
+      window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { postId: post.id } }));
+    } catch (err: any) {
+      showNotification(
+        'error',
+        'Highlight',
+        err?.response?.data?.error || err?.message || 'Unable to update highlight.'
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const actionBtnClass =
+    'inline-flex min-h-[40px] items-center justify-center gap-1.5 rounded-full border px-3 py-2 text-xs font-semibold transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-55 sm:min-h-[36px] sm:py-1.5';
+
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="space-y-4 sm:space-y-5">
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Content inventory</p>
-            <h2 className="text-xl font-bold text-slate-900">My Posts</h2>
-            <p className="mt-1 max-w-2xl text-sm text-slate-600">
-              View, edit, replace media, pin, and delete your community posts in one place. Changes apply in real time
-              across member home and your profile.
+            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">My Posts</h2>
+            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
+              Edit text and media, pin, highlight on profile, and delete posts. Highlights appear on your public
+              profile (max {HIGHLIGHT_LIMIT}). Changes sync in real time.
+            </p>
+            <p className="mt-2 text-[11px] font-medium text-slate-500">
+              Profile highlights in use: {highlightedCount}/{HIGHLIGHT_LIMIT}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -371,31 +442,37 @@ const MyPosts: React.FC = () => {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          {(
-            [
-              ['all', 'All'],
-              ['original', 'Original'],
-              ['reposts', 'Reposts'],
-              ['with-media', 'With media']
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setFilter(id)}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                filter === id ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+            {(
+              [
+                ['all', 'All'],
+                ['original', 'Original'],
+                ['reposts', 'Reposts'],
+                ['with-media', 'With media'],
+                ['highlighted', 'Highlighted']
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setFilter(id)}
+                className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 ${
+                  filter === id
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                {label}
+                {id === 'highlighted' ? ` (${highlightedCount})` : ''}
+              </button>
+            ))}
+          </div>
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search title or body…"
-            className="ml-auto min-w-[12rem] flex-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs text-slate-700 outline-none focus:border-slate-400"
+            className="w-full min-w-0 flex-1 rounded-full border border-slate-200 px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-slate-400 sm:min-w-[12rem] sm:py-1.5 sm:text-xs"
           />
         </div>
       </div>
@@ -418,8 +495,14 @@ const MyPosts: React.FC = () => {
             const isEditing = editingId === post.id && draft;
             const attachments = Array.isArray(post.attachments) ? post.attachments : [];
             const isRepost = Boolean(post.originalPostId || post.originalPost);
+            const isHighlighted = Boolean(post.isHighlighted ?? post.is_highlighted);
             return (
-              <article key={post.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <article
+                key={post.id}
+                className={`rounded-2xl border bg-white p-3 shadow-sm sm:p-4 ${
+                  isHighlighted ? 'border-violet-200 ring-1 ring-violet-100' : 'border-slate-200'
+                }`}
+              >
                 {isEditing && draft ? (
                   <div className="space-y-3">
                     <input
@@ -624,8 +707,15 @@ const MyPosts: React.FC = () => {
                             {post.title || (isRepost ? 'Repost' : 'Untitled post')}
                           </h3>
                           {post.isPinned ? (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                              <Pin className="h-3 w-3" />
                               Pinned
+                            </span>
+                          ) : null}
+                          {isHighlighted ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase text-violet-800">
+                              <Sparkles className="h-3 w-3" />
+                              Highlighted
                             </span>
                           ) : null}
                           {isRepost ? (
@@ -647,12 +737,12 @@ const MyPosts: React.FC = () => {
                           {post.createdAt ? new Date(post.createdAt).toLocaleString() : '—'} ·{' '}
                           {String(post.visibility || 'public')}
                         </p>
-                        <p className="mt-2 line-clamp-3 text-sm text-slate-700">{post.content || '—'}</p>
+                        <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-700">{post.content || '—'}</p>
                       </div>
                     </div>
 
                     {attachments.length > 0 ? (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {attachments.slice(0, 4).map((media: any, index: number) => {
                           const type = inferType(media);
                           const src = resolvePostAttachmentMediaUrl(media) || media.url || '';
@@ -662,12 +752,19 @@ const MyPosts: React.FC = () => {
                               className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50"
                             >
                               {type === 'video' ? (
-                                <video src={src} className="h-28 w-full object-cover" controls playsInline />
+                                <video
+                                  src={src}
+                                  className="h-40 w-full object-cover sm:h-28"
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                />
                               ) : type === 'image' ? (
                                 <img
                                   src={resolvePostAttachmentPosterUrl(media) || src}
                                   alt=""
-                                  className="h-28 w-full object-cover"
+                                  className="h-40 w-full object-cover sm:h-28"
+                                  loading="lazy"
                                 />
                               ) : (
                                 <div className="flex h-28 items-center justify-center text-xs text-slate-500">
@@ -680,38 +777,72 @@ const MyPosts: React.FC = () => {
                       </div>
                     ) : null}
 
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div
+                      className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap"
+                      role="group"
+                      aria-label="Post actions"
+                    >
                       <button
                         type="button"
                         onClick={() => beginEdit(post)}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden />
                         Edit
                       </button>
                       <button
                         type="button"
                         onClick={() => void togglePin(post)}
                         disabled={busy}
-                        className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        className={`${actionBtnClass} ${
+                          post.isPinned
+                            ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                            : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                        aria-pressed={Boolean(post.isPinned)}
                       >
-                        {post.isPinned ? 'Unpin' : 'Pin to profile'}
+                        <Pin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <span className="truncate">{post.isPinned ? 'Unpin' : 'Pin'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void toggleHighlight(post)}
+                        disabled={busy || (!isHighlighted && highlightedCount >= HIGHLIGHT_LIMIT)}
+                        title={
+                          !isHighlighted && highlightedCount >= HIGHLIGHT_LIMIT
+                            ? `Limit reached (${HIGHLIGHT_LIMIT}). Remove another highlight first.`
+                            : isHighlighted
+                              ? 'Remove highlight from profile'
+                              : 'Highlight this post on your profile'
+                        }
+                        className={`${actionBtnClass} ${
+                          isHighlighted
+                            ? 'border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100'
+                            : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                        aria-pressed={isHighlighted}
+                      >
+                        <Heart
+                          className={`h-3.5 w-3.5 shrink-0 ${isHighlighted ? 'fill-violet-600 text-violet-700' : ''}`}
+                          aria-hidden
+                        />
+                        <span className="truncate">{isHighlighted ? 'Unhighlight' : 'Highlight'}</span>
                       </button>
                       <Link
                         to={`/post/${encodeURIComponent(post.id)}`}
-                        className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
                       >
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
                         Open
                       </Link>
                       <button
                         type="button"
                         onClick={() => setDeleteId(post.id)}
                         disabled={busy}
-                        className="inline-flex items-center gap-1 rounded-full border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                        className={`${actionBtnClass} col-span-2 border-rose-200 text-rose-600 hover:bg-rose-50 sm:col-span-1`}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
                         Delete
                       </button>
                     </div>
