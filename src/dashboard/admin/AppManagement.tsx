@@ -127,9 +127,14 @@ const AppManagement: React.FC = () => {
     void loadDashboard();
   }, [loadDashboard]);
 
+  // Debounce realtime-driven reloads to avoid request storms when analytics fails or events fire rapidly.
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const refresh = () => {
-      void loadDashboard();
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        void loadDashboard();
+      }, 1500);
     };
     const eventsToWatch = [
       'apps:event_tracked',
@@ -143,6 +148,7 @@ const AppManagement: React.FC = () => {
       window.addEventListener(eventName, refresh as EventListener);
     });
     return () => {
+      if (timer) clearTimeout(timer);
       eventsToWatch.forEach((eventName) => {
         window.removeEventListener(eventName, refresh as EventListener);
       });
