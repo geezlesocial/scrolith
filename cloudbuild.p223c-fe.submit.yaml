@@ -1,0 +1,28 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        build,
+        --no-cache,
+        -t,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p223c,
+        --build-arg,
+        VITE_API_URL=https://api.scrolith.com/api,
+        --build-arg,
+        VITE_BACKEND_URL=https://api.scrolith.com,
+        --build-arg,
+        VITE_PUBLIC_APP_DOMAIN=scrolith.com,
+        --build-arg,
+        VITE_PUBLIC_APP_URL=https://scrolith.com,
+        --label,
+        git_commit=76a30ab0,
+        --label,
+        phase=22.3C,
+        .
+      ]
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p223c
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 2400s

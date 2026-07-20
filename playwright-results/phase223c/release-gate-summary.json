@@ -1,0 +1,108 @@
+{
+  "phase": "22.3C",
+  "generatedAt": "2026-07-20T04:44:30.000Z",
+  "overall": "PASS",
+  "phase223cCertified": true,
+  "promoteRecommended": true,
+  "migrationApplied": true,
+  "backendPromoted": true,
+  "frontendPromoted": true,
+  "defaultCompatibility": "PASS",
+  "privacyControls": "PASS",
+  "existingMenuActions": "PASS",
+  "realtimeSynchronization": "PASS",
+  "security": "PASS",
+  "accessibility": "PASS",
+  "crossPlatform": "PASS",
+  "phase21Regression": "PASS",
+  "phase221Regression": "PASS",
+  "phase221bRegression": "PASS",
+  "phase222Regression": "PASS",
+  "phase223Regression": "PASS",
+  "productionMonitoring": "CLEAN",
+  "stats": {
+    "passed": 35,
+    "failed": 0,
+    "skipped": 0
+  },
+  "checks": {
+    "migration": "PASS",
+    "defaultCompatibility": "PASS",
+    "privacyApi": "PASS",
+    "onlineVisibility": "PASS",
+    "lastSeenVisibility": "PASS",
+    "readReceiptPrivacy": "PASS",
+    "typingPrivacy": "PASS",
+    "recordingPrivacy": "PASS",
+    "dmAudience": "PASS",
+    "groupInviteAudience": "PASS",
+    "notificationPreviewPrivacy": "PASS",
+    "menuActions": "PASS",
+    "realtimeSync": "PASS",
+    "multiDevice": "PASS",
+    "security": "PASS",
+    "accessibility": "PASS",
+    "crossPlatform": "PASS",
+    "phase21Regression": "PASS",
+    "phase221Regression": "PASS",
+    "phase221bRegression": "PASS",
+    "phase222Regression": "PASS",
+    "phase223Regression": "PASS"
+  },
+  "unitTests": {
+    "backendPrivacyAndPreview": "19/19 PASS",
+    "frontendPrivacyMenuReceiptsMentionsScroll": "22/22 PASS"
+  },
+  "deploy": {
+    "migration": "20260720180000_phase223b_messaging_privacy",
+    "migrationStatus": "APPLIED",
+    "defaultCompatibilitySample": {
+      "total_users": 69,
+      "all_defaults_production_safe": true
+    },
+    "backendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p223c",
+    "backendDigest": "sha256:4e2d60eaf9754014114a5fcc6e0f311995e9964f6af7f13e0938247224fc1ce6",
+    "backendRevision": "scrolith-backend-00158-faz",
+    "backendTag": "p223c",
+    "backendTagUrl": "https://p223c---scrolith-backend-25ysnpjdda-as.a.run.app",
+    "backendTraffic": "100%",
+    "frontendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p223c",
+    "frontendDigest": "sha256:be87e858118e7fb45381061ab94d6f63a0a5174d03be24d087f3caa02dfa4f98",
+    "frontendRevision": "scrolith-frontend-00213-hit",
+    "frontendTag": "p223c",
+    "frontendTagUrl": "https://p223c---scrolith-frontend-25ysnpjdda-as.a.run.app",
+    "frontendTraffic": "100%",
+    "frontendAssets": {
+      "count": 6,
+      "asset404": 0,
+      "entryJs": "assets/index-Blu9sgaX.js",
+      "entryCss": "assets/index-Cwlo4sYM.css"
+    },
+    "liveBeforeDeploy": {
+      "backend": "scrolith-backend-00156-jor",
+      "frontend": "scrolith-frontend-00211-kev"
+    },
+    "rollbackBackend": "scrolith-backend-00156-jor",
+    "rollbackFrontend": "scrolith-frontend-00211-kev",
+    "frontendCommit": "76a30ab0",
+    "backendCommit": "ff64d459"
+  },
+  "apiCertTagged": {
+    "overall": "PASS",
+    "passed": 35,
+    "failed": 0
+  },
+  "apiCertProduction": {
+    "overall": "PASS",
+    "passed": 35,
+    "failed": 0,
+    "base": "https://api.scrolith.com/api"
+  },
+  "postPromote": {
+    "prodApiHealth": 200,
+    "prodFeHealth": 200,
+    "entryJs": "index-Blu9sgaX.js"
+  },
+  "trafficActionCompleted": true,
+  "promotedAt": "2026-07-20T04:43:20.000Z"
+}
