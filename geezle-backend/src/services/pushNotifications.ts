@@ -191,49 +191,109 @@ const setCredentialMetadata = (
     null;
 };
 
+/**
+ * Resolve the Firebase Admin default app for FCM.
+ *
+ * Important: storage uses a *named* app (`scrolith-storage`). Checking
+ * `admin.apps.length > 0` then calling `admin.app()` throws
+ * "The default Firebase app does not exist" when only named apps exist.
+ * That previously 500'd admin app analytics on every request.
+ */
+const PUSH_APP_NAME = '[DEFAULT]';
+
+const getExistingDefaultApp = (): admin.app.App | null => {
+  try {
+    const apps = Array.isArray(admin.apps) ? admin.apps.filter(Boolean) : [];
+    const defaultApp = apps.find((app) => app?.name === PUSH_APP_NAME || app?.name === '[DEFAULT]');
+    if (defaultApp) return defaultApp;
+    // Only call admin.app() when a default is known to exist.
+    if (apps.some((app) => !app?.name || app.name === '[DEFAULT]')) {
+      return admin.app();
+    }
+  } catch {
+    // No default app — fall through to initialize.
+  }
+  return null;
+};
+
+const initializePushFirebaseApp = (
+  credential: admin.credential.Credential,
+  source: PushCredentialSource,
+  serviceAccount?: admin.ServiceAccount | null,
+  credentialPath?: string | null
+): admin.app.App => {
+  setCredentialMetadata(source, serviceAccount || null, credentialPath);
+  // Prefer default app for messaging; if default was somehow taken, use a dedicated name.
+  try {
+    const existing = getExistingDefaultApp();
+    if (existing) {
+      firebaseApp = existing;
+      return existing;
+    }
+    firebaseApp = admin.initializeApp({ credential });
+  } catch (error: any) {
+    const message = String(error?.message || error || '');
+    if (/already exists/i.test(message)) {
+      firebaseApp = getExistingDefaultApp() || admin.app();
+      return firebaseApp;
+    }
+    // Named fallback keeps push isolated from storage's scrolith-storage app.
+    firebaseApp = admin.initializeApp({ credential }, 'scrolith-push');
+  }
+  firebaseInitError = null;
+  if (!initSuccessLogged) {
+    initSuccessLogged = true;
+    console.log('[push] Firebase Admin initialized', {
+      source,
+      projectId: firebaseProjectId,
+      credentialPath: firebaseCredentialPath,
+      appName: firebaseApp.name
+    });
+  }
+  return firebaseApp;
+};
+
+const trimEnv = (value: unknown) => String(value || '').trim();
+
+const shouldUseApplicationDefault = () =>
+  Boolean(
+    trimEnv(process.env.GOOGLE_APPLICATION_CREDENTIALS) ||
+      trimEnv(process.env.K_SERVICE) ||
+      trimEnv(process.env.K_REVISION) ||
+      trimEnv(process.env.GOOGLE_CLOUD_PROJECT) ||
+      trimEnv(process.env.GCLOUD_PROJECT)
+  );
+
 const getFirebaseApp = (): admin.app.App | null => {
   if (firebaseApp) return firebaseApp;
-  if (admin.apps.length > 0) {
-    firebaseApp = admin.app();
+
+  const existingDefault = getExistingDefaultApp();
+  if (existingDefault) {
+    firebaseApp = existingDefault;
     return firebaseApp;
   }
+
   if (initAttempted) return null;
   initAttempted = true;
 
   try {
     const { serviceAccount, source, sourcePath } = readServiceAccount();
     if (serviceAccount) {
-      setCredentialMetadata(source, serviceAccount, sourcePath);
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-      });
-      firebaseInitError = null;
-      if (!initSuccessLogged) {
-        initSuccessLogged = true;
-        console.log('[push] Firebase Admin initialized', {
-          source,
-          projectId: firebaseProjectId,
-          credentialPath: firebaseCredentialPath
-        });
-      }
-      return firebaseApp;
+      return initializePushFirebaseApp(
+        admin.credential.cert(serviceAccount),
+        source,
+        serviceAccount,
+        sourcePath
+      );
     }
 
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      firebaseCredentialSource = 'application_default';
-      firebaseCredentialPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-      firebaseApp = admin.initializeApp({
-        credential: admin.credential.applicationDefault()
-      });
-      firebaseInitError = null;
-      if (!initSuccessLogged) {
-        initSuccessLogged = true;
-        console.log('[push] Firebase Admin initialized', {
-          source: firebaseCredentialSource,
-          credentialPath: firebaseCredentialPath
-        });
-      }
-      return firebaseApp;
+    if (shouldUseApplicationDefault()) {
+      return initializePushFirebaseApp(
+        admin.credential.applicationDefault(),
+        'application_default',
+        null,
+        process.env.GOOGLE_APPLICATION_CREDENTIALS || null
+      );
     }
   } catch (error) {
     firebaseInitError = (error as any)?.message || 'Firebase initialization failed';
@@ -241,6 +301,7 @@ const getFirebaseApp = (): admin.app.App | null => {
       initErrorLogged = true;
       console.warn('[push] Failed to initialize Firebase Admin:', error);
     }
+    return null;
   }
 
   if (!firebaseInitError) {
@@ -253,19 +314,37 @@ const getFirebaseApp = (): admin.app.App | null => {
   return null;
 };
 
-export const isPushEnabled = () => Boolean(getFirebaseApp());
+export const isPushEnabled = () => {
+  try {
+    return Boolean(getFirebaseApp());
+  } catch {
+    return false;
+  }
+};
 
 export const getPushRuntimeStatus = (): PushRuntimeStatus => {
-  const app = getFirebaseApp();
-  return {
-    enabled: Boolean(app),
-    initialized: initAttempted,
-    credentialSource: firebaseCredentialSource,
-    credentialPath: firebaseCredentialPath,
-    projectId: firebaseProjectId,
-    clientEmail: firebaseClientEmail,
-    error: app ? null : firebaseInitError
-  };
+  try {
+    const app = getFirebaseApp();
+    return {
+      enabled: Boolean(app),
+      initialized: initAttempted || Boolean(app),
+      credentialSource: firebaseCredentialSource,
+      credentialPath: firebaseCredentialPath,
+      projectId: firebaseProjectId,
+      clientEmail: firebaseClientEmail,
+      error: app ? null : firebaseInitError
+    };
+  } catch (error: any) {
+    return {
+      enabled: false,
+      initialized: initAttempted,
+      credentialSource: firebaseCredentialSource,
+      credentialPath: firebaseCredentialPath,
+      projectId: firebaseProjectId,
+      clientEmail: firebaseClientEmail,
+      error: error?.message || firebaseInitError || 'Firebase runtime status unavailable'
+    };
+  }
 };
 
 const normalizeData = (data?: Record<string, any>) => {

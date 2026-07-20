@@ -649,7 +649,21 @@ export const getAdminAppDistributionAnalytics = async (req: Request, res: Respon
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (rangeDays - 1));
-    const pushRuntime = getPushRuntimeStatus();
+    // Never let Firebase init failures fail the whole analytics dashboard.
+    let pushRuntime: ReturnType<typeof getPushRuntimeStatus>;
+    try {
+      pushRuntime = getPushRuntimeStatus();
+    } catch (pushError: any) {
+      pushRuntime = {
+        enabled: false,
+        initialized: false,
+        credentialSource: null,
+        credentialPath: null,
+        projectId: null,
+        clientEmail: null,
+        error: pushError?.message || 'Push runtime unavailable'
+      };
+    }
 
     const [logs, tokens, campaigns] = await Promise.all([
       prisma.authAuditLog.findMany({
