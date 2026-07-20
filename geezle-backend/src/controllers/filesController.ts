@@ -2233,6 +2233,46 @@ export const serveFileContent = async (req: Request, res: Response) => {
         )
       );
 
+      // Durable GCS recovery — local provider mis-labels and Cloud Run ephemeral disk loss.
+      // storageKey may already be a media/... object path even when provider stayed "local".
+      for (const objectName of fallbackCandidates) {
+        if (!objectName || objectName.includes('..')) continue;
+        // Prefer object keys that look like durable product media paths.
+        const looksDurable =
+          objectName.startsWith('media/') ||
+          objectName.includes('/') ||
+          objectName.length > 24;
+        if (!looksDurable && objectName === path.basename(objectName)) {
+          // Still try basename below via DB/Firebase; skip pure-local short names for GCS.
+        }
+        try {
+          const metadata = await getGcsMediaMetadata(objectName);
+          const contentType =
+            String(metadata?.contentType || '').trim() ||
+            file.mimeType ||
+            getMimeTypeFromFilename(file.filename || objectName) ||
+            'application/octet-stream';
+          const size = Number(metadata?.size || 0) || 0;
+          const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+          serveRangedObject({
+            req,
+            res,
+            size,
+            contentType,
+            cacheControl,
+            openStream: (start, end) => createGcsMediaReadStream(objectName, { start, end })
+          });
+          return;
+        } catch (error: any) {
+          if (String(error?.code || '') === 'NOT_FOUND' || Number(error?.code || 0) === 404) continue;
+          console.warn('Failed GCS recovery for missing local file:', {
+            fileId: file.id,
+            objectName,
+            error: String(error?.message || error)
+          });
+        }
+      }
+
       // Prefer recovering from managed object storage first.
       for (const objectName of fallbackCandidates) {
         try {
@@ -2258,6 +2298,37 @@ export const serveFileContent = async (req: Request, res: Response) => {
         }
       }
 
+      // Firebase recovery when object was written there under the same key.
+      for (const objectName of fallbackCandidates) {
+        try {
+          if (!objectName) continue;
+          const metadata = await getFirebaseStorageMetadataByName(objectName);
+          const contentType =
+            String(metadata?.contentType || '').trim() ||
+            file.mimeType ||
+            getMimeTypeFromFilename(file.filename || objectName) ||
+            'application/octet-stream';
+          const contentLength = Number(metadata?.size || 0) || undefined;
+          applyFileResponseHeaders(res, {
+            contentType,
+            contentLength,
+            cacheControl
+          });
+          const stream = createFirebaseStorageReadStream(objectName);
+          stream.on('error', () => {
+            if (!res.headersSent) res.status(500).end();
+            else res.end();
+          });
+          stream.pipe(res);
+          return;
+        } catch (error: any) {
+          const code = Number(error?.code || 0);
+          if (code === 404 || String(error?.code || '').toLowerCase() === 'notfound') continue;
+          // Firebase may be unconfigured in some environments — skip quietly.
+          continue;
+        }
+      }
+
       // Local uploads basename fallback (legacy dual-path marketplace media).
       for (const objectName of fallbackCandidates) {
         const candidatePath = path.resolve(UPLOAD_DIR, objectName.replace(/^\/+/, ''));
@@ -2277,6 +2348,12 @@ export const serveFileContent = async (req: Request, res: Response) => {
         }
       }
 
+      console.warn('serveFileContent: media missing on disk and all recovery paths failed', {
+        fileId: file.id,
+        storageProvider: storedProvider,
+        storageKey: file.storageKey || null,
+        mimeType: file.mimeType || null
+      });
       res.status(404).json({ success: false, error: 'File not found' });
       return;
     }
