@@ -1,8 +1,9 @@
 -- Phase 28: Enterprise multi-currency — user preference + FX quotes (additive, non-destructive)
+-- Table name is Prisma "User" (not "users").
 
 -- User preferred display currency (server-authoritative)
-ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "preferred_currency" TEXT;
-ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "currency_preference_updated_at" TIMESTAMP(3);
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "preferred_currency" TEXT;
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "currency_preference_updated_at" TIMESTAMP(3);
 
 -- Immutable FX quotes for checkout / funding / withdrawal confirmation windows
 CREATE TABLE IF NOT EXISTS "fx_quotes" (
