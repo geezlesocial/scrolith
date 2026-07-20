@@ -756,8 +756,23 @@ const WalletModule = () => {
                                     <p className="text-sm font-bold text-yellow-700 uppercase tracking-wide flex items-center">
                                         <Coins className="w-4 h-4 mr-1" /> Gcoin Balance
                                     </p>
-                                    <h3 className="text-3xl font-extrabold text-yellow-900 mt-2">{gcoinWallet?.balance || 0} GC</h3>
-                                    <p className="text-xs text-yellow-700 mt-1">{formatPrice((gcoinWallet?.balance || 0) * conversionRate)}</p>
+                                    <h3 className="text-3xl font-extrabold text-yellow-900 mt-2">
+                                        {Number.isFinite(Number(gcoinWallet?.balance))
+                                            ? Number(Number(gcoinWallet?.balance).toFixed(4)).toString()
+                                            : '0'}{' '}
+                                        GC
+                                    </h3>
+                                    <p className="text-xs text-yellow-700 mt-1">
+                                        Est. fiat (admin GC rate, not FX):{' '}
+                                        {formatPrice(
+                                            Number(
+                                                (Number(gcoinWallet?.balance || 0) * conversionRate).toFixed(2)
+                                            )
+                                        )}
+                                    </p>
+                                    <p className="text-[10px] text-yellow-600/80 mt-0.5">
+                                        Gcoin is a platform utility, not a fiat currency.
+                                    </p>
                                 </div>
                             </div>
 
@@ -1043,7 +1058,11 @@ const WalletModule = () => {
                                 <h3 className="font-bold text-lg mb-4 text-gray-900">Convert Gcoin to Funds</h3>
                                 <p className="text-sm text-gray-500 mb-4">
                                     Rate: 1 GC = {formatPrice(conversionRate)} <br/>
-                                    Balance: {gcoinWallet.balance} GC
+                                    Balance:{' '}
+                                    {Number.isFinite(Number(gcoinWallet.balance))
+                                        ? Number(Number(gcoinWallet.balance).toFixed(4)).toString()
+                                        : '0'}{' '}
+                                    GC
                                 </p>
                                 <form onSubmit={handleConvert} className="space-y-4">
                                     <input 
