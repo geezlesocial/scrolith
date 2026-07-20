@@ -2,7 +2,14 @@
 
 **Status:** Implementation complete (deployment deferred to Phase 22.3C)  
 **Date:** 2026-07-20  
-**Deployment:** `deploymentPerformed: false`
+**Deployment:** `deploymentPerformed: false`  
+
+**Commits**
+
+| Repo | Hash | Message |
+|------|------|---------|
+| monorepo (backend + docs) | `ff64d459` / `17b8e3ed` | BE privacy + docs/gate |
+| geezle (frontend submodule) | `76a30ab0` | FE privacy panel + menu |
 
 ## Objective
 
