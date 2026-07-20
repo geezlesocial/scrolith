@@ -107,24 +107,30 @@ export const getGrowthPulse = async (userId?: string | null): Promise<GrowthPuls
       where: { id: userId },
       select: {
         role: true,
-        skills: true,
-        interests: true,
-        title: true,
-        headline: true,
-        location: true
-      } as any
+        profile: {
+          select: {
+            title: true,
+            bio: true,
+            location: true,
+            skills: true,
+            languages: true
+          }
+        }
+      }
     });
     if (user) {
       roleRaw = text((user as any).role);
-      title = text((user as any).headline || (user as any).title);
-      location = text((user as any).location);
-      const skillsRaw = (user as any).skills;
-      const interestsRaw = (user as any).interests;
+      const profile = (user as any).profile || {};
+      title = text(profile.title);
+      location = text(profile.location);
+      const skillsRaw = profile.skills;
       skills = Array.isArray(skillsRaw)
         ? skillsRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean).slice(0, 12)
         : [];
-      interests = Array.isArray(interestsRaw)
-        ? interestsRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean).slice(0, 12)
+      // Profile has no separate interests array; reuse languages/skills lightly for topic seeds.
+      const languagesRaw = profile.languages;
+      interests = Array.isArray(languagesRaw)
+        ? languagesRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean).slice(0, 12)
         : [];
     }
   } catch {

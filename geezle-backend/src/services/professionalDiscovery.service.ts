@@ -87,13 +87,16 @@ const loadViewerSignals = async (userId?: string | null): Promise<ViewerSignals>
         select: {
           id: true,
           role: true,
-          bio: true,
-          location: true,
-          skills: true,
-          interests: true,
-          title: true,
-          headline: true
-        } as any
+          profile: {
+            select: {
+              title: true,
+              bio: true,
+              location: true,
+              skills: true,
+              languages: true
+            }
+          }
+        }
       }),
       prisma.feedModePreference
         .findUnique({
@@ -103,15 +106,16 @@ const loadViewerSignals = async (userId?: string | null): Promise<ViewerSignals>
         .catch(() => null)
     ]);
     if (!user) return { userId, skills: [], interests: [], feedIntent: 'for_you' };
-    const skillsRaw = (user as any).skills;
-    const interestsRaw = (user as any).interests;
+    const profile = (user as any).profile || {};
+    const skillsRaw = profile.skills;
+    const languagesRaw = profile.languages;
     const skills = Array.isArray(skillsRaw)
       ? skillsRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean)
       : tokenize(coerce(skillsRaw));
-    const interests = Array.isArray(interestsRaw)
-      ? interestsRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean)
-      : tokenize(coerce(interestsRaw));
-    const bio = coerce((user as any).bio || (user as any).headline || (user as any).title);
+    const interests = Array.isArray(languagesRaw)
+      ? languagesRaw.map((s: any) => lower(s?.name || s?.label || s)).filter(Boolean)
+      : tokenize(coerce(languagesRaw));
+    const bio = coerce(profile.bio || profile.title);
     const role = coerce((user as any).role);
     // Lightweight intent map (mirrors viewerPreference without hard import cycles).
     const mode = lower((feedPref as any)?.mode || 'growth');
@@ -125,7 +129,7 @@ const loadViewerSignals = async (userId?: string | null): Promise<ViewerSignals>
       userId,
       skills,
       interests,
-      location: coerce((user as any).location),
+      location: coerce(profile.location),
       bio,
       role,
       feedIntent
@@ -189,31 +193,28 @@ const loadMarketplace = async (signals: ViewerSignals, limit: number): Promise<P
         id: true,
         title: true,
         description: true,
-        category: true,
         price: true,
         currency: true,
-        coverImageUrl: true,
-        imageUrl: true,
-        views: true,
         viewCount: true,
         featured: true,
-        isFeatured: true,
         location: true,
         sellerId: true,
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        category: { select: { id: true, name: true } },
+        media: {
+          orderBy: { sortOrder: 'asc' as any },
+          take: 1,
+          select: { url: true, fileId: true }
+        }
       } as any
     });
 
     return (Array.isArray(rows) ? rows : [])
       .map((row: any) => {
         const reasons: string[] = [];
-        const text = [
-          row.title,
-          row.description,
-          row.category,
-          row.location
-        ]
+        const categoryName = coerce(row.category?.name || row.category);
+        const text = [row.title, row.description, categoryName, row.location]
           .map(coerce)
           .join(' ')
           .toLowerCase();
@@ -226,13 +227,14 @@ const loadMarketplace = async (signals: ViewerSignals, limit: number): Promise<P
         score += Math.min(15, Math.log10(views + 1) * 5);
         if (views > 20) reasons.push('Popular right now');
         score = rankItem(score, text, signals, reasons, 'marketplace_listing');
+        const firstMedia = Array.isArray(row.media) ? row.media[0] : null;
         return {
           id: String(row.id),
           type: 'marketplace_listing' as const,
           title: coerce(row.title) || 'Marketplace listing',
-          subtitle: coerce(row.category) || 'Marketplace',
+          subtitle: categoryName || 'Marketplace',
           description: coerce(row.description).slice(0, 180),
-          imageUrl: row.coverImageUrl || row.imageUrl || null,
+          imageUrl: firstMedia?.url || null,
           url: `/marketplace/listing/${encodeURIComponent(String(row.id))}`,
           score,
           reasons: reasons.slice(0, 3),

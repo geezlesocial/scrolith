@@ -107,56 +107,74 @@ const resolveLocalUploadPath = (value: string) => {
   return localPath;
 };
 
+const normalizeStorageProvider = (value: unknown) => {
+  const provider = String(value || DEFAULT_STORAGE_PROVIDER).trim().toLowerCase();
+  if (['firebase', 'firebase_storage'].includes(provider)) return FIREBASE_STORAGE_PROVIDER;
+  if (['gcs', 'google_cloud_storage', 'google-cloud-storage', GCS_MEDIA_STORAGE_PROVIDER].includes(provider)) {
+    return GCS_MEDIA_STORAGE_PROVIDER;
+  }
+  if (['azure', 'azure_blob', 'blob'].includes(provider)) return AZURE_BLOB_STORAGE_PROVIDER;
+  if (['database', 'database_storage', 'db'].includes(provider)) return DATABASE_STORAGE_PROVIDER;
+  return provider || DEFAULT_STORAGE_PROVIDER;
+};
+
 const computeFileSha256 = async (file: FileLike) => {
-  const provider = String(file.storageProvider || DEFAULT_STORAGE_PROVIDER).trim().toLowerCase();
-  if (provider === DATABASE_STORAGE_PROVIDER) {
-    if (!file.storageKey) throw new Error('Video storage key missing for database-backed file.');
-    try {
-      const buffer = await downloadDatabaseStorageBufferByName(String(file.storageKey));
-      return bufferToSha256(buffer);
-    } catch {
-      // Fall back to local storage during incremental migrations from disk.
-    }
-  }
+  const provider = normalizeStorageProvider(file.storageProvider);
+  const errors: string[] = [];
 
-  if (provider === FIREBASE_STORAGE_PROVIDER) {
-    if (!file.storageKey) throw new Error('Video storage key missing for Firebase storage file.');
-    try {
-      const buffer = await downloadFirebaseStorageBufferByName(String(file.storageKey));
-      return bufferToSha256(buffer);
-    } catch {
-      // Fall back to local storage during incremental migrations from disk.
+  // Prefer cloud object storage first when a storageKey is present (production Cloud Run has no local uploads disk).
+  if (file.storageKey) {
+    const key = String(file.storageKey);
+    if (provider === DATABASE_STORAGE_PROVIDER || provider === DEFAULT_STORAGE_PROVIDER) {
+      try {
+        const buffer = await downloadDatabaseStorageBufferByName(key);
+        return bufferToSha256(buffer);
+      } catch (error: any) {
+        errors.push(`database:${error?.message || error}`);
+      }
     }
-  }
 
-  if (provider === GCS_MEDIA_STORAGE_PROVIDER || provider === 'gcs') {
-    if (!file.storageKey) throw new Error('Video storage key missing for GCS media file.');
-    try {
-      const buffer = await downloadGcsMediaBuffer(String(file.storageKey));
-      return bufferToSha256(buffer);
-    } catch {
-      // Fall through to local / other recovery.
+    if (provider === FIREBASE_STORAGE_PROVIDER || provider === DEFAULT_STORAGE_PROVIDER) {
+      try {
+        const buffer = await downloadFirebaseStorageBufferByName(key);
+        return bufferToSha256(buffer);
+      } catch (error: any) {
+        errors.push(`firebase:${error?.message || error}`);
+      }
     }
-  }
 
-  if (provider === AZURE_BLOB_STORAGE_PROVIDER) {
-    if (!file.storageKey) throw new Error('Video storage key missing for Azure blob file.');
-    const blobResponse = await downloadBlobByName(String(file.storageKey));
-    const stream = blobResponse.readableStreamBody;
-    if (!stream) throw new Error('Video blob stream is not available.');
-    return streamToSha256(stream as NodeJS.ReadableStream);
+    // Always attempt GCS when key exists — most production media is in scrolith-prod-media.
+    try {
+      const buffer = await downloadGcsMediaBuffer(key);
+      return bufferToSha256(buffer);
+    } catch (error: any) {
+      errors.push(`gcs:${error?.message || error}`);
+    }
+
+    if (provider === AZURE_BLOB_STORAGE_PROVIDER) {
+      try {
+        const blobResponse = await downloadBlobByName(key);
+        const stream = blobResponse.readableStreamBody;
+        if (!stream) throw new Error('Video blob stream is not available.');
+        return streamToSha256(stream as NodeJS.ReadableStream);
+      } catch (error: any) {
+        errors.push(`azure:${error?.message || error}`);
+      }
+    }
   }
 
   const storageKeyPath = file.storageKey ? stripUploadsPrefix(String(file.storageKey)) : '';
   const fallbackPath = file.url ? stripUploadsPrefix(String(file.url).replace(/^https?:\/\/[^/]+/i, '')) : '';
   const localPath = path.resolve(UPLOAD_DIR, storageKeyPath || fallbackPath);
-  if (!localPath.startsWith(path.resolve(UPLOAD_DIR))) {
-    throw new Error('Resolved video path is invalid.');
+  if (localPath.startsWith(path.resolve(UPLOAD_DIR)) && fs.existsSync(localPath)) {
+    return streamToSha256(fs.createReadStream(localPath));
   }
-  if (!fs.existsSync(localPath)) {
-    throw new Error('Video file not found in storage.');
-  }
-  return streamToSha256(fs.createReadStream(localPath));
+
+  // Do not hard-fail post publish when integrity cannot read bytes (e.g. remote-only media on ephemeral disk).
+  const detail = errors.slice(0, 3).join(' | ') || 'no readable storage backend';
+  const err = new Error(`Video file not readable for integrity check (${detail}).`);
+  (err as any).code = 'VIDEO_INTEGRITY_UNREADABLE';
+  throw err;
 };
 
 const resolveDurationTolerance = (duration?: number | null) => {
@@ -497,7 +515,20 @@ export const assessVideoIntegrityByFile = async (
     return emptyAssessment();
   }
 
-  const fingerprint = await computeFileSha256(source);
+  let fingerprint: string;
+  try {
+    fingerprint = await computeFileSha256(source);
+  } catch (error: any) {
+    // Soft-fail: missing/unreadable object storage must not block publishing.
+    console.warn('[videoIntegrity] fingerprint skipped — media unreadable', {
+      fileId: source.id,
+      provider: source.storageProvider,
+      storageKey: source.storageKey,
+      code: error?.code,
+      message: error?.message || error
+    });
+    return emptyAssessment();
+  }
   const exactCandidateWhere = buildExactCandidateWhere(source, ownerId);
   if (exactCandidateWhere) {
     const exactCandidates = await prisma.file.findMany({

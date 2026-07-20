@@ -1126,10 +1126,14 @@ async function collectPeoplePages(
           avatar: true,
           role: true,
           isVerified: true,
-          title: true,
-          headline: true,
-          updatedAt: true
-        } as any
+          updatedAt: true,
+          profile: {
+            select: {
+              title: true,
+              bio: true
+            }
+          }
+        }
       }),
       prisma.communityBusinessPage.findMany({
         where: { status: 'active' } as any,
@@ -1166,7 +1170,7 @@ async function collectPeoplePages(
       .map((user) => {
         const key = buildFeedKey('PERSON_RECOMMENDATION', user.id);
         if (seen.has(key)) return null;
-        const titleHint = String((user as any).title || (user as any).headline || '').trim();
+        const titleHint = String((user as any).profile?.title || (user as any).title || (user as any).headline || '').trim();
         const score = 30 + (user.isVerified ? 8 : 0) + (titleHint ? 2 : 0);
         const author = mapAuthor(user);
         // Phase 20.3 — clearer growth-oriented explanations (intelligence envelope reads `why`).

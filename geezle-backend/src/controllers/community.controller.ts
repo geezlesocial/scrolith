@@ -3241,7 +3241,23 @@ export const createPost = async (req: Request, res: Response) => {
       { userId, role: req.user?.role }
     );
     const normalizedAttachmentCaptions = normalizeAttachmentCaptions(attachmentCaptions, normalizedAttachmentIds);
-    const videoIntegrity = await assessVideoIntegrityByAttachments(normalizedAttachmentIds, userId);
+    let videoIntegrity;
+    try {
+      videoIntegrity = await assessVideoIntegrityByAttachments(normalizedAttachmentIds, userId);
+    } catch (integrityError) {
+      // Never block post create on integrity pipeline failures (e.g. remote media not on local disk).
+      console.warn('[community.createPost] video integrity assessment failed', integrityError);
+      videoIntegrity = {
+        fingerprint: null,
+        status: 'clear' as const,
+        monetizationBlocked: false,
+        matchedContentId: null,
+        matchedOwnerId: null,
+        reason: null,
+        matchMethod: null,
+        matchScore: null
+      };
+    }
 
     const postAiSettings = await resolvePostAiSettings();
     const explicitInsightPreference = typeof aiInsightEnabled === 'boolean' ? aiInsightEnabled : undefined;
