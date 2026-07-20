@@ -16,6 +16,9 @@ import {
     isNativePlatform,
     setBiometricPreference
 } from '../../mobile/biometrics';
+import LanguageMultiSelect from '../../components/language/LanguageMultiSelect';
+import { LanguagePreferencesService, type UserLanguagePreferences } from '../../services/languagePreferences';
+import { listOnboardingLanguages } from '../../utils/supportedLanguages';
 
 const normalizeSettings = (value: UserSettings): UserSettings => ({
     email_notifications: value.emailNotifications ?? value.email_notifications ?? true,
@@ -234,6 +237,9 @@ const SettingsModule = () => {
     const [biometricsAvailable, setBiometricsAvailable] = useState(false);
     const [biometryLabel, setBiometryLabel] = useState('Biometric');
     const [biometricsBusy, setBiometricsBusy] = useState(false);
+    const [langPrefs, setLangPrefs] = useState<UserLanguagePreferences | null>(null);
+    const [langSaving, setLangSaving] = useState(false);
+    const onboardingLanguages = useMemo(() => listOnboardingLanguages(), []);
 
     const preferenceKey = useMemo(() => ({
         language: 'Scrolith.pref.language',
@@ -318,6 +324,10 @@ const SettingsModule = () => {
     }, [user?.email]);
 
     useEffect(() => {
+        void LanguagePreferencesService.getMine()
+            .then((prefs) => setLangPrefs(prefs))
+            .catch(() => null);
+
         const storedLanguage = localStorage.getItem(preferenceKey.language);
         const storedTimezone = localStorage.getItem(preferenceKey.timezone);
         const storedTheme = localStorage.getItem(preferenceKey.theme) as 'light' | 'dark' | null;
@@ -975,6 +985,121 @@ const SettingsModule = () => {
                         {activeSection === 'account' && (
                             <div className="space-y-6 animate-fade-in">
                                 <h2 className="text-xl font-bold text-gray-900 mb-6">Global Preferences</h2>
+
+                                <div className="mb-8 rounded-2xl border border-slate-200 bg-slate-50/70 p-5">
+                                    <div className="mb-4 flex items-start gap-3">
+                                        <div className="rounded-lg bg-blue-50 p-2 text-blue-700">
+                                            <Globe className="h-5 w-5" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-semibold text-slate-900">Language &amp; Translation</h3>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                                Languages you understand guide translation suggestions. This is not nationality, location, or interface language.
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <LanguageMultiSelect
+                                        value={langPrefs?.understoodLanguages || []}
+                                        onChange={(codes) =>
+                                            setLangPrefs((prev) => ({
+                                                understoodLanguages: codes,
+                                                preferredTranslationLanguage: prev?.preferredTranslationLanguage || 'en',
+                                                languageSuggestionsEnabled: prev?.languageSuggestionsEnabled !== false,
+                                                autoTranslateEnabled: Boolean(prev?.autoTranslateEnabled),
+                                                languagePreferencesConfirmed: Boolean(prev?.languagePreferencesConfirmed),
+                                                languagePreferencesUpdatedAt: prev?.languagePreferencesUpdatedAt || null
+                                            }))
+                                        }
+                                        languages={onboardingLanguages}
+                                        min={1}
+                                        max={24}
+                                    />
+                                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                                        <label className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                                            <span>Translation suggestions</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={langPrefs?.languageSuggestionsEnabled !== false}
+                                                onChange={(e) =>
+                                                    setLangPrefs((prev) =>
+                                                        prev
+                                                            ? { ...prev, languageSuggestionsEnabled: e.target.checked }
+                                                            : prev
+                                                    )
+                                                }
+                                            />
+                                        </label>
+                                        <label className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                                            <span>Auto-translate when needed</span>
+                                            <input
+                                                type="checkbox"
+                                                checked={Boolean(langPrefs?.autoTranslateEnabled)}
+                                                onChange={(e) =>
+                                                    setLangPrefs((prev) =>
+                                                        prev ? { ...prev, autoTranslateEnabled: e.target.checked } : prev
+                                                    )
+                                                }
+                                            />
+                                        </label>
+                                    </div>
+                                    <div className="mt-4">
+                                        <label className="mb-1 block text-xs font-medium text-slate-600">
+                                            Preferred translation language
+                                        </label>
+                                        <select
+                                            className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-sm"
+                                            value={langPrefs?.preferredTranslationLanguage || 'en'}
+                                            onChange={(e) =>
+                                                setLangPrefs((prev) =>
+                                                    prev
+                                                        ? { ...prev, preferredTranslationLanguage: e.target.value }
+                                                        : prev
+                                                )
+                                            }
+                                        >
+                                            {onboardingLanguages
+                                                .filter((l) => l.translationSupported)
+                                                .map((lang) => (
+                                                    <option key={lang.code} value={lang.code}>
+                                                        {lang.name}
+                                                    </option>
+                                                ))}
+                                        </select>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={langSaving || !(langPrefs?.understoodLanguages?.length)}
+                                        onClick={async () => {
+                                            if (!langPrefs) return;
+                                            setLangSaving(true);
+                                            try {
+                                                const saved = await LanguagePreferencesService.updateMine({
+                                                    ...langPrefs,
+                                                    confirm: true
+                                                });
+                                                setLangPrefs(saved);
+                                                showNotification(
+                                                    'success',
+                                                    'Language Preferences Saved',
+                                                    'Your understood languages were updated.'
+                                                );
+                                            } catch (error: any) {
+                                                showNotification(
+                                                    'alert',
+                                                    'Save Failed',
+                                                    error?.response?.data?.error || error?.message || 'Unable to save.'
+                                                );
+                                            } finally {
+                                                setLangSaving(false);
+                                            }
+                                        }}
+                                        className="mt-4 inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                    >
+                                        {langSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                        Save language preferences
+                                    </button>
+                                </div>
+
                                 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div>

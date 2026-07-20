@@ -17,6 +17,8 @@ import { resolveAssetUrl } from '../utils/assetUrl';
 import { resolvePostAttachmentMediaUrl } from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
+import LanguageMultiSelect from '../components/language/LanguageMultiSelect';
+import { LanguagePreferencesService } from '../services/languagePreferences';
 
 type RecommendationCard = {
   key: string;
@@ -308,6 +310,8 @@ const FollowOnboarding = () => {
   const [busyIds, setBusyIds] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [understoodLanguages, setUnderstoodLanguages] = useState<string[]>([]);
+  const [languageReady, setLanguageReady] = useState(false);
   const rotationSeed = useMemo(() => createRotationSeed(), [user?.id]);
 
   const selectedPageCount = useMemo(
@@ -319,7 +323,9 @@ const FollowOnboarding = () => {
     [cards]
   );
   const followedCount = Math.min(MAX_ONBOARDING_TOTAL, selectedPageCount + selectedUserCount);
-  const canContinue = followedCount >= Math.max(1, Number(status.minimumRequired || 1));
+  const languagesOk = understoodLanguages.length >= 1;
+  const canContinue =
+    languagesOk && followedCount >= Math.max(1, Number(status.minimumRequired || 1));
 
   const progressPercent = Math.max(
     8,
@@ -340,6 +346,16 @@ const FollowOnboarding = () => {
         if (!onboarding.required) {
           navigate(onboarding.redirectPath || '/', { replace: true });
           return;
+        }
+
+        try {
+          const prefs = await LanguagePreferencesService.getMine();
+          if (active) {
+            setUnderstoodLanguages(prefs?.understoodLanguages || []);
+            setLanguageReady(Boolean(prefs?.languagePreferencesConfirmed && prefs.understoodLanguages?.length));
+          }
+        } catch {
+          if (active) setLanguageReady(false);
         }
 
         const [
@@ -499,10 +515,17 @@ const FollowOnboarding = () => {
   };
 
   const handleContinue = async () => {
-    if (submitting || !status.canContinue) return;
+    if (submitting || !canContinue) return;
     setSubmitting(true);
     setError('');
     try {
+      // Phase 26 — persist understood languages before completing onboarding.
+      await LanguagePreferencesService.updateMine({
+        understoodLanguages,
+        confirm: true
+      });
+      setLanguageReady(true);
+
       const response = await AuthService.completeFollowOnboarding();
       if (response?.user) {
         updateUser(response.user);
@@ -559,6 +582,22 @@ const FollowOnboarding = () => {
             <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">
               This is not a checklist — it is how you seed reputation, opportunity, and community signals for day one.
             </p>
+
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+              <LanguageMultiSelect
+                value={understoodLanguages}
+                onChange={setUnderstoodLanguages}
+                min={1}
+                max={24}
+                label="Which languages do you understand?"
+                helpText="Choose all that apply. Languages are not countries or nationality. Scrolitha uses this to avoid recommending translation for posts you already understand."
+              />
+              {!languagesOk ? (
+                <p className="mt-2 text-xs font-medium text-amber-700">Select at least one language to continue.</p>
+              ) : languageReady ? (
+                <p className="mt-2 text-xs text-emerald-700">Language preferences ready.</p>
+              ) : null}
+            </div>
 
             <div
               className="mt-8 rounded-[28px] border border-slate-200 bg-slate-50/90 p-5"
