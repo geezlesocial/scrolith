@@ -47,6 +47,28 @@ import {
   trackScrollDeepLinkFailure,
   trackScrollDeepLinkSuccess
 } from '../../utils/scrollRecommendationAnalytics';
+import {
+  computeScrollVirtualWindow,
+  detectNetworkClass,
+  isIndexInVirtualWindow,
+  prefetchScrollMediaUrls
+} from '../../utils/scrollPlayerEngine';
+import {
+  applyOptimisticMetricDelta,
+  mapEngageTypeToMetricField
+} from '../../utils/scrollEngagementOptimistic';
+import {
+  canSubmitScrollReportNow,
+  markScrollReportSubmitted,
+  validateScrollReportReason,
+  buildScrollAbuseSignal
+} from '../../utils/scrollModerationClient';
+import {
+  drainScrollLearningQueue,
+  enqueueScrollLearningEvent,
+  createLearningEvent
+} from '../../utils/scrollLearningEngine';
+import { resolveInlineMedia } from '../../utils/inlineMedia';
 
 const LAST_SCROLL_INDEX_KEY = 'scroll:lastIndex';
 const GLOBAL_SCROLL_MUTED_KEY = 'scroll:muted';
@@ -1388,6 +1410,17 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     void loadFeed(nextCursor);
   }, [activeIndex, items.length, nextCursor, loadingMore, loadFeed, profile.prefetchWindow]);
 
+  // Phase 23 — predictive media prefetch for next 1–2 videos
+  useEffect(() => {
+    if (!items.length) return;
+    const urls: string[] = [];
+    for (let i = activeIndex + 1; i <= activeIndex + 2 && i < items.length; i += 1) {
+      const media = resolveInlineMedia(items[i]?.media || items[i], { typeHint: 'video' });
+      if (media?.src) urls.push(media.src);
+    }
+    prefetchScrollMediaUrls(urls, profile.dataSaver ? 1 : 2);
+  }, [activeIndex, items, profile.dataSaver]);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
@@ -1474,9 +1507,26 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
     };
   }, [loadLiveSessions, patchMetrics, patchPostBridgeState, patchScrollState]);
 
+  /**
+   * Phase 23 — accept either ScrollVideo or scrollId (ScrollCard passes id).
+   * Optimistic metric patch with server reconciliation; offline learning queue.
+   */
   const handleEngage = useCallback(
-    async (scroll: ScrollVideo, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => {
-      const postBridge = getPostBridgeSource(scroll);
+    async (
+      scrollOrId: ScrollVideo | string,
+      type: ScrollEngagementType,
+      payload?: { watchedSeconds?: number }
+    ) => {
+      const scroll =
+        typeof scrollOrId === 'string'
+          ? itemsRef.current.find((entry) => entry.id === scrollOrId) || null
+          : scrollOrId;
+      const scrollId = String(
+        (typeof scrollOrId === 'string' ? scrollOrId : scroll?.id) || ''
+      ).trim();
+      if (!scrollId) return;
+
+      const postBridge = scroll ? getPostBridgeSource(scroll) : null;
       if (postBridge) {
         if (type === 'impression') {
           try {
@@ -1487,8 +1537,26 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         }
         return;
       }
-      const scrollId = String(scroll?.id || '').trim();
-      if (!scrollId) return;
+
+      const metricField = mapEngageTypeToMetricField(type);
+      let snapshot: ReturnType<typeof applyOptimisticMetricDelta>['snapshot'] | null = null;
+      if (metricField && scroll?.metrics && !String(type).startsWith('learn_')) {
+        const applied = applyOptimisticMetricDelta(scroll.metrics, metricField, 1);
+        snapshot = applied.snapshot;
+        patchMetrics(scrollId, applied.next);
+      }
+
+      const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      if (offline) {
+        enqueueScrollLearningEvent(
+          createLearningEvent(scrollId, 'watch_duration', payload?.watchedSeconds, {
+            engageType: type,
+            offline: true
+          })
+        );
+        return;
+      }
+
       try {
         const response = await ScrollService.engage(scrollId, {
           type,
@@ -1498,11 +1566,46 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           patchMetrics(scrollId, response.metrics);
         }
       } catch {
-        // non-blocking by design
+        if (snapshot) {
+          patchMetrics(scrollId, snapshot);
+        }
+        enqueueScrollLearningEvent(
+          createLearningEvent(scrollId, 'watch_duration', payload?.watchedSeconds, {
+            engageType: type,
+            failed: true
+          })
+        );
       }
     },
     [patchMetrics]
   );
+
+  // Phase 23 — offline recovery: drain learning queue when back online
+  useEffect(() => {
+    const flush = async () => {
+      const queued = drainScrollLearningQueue();
+      for (const event of queued) {
+        const type = String((event.meta as any)?.engageType || 'learn_watch') as ScrollEngagementType;
+        try {
+          await ScrollService.engage(event.scrollId, {
+            type: type.startsWith('learn_') || type.startsWith('view_') || type === 'impression' ? type : 'learn_watch',
+            watchedSeconds: event.value
+          });
+        } catch {
+          enqueueScrollLearningEvent(event);
+          break;
+        }
+      }
+    };
+    const onOnline = () => {
+      void flush();
+    };
+    window.addEventListener('online', onOnline);
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      void flush();
+    }
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   const handleShareToStory = useCallback(
     async (scroll: ScrollVideo) => {
@@ -1570,24 +1673,61 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
 
   const handleReport = useCallback(
     async (scroll: ScrollVideo) => {
-      const reason = window.prompt('Report reason');
-      if (!reason || !reason.trim()) return;
+      const rate = canSubmitScrollReportNow();
+      if (!rate.allowed) {
+        const seconds = Math.ceil(Number(rate.retryAfterMs || 0) / 1000);
+        showNotification(
+          'error',
+          'Scroll',
+          `Please wait ${seconds || 60}s before submitting another report.`
+        );
+        return;
+      }
+      const raw = window.prompt('Report reason');
+      const validated = validateScrollReportReason(raw);
+      if (!validated.ok) {
+        if (raw != null) showNotification('error', 'Scroll', validated.error);
+        return;
+      }
       const postBridge = getPostBridgeSource(scroll);
+      const previousPending = Math.max(0, Number(scroll.pendingReportCount || 0));
+      // Optimistic pending report count
+      if (postBridge) {
+        patchPostBridgeState(postBridge.postId, { pendingReportCount: previousPending + 1 });
+      } else {
+        patchScrollState(scroll.id, { pendingReportCount: previousPending + 1 });
+      }
       try {
         setReportBusyId(scroll.id);
         if (postBridge) {
-          await postOptionsApi.report(postBridge.postId, { reason: reason.trim() });
-          patchPostBridgeState(postBridge.postId, {
-            pendingReportCount: Math.max(0, Number(scroll.pendingReportCount || 0)) + 1
-          });
+          await postOptionsApi.report(postBridge.postId, { reason: validated.reason });
         } else {
-          await ScrollService.report(scroll.id, { reason: reason.trim() });
-          patchScrollState(scroll.id, {
-            pendingReportCount: Math.max(0, Number(scroll.pendingReportCount || 0)) + 1
-          });
+          await ScrollService.report(scroll.id, { reason: validated.reason });
+        }
+        markScrollReportSubmitted();
+        // Safety signal (no free-text reason in analytics payload)
+        try {
+          console.info(
+            '[scroll-safety]',
+            JSON.stringify(
+              buildScrollAbuseSignal({
+                scrollId: scroll.id,
+                action: 'report',
+                reasonCode: 'user_report'
+              })
+            )
+          );
+        } catch {
+          /* ignore */
         }
         showNotification('success', 'Scroll', 'Report submitted.');
       } catch (error: any) {
+        // Rollback optimistic pending count
+        if (postBridge) {
+          patchPostBridgeState(postBridge.postId, { pendingReportCount: previousPending });
+        } else {
+          patchScrollState(scroll.id, { pendingReportCount: previousPending });
+        }
         const message = error?.response?.data?.error || error?.message || 'Failed to submit report.';
         showNotification('error', 'Scroll', message);
       } finally {
@@ -1906,7 +2046,17 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           </div>
         ) : (
           <>
-      {items.map((scroll, index) => (
+      {items.map((scroll, index) => {
+              // Phase 23 — virtualized mount window around active card
+              const virtualWindow = computeScrollVirtualWindow(
+                activeIndex,
+                items.length,
+                profile.dataSaver || profile.lowBandwidth ? 1 : 2
+              );
+              const inWindow = isIndexInVirtualWindow(index, virtualWindow);
+              const isNeighbor =
+                Math.abs(index - activeIndex) === 1 || Math.abs(index - activeIndex) === 2;
+              return (
               <div
                 key={scroll.id}
                 ref={(node) => {
@@ -1914,10 +2064,13 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                 }}
                 className="h-screen w-full"
                 data-index={index}
+                data-virtualized={inWindow ? 'hot' : 'cold'}
               >
+                {inWindow ? (
                 <ScrollCard
                   scroll={scroll}
                   isActive={index === activeIndex}
+                  isNeighbor={isNeighbor && index !== activeIndex}
                   autoAdvanceOnEnd={autoAdvanceOnEnd}
                   playbackBlocked={activeVideoScrollAdOpen && activeScrollAd?.scrollId === scroll.id}
                   initialIsFollowing={
@@ -1929,6 +2082,8 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   }
                   autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                   muted={muted}
+                  dataSaver={Boolean(profile.dataSaver || profile.lowBandwidth)}
+                  networkClass={detectNetworkClass()}
                   onToggleMute={() => setMuted((prev) => !prev)}
                   onRequestNext={() => handleAdvanceToNextScroll(index)}
                   onEngage={handleEngage}
@@ -1948,8 +2103,14 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   reactionTargetType={getPostBridgeSource(scroll) ? 'POST' : 'SCROLL'}
                   reactionTargetId={getPostBridgeSource(scroll)?.postId || scroll.id}
                 />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center bg-black" aria-hidden>
+                    <div className="h-24 w-16 animate-pulse rounded-lg bg-white/10" />
+                  </div>
+                )}
               </div>
-            ))}
+            );
+            })}
             {loadingMore ? (
               <div className="flex h-16 items-center justify-center">
                 <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />

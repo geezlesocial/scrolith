@@ -15,7 +15,15 @@ export type ScrollEngagementType =
   | 'view_10s'
   | 'view_25'
   | 'view_50'
-  | 'view_95';
+  | 'view_95'
+  // Phase 23 — learning signals (server accepts; no public counter inflation)
+  | 'learn_pause'
+  | 'learn_replay'
+  | 'learn_mute'
+  | 'learn_unmute'
+  | 'learn_seek'
+  | 'learn_complete'
+  | 'learn_watch';
 
 export interface ScrollVideo {
   id: string;

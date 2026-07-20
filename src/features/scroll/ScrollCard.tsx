@@ -33,14 +33,33 @@ import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 import ReactionReactorsModal from '../../community/components/ReactionReactorsModal';
 import ReactionSummaryButton from '../../community/components/ReactionSummaryButton';
+import {
+  clearScrollResumePosition,
+  estimateBufferHealth,
+  readScrollResumePosition,
+  resolveScrollPreloadMode,
+  saveScrollResumePosition,
+  shouldAttemptAutoplay,
+  type ScrollNetworkClass
+} from '../../utils/scrollPlayerEngine';
+import {
+  createLearningEvent,
+  mapLearningToEngageType,
+  shouldEmitOnceKey,
+  type ScrollLearningSignalType
+} from '../../utils/scrollLearningEngine';
 
 type ScrollCardProps = {
   scroll: ScrollVideo;
   isActive: boolean;
+  /** Neighbor card (prefetch window) */
+  isNeighbor?: boolean;
   autoplayEnabled: boolean;
   autoAdvanceOnEnd?: boolean;
   playbackBlocked?: boolean;
   muted: boolean;
+  dataSaver?: boolean;
+  networkClass?: ScrollNetworkClass;
   onToggleMute: () => void;
   onRequestNext?: () => Promise<void> | void;
   onEngage: (scrollId: string, type: ScrollEngagementType, payload?: { watchedSeconds?: number }) => Promise<void> | void;
@@ -119,10 +138,13 @@ const resolveScrollAuthorProfileUrl = (scroll: ScrollVideo) => {
 const ScrollCard: React.FC<ScrollCardProps> = ({
   scroll,
   isActive,
+  isNeighbor = false,
   autoplayEnabled,
   autoAdvanceOnEnd = false,
   playbackBlocked = false,
   muted,
+  dataSaver = false,
+  networkClass,
   onToggleMute,
   onRequestNext,
   onEngage,
@@ -148,18 +170,53 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const marksRef = useRef<Record<string, boolean>>({});
+  const learningMarksRef = useRef<Record<string, boolean>>({});
   const mediaGestureStartRef = useRef<{ x: number; y: number } | null>(null);
   const mediaLastTapAtRef = useRef(0);
   const controlsHideTimerRef = useRef<number | null>(null);
   const ownerMenuRef = useRef<HTMLDivElement | null>(null);
   const resumeAfterPlaybackBlockRef = useRef(false);
+  const resumeAppliedRef = useRef(false);
+  const lastSeekEmitRef = useRef(0);
+  const replayCountRef = useRef(0);
   const [graphicRevealed, setGraphicRevealed] = useState(false);
   const [touchOverlayMode, setTouchOverlayMode] = useState(false);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [ownerMenuOpen, setOwnerMenuOpen] = useState(false);
+  const [bufferHealth, setBufferHealth] = useState(0);
   const [interestSignal, setInterestSignal] = useState<string | null>(scroll.viewer?.feedbackSignal || null);
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
   const mediaUrl = media.src;
+  const preloadMode = resolveScrollPreloadMode({
+    isActive,
+    isNeighbor,
+    autoplayEnabled,
+    dataSaver,
+    networkClass
+  });
+
+  const emitLearning = useCallback(
+    async (type: ScrollLearningSignalType, value?: number) => {
+      const scrollId = String(scroll.id || '').trim();
+      if (!scrollId) return;
+      const onceKey = `${type}:${scrollId}`;
+      // Allow multi-fire for seek/watch_duration; once for discrete actions
+      if (type !== 'seek' && type !== 'watch_duration' && type !== 'pause' && type !== 'resume_play') {
+        if (!shouldEmitOnceKey(learningMarksRef.current, onceKey)) return;
+      }
+      createLearningEvent(scrollId, type, value);
+      const engageType = mapLearningToEngageType(type);
+      if (!engageType) return;
+      try {
+        await onEngage(scrollId, engageType as ScrollEngagementType, {
+          watchedSeconds: value
+        });
+      } catch {
+        /* non-blocking learning */
+      }
+    },
+    [onEngage, scroll.id]
+  );
   const authorName = scroll.author?.name || 'Community member';
   const authorAvatar = resolveScrollAuthorAvatar(scroll);
   const authorProfileUrl = resolveScrollAuthorProfileUrl(scroll);
@@ -220,6 +277,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
 
   useEffect(() => {
     marksRef.current = {};
+    learningMarksRef.current = {};
+    resumeAppliedRef.current = false;
+    replayCountRef.current = 0;
+    setBufferHealth(0);
   }, [scroll.id]);
 
   useEffect(() => {
@@ -393,8 +454,32 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
+    const applyResumeIfNeeded = () => {
+      if (resumeAppliedRef.current || !isActive) return;
+      const saved = readScrollResumePosition(scroll.id);
+      if (saved == null) return;
+      try {
+        if (Number.isFinite(video.duration) && video.duration > 0 && saved < video.duration - 0.5) {
+          video.currentTime = saved;
+          resumeAppliedRef.current = true;
+        }
+      } catch {
+        /* ignore seek failures */
+      }
+    };
+
     const tryPlay = () => {
-      if (!isActive || !autoplayEnabled || playbackBlocked || document.hidden) return;
+      if (
+        !shouldAttemptAutoplay({
+          isActive,
+          autoplayEnabled,
+          playbackBlocked,
+          documentHidden: document.hidden
+        })
+      ) {
+        return;
+      }
+      applyResumeIfNeeded();
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(() => {
@@ -408,10 +493,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
     video.loop = !autoAdvanceOnEnd;
 
     if (!isActive) {
-      video.pause();
+      // Persist resume position when leaving the card
       try {
-        video.currentTime = 0;
-      } catch {}
+        saveScrollResumePosition(scroll.id, Number(video.currentTime || 0), Number(video.duration || 0));
+      } catch {
+        /* ignore */
+      }
+      video.pause();
+      // Keep position for resume; do not force to 0 (enterprise resume behavior)
       return;
     }
 
@@ -435,6 +524,29 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       video.removeEventListener('canplay', tryPlay);
     };
   }, [autoAdvanceOnEnd, autoplayEnabled, isActive, muted, playbackBlocked, scroll.id]);
+
+  // Phase 23 — learning: mute / unmute transitions (skip first paint)
+  const prevMutedRef = useRef(muted);
+  useEffect(() => {
+    if (!isActive) {
+      prevMutedRef.current = muted;
+      return;
+    }
+    if (prevMutedRef.current === muted) return;
+    prevMutedRef.current = muted;
+    void emitLearning(muted ? 'mute' : 'unmute');
+  }, [muted, isActive, emitLearning]);
+
+  // Phase 23 — buffer health pulse (active only)
+  useEffect(() => {
+    if (!isActive) return;
+    const tick = () => {
+      setBufferHealth(estimateBufferHealth(videoRef.current));
+    };
+    tick();
+    const id = window.setInterval(tick, 1200);
+    return () => window.clearInterval(id);
+  }, [isActive, scroll.id]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -463,9 +575,16 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   }, [autoplayEnabled, isActive, playbackBlocked]);
 
   const handleVideoEnded = useCallback(() => {
-    if (!autoAdvanceOnEnd || !isActive) return;
+    if (!isActive) return;
+    clearScrollResumePosition(scroll.id);
+    void emitLearning('completion');
+    replayCountRef.current += 1;
+    if (replayCountRef.current > 1) {
+      void emitLearning('replay');
+    }
+    if (!autoAdvanceOnEnd) return;
     void onRequestNext?.();
-  }, [autoAdvanceOnEnd, isActive, onRequestNext]);
+  }, [autoAdvanceOnEnd, emitLearning, isActive, onRequestNext, scroll.id]);
 
   const handleTimeUpdate = async () => {
     if (!isActive || !videoRef.current) return;
@@ -485,9 +604,44 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
       const ratio = current / duration;
       if (ratio >= 0.25) await once('view_25', 'view_25');
       if (ratio >= 0.5) await once('view_50', 'view_50');
-      if (ratio >= 0.95) await once('view_95', 'view_95');
+      if (ratio >= 0.95) {
+        await once('view_95', 'view_95');
+        void emitLearning('completion', current);
+      }
+    }
+    // Periodic watch_duration learning (throttled via once marks per 15s bucket)
+    if (current >= 15) {
+      const bucket = Math.floor(current / 15);
+      const key = `learn_watch_${bucket}`;
+      if (shouldEmitOnceKey(learningMarksRef.current, key)) {
+        void emitLearning('watch_duration', current);
+      }
     }
   };
+
+  const handlePause = useCallback(() => {
+    if (!isActive) return;
+    void emitLearning('pause');
+    const video = videoRef.current;
+    if (video) {
+      saveScrollResumePosition(scroll.id, Number(video.currentTime || 0), Number(video.duration || 0));
+    }
+  }, [emitLearning, isActive, scroll.id]);
+
+  const handlePlay = useCallback(() => {
+    if (!isActive) return;
+    void emitLearning('resume_play');
+    void emitLearning('watch_started');
+  }, [emitLearning, isActive]);
+
+  const handleSeeked = useCallback(() => {
+    if (!isActive) return;
+    const now = Date.now();
+    if (now - lastSeekEmitRef.current < 1500) return;
+    lastSeekEmitRef.current = now;
+    const video = videoRef.current;
+    void emitLearning('seek', Number(video?.currentTime || 0));
+  }, [emitLearning, isActive]);
 
   const handleExpand = async () => {
     const container = rootRef.current;
@@ -662,9 +816,12 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               autoPlay={autoplayEnabled && isActive && !playbackBlocked}
               controls={!autoplayEnabled}
               controlsList={!autoplayEnabled ? 'nodownload' : undefined}
-              preload={isActive ? (autoplayEnabled ? 'auto' : 'metadata') : 'none'}
+              preload={preloadMode}
               onTimeUpdate={handleTimeUpdate}
               onEnded={handleVideoEnded}
+              onPause={handlePause}
+              onPlay={handlePlay}
+              onSeeked={handleSeeked}
               poster={media.poster}
               onContextMenu={(event) => event.preventDefault()}
               onClick={(event) => {
@@ -681,6 +838,30 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
           Media unavailable
         </div>
       )}
+
+      {/* Phase 23 — Facebook/Instagram Reels-style Scroll brand label (top-center, avoids author chrome) */}
+      <div
+        className={`pointer-events-none absolute left-1/2 top-3 z-40 -translate-x-1/2 transition-opacity duration-300 ${
+          overlayControlsVisible || isActive ? 'opacity-100' : 'opacity-60'
+        }`}
+        data-testid="scroll-brand-label"
+      >
+        <div className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/50 px-3 py-1 text-[11px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
+          <Clapperboard className="h-3.5 w-3.5 text-cyan-200" aria-hidden />
+          <span>Scroll</span>
+        </div>
+      </div>
+
+      {/* Phase 23 — adaptive buffer health (active only, non-intrusive) */}
+      {isActive && bufferHealth > 0 && bufferHealth < 0.35 ? (
+        <div
+          className="pointer-events-none absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/50 px-3 py-1 text-[11px] font-medium text-white/90"
+          role="status"
+          aria-live="polite"
+        >
+          Buffering…
+        </div>
+      ) : null}
 
       <div
         className={`pointer-events-none absolute inset-0 z-10 bg-gradient-to-t from-black/60 via-transparent to-black/30 transition-opacity duration-300 ease-out motion-reduce:transition-none ${
