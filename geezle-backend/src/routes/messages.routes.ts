@@ -38,15 +38,22 @@ import {
   patchPresencePrivacy,
   postPresenceHeartbeat
 } from '../controllers/presence.controller';
+import {
+  getMessagingPrivacy,
+  patchMessagingPrivacy
+} from '../controllers/messagingPrivacy.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 
 const router = express.Router();
 const SOCIAL_WRITE_IDEMPOTENCY_TTL_MS = 2 * 60 * 1000;
 
-// Phase 22.3 — presence (mounted under /api/messages for auth reuse; also used as /presence aliases via server)
+// Phase 22.3 — presence (mounted under /api/messages for auth reuse)
 router.post('/presence/heartbeat', authMiddleware, postPresenceHeartbeat);
 router.get('/presence', authMiddleware, getPresenceBatch);
 router.patch('/presence/privacy', authMiddleware, patchPresencePrivacy);
+// Phase 22.3B — full messaging privacy settings
+router.get('/settings/privacy', authMiddleware, getMessagingPrivacy);
+router.patch('/settings/privacy', authMiddleware, patchMessagingPrivacy);
 
 router.get('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);
 router.post('/scrolitha/ensure', authMiddleware, ensureScrolithaMessagingConversation);

@@ -167,6 +167,23 @@ export const addGroupMembers = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'One or more users not found' });
     }
 
+    // Phase 22.3B — group invite audience privacy
+    try {
+      const { canInviteToGroup } = await import('../services/messaging/messagingPrivacyPolicy');
+      for (const id of userIds) {
+        const gate = await canInviteToGroup(userId, id, conversationId);
+        if (!gate.allowed) {
+          return res.status(403).json({
+            success: false,
+            error: gate.reason || 'This member cannot be added due to their messaging preferences.',
+            code: 'MESSAGING_PRIVACY_GROUP_INVITE_DENIED'
+          });
+        }
+      }
+    } catch {
+      /* optional */
+    }
+
     for (const id of userIds) {
       await prisma.conversationParticipant.upsert({
         where: { conversationId_userId: { conversationId, userId: id } },

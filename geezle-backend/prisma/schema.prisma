@@ -25,8 +25,17 @@ model User {
   isOnline                    Boolean   @default(false)
   lastLoginAt                 DateTime?
   lastSeenAt                  DateTime?
-  /// Phase 22.3 — presence privacy (EVERYONE | CONTACTS | NOBODY)
+  /// Phase 22.3 — presence privacy (EVERYONE | CONTACTS | NOBODY); maps to onlineStatusVisibility
   presenceVisibility          String    @default("EVERYONE")
+  /// Phase 22.3B — messaging privacy controls (additive; defaults preserve current behavior)
+  lastSeenVisibility                 String    @default("EVERYONE")
+  readReceiptsEnabled                Boolean   @default(true)
+  typingIndicatorsEnabled            Boolean   @default(true)
+  recordingIndicatorsEnabled         Boolean   @default(true)
+  directMessageAudience              String    @default("EVERYONE")
+  groupInviteAudience                String    @default("EVERYONE")
+  notificationMessagePreviewEnabled  Boolean   @default(true)
+  messagingPrivacyUpdatedAt          DateTime?
   freelancerPlanId            String?
   freelancerPlanName          String?
   freelancerPlanInterval      String?

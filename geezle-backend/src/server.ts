@@ -429,28 +429,68 @@ const shouldEmitTypingEvent = (conversationId: string, userId: string, isTyping:
 };
 
 const emitPresenceUpdate = (userId: string, isOnline: boolean, lastSeenAt?: Date) => {
-  try {
-    const payload = {
-      userId,
-      isOnline,
-      lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
-    };
-    const rooms = ['community:global', 'community:admin', `community:user:${userId}`];
-    rooms.forEach((room) => {
-      communityNs.to(room).emit('presence:update', payload);
-      communityNs.to(room).emit('presence:updated', payload);
-    });
-    void recordRealtimeEventDelivery({
-      namespace: 'community',
-      roomKey: 'presence:broadcast',
-      eventName: 'presence:updated',
-      targetCount: rooms.length,
-      payload,
-      triggeredBy: 'runtime'
-    });
-  } catch (e) {
-    console.warn('Failed to emit presence update', e);
-  }
+  const run = async () => {
+    try {
+      const payload = {
+        userId,
+        isOnline,
+        lastSeenAt: lastSeenAt ? lastSeenAt.toISOString() : undefined
+      };
+      // Always deliver authoritative self presence to the owner.
+      communityNs.to(`community:user:${userId}`).emit('presence:update', payload);
+      communityNs.to(`community:user:${userId}`).emit('presence:updated', payload);
+
+      // Phase 22.3B — global fan-out only when online visibility is EVERYONE.
+      // CONTACTS/NOBODY: peers resolve via privacy-aware batch APIs (no live leak).
+      let onlineAudience = 'EVERYONE';
+      let lastSeenAudience = 'EVERYONE';
+      try {
+        const { getMessagingPrivacySettings } = require('./services/messaging/messagingPrivacyPolicy');
+        const privacy = await getMessagingPrivacySettings(userId);
+        onlineAudience = privacy.onlineStatusVisibility || 'EVERYONE';
+        lastSeenAudience = privacy.lastSeenVisibility || 'EVERYONE';
+      } catch {
+        /* defaults */
+      }
+
+      if (onlineAudience === 'EVERYONE') {
+        const publicPayload = {
+          ...payload,
+          lastSeenAt:
+            lastSeenAudience === 'EVERYONE' ? payload.lastSeenAt : undefined
+        };
+        ['community:global', 'community:admin'].forEach((room) => {
+          communityNs.to(room).emit('presence:update', publicPayload);
+          communityNs.to(room).emit('presence:updated', publicPayload);
+        });
+      } else {
+        // Privacy-safe stub so clients clear stale "online" without disclosing real state
+        const hidden = {
+          userId,
+          isOnline: false,
+          state: 'offline',
+          lastSeenAt: null,
+          presenceHidden: true
+        };
+        communityNs.to('community:global').emit('presence:updated', hidden);
+      }
+
+      void recordRealtimeEventDelivery({
+        namespace: 'community',
+        roomKey: 'presence:broadcast',
+        eventName: 'presence:updated',
+        targetCount: onlineAudience === 'EVERYONE' ? 3 : 2,
+        payload:
+          onlineAudience === 'EVERYONE'
+            ? payload
+            : { userId, presenceHidden: true },
+        triggeredBy: 'runtime'
+      });
+    } catch (e) {
+      console.warn('Failed to emit presence update', e);
+    }
+  };
+  void run();
 };
 
 const registerCommunityUserSocket = (userId: string, socketId: string) => {
@@ -1084,7 +1124,33 @@ communityNs.on('connection', (socket) => {
         const isParticipant = participantIds.includes(userId);
         if (!isParticipant) return;
 
-        const targets = participantIds.filter((participantId) => participantId !== userId);
+        // Phase 22.3B — actor may disable sharing typing indicators
+        try {
+          const { getMessagingPrivacySettings } = require('./services/messaging/messagingPrivacyPolicy');
+          const privacy = await getMessagingPrivacySettings(userId);
+          if (privacy.typingIndicatorsEnabled === false) {
+            if (isTyping) return;
+          }
+        } catch {
+          /* optional */
+        }
+
+        let targets = participantIds.filter((participantId) => participantId !== userId);
+        if (!targets.length) return;
+
+        // Filter recipients who may receive typing events from this actor
+        try {
+          const { canViewerReceiveTypingEvent } = require('./services/messaging/messagingPrivacyPolicy');
+          const allowed: string[] = [];
+          for (const targetUserId of targets) {
+            if (await canViewerReceiveTypingEvent(targetUserId, userId, conversationId)) {
+              allowed.push(targetUserId);
+            }
+          }
+          targets = allowed;
+        } catch {
+          /* optional */
+        }
         if (!targets.length) return;
 
         const providedName = String(payload?.name || '').trim();
@@ -1130,24 +1196,45 @@ communityNs.on('connection', (socket) => {
 
   // Phase 22.3 — presence heartbeat (ephemeral; throttled client-side)
   socket.on('presence:heartbeat', (payload: any) => {
-    try {
-      const userId = resolveSocketUserId(socket);
-      if (!userId) return;
-      const { presenceStore } = require('./services/messaging/presenceStore');
-      const record = presenceStore.touchHeartbeat(userId, new Date());
-      const state = String(payload?.state || record.state || 'online');
-      const out = {
-        userId,
-        isOnline: state !== 'offline',
-        state,
-        lastSeenAt: record.lastSeenAt,
-        lastHeartbeatAt: record.lastHeartbeatAt
-      };
-      communityNs.to(`community:user:${userId}`).emit('presence:updated', out);
-      communityNs.to('community:global').emit('presence:updated', out);
-    } catch (error) {
-      console.error('presence:heartbeat error:', error);
-    }
+    const handleHeartbeat = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        if (!userId) return;
+        const { presenceStore } = require('./services/messaging/presenceStore');
+        const record = presenceStore.touchHeartbeat(userId, new Date());
+        const state = String(payload?.state || record.state || 'online');
+        const out = {
+          userId,
+          isOnline: state !== 'offline',
+          state,
+          lastSeenAt: record.lastSeenAt,
+          lastHeartbeatAt: record.lastHeartbeatAt
+        };
+        // Owner always receives self heartbeat
+        communityNs.to(`community:user:${userId}`).emit('presence:updated', out);
+
+        // Phase 22.3B — restrict global heartbeat fan-out by privacy
+        let allowGlobal = true;
+        try {
+          const { getMessagingPrivacySettings } = require('./services/messaging/messagingPrivacyPolicy');
+          const privacy = await getMessagingPrivacySettings(userId);
+          if (
+            privacy.onlineStatusVisibility === 'NOBODY' ||
+            privacy.onlineStatusVisibility === 'CONTACTS'
+          ) {
+            allowGlobal = false;
+          }
+        } catch {
+          allowGlobal = true;
+        }
+        if (allowGlobal) {
+          communityNs.to('community:global').emit('presence:updated', out);
+        }
+      } catch (error) {
+        console.error('presence:heartbeat error:', error);
+      }
+    };
+    void handleHeartbeat();
   });
 
   // Phase 22.3 — recording indicator (voice note), reuses typing fan-out path
@@ -1161,7 +1248,26 @@ communityNs.on('connection', (socket) => {
         if (!shouldEmitTypingEvent(conversationId, userId, isRecording)) return;
         const participantIds = await resolveTypingConversationParticipantIds(conversationId);
         if (!participantIds.includes(userId)) return;
-        const targets = participantIds.filter((id) => id !== userId);
+        try {
+          const { getMessagingPrivacySettings } = require('./services/messaging/messagingPrivacyPolicy');
+          const privacy = await getMessagingPrivacySettings(userId);
+          if (privacy.recordingIndicatorsEnabled === false && isRecording) return;
+        } catch {
+          /* optional */
+        }
+        let targets = participantIds.filter((id) => id !== userId);
+        try {
+          const { canViewerReceiveRecordingEvent } = require('./services/messaging/messagingPrivacyPolicy');
+          const allowed: string[] = [];
+          for (const targetUserId of targets) {
+            if (await canViewerReceiveRecordingEvent(targetUserId, userId, conversationId)) {
+              allowed.push(targetUserId);
+            }
+          }
+          targets = allowed;
+        } catch {
+          /* optional */
+        }
         const providedName = String(payload?.name || '').trim();
         const fallbackName = String((socket as any).data?.user?.email || 'Someone')
           .split('@')[0]

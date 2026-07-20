@@ -8,6 +8,7 @@ import {
   presenceStore,
   type PresenceVisibility
 } from '../services/messaging/presenceStore';
+import { projectPresenceForViewer } from '../services/messaging/messagingPrivacyPolicy';
 
 const resolveUserId = (req: Request) => {
   const id = req.user?.id;
@@ -135,9 +136,20 @@ export const getPresenceBatch = async (req: Request, res: Response) => {
       }
     }
 
-    const data = ids
-      .map((id) => filterPresenceForViewer(presenceStore.get(id), viewerId, true))
-      .filter(Boolean);
+    const projected = await Promise.all(
+      ids.map(async (id) => {
+        const rec = presenceStore.get(id);
+        if (!rec) return null;
+        // Phase 22.3B — privacy-aware projection (online + last seen audiences)
+        return projectPresenceForViewer(viewerId, {
+          userId: rec.userId,
+          isOnline: rec.isOnline,
+          state: rec.state,
+          lastSeenAt: rec.lastSeenAt
+        });
+      })
+    );
+    const data = projected.filter(Boolean);
     return res.json({ success: true, data });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e?.message || 'Failed to load presence' });
@@ -153,15 +165,34 @@ export const patchPresencePrivacy = async (req: Request, res: Response) => {
     try {
       await prisma.user.update({
         where: { id: userId },
-        data: { presenceVisibility: visibility } as any
+        data: {
+          presenceVisibility: visibility,
+          messagingPrivacyUpdatedAt: new Date()
+        } as any
       });
     } catch (e: any) {
-      return res.status(500).json({
-        success: false,
-        error: e?.message || 'Failed to update privacy (migration may be pending)'
-      });
+      // Fallback without messagingPrivacyUpdatedAt if migration pending
+      try {
+        await prisma.user.update({
+          where: { id: userId },
+          data: { presenceVisibility: visibility } as any
+        });
+      } catch (inner: any) {
+        return res.status(500).json({
+          success: false,
+          error: inner?.message || e?.message || 'Failed to update privacy (migration may be pending)'
+        });
+      }
     }
     presenceStore.set(userId, { userId, visibility });
+    try {
+      const { invalidateMessagingPrivacyCache } = await import(
+        '../services/messaging/messagingPrivacyPolicy'
+      );
+      invalidateMessagingPrivacyCache(userId);
+    } catch {
+      /* optional */
+    }
     return res.json({ success: true, data: { visibility } });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e?.message || 'Failed to update privacy' });

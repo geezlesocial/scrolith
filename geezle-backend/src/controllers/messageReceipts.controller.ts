@@ -132,10 +132,28 @@ export const postConversationReceipts = async (req: Request, res: Response) => {
       lastReadAt: updated.lastReadAt ? new Date(updated.lastReadAt).toISOString() : null,
       version: '22.3'
     };
+
+    // Phase 22.3B — do not disclose read watermark to peers when user disabled read receipts
+    let discloseRead = true;
+    try {
+      const { getMessagingPrivacySettings } = await import('../services/messaging/messagingPrivacyPolicy');
+      const privacy = await getMessagingPrivacySettings(userId);
+      discloseRead = privacy.readReceiptsEnabled !== false;
+    } catch {
+      discloseRead = true;
+    }
+    const peerPayload = discloseRead
+      ? payload
+      : {
+          ...payload,
+          lastReadAt: null,
+          readHidden: true
+        };
+
     others.forEach((row) => {
-      emitToUser(req, row.userId, 'messages:receipts', payload);
+      emitToUser(req, row.userId, 'messages:receipts', peerPayload);
     });
-    // Self multi-tab sync
+    // Self multi-tab sync always gets full watermarks
     emitToUser(req, userId, 'messages:receipts', payload);
 
     return res.json({ success: true, data: payload });

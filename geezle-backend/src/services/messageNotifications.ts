@@ -114,14 +114,31 @@ export const dispatchMessageReceiptNotifications = async (
   const senderName = sender?.name || sender?.email || 'Scrolith User';
   const senderEmail = sender?.email || '';
 
+  // Phase 22.3B — per-recipient notification preview privacy
+  let previewAllowedByUser: Record<string, boolean> = {};
+  try {
+    const { canIncludeMessagePreview } = await import('./messaging/messagingPrivacyPolicy');
+    await Promise.all(
+      notifyIds.map(async (receiverId) => {
+        previewAllowedByUser[receiverId] = await canIncludeMessagePreview(receiverId);
+      })
+    );
+  } catch {
+    previewAllowedByUser = {};
+  }
+
   const results = await Promise.allSettled(
-    notifyIds.map((receiverId) =>
-      sendSystemMessage({
+    notifyIds.map((receiverId) => {
+      const allowPreview = previewAllowedByUser[receiverId] !== false;
+      const safePreview = allowPreview
+        ? preview
+        : `New message from ${senderName}`;
+      return sendSystemMessage({
         templateKey: 'new_message',
         userId: receiverId,
         context: {
           sender: { name: senderName, email: senderEmail },
-          message: { preview, link: messageLink }
+          message: { preview: safePreview, link: messageLink }
         },
         actionUrl: messageLink,
         typeOverride: 'message',
@@ -131,13 +148,14 @@ export const dispatchMessageReceiptNotifications = async (
           senderId,
           receiverId,
           messageType: input.messageType || 'text',
-          mutedSuppressed: false
+          mutedSuppressed: false,
+          previewRedacted: !allowPreview
         },
         // force flags apply only to unmuted receivers (already filtered).
         forceNotification: true,
         forcePush: true
-      })
-    )
+      });
+    })
   );
 
   const failures = results.filter((result) => result.status === 'rejected');

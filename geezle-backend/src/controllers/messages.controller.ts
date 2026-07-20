@@ -193,6 +193,10 @@ const participantUserSelect: any = {
   lastSeenAt: true,
   username: true,
   isVerified: true,
+  // Phase 22.3B — for privacy-safe receipt/presence projection
+  presenceVisibility: true,
+  lastSeenVisibility: true,
+  readReceiptsEnabled: true,
   profile: {
     select: {
       gender: true
@@ -301,6 +305,7 @@ const formatParticipant = (participant: any) => {
     memberRole: participant.role || 'MEMBER',
     notifications: participant.notifications || 'ALL',
     notificationLevel: participant.notifications || 'ALL',
+    // Phase 22.3B — presence fields remain; FE applies viewer privacy via batch API
     is_scrolitha: isScrolitha,
     isScrolitha,
     is_verified: Boolean(participant.user?.isVerified) || isScrolitha,
@@ -393,7 +398,7 @@ const formatConversationMessage = (
     ? String(message.clientMessageId)
     : (metadata as any)?.clientMessageId || (metadata as any)?.clientSendId || null;
 
-  // Phase 22.3 — outgoing delivery ticks from peer watermarks
+  // Phase 22.3 / 22.3B — outgoing delivery ticks; read only from peers who disclose receipts
   let deliveryStatus: 'sending' | 'sent' | 'delivered' | 'read' = 'sent';
   if (viewerId && message.senderId === viewerId) {
     try {
@@ -402,11 +407,15 @@ const formatConversationMessage = (
       const memberCount = Array.isArray(conversation.participants)
         ? conversation.participants.filter((p: any) => !p.deletedAt).length
         : peers.length + 1;
+      const disclosureIds = Array.isArray((conversation as any)._readDisclosurePeerIds)
+        ? (conversation as any)._readDisclosurePeerIds
+        : null;
       deliveryStatus = resolveOutgoingDeliveryStatus({
         messageCreatedAt: createdAt,
         peers,
         isGroup: conversation.type === 'GROUP',
-        memberCount
+        memberCount,
+        readDisclosurePeerIds: disclosureIds
       });
     } catch {
       deliveryStatus = isRead ? 'read' : 'sent';
@@ -483,13 +492,29 @@ const buildConversationPayload = (
     ? conversation.participants.find((p: any) => p.userId === viewerId)
     : null;
   const lastReadAt = viewer?.lastReadAt ? new Date(viewer.lastReadAt).getTime() : 0;
+  // Phase 22.3B — hide lastReadAt for peers who disabled read receipts (internal watermark still stored)
   const peerWatermarks = (Array.isArray(conversation.participants) ? conversation.participants : [])
     .filter((p: any) => !p.deletedAt)
-    .map((p: any) => ({
-      userId: String(p.userId || ''),
-      lastReadAt: p.lastReadAt ? new Date(p.lastReadAt).getTime() : null,
-      lastDeliveredAt: p.lastDeliveredAt ? new Date(p.lastDeliveredAt).getTime() : null
-    }));
+    .map((p: any) => {
+      const uid = String(p.userId || '');
+      const discloseRead = p.user?.readReceiptsEnabled !== false || uid === viewerId;
+      return {
+        userId: uid,
+        lastReadAt:
+          discloseRead && p.lastReadAt ? new Date(p.lastReadAt).getTime() : null,
+        lastDeliveredAt: p.lastDeliveredAt ? new Date(p.lastDeliveredAt).getTime() : null
+      };
+    });
+  (conversation as any)._readDisclosurePeerIds = peerWatermarks
+    .filter((p) => p.lastReadAt != null || p.userId === viewerId)
+    .map((p) => p.userId)
+    .filter((id) => id && id !== viewerId);
+  // Prefer peers whose user.readReceiptsEnabled is true
+  const disclosurePeers = (Array.isArray(conversation.participants) ? conversation.participants : [])
+    .filter((p: any) => !p.deletedAt && p.userId !== viewerId && p.user?.readReceiptsEnabled !== false)
+    .map((p: any) => String(p.userId || ''))
+    .filter(Boolean);
+  (conversation as any)._readDisclosurePeerIds = disclosurePeers;
   const hiddenMessageIds = options?.hiddenMessageIds || new Set<string>();
 
   const visibleMessagesSource = Array.isArray(conversation.messages)
@@ -1417,6 +1442,27 @@ export const createConversation = async (req: Request, res: Response) => {
     const forceGroup = requestedType === 'GROUP' || Boolean(groupTitle);
     const type = forceGroup || uniqueIds.length > 2 ? 'GROUP' : 'DIRECT';
 
+    // Phase 22.3B — DM audience privacy (new conversations only; existing preserved)
+    if (type === 'DIRECT' && uniqueIds.length === 2 && userId) {
+      const otherId = uniqueIds.find((id) => id !== userId) || '';
+      if (otherId) {
+        try {
+          const { canInitiateDirectMessage } = await import(
+            '../services/messaging/messagingPrivacyPolicy'
+          );
+          const gate = await canInitiateDirectMessage(userId, otherId);
+          if (!gate.allowed) {
+            // Allow if conversation already exists (checked below); for brand-new, deny
+            // Defer deny until after existing lookup
+            (req as any)._dmPrivacyGate = gate;
+            (req as any)._dmPrivacyOtherId = otherId;
+          }
+        } catch {
+          /* policy optional pre-migration */
+        }
+      }
+    }
+
     let existing: any = null;
     if (type === 'DIRECT' && uniqueIds.length === 2) {
       const candidates = await prisma.conversation.findMany({
@@ -1455,6 +1501,17 @@ export const createConversation = async (req: Request, res: Response) => {
         }
       });
       return res.json({ success: true, data: { id: existing.id } });
+    }
+
+    // New DM denied by privacy (existing already returned above)
+    if (type === 'DIRECT' && (req as any)._dmPrivacyGate && !(req as any)._dmPrivacyGate.allowed) {
+      return res.status(403).json({
+        success: false,
+        error:
+          (req as any)._dmPrivacyGate.reason ||
+          'This member cannot be messaged due to their messaging preferences.',
+        code: 'MESSAGING_PRIVACY_DM_DENIED'
+      });
     }
 
     const users = await prisma.user.findMany({ where: { id: { in: uniqueIds } } });
