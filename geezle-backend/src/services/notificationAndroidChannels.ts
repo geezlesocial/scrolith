@@ -133,6 +133,28 @@ export const resolveNotificationCategory = (input: {
   const entity = coerce(input.entityType || bag.entityType || bag.entity_type);
   const haystack = `${type} ${entity} ${coerce(input.title)}`;
 
+  // Phase 27 — explicit product aliases before substring matching.
+  if (type === 'chat' || type === 'group_chat' || type === 'dm' || type === 'direct_message') {
+    return 'message';
+  }
+  if (
+    type === 'group_invite' ||
+    type === 'community_request' ||
+    type === 'group_invitation' ||
+    type.includes('group_invite')
+  ) {
+    return 'community';
+  }
+  if (
+    type === 'marketplace_inquiry' ||
+    type.includes('listing_inquiry') ||
+    type.includes('marketplace_inquiry')
+  ) {
+    return 'marketplace';
+  }
+  if (type === 'payment' || type.includes('payout') || type.includes('payment_')) {
+    return 'order';
+  }
   if (type === 'message' || type === 'new_message' || type.includes('message') || type.includes('chat')) {
     return 'message';
   }
