@@ -963,6 +963,39 @@ export const MessagingService = {
     return extractData<any>(response);
   },
 
+  /** Phase 29.5 — enterprise group search */
+  searchMessagingGroups: async (params: {
+    q?: string;
+    category?: string;
+    conversationId?: string;
+    cursor?: string;
+    limit?: number;
+    visibility?: string;
+  }) => {
+    const response = await api.get('/messages/groups/search', { params });
+    return extractData<any>(response);
+  },
+
+  saveMessagingGroupSearch: async (payload: { q: string; category?: string; name?: string }) => {
+    const response = await api.post('/messages/groups/search/saved', payload);
+    return extractData<any>(response);
+  },
+
+  discoverMessagingGroups: async (params?: {
+    mode?: string;
+    language?: string;
+    category?: string;
+    limit?: number;
+  }) => {
+    const response = await api.get('/messages/groups/discover', { params: params || {} });
+    return extractData<any>(response);
+  },
+
+  getMessagingGroupHealth: async (conversationId: string) => {
+    const response = await api.get(`/messages/groups/${conversationId}/health`);
+    return extractData<any>(response);
+  },
+
   /** Phase 22.2 — jump-to-message window */
   getMessagesAround: async (conversationId: string, messageId: string, limit = 40) => {
     const response = await api.get(

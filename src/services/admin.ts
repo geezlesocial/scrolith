@@ -2619,6 +2619,18 @@ export const AdminService = {
 
   async getMessagingGroupsMetrics(): Promise<any> {
     return adminGet<any>('/messaging-groups/metrics');
+  },
+
+  async searchMessagingGroupsAdmin(params?: Record<string, unknown>): Promise<any> {
+    return adminGet<any>('/messaging-groups/search', params || {});
+  },
+
+  async getMessagingGroupsAnalytics(days = 14): Promise<any> {
+    return adminGet<any>('/messaging-groups/analytics', { days });
+  },
+
+  async getMessagingGroupHealthAdmin(id: string): Promise<any> {
+    return adminGet<any>(`/messaging-groups/${encodeURIComponent(id)}/health`);
   }
 };
 
