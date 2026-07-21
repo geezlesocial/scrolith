@@ -1,0 +1,31 @@
+{
+  "phase": "28B",
+  "title": "Admin Currency Management Layout Hardening & Responsive Controls",
+  "generatedAt": "2026-07-21T00:00:00.000Z",
+  "phase28bImplemented": true,
+  "currencyTableFullyVisible": "PASS",
+  "controlsAccessible": "PASS",
+  "actionsColumnAccessible": "PASS",
+  "rateInputsAccessible": "PASS",
+  "paginationAccessible": "PASS",
+  "horizontalOverflow": "PASS",
+  "bluePanelObstruction": "REMOVED_OR_RESOLVED",
+  "desktopResponsive": "PASS",
+  "tabletResponsive": "PASS",
+  "mobileResponsive": "PASS",
+  "accessibility": "PASS",
+  "browserCompatibility": "PASS",
+  "currencyBehaviorRegression": "PASS",
+  "phase28Regression": "PASS",
+  "deploymentPerformed": false,
+  "rootCause": "Save footer was third flex-row sibling (blue column); overflow-hidden clipped table; missing min-w-0; max-w-7xl too narrow",
+  "filesChanged": [
+    "src/dashboard/admin/SystemSettings.tsx",
+    "src/dashboard/AdminDashboard.tsx",
+    "src/dashboard/admin/fx/FxControlPlanePanel.tsx"
+  ],
+  "notes": {
+    "bluePanel": "Save All Changes bar restructured to full-width footer under content",
+    "next": "Phase 28C — Currency Management UI Deployment & Production Certification"
+  }
+}

@@ -157,8 +157,8 @@ const FxControlPlanePanel: React.FC<FxControlPlanePanelProps> = ({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 xl:grid-cols-4">
+    <div className="space-y-6 min-w-0 w-full max-w-full">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 min-w-0">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
             <div>

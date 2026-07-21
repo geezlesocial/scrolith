@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useContent } from '../../context/ContentContext';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon, Gauge } from 'lucide-react';
+import { Save, Settings, Mail, HardDrive, DollarSign, Cpu, CheckCircle, ShieldCheck, Globe, FileText, Database, Server, RefreshCw, Plus, Trash2, X, Network, Send, Loader2, AlertTriangle, Image as ImageIcon, Gauge, Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { AIConfigManager } from '../../services/ai/ai.config';
 import {
     AIConfig,
@@ -696,6 +696,12 @@ const SystemSettings = () => {
     const [currencies, setCurrencies] = useState<Currency[]>(INITIAL_CURRENCIES);
     const [isCurrencyModalOpen, setIsCurrencyModalOpen] = useState(false);
     const [newCurrency, setNewCurrency] = useState<Partial<Currency>>({ code: '', name: '', symbol: '', rate: 1, isActive: true });
+    // Phase 28B — local filter/pagination (presentation only; does not change FX data)
+    const [currencySearch, setCurrencySearch] = useState('');
+    const [currencyStatusFilter, setCurrencyStatusFilter] = useState<'all' | 'active' | 'disabled'>('all');
+    const [currencySourceFilter, setCurrencySourceFilter] = useState<'all' | 'base' | 'snapshot' | 'override' | 'manual'>('all');
+    const [currencyPage, setCurrencyPage] = useState(1);
+    const [currencyPageSize, setCurrencyPageSize] = useState(25);
     const [currencyConfig, setCurrencyConfig] = useState(normalizeCurrencyConfig({
         autoExchangeRate: false,
         baseCurrency: 'USD',
@@ -1358,6 +1364,34 @@ const SystemSettings = () => {
         }
     };
 
+    // Phase 28B — client-side search/filter/pagination for currency table (display only)
+    const filteredCurrencies = useMemo(() => {
+        const q = currencySearch.trim().toLowerCase();
+        return (Array.isArray(currencies) ? currencies : []).filter((c) => {
+            if (currencyStatusFilter === 'active' && c.isActive === false) return false;
+            if (currencyStatusFilter === 'disabled' && c.isActive !== false) return false;
+            const source = String((c as any).rateSource || 'manual').toLowerCase();
+            if (currencySourceFilter !== 'all' && source !== currencySourceFilter) return false;
+            if (!q) return true;
+            return (
+                String(c.code || '').toLowerCase().includes(q) ||
+                String(c.name || '').toLowerCase().includes(q) ||
+                String(c.symbol || '').toLowerCase().includes(q)
+            );
+        });
+    }, [currencies, currencySearch, currencyStatusFilter, currencySourceFilter]);
+
+    const currencyTotalPages = Math.max(1, Math.ceil(filteredCurrencies.length / currencyPageSize));
+    const safeCurrencyPage = Math.min(currencyPage, currencyTotalPages);
+    const pagedCurrencies = useMemo(() => {
+        const start = (safeCurrencyPage - 1) * currencyPageSize;
+        return filteredCurrencies.slice(start, start + currencyPageSize);
+    }, [filteredCurrencies, safeCurrencyPage, currencyPageSize]);
+
+    useEffect(() => {
+        setCurrencyPage(1);
+    }, [currencySearch, currencyStatusFilter, currencySourceFilter, currencyPageSize]);
+
     const handleAutoUpdateRates = async () => {
         setFxBusyAction('sync');
         showNotification('info', 'FX Sync Started', 'Fetching the latest approved FX snapshot.');
@@ -1636,20 +1670,57 @@ const SystemSettings = () => {
         );
     }
 
+    // Phase 28B — layout: column shell so Save footer is never a third horizontal column
+    // that steals width / paints as a solid obstruction over the currency table.
+    const systemNavItems = [
+        { id: 'general', label: 'General Settings', icon: Settings },
+        { id: 'filesystem', label: 'File System & Cache', icon: HardDrive },
+        { id: 'optimization', label: 'Optimization', icon: Gauge },
+        { id: 'currencies', label: 'Currencies', icon: DollarSign },
+        { id: 'email', label: 'Email SMTP', icon: Mail },
+        { id: 'ai', label: 'AI Engine', icon: Cpu },
+        { id: 'compliance', label: 'Regional Compliance', icon: Globe },
+        { id: 'evidence', label: 'SOC-2 Evidence', icon: ShieldCheck }
+    ] as const;
+
     return (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row overflow-hidden min-h-[600px]">
-            <div className="w-full md:w-64 bg-gray-50 border-r border-gray-200 p-4 space-y-1 flex-shrink-0">
-                <TabButton id="general" label="General Settings" icon={Settings} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="filesystem" label="File System & Cache" icon={HardDrive} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="optimization" label="Optimization" icon={Gauge} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="currencies" label="Currencies" icon={DollarSign} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="email" label="Email SMTP" icon={Mail} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="ai" label="AI Engine" icon={Cpu} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="compliance" label="Regional Compliance" icon={Globe} activeTab={activeTab} setActiveTab={setActiveTab} />
-                <TabButton id="evidence" label="SOC-2 Evidence" icon={ShieldCheck} activeTab={activeTab} setActiveTab={setActiveTab} />
+        <div
+            className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col min-h-[600px] min-w-0 w-full max-w-full"
+            data-testid="system-settings-shell"
+        >
+            <div className="flex flex-col lg:flex-row min-w-0 flex-1 overflow-hidden">
+            <div className="w-full lg:w-64 lg:max-w-[260px] bg-gray-50 border-b lg:border-b-0 lg:border-r border-gray-200 p-3 sm:p-4 space-y-1 flex-shrink-0">
+                {/* Tablet/mobile: collapsible section select */}
+                <label className="lg:hidden block mb-2">
+                    <span className="sr-only">System settings section</span>
+                    <select
+                        className="w-full border border-gray-300 rounded-lg p-2.5 text-sm font-medium text-gray-800 bg-white"
+                        value={activeTab}
+                        onChange={(e) => setActiveTab(e.target.value)}
+                        aria-label="System settings section"
+                    >
+                        {systemNavItems.map((item) => (
+                            <option key={item.id} value={item.id}>
+                                {item.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <nav className="hidden lg:block space-y-1" aria-label="System settings sections">
+                    {systemNavItems.map((item) => (
+                        <TabButton
+                            key={item.id}
+                            id={item.id}
+                            label={item.label}
+                            icon={item.icon}
+                            activeTab={activeTab}
+                            setActiveTab={setActiveTab}
+                        />
+                    ))}
+                </nav>
             </div>
 
-            <div className="flex-1 p-8 overflow-y-auto relative">
+            <div className="flex-1 min-w-0 p-4 sm:p-6 lg:p-8 overflow-y-auto overflow-x-hidden relative">
                 {activeTab === 'general' && (
                     <div className="space-y-6 max-w-lg animate-fade-in">
                         <h3 className="text-lg font-bold mb-4 border-b pb-2">General Configuration</h3>
@@ -3444,69 +3515,87 @@ const SystemSettings = () => {
                 )}
 
                 {activeTab === 'currencies' && (
-                    <div className="space-y-6 animate-fade-in">
-                        <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-lg font-bold text-gray-900">Currency Management</h3>
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={handleAutoUpdateRates} 
-                                    className="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-bold hover:bg-indigo-100 flex items-center"
+                    <div className="space-y-6 animate-fade-in min-w-0 w-full max-w-full" data-testid="currency-management">
+                        {/* Header + primary actions — wrap, never clip */}
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <h3 className="text-lg font-bold text-gray-900">Currency Management</h3>
+                                <p className="text-sm text-gray-500 mt-0.5">
+                                    Admin-governed catalog, FX authority, and rate controls.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleRefreshFxControlPlane()}
+                                    className="text-xs sm:text-sm bg-white border border-gray-200 text-gray-700 px-3 py-2 min-h-[40px] rounded-lg font-bold hover:bg-gray-50 inline-flex items-center"
                                 >
-                                    <RefreshCw className="w-3 h-3 mr-1" /> Update Rates
+                                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Refresh
                                 </button>
-                                <button 
-                                    onClick={() => setIsCurrencyModalOpen(true)} 
-                                    className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-blue-700 flex items-center"
+                                <button
+                                    type="button"
+                                    onClick={handleAutoUpdateRates}
+                                    className="text-xs sm:text-sm bg-indigo-50 text-indigo-700 px-3 py-2 min-h-[40px] rounded-lg font-bold hover:bg-indigo-100 inline-flex items-center"
                                 >
-                                    <Plus className="w-3 h-3 mr-1" /> Add Currency
+                                    <RefreshCw className="w-3.5 h-3.5 mr-1.5" /> Update Rates
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsCurrencyModalOpen(true)}
+                                    className="text-xs sm:text-sm bg-blue-600 text-white px-3 py-2 min-h-[40px] rounded-lg font-bold hover:bg-blue-700 inline-flex items-center"
+                                >
+                                    <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Currency
                                 </button>
                             </div>
                         </div>
 
-                        {/* Settings Bar */}
-                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 flex flex-wrap gap-6 items-center">
-                            <label className="flex items-center cursor-pointer">
-                                <input 
-                                    type="checkbox" 
-                                    checked={currencyConfig.autoExchangeRate} 
-                                    onChange={e => {
+                        {/* Policy bar */}
+                        <div className="bg-gray-50 p-3 sm:p-4 rounded-xl border border-gray-200 flex flex-wrap gap-3 sm:gap-4 items-center">
+                            <label className="flex items-center cursor-pointer min-h-[40px]">
+                                <input
+                                    type="checkbox"
+                                    checked={currencyConfig.autoExchangeRate}
+                                    onChange={(e) => {
                                         const checked = e.target.checked;
-                                        setCurrencyConfig({...currencyConfig, autoExchangeRate: checked});
-                                        setFxConfig(prev => ({ ...prev, refreshEnabled: checked, enabled: true }));
-                                    }} 
-                                    className="rounded text-blue-600 mr-2" 
+                                        setCurrencyConfig({ ...currencyConfig, autoExchangeRate: checked });
+                                        setFxConfig((prev) => ({ ...prev, refreshEnabled: checked, enabled: true }));
+                                    }}
+                                    className="rounded text-blue-600 mr-2"
                                 />
                                 <span className="text-sm font-medium text-gray-700">Auto FX Sync</span>
                             </label>
-                            
-                            <div className="flex items-center gap-2">
+
+                            <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-medium text-gray-700">Base Currency:</span>
-                                <select 
-                                    className="border-gray-300 rounded-md text-sm p-1"
+                                <select
+                                    className="border-gray-300 rounded-md text-sm p-2 min-h-[40px]"
                                     value={currencyConfig.baseCurrency}
-                                    onChange={e => {
-                                        setCurrencyConfig({...currencyConfig, baseCurrency: e.target.value});
+                                    onChange={(e) => {
+                                        setCurrencyConfig({ ...currencyConfig, baseCurrency: e.target.value });
                                         handleSetDefaultCurrency(e.target.value);
                                     }}
                                 >
-                                    {Array.isArray(currencies) && currencies.map(c => (
-                                        <option key={`base-currency-${c.code}`} value={c.code}>{c.code}</option>
-                                    ))}
+                                    {Array.isArray(currencies) &&
+                                        currencies.map((c) => (
+                                            <option key={`base-currency-${c.code}`} value={c.code}>
+                                                {c.code}
+                                            </option>
+                                        ))}
                                 </select>
                             </div>
 
-                             <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-medium text-gray-700">Authority:</span>
-                                <select 
-                                    className="border-gray-300 rounded-md text-sm p-1"
+                                <select
+                                    className="border-gray-300 rounded-md text-sm p-2 min-h-[40px]"
                                     value={currencyConfig.provider}
-                                    onChange={e => {
+                                    onChange={(e) => {
                                         const providerCode = e.target.value;
-                                        setCurrencyConfig({...currencyConfig, provider: providerCode});
-                                        setFxConfig(prev => ({ ...prev, providerCode }));
+                                        setCurrencyConfig({ ...currencyConfig, provider: providerCode });
+                                        setFxConfig((prev) => ({ ...prev, providerCode }));
                                     }}
                                 >
-                                    {fxProviders.map(provider => (
+                                    {fxProviders.map((provider) => (
                                         <option key={`fx-provider-${provider.code}`} value={provider.code}>
                                             {provider.name}
                                         </option>
@@ -3514,8 +3603,9 @@ const SystemSettings = () => {
                                 </select>
                             </div>
 
-                            <div className="min-w-[16rem] text-xs text-gray-500">
-                                Live rates come from approved FX snapshots. Manual rate edits below are fallback values and local defaults only.
+                            <div className="flex-1 basis-full sm:basis-auto min-w-[12rem] text-xs text-gray-500">
+                                Live rates come from approved FX snapshots. Manual rate edits below are fallback values
+                                and local defaults only.
                             </div>
                         </div>
 
@@ -3540,131 +3630,403 @@ const SystemSettings = () => {
                             onApproveOverride={handleApproveFxOverride}
                         />
 
-                        {/* Currency Table */}
-                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-                            <table className="w-full text-sm text-left">
+                        {/* Toolbar: search + filters */}
+                        <div
+                            className="flex flex-wrap gap-3 items-center"
+                            data-testid="currency-toolbar"
+                        >
+                            <div className="relative flex-1 min-w-[220px] basis-[320px]">
+                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                                <input
+                                    type="search"
+                                    value={currencySearch}
+                                    onChange={(e) => setCurrencySearch(e.target.value)}
+                                    placeholder="Search code, name, or symbol"
+                                    className="w-full border border-gray-300 rounded-lg pl-9 pr-9 py-2.5 text-sm min-h-[44px] focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+                                    aria-label="Search currencies"
+                                />
+                                {currencySearch ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setCurrencySearch('')}
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
+                                        aria-label="Clear search"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                ) : null}
+                            </div>
+                            <select
+                                className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm min-h-[44px] flex-shrink-0"
+                                value={currencyStatusFilter}
+                                onChange={(e) => setCurrencyStatusFilter(e.target.value as typeof currencyStatusFilter)}
+                                aria-label="Filter by status"
+                            >
+                                <option value="all">All statuses</option>
+                                <option value="active">Active</option>
+                                <option value="disabled">Disabled</option>
+                            </select>
+                            <select
+                                className="border border-gray-300 rounded-lg px-3 py-2.5 text-sm min-h-[44px] flex-shrink-0"
+                                value={currencySourceFilter}
+                                onChange={(e) => setCurrencySourceFilter(e.target.value as typeof currencySourceFilter)}
+                                aria-label="Filter by rate source"
+                            >
+                                <option value="all">All sources</option>
+                                <option value="base">Base</option>
+                                <option value="snapshot">Snapshot</option>
+                                <option value="override">Override</option>
+                                <option value="manual">Manual</option>
+                            </select>
+                        </div>
+
+                        {/* Desktop / tablet table — horizontal scroll on container only */}
+                        <div
+                            className="currency-table-container hidden md:block bg-white rounded-xl shadow-sm border border-gray-200 w-full max-w-full overflow-x-auto overscroll-x-contain"
+                            data-testid="currency-table-container"
+                            role="region"
+                            aria-label="Currency list. Scroll horizontally to view additional columns."
+                            tabIndex={0}
+                        >
+                            <table className="currency-table w-full text-sm text-left min-w-[880px] border-collapse">
                                 <thead className="bg-gray-50 text-gray-500 uppercase font-bold text-xs">
                                     <tr>
-                                        <th className="px-6 py-3">Code</th>
-                                        <th className="px-6 py-3">Name</th>
-                                        <th className="px-6 py-3">Symbol</th>
-                                        <th className="px-6 py-3">Rate (vs Base)</th>
-                                        <th className="px-6 py-3">Rate Source</th>
-                                        <th className="px-6 py-3">Status</th>
-                                        <th className="px-6 py-3">Default</th>
-                                        <th className="px-6 py-3 text-right">Actions</th>
+                                        <th className="px-4 lg:px-6 py-3 sticky left-0 z-20 bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                                            Code
+                                        </th>
+                                        <th className="px-4 lg:px-6 py-3">Name</th>
+                                        <th className="px-4 lg:px-6 py-3">Symbol</th>
+                                        <th className="px-4 lg:px-6 py-3">Rate (vs Base)</th>
+                                        <th className="px-4 lg:px-6 py-3">Rate Source</th>
+                                        <th className="px-4 lg:px-6 py-3">Status</th>
+                                        <th className="px-4 lg:px-6 py-3">Default</th>
+                                        <th className="px-4 lg:px-6 py-3 text-right sticky right-0 z-20 bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.08)]">
+                                            Actions
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-gray-100">
-                                    {Array.isArray(currencies) && currencies.map((curr, index) => (
-                                        <tr key={`currency-${curr.code || index}`} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4 font-bold">{curr.code}</td>
-                                            <td className="px-6 py-4">{curr.name}</td>
-                                            <td className="px-6 py-4 font-mono">{curr.symbol}</td>
-                                            <td className="px-6 py-4">
-                                                <input 
-                                                    type="number" 
-                                                    step="0.0001"
-                                                    min="0.0001"
-                                                    disabled={currencyConfig.autoExchangeRate || curr.isDefault}
-                                                    className="w-24 border border-gray-200 rounded px-2 py-1 text-right disabled:bg-gray-100 disabled:text-gray-500"
-                                                    value={curr.rate || 0}
-                                                    onChange={e => updateCurrencyRate(curr.code, parseFloat(e.target.value) || 0)}
-                                                />
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex flex-col gap-1">
-                                                    <span className={`inline-flex w-fit rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
-                                                        curr.rateSource === 'override'
-                                                            ? 'bg-amber-100 text-amber-700'
-                                                            : curr.rateSource === 'snapshot'
-                                                                ? 'bg-blue-100 text-blue-700'
-                                                                : curr.rateSource === 'base'
-                                                                    ? 'bg-emerald-100 text-emerald-700'
-                                                                    : 'bg-slate-100 text-slate-700'
-                                                    }`}>
-                                                        {curr.rateSource || 'manual'}
-                                                    </span>
-                                                    <span className="text-[11px] text-gray-400">
-                                                        {curr.rateUpdatedAt ? new Date(curr.rateUpdatedAt).toLocaleString() : 'No runtime snapshot'}
-                                                    </span>
-                                                    {curr.stale && <span className="text-[11px] font-semibold text-amber-600">Stale</span>}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <button 
-                                                    onClick={() => toggleCurrency(curr.code)}
-                                                    className={`px-2 py-1 rounded text-xs font-bold uppercase ${curr.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}
-                                                >
-                                                    {curr.isActive ? 'Active' : 'Disabled'}
-                                                </button>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <div 
-                                                    onClick={() => handleSetDefaultCurrency(curr.code)}
-                                                    className={`w-4 h-4 rounded-full border cursor-pointer flex items-center justify-center ${curr.isDefault ? 'border-blue-600 bg-blue-600' : 'border-gray-300'}`}
-                                                >
-                                                    {curr.isDefault && <div className="w-1.5 h-1.5 bg-white rounded-full"></div>}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                {!curr.isDefault && (
-                                                    <button 
-                                                        onClick={() => handleDeleteCurrency(curr.code)} 
-                                                        className="text-red-400 hover:text-red-600 p-1"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                    </button>
-                                                )}
+                                    {pagedCurrencies.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={8} className="px-6 py-10 text-center text-gray-500">
+                                                No currencies match your filters.
                                             </td>
                                         </tr>
-                                    ))}
+                                    ) : (
+                                        pagedCurrencies.map((curr, index) => (
+                                            <tr key={`currency-${curr.code || index}`} className="hover:bg-gray-50 group">
+                                                <td className="px-4 lg:px-6 py-3 font-bold sticky left-0 z-10 bg-white group-hover:bg-gray-50 shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                                                    {curr.code}
+                                                </td>
+                                                <td className="px-4 lg:px-6 py-3 whitespace-nowrap">{curr.name}</td>
+                                                <td className="px-4 lg:px-6 py-3 font-mono">{curr.symbol}</td>
+                                                <td className="px-4 lg:px-6 py-3">
+                                                    <input
+                                                        type="number"
+                                                        step="0.0001"
+                                                        min="0.0001"
+                                                        disabled={currencyConfig.autoExchangeRate || curr.isDefault}
+                                                        title={String(curr.rate ?? '')}
+                                                        className="min-w-[7.5rem] w-28 max-w-[10rem] border border-gray-200 rounded px-2 py-2 text-right tabular-nums disabled:bg-gray-100 disabled:text-gray-500 focus:ring-2 focus:ring-blue-100 focus:border-blue-500"
+                                                        value={curr.rate || 0}
+                                                        onChange={(e) =>
+                                                            updateCurrencyRate(curr.code, parseFloat(e.target.value) || 0)
+                                                        }
+                                                        aria-label={`Rate for ${curr.code}`}
+                                                    />
+                                                </td>
+                                                <td className="px-4 lg:px-6 py-3">
+                                                    <div className="flex flex-col gap-1 min-w-[7rem]">
+                                                        <span
+                                                            className={`inline-flex w-fit rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                                                                curr.rateSource === 'override'
+                                                                    ? 'bg-amber-100 text-amber-700'
+                                                                    : curr.rateSource === 'snapshot'
+                                                                      ? 'bg-blue-100 text-blue-700'
+                                                                      : curr.rateSource === 'base'
+                                                                        ? 'bg-emerald-100 text-emerald-700'
+                                                                        : 'bg-slate-100 text-slate-700'
+                                                            }`}
+                                                        >
+                                                            {curr.rateSource || 'manual'}
+                                                        </span>
+                                                        <span className="text-[11px] text-gray-400 whitespace-nowrap">
+                                                            {curr.rateUpdatedAt
+                                                                ? new Date(curr.rateUpdatedAt).toLocaleString()
+                                                                : 'No runtime snapshot'}
+                                                        </span>
+                                                        {curr.stale && (
+                                                            <span className="text-[11px] font-semibold text-amber-600">
+                                                                Stale
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                                <td className="px-4 lg:px-6 py-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleCurrency(curr.code)}
+                                                        className={`px-3 py-2 min-h-[40px] rounded text-xs font-bold uppercase ${
+                                                            curr.isActive
+                                                                ? 'bg-green-100 text-green-700'
+                                                                : 'bg-gray-100 text-gray-500'
+                                                        }`}
+                                                    >
+                                                        {curr.isActive ? 'Active' : 'Disabled'}
+                                                    </button>
+                                                </td>
+                                                <td className="px-4 lg:px-6 py-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSetDefaultCurrency(curr.code)}
+                                                        aria-label={
+                                                            curr.isDefault
+                                                                ? `${curr.code} is base currency`
+                                                                : `Set ${curr.code} as base`
+                                                        }
+                                                        className={`w-10 h-10 rounded-full border flex items-center justify-center ${
+                                                            curr.isDefault
+                                                                ? 'border-blue-600 bg-blue-600'
+                                                                : 'border-gray-300 hover:border-blue-400'
+                                                        }`}
+                                                    >
+                                                        {curr.isDefault && (
+                                                            <div className="w-2 h-2 bg-white rounded-full" />
+                                                        )}
+                                                    </button>
+                                                </td>
+                                                <td className="px-4 lg:px-6 py-3 text-right sticky right-0 z-10 bg-white group-hover:bg-gray-50 shadow-[-2px_0_4px_-2px_rgba(0,0,0,0.06)]">
+                                                    {!curr.isDefault && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeleteCurrency(curr.code)}
+                                                            className="text-red-400 hover:text-red-600 p-2 min-h-[40px] min-w-[40px] inline-flex items-center justify-center rounded-lg hover:bg-red-50"
+                                                            aria-label={`Remove ${curr.code}`}
+                                                            title="Remove currency"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
                                 </tbody>
                             </table>
                         </div>
-                        
+
+                        {/* Mobile cards */}
+                        <div className="md:hidden space-y-3" data-testid="currency-mobile-cards">
+                            {pagedCurrencies.length === 0 ? (
+                                <div className="rounded-xl border border-gray-200 bg-white p-6 text-center text-gray-500 text-sm">
+                                    No currencies match your filters.
+                                </div>
+                            ) : (
+                                pagedCurrencies.map((curr, index) => (
+                                    <article
+                                        key={`currency-card-${curr.code || index}`}
+                                        className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm space-y-3"
+                                    >
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div>
+                                                <p className="text-lg font-bold text-gray-900">
+                                                    {curr.code}{' '}
+                                                    <span className="font-mono text-base text-gray-500">
+                                                        {curr.symbol}
+                                                    </span>
+                                                </p>
+                                                <p className="text-sm text-gray-600">{curr.name}</p>
+                                            </div>
+                                            <span
+                                                className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold uppercase ${
+                                                    curr.isActive
+                                                        ? 'bg-green-100 text-green-700'
+                                                        : 'bg-gray-100 text-gray-500'
+                                                }`}
+                                            >
+                                                {curr.isActive ? 'Active' : 'Disabled'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-gray-500 uppercase">
+                                                Rate vs base
+                                            </label>
+                                            <input
+                                                type="number"
+                                                step="0.0001"
+                                                min="0.0001"
+                                                disabled={currencyConfig.autoExchangeRate || curr.isDefault}
+                                                className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-right tabular-nums min-h-[44px] disabled:bg-gray-100"
+                                                value={curr.rate || 0}
+                                                onChange={(e) =>
+                                                    updateCurrencyRate(curr.code, parseFloat(e.target.value) || 0)
+                                                }
+                                            />
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                                            <span className="rounded-full bg-slate-100 px-2 py-1 font-semibold uppercase">
+                                                {curr.rateSource || 'manual'}
+                                            </span>
+                                            {curr.isDefault && (
+                                                <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-1 font-semibold">
+                                                    Base
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleCurrency(curr.code)}
+                                                className="flex-1 min-h-[44px] rounded-lg border border-gray-200 text-sm font-semibold"
+                                            >
+                                                {curr.isActive ? 'Disable' : 'Enable'}
+                                            </button>
+                                            {!curr.isDefault && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleSetDefaultCurrency(curr.code)}
+                                                    className="flex-1 min-h-[44px] rounded-lg border border-gray-200 text-sm font-semibold"
+                                                >
+                                                    Set base
+                                                </button>
+                                            )}
+                                            {!curr.isDefault && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleDeleteCurrency(curr.code)}
+                                                    className="min-h-[44px] min-w-[44px] rounded-lg border border-red-100 text-red-500 inline-flex items-center justify-center"
+                                                    aria-label={`Remove ${curr.code}`}
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </article>
+                                ))
+                            )}
+                        </div>
+
+                        {/* Pagination */}
+                        <div
+                            className="flex flex-wrap items-center justify-between gap-3 text-sm text-gray-600"
+                            data-testid="currency-pagination"
+                        >
+                            <p>
+                                Showing{' '}
+                                <span className="font-semibold text-gray-900">
+                                    {filteredCurrencies.length === 0
+                                        ? 0
+                                        : (safeCurrencyPage - 1) * currencyPageSize + 1}
+                                    –
+                                    {Math.min(safeCurrencyPage * currencyPageSize, filteredCurrencies.length)}
+                                </span>{' '}
+                                of <span className="font-semibold text-gray-900">{filteredCurrencies.length}</span>{' '}
+                                currencies
+                            </p>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    disabled={safeCurrencyPage <= 1}
+                                    onClick={() => setCurrencyPage(1)}
+                                    className="p-2 min-h-[40px] min-w-[40px] rounded-lg border border-gray-200 disabled:opacity-40"
+                                    aria-label="First page"
+                                >
+                                    <ChevronsLeft className="w-4 h-4" />
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={safeCurrencyPage <= 1}
+                                    onClick={() => setCurrencyPage((p) => Math.max(1, p - 1))}
+                                    className="p-2 min-h-[40px] min-w-[40px] rounded-lg border border-gray-200 disabled:opacity-40"
+                                    aria-label="Previous page"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <span className="px-2 font-medium tabular-nums">
+                                    {safeCurrencyPage} / {currencyTotalPages}
+                                </span>
+                                <button
+                                    type="button"
+                                    disabled={safeCurrencyPage >= currencyTotalPages}
+                                    onClick={() => setCurrencyPage((p) => Math.min(currencyTotalPages, p + 1))}
+                                    className="p-2 min-h-[40px] min-w-[40px] rounded-lg border border-gray-200 disabled:opacity-40"
+                                    aria-label="Next page"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={safeCurrencyPage >= currencyTotalPages}
+                                    onClick={() => setCurrencyPage(currencyTotalPages)}
+                                    className="p-2 min-h-[40px] min-w-[40px] rounded-lg border border-gray-200 disabled:opacity-40"
+                                    aria-label="Last page"
+                                >
+                                    <ChevronsRight className="w-4 h-4" />
+                                </button>
+                                <select
+                                    className="border border-gray-200 rounded-lg px-2 py-2 min-h-[40px] text-sm"
+                                    value={currencyPageSize}
+                                    onChange={(e) => setCurrencyPageSize(Number(e.target.value) || 25)}
+                                    aria-label="Rows per page"
+                                >
+                                    <option value={10}>10 / page</option>
+                                    <option value={25}>25 / page</option>
+                                    <option value={50}>50 / page</option>
+                                    <option value={100}>100 / page</option>
+                                </select>
+                            </div>
+                        </div>
+
                         {/* Add Currency Modal */}
                         {isCurrencyModalOpen && (
                             <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
                                 <div className="bg-white rounded-xl w-full max-w-sm p-6 shadow-2xl">
                                     <div className="flex justify-between items-center mb-4">
                                         <h3 className="font-bold text-lg">Add New Currency</h3>
-                                        <button onClick={() => setIsCurrencyModalOpen(false)}>
-                                            <X className="w-5 h-5 text-gray-400"/>
+                                        <button type="button" onClick={() => setIsCurrencyModalOpen(false)} aria-label="Close">
+                                            <X className="w-5 h-5 text-gray-400" />
                                         </button>
                                     </div>
                                     <div className="space-y-4">
-                                        <input 
-                                            className="w-full border rounded p-2" 
-                                            placeholder="Code (e.g. BTC)" 
-                                            value={newCurrency.code} 
-                                            onChange={e => setNewCurrency({...newCurrency, code: e.target.value.toUpperCase()})} 
+                                        <input
+                                            className="w-full border rounded p-2.5 min-h-[44px]"
+                                            placeholder="Code (e.g. EUR)"
+                                            value={newCurrency.code}
+                                            onChange={(e) =>
+                                                setNewCurrency({ ...newCurrency, code: e.target.value.toUpperCase() })
+                                            }
                                         />
-                                        <input 
-                                            className="w-full border rounded p-2" 
-                                            placeholder="Name (e.g. Bitcoin)" 
-                                            value={newCurrency.name} 
-                                            onChange={e => setNewCurrency({...newCurrency, name: e.target.value})} 
+                                        <input
+                                            className="w-full border rounded p-2.5 min-h-[44px]"
+                                            placeholder="Name (e.g. Euro)"
+                                            value={newCurrency.name}
+                                            onChange={(e) => setNewCurrency({ ...newCurrency, name: e.target.value })}
                                         />
-                                        <input 
-                                            className="w-full border rounded p-2" 
-                                            placeholder="Symbol (e.g. ₿)" 
-                                            value={newCurrency.symbol} 
-                                            onChange={e => setNewCurrency({...newCurrency, symbol: e.target.value})} 
+                                        <input
+                                            className="w-full border rounded p-2.5 min-h-[44px]"
+                                            placeholder="Symbol (e.g. €)"
+                                            value={newCurrency.symbol}
+                                            onChange={(e) => setNewCurrency({ ...newCurrency, symbol: e.target.value })}
                                         />
-                                        <input 
-                                            type="number" 
-                                            className="w-full border rounded p-2" 
-                                            placeholder="Initial Rate" 
+                                        <input
+                                            type="number"
+                                            className="w-full border rounded p-2.5 min-h-[44px]"
+                                            placeholder="Initial Rate"
                                             value={newCurrency.rate || 1}
-                                            onChange={e => setNewCurrency({...newCurrency, rate: parseFloat(e.target.value) || 1})} 
+                                            onChange={(e) =>
+                                                setNewCurrency({
+                                                    ...newCurrency,
+                                                    rate: parseFloat(e.target.value) || 1
+                                                })
+                                            }
                                             min="0.0001"
                                             step="0.0001"
                                         />
                                     </div>
-                                    <button 
-                                        onClick={handleAddCurrency} 
-                                        className="w-full bg-blue-600 text-white rounded-lg py-2 mt-6 font-bold hover:bg-blue-700"
+                                    <button
+                                        type="button"
+                                        onClick={handleAddCurrency}
+                                        className="w-full bg-blue-600 text-white rounded-lg py-2.5 min-h-[44px] mt-6 font-bold hover:bg-blue-700"
                                     >
                                         Add Currency
                                     </button>
@@ -4186,12 +4548,13 @@ const SystemSettings = () => {
                 )}
 
             </div>
+            </div>
 
-            <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end">
+            <div className="p-3 sm:p-4 border-t border-gray-200 bg-gray-50 flex flex-wrap justify-end gap-2 flex-shrink-0 w-full">
                 <button 
                     onClick={handleSave} 
                     disabled={isSaving}
-                    className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
+                    className="bg-blue-600 text-white px-6 py-2.5 min-h-[44px] rounded-lg font-bold hover:bg-blue-700 inline-flex items-center shadow-lg disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                     {isSaving ? (
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />

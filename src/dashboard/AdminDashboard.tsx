@@ -552,7 +552,7 @@ const AdminDashboard: React.FC = () => {
             </aside>
 
             {/* Main Content */}
-            <div className="flex-1 flex flex-col overflow-hidden h-screen">
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden h-screen">
                 <header className="bg-white shadow-sm border-b border-gray-200 z-10 flex-shrink-0">
                     <div className="px-6 py-4 flex justify-between items-center">
                         <button 
@@ -699,8 +699,13 @@ const AdminDashboard: React.FC = () => {
                     </div>
                 </header>
 
-                <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-gray-50">
-                    <div className="max-w-7xl mx-auto">
+                <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 md:p-8 bg-gray-50">
+                    {/* Phase 28B: system settings needs full usable width for currency table */}
+                    <div
+                        className={`mx-auto w-full min-w-0 ${
+                            activeTab === 'system' ? 'max-w-[100rem]' : 'max-w-7xl'
+                        }`}
+                    >
                         <Suspense fallback={<AdminTabLoader />}>{renderContent()}</Suspense>
                     </div>
                 </main>
