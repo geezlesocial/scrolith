@@ -279,9 +279,10 @@ const Login = () => {
                 <div className="flex items-start gap-2">
                   <ShieldCheck className="mt-0.5 h-5 w-5 text-indigo-600" />
                   <div>
-                    <p className="text-sm font-semibold text-indigo-950">Admin Google Authenticator</p>
+                    <p className="text-sm font-semibold text-indigo-950">Two-Factor Authentication</p>
                     <p className="mt-1 text-xs text-indigo-800">
-                      Enter the 6-digit code from Google Authenticator (or a one-time backup code).
+                      Enter the 6-digit code from Google Authenticator (or a one-time backup code). If you lost access,
+                      ask an admin for an emergency waiver.
                     </p>
                   </div>
                 </div>

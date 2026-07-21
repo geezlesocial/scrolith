@@ -1,15 +1,17 @@
 /**
- * Admin Google Authenticator enrollment + emergency waiver directory.
+ * Admin control plane for platform 2FA: policy status, enroll self,
+ * search any user, emergency waive / clear / reset.
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import { Loader2, Shield, Unlock, RefreshCw, KeyRound } from 'lucide-react';
+import { Loader2, Shield, Unlock, RefreshCw, KeyRound, Search } from 'lucide-react';
 import api from '../../services/api';
 import { useNotification } from '../../context/NotificationContext';
 
-type AdminRow = {
+type UserRow = {
   id: string;
   email: string;
   name?: string | null;
+  username?: string | null;
   role?: string;
   isActive?: boolean;
   twoFactorEnabled?: boolean;
@@ -23,7 +25,10 @@ type AdminRow = {
 const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   const { showNotification } = useNotification();
   const [loading, setLoading] = useState(false);
-  const [admins, setAdmins] = useState<AdminRow[]>([]);
+  const [users, setUsers] = useState<UserRow[]>([]);
+  const [search, setSearch] = useState('');
+  const [enrolledOnly, setEnrolledOnly] = useState(false);
+  const [adminsOnly, setAdminsOnly] = useState(false);
   const [enrollBusy, setEnrollBusy] = useState(false);
   const [enrollSecret, setEnrollSecret] = useState<string | null>(null);
   const [enrollQr, setEnrollQr] = useState<string | null>(null);
@@ -34,19 +39,30 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set('q', search.trim());
+      if (enrolledOnly) params.set('enrolled', '1');
+      if (adminsOnly) params.set('adminsOnly', '1');
+      params.set('limit', '100');
       const [dir, me] = await Promise.all([
-        api.get('/admin/security/2fa/admins'),
+        api.get(`/admin/security/2fa/admins?${params.toString()}`),
         api.get('/auth/2fa/status')
       ]);
       const dirData = dir?.data?.data || dir?.data || {};
-      setAdmins(Array.isArray(dirData.admins) ? dirData.admins : []);
+      const list = Array.isArray(dirData.users)
+        ? dirData.users
+        : Array.isArray(dirData.admins)
+          ? dirData.admins
+          : [];
+      setUsers(list);
       setMyStatus(me?.data?.data || me?.data || null);
     } catch (e: any) {
-      console.warn('Failed to load 2FA admin directory', e);
+      console.warn('Failed to load 2FA directory', e);
+      showNotification('error', '2FA Directory', e?.response?.data?.error || 'Failed to load users');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [search, enrolledOnly, adminsOnly, showNotification]);
 
   useEffect(() => {
     void load();
@@ -77,7 +93,7 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
       setEnrollSecret(null);
       setEnrollQr(null);
       setEnrollCode('');
-      showNotification('success', '2FA Enabled', 'Google Authenticator is now required for your admin login.');
+      showNotification('success', '2FA Enabled', 'Google Authenticator is now active for your login.');
       await load();
     } catch (e: any) {
       showNotification('error', '2FA Setup', e?.response?.data?.error || 'Invalid code');
@@ -87,12 +103,18 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   };
 
   const waive = async (userId: string) => {
-    const hours = Number(window.prompt('Waiver duration in hours (1–168)?', '24') || '0');
+    const hours = Number(window.prompt('Emergency waiver duration in hours (1–168)?', '24') || '0');
     if (!Number.isFinite(hours) || hours < 1) return;
-    const reason = window.prompt('Reason for emergency waiver?', 'Emergency access') || 'Emergency access';
+    const reason =
+      window.prompt('Reason for emergency waiver?', 'User lost authenticator device') ||
+      'User lost authenticator device';
     try {
       await api.post(`/admin/security/2fa/users/${encodeURIComponent(userId)}/waive`, { hours, reason });
-      showNotification('success', '2FA Waiver', `Waiver granted for ${hours}h.`);
+      showNotification(
+        'success',
+        '2FA Waiver',
+        `User can sign in without 2FA for ${hours}h. Ask them to re-enroll promptly.`
+      );
       await load();
     } catch (e: any) {
       showNotification('error', 'Waiver Failed', e?.response?.data?.error || 'Could not waive 2FA');
@@ -110,10 +132,16 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
   };
 
   const reset2fa = async (userId: string) => {
-    if (!window.confirm('Reset this admin’s 2FA enrollment? They must set up Authenticator again.')) return;
+    if (
+      !window.confirm(
+        'Reset this user’s 2FA? Their authenticator will stop working and they must set it up again (or use a waiver to log in first).'
+      )
+    ) {
+      return;
+    }
     try {
       await api.post(`/admin/security/2fa/users/${encodeURIComponent(userId)}/reset`);
-      showNotification('success', '2FA Reset', 'Enrollment cleared.');
+      showNotification('success', '2FA Reset', 'Enrollment cleared for the user.');
       await load();
     } catch (e: any) {
       showNotification('error', 'Reset Failed', e?.response?.data?.error || 'Could not reset 2FA');
@@ -125,11 +153,11 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h4 className="text-sm font-semibold text-indigo-950 flex items-center gap-2">
-            <Shield className="h-4 w-4" /> Google Authenticator (Admin 2FA)
+            <Shield className="h-4 w-4" /> Platform 2FA Control (Google Authenticator)
           </h4>
           <p className="mt-1 text-xs text-indigo-900/80">
-            Policy is {enabled ? <strong>enforced</strong> : <strong>off</strong>}. Enroll this admin account, grant
-            emergency waivers, or reset lost authenticators without disabling platform access for other roles.
+            Admin policy is {enabled ? <strong>enforced for admins</strong> : <strong>optional for admins</strong>}.
+            Any user who enables 2FA is challenged at login. Use search to waive, clear, or reset lost authenticators.
           </p>
         </div>
         <button
@@ -151,7 +179,7 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
               ? 'Waived (temporary)'
               : 'Not enrolled'}
         </strong>
-        {myStatus?.requiresSetup ? ' — setup required before next admin login.' : ''}
+        {myStatus?.requiresSetup ? ' — setup required before next admin login when policy is on.' : ''}
         <div className="mt-2 flex flex-wrap gap-2">
           <button
             type="button"
@@ -160,7 +188,7 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
             className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
           >
             <KeyRound className="h-3.5 w-3.5" />
-            {myStatus?.twoFactorEnabled ? 'Re-enroll 2FA' : 'Enroll Google Authenticator'}
+            {myStatus?.twoFactorEnabled ? 'Re-enroll my 2FA' : 'Enroll my Google Authenticator'}
           </button>
         </div>
         {enrollQr || enrollSecret ? (
@@ -199,23 +227,56 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
         ) : null}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            className="w-full rounded-lg border border-indigo-200 bg-white py-2 pl-8 pr-3 text-xs"
+            placeholder="Search any user by email, name, username…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void load();
+            }}
+            data-testid="admin-2fa-user-search"
+          />
+        </div>
+        <label className="inline-flex items-center gap-1 text-[11px] text-indigo-900">
+          <input type="checkbox" checked={enrolledOnly} onChange={(e) => setEnrolledOnly(e.target.checked)} />
+          2FA on only
+        </label>
+        <label className="inline-flex items-center gap-1 text-[11px] text-indigo-900">
+          <input type="checkbox" checked={adminsOnly} onChange={(e) => setAdminsOnly(e.target.checked)} />
+          Admins only
+        </label>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded-lg bg-indigo-700 px-3 py-2 text-xs font-semibold text-white"
+        >
+          Search
+        </button>
+      </div>
+
       <div className="overflow-x-auto rounded-lg border border-indigo-100 bg-white">
         <table className="w-full text-left text-xs">
           <thead className="bg-indigo-50 text-indigo-900">
             <tr>
-              <th className="px-3 py-2">Admin</th>
+              <th className="px-3 py-2">User</th>
+              <th className="px-3 py-2">Role</th>
               <th className="px-3 py-2">2FA</th>
               <th className="px-3 py-2">Waiver</th>
-              <th className="px-3 py-2 text-right">Actions</th>
+              <th className="px-3 py-2 text-right">Admin actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {admins.map((a) => (
+            {users.map((a) => (
               <tr key={a.id}>
                 <td className="px-3 py-2">
-                  <div className="font-medium text-slate-900">{a.name || a.email}</div>
+                  <div className="font-medium text-slate-900">{a.name || a.username || a.email}</div>
                   <div className="text-[11px] text-slate-500">{a.email}</div>
                 </td>
+                <td className="px-3 py-2 capitalize">{String(a.role || '').toLowerCase()}</td>
                 <td className="px-3 py-2">
                   {a.twoFactorEnabled ? (
                     <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-800">On</span>
@@ -227,6 +288,9 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
                   {a.waived || (a.twoFactorWaivedUntil && new Date(a.twoFactorWaivedUntil) > new Date()) ? (
                     <span className="text-amber-800">
                       Until {a.twoFactorWaivedUntil ? new Date(a.twoFactorWaivedUntil).toLocaleString() : '—'}
+                      {a.twoFactorWaivedReason ? (
+                        <span className="mt-0.5 block text-[10px] text-amber-700/80">{a.twoFactorWaivedReason}</span>
+                      ) : null}
                     </span>
                   ) : (
                     <span className="text-slate-400">—</span>
@@ -237,7 +301,7 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
                     type="button"
                     className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900"
                     onClick={() => void waive(a.id)}
-                    title="Emergency waiver"
+                    title="Emergency access without 2FA"
                   >
                     <Unlock className="h-3 w-3" /> Waive
                   </button>
@@ -258,10 +322,10 @@ const Admin2FAControlPanel: React.FC<{ enabled: boolean }> = ({ enabled }) => {
                 </td>
               </tr>
             ))}
-            {!admins.length && !loading ? (
+            {!users.length && !loading ? (
               <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-slate-500">
-                  No admin accounts found.
+                <td colSpan={5} className="px-3 py-6 text-center text-slate-500">
+                  No users match. Search by email to manage 2FA for any account.
                 </td>
               </tr>
             ) : null}
