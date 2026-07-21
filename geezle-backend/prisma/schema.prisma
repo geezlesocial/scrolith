@@ -66,6 +66,14 @@ model User {
   /// Phase 28 — preferred display currency (ISO 4217). Null = use platform default.
   preferredCurrency              String?   @map("preferred_currency")
   currencyPreferenceUpdatedAt    DateTime? @map("currency_preference_updated_at")
+  /// Admin / platform Google Authenticator (TOTP) 2FA
+  twoFactorSecret                String?
+  twoFactorEnabled               Boolean   @default(false)
+  twoFactorBackupCodes           String[]  @default([])
+  twoFactorEnrolledAt            DateTime?
+  twoFactorWaivedUntil           DateTime?
+  twoFactorWaivedById            String?
+  twoFactorWaivedReason          String?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 

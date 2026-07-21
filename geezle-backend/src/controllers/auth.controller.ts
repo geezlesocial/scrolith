@@ -278,6 +278,21 @@ export const register = async (req: Request, res: Response) => {
       return res.status(400).json({ error: recaptchaCheck.error || 'reCAPTCHA verification failed' });
     }
 
+    // General Settings → Allow Registrations
+    try {
+      const { getSystemControls } = await import('../services/systemControls.service');
+      const controls = await getSystemControls();
+      if (!controls.registrationsEnabled) {
+        return res.status(403).json({
+          success: false,
+          error: 'New registrations are currently disabled by the platform administrator.',
+          code: 'REGISTRATIONS_DISABLED'
+        });
+      }
+    } catch (regGateErr) {
+      console.warn('[auth.register] registration gate check failed open', (regGateErr as any)?.message);
+    }
+
     // Validate role - only allow known roles for self-registration
     const allowedRoles = new Set(['FREELANCER', 'EMPLOYER', 'CLIENT']);
     if (!allowedRoles.has(role)) {
@@ -450,6 +465,35 @@ export const login = async (req: Request, res: Response) => {
       }
     } catch (e) {
       console.warn('Failed to update lastLoginAt for user', user.id, e);
+    }
+
+    // Admin 2FA gate (Google Authenticator) when General Settings → Admin 2FA is on
+    try {
+      const full2fa = await prisma.user.findUnique({
+        where: { id: user.id },
+        select: {
+          id: true,
+          role: true,
+          twoFactorEnabled: true,
+          twoFactorSecret: true,
+          twoFactorBackupCodes: true,
+          twoFactorWaivedUntil: true
+        }
+      });
+      const { evaluateAdmin2FAGate } = await import('./admin2fa.controller');
+      const gate = await evaluateAdmin2FAGate(full2fa || user);
+      if (gate.required) {
+        return res.status(200).json({
+          success: true,
+          requires2FA: true,
+          challengeToken: gate.challengeToken,
+          code: '2FA_REQUIRED',
+          message: 'Enter the 6-digit code from Google Authenticator to complete admin sign-in.',
+          user: { id: user.id, email: user.email, role: user.role }
+        });
+      }
+    } catch (twoFaErr) {
+      console.warn('[auth.login] 2FA gate failed open', (twoFaErr as any)?.message);
     }
 
     // Generate JWT token

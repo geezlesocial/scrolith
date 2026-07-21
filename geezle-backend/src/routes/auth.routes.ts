@@ -15,6 +15,13 @@ import {
   getMyLanguagePreferencesController,
   updateMyLanguagePreferencesController
 } from '../controllers/userLanguagePreferences.controller';
+import {
+  begin2FAEnrollment,
+  confirm2FAEnrollment,
+  disableMy2FA,
+  getMy2FAStatus,
+  verify2FALogin
+} from '../controllers/admin2fa.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { createRateLimiter } from '../middlewares/rateLimit';
 
@@ -28,6 +35,11 @@ router.get('/health', (_req, res) => {
 // Public routes
 router.post('/register', register);
 router.post('/login', login);
+router.post(
+  '/2fa/verify',
+  createRateLimiter({ windowMs: 60 * 1000, max: 20 }),
+  verify2FALogin
+);
 router.post('/forgot-password', createRateLimiter({ windowMs: 60 * 1000, max: 5 }), forgotPassword);
 router.post('/reset-password', createRateLimiter({ windowMs: 60 * 1000, max: 10 }), resetPassword);
 router.get('/oauth/:provider', startOAuth);
@@ -41,6 +53,10 @@ router.post(
 
 // Protected routes
 router.get('/me', authMiddleware, getCurrentUser);
+router.get('/2fa/status', authMiddleware, getMy2FAStatus);
+router.post('/2fa/enroll/begin', authMiddleware, begin2FAEnrollment);
+router.post('/2fa/enroll/confirm', authMiddleware, confirm2FAEnrollment);
+router.post('/2fa/disable', authMiddleware, disableMy2FA);
 router.get('/follow-onboarding', authMiddleware, getFollowOnboardingController);
 router.post('/follow-onboarding/complete', authMiddleware, completeFollowOnboardingController);
 router.post('/logout', authMiddleware, logout);

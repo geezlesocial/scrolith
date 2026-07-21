@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authMiddleware } from '../../middleware/auth.middleware';
 import { adminMiddleware } from '../../middleware/admin.middleware';
-import { requirePermission } from '../../middleware/rbac.middleware';
+import { requireAnyPermission, requirePermission } from '../../middleware/rbac.middleware';
 import gigsJobsRoutes from './gigs-jobs.routes';
 import analyticsRoutes from './analytics.routes';
 import marketIntelligenceRoutes from './market-intelligence.routes';
@@ -1114,6 +1114,34 @@ router.post('/system/settings', requirePermission('settings.enterprise_change'),
 
 router.post('/system/email/test', testEmailSettings);
 router.post('/system/cache/clear', clearPlatformRuntimeCache);
+
+// Admin Google 2FA directory + emergency waiver controls
+import {
+  clearUser2FAWaiver,
+  listAdmin2FADirectory,
+  resetUser2FA,
+  waiveUser2FA
+} from '../../controllers/admin2fa.controller';
+router.get(
+  '/security/2fa/admins',
+  requireAnyPermission('users.read', 'users.moderate', 'settings.read'),
+  listAdmin2FADirectory
+);
+router.post(
+  '/security/2fa/users/:userId/waive',
+  requireAnyPermission('users.moderate', 'users.update', 'settings.enterprise_change'),
+  waiveUser2FA
+);
+router.post(
+  '/security/2fa/users/:userId/clear-waiver',
+  requireAnyPermission('users.moderate', 'users.update', 'settings.enterprise_change'),
+  clearUser2FAWaiver
+);
+router.post(
+  '/security/2fa/users/:userId/reset',
+  requireAnyPermission('users.moderate', 'users.update', 'settings.enterprise_change'),
+  resetUser2FA
+);
 
 // ============ GENERAL SETTINGS (for backward compatibility) ============
 router.get('/settings', (req, res) => {

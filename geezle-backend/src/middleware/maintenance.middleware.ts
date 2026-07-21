@@ -145,10 +145,23 @@ export const maintenanceModeMiddleware = async (req: Request, res: Response, nex
       return next();
     }
 
+    // Include CMS-managed maintenance page payload for clients.
+    let page: Record<string, unknown> | undefined;
+    try {
+      const { getSystemControls } = await import('../services/systemControls.service');
+      const controls = await getSystemControls();
+      page = controls.maintenancePage as unknown as Record<string, unknown>;
+    } catch {
+      page = undefined;
+    }
+
     return res.status(503).json({
       success: false,
       code: 'MAINTENANCE_MODE',
-      message: 'Scrolith is temporarily unavailable due to scheduled maintenance. Please try again shortly.',
+      message:
+        (page?.message as string) ||
+        'Scrolith is temporarily unavailable due to scheduled maintenance. Please try again shortly.',
+      maintenancePage: page || null,
       timestamp: new Date().toISOString()
     });
   } catch (error) {

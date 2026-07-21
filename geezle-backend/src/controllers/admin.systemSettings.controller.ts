@@ -33,12 +33,24 @@ import {
   DEFAULT_CONTENT_OFFER_SETTINGS,
   normalizeContentOfferSettings
 } from '../utils/contentOfferSettings';
+import { invalidateSystemControlsCache, normalizeMaintenancePage } from '../services/systemControls.service';
 
 export const DEFAULT_SYSTEM = {
   maintenanceMode: false,
   registrationsEnabled: true,
   kycEnforced: false,
   admin2FA: false,
+  maintenancePage: {
+    slug: 'maintenance',
+    title: 'We’ll be back soon',
+    message:
+      'Scrolith is undergoing scheduled maintenance to improve reliability and security. Admins can still access the control plane. Please try again shortly.',
+    eta: null as string | null,
+    contactEmail: 'support@scrolith.com',
+    showCountdown: false,
+    ctaLabel: 'Contact support',
+    ctaUrl: 'mailto:support@scrolith.com'
+  },
   resumeAi: {
     enabled: true,
     builderEnabled: true,
@@ -111,6 +123,14 @@ export const hydrateSystemSettings = (raw: any) => {
       merged?.contentOfferTags ??
       merged?.content_offer_tags
   );
+  merged.maintenancePage = normalizeMaintenancePage(
+    merged?.maintenancePage ?? merged?.maintenance_page
+  );
+  merged.maintenanceMode = Boolean(merged.maintenanceMode);
+  merged.registrationsEnabled =
+    merged.registrationsEnabled === undefined ? true : Boolean(merged.registrationsEnabled);
+  merged.kycEnforced = Boolean(merged.kycEnforced);
+  merged.admin2FA = Boolean(merged.admin2FA);
   return merged;
 };
 
@@ -742,6 +762,7 @@ export const getSystemSettings = async (req: Request, res: Response) => {
     (req.app as any)?.set?.('runtime:systemSettings', data);
     (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
     (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((data as any)?.optimization));
+    invalidateSystemControlsCache();
     return res.json({ success: true, data });
   } catch (error) {
     console.warn('getSystemSettings DB error, attempting file fallback', error);
@@ -804,6 +825,7 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
     (req.app as any)?.set?.('runtime:systemSettings', merged);
     (req.app as any)?.set?.('runtime:systemSettingsVersion', Date.now());
     (req.app as any)?.set?.('runtime:optimizationConfig', normalizeRuntimeOptimizationConfig((merged as any)?.optimization));
+    invalidateSystemControlsCache();
 
     await recordGovernedAdminAction(req, {
       moduleKey: 'settings',
@@ -811,7 +833,14 @@ export const updateSystemSettings = async (req: Request, res: Response) => {
       entityType: 'system_settings',
       entityId: 'system',
       message: 'System settings updated',
-      metadata: { scope: 'system', keys: Object.keys(payload || {}) },
+      metadata: {
+        scope: 'system',
+        keys: Object.keys(payload || {}),
+        maintenanceMode: merged.maintenanceMode,
+        registrationsEnabled: merged.registrationsEnabled,
+        kycEnforced: merged.kycEnforced,
+        admin2FA: merged.admin2FA
+      },
       approvalActionKey: 'enterprise_change',
       approvalEntityType: 'system_settings',
       approvalTitle: 'System settings updated'

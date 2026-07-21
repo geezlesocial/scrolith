@@ -3470,6 +3470,9 @@ app.get('/socket-test', (req: Request, res: Response) => {
 // Enforce system maintenance mode for non-admin traffic while keeping admin/auth/CMS
 // access paths available for management and status pages.
 app.use('/api', maintenanceModeMiddleware);
+// Public system status (maintenance / registration / kyc / admin2FA) for FE shells
+import { getPublicSystemStatus } from './controllers/publicSystem.controller';
+app.get('/api/public/system-status', getPublicSystemStatus);
 app.use('/api', insightsActionTrackerMiddleware);
 
 // API routes
@@ -3481,6 +3484,9 @@ app.use('/api/admin/fx', authMiddleware, adminMiddleware, fxAdminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/apps', appsRoutes);
 app.use('/api/auth', authRoutes);
+// Soft KYC gate for sensitive writes when Enforce KYC is enabled (does not require auth globally).
+import { kycEnforceMiddleware } from './middleware/kycEnforce.middleware';
+app.use('/api', kycEnforceMiddleware);
 app.use('/api/dev', devRoutes);
 app.use('/api/oauth', oauthDevRoutes);
 app.use('/api/users', userRoutes);
