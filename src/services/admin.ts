@@ -2574,6 +2574,51 @@ export const AdminService = {
 
   async saveFormConfig(payload: any): Promise<any> {
     return saveAdminFormConfig<any>(payload);
+  },
+
+  // ---- Phase 29.4 Enterprise Messaging Groups Admin ----
+  async getMessagingGroupsOverview(): Promise<any> {
+    return adminGet<any>('/messaging-groups/overview');
+  },
+
+  async listMessagingGroups(params?: Record<string, unknown>): Promise<any> {
+    return adminGet<any>('/messaging-groups', params || {});
+  },
+
+  async getMessagingGroup(id: string): Promise<any> {
+    return adminGet<any>(`/messaging-groups/${encodeURIComponent(id)}`);
+  },
+
+  async messagingGroupAction(id: string, payload: Record<string, unknown>): Promise<any> {
+    return adminPost<any>(`/messaging-groups/${encodeURIComponent(id)}/actions`, payload);
+  },
+
+  async getMessagingGroupsAudit(params?: Record<string, unknown>): Promise<any> {
+    return adminGet<any>('/messaging-groups/audit', params || {});
+  },
+
+  async listMessagingGroupJoinRequests(params?: Record<string, unknown>): Promise<any> {
+    return adminGet<any>('/messaging-groups/join-requests', params || {});
+  },
+
+  async getMessagingGroupTemplates(): Promise<any> {
+    return adminGet<any>('/messaging-groups/templates');
+  },
+
+  async getMessagingGroupSettings(): Promise<any> {
+    return adminGet<any>('/messaging-groups/settings');
+  },
+
+  async saveMessagingGroupSettings(payload: Record<string, unknown>): Promise<any> {
+    return adminPut<any>('/messaging-groups/settings', payload);
+  },
+
+  async exportMessagingGroups(type: 'groups' | 'audit' = 'groups'): Promise<any> {
+    return adminGet<any>('/messaging-groups/export', { type });
+  },
+
+  async getMessagingGroupsMetrics(): Promise<any> {
+    return adminGet<any>('/messaging-groups/metrics');
   }
 };
 
