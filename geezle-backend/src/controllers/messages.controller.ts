@@ -1613,7 +1613,7 @@ export const postMessage = async (req: Request, res: Response) => {
     }
 
     const senderParticipant = conversation.participants.find((p) => p.userId === senderId);
-    const isParticipant = Boolean(senderParticipant);
+    const isParticipant = Boolean(senderParticipant && !(senderParticipant as any).deletedAt);
     if (!isParticipant && !admin) {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
@@ -1623,6 +1623,15 @@ export const postMessage = async (req: Request, res: Response) => {
         data: { conversationId: conversation.id, userId: senderId }
       });
     } else if (senderParticipant?.deletedAt || senderParticipant?.isArchived) {
+      // Soft-deleted members may not rejoin group chats by sending (enterprise groups).
+      // DIRECT still restores archive/delete for continuity of 1:1 threads.
+      if (conversation.type === 'GROUP' && senderParticipant?.deletedAt && !admin) {
+        return res.status(403).json({
+          success: false,
+          error: 'Not a member of this group',
+          code: 'GROUP_NOT_MEMBER'
+        });
+      }
       await prisma.conversationParticipant.updateMany({
         where: {
           conversationId: conversation.id,
@@ -1633,6 +1642,75 @@ export const postMessage = async (req: Request, res: Response) => {
           isArchived: false
         }
       });
+    }
+
+    // Phase 29.1 — UserBlock enforcement (DM + group): block either direction among participants
+    try {
+      const { hasActiveBlockBetween } = await import('../services/messaging/groupSendGate');
+      const others = conversation.participants
+        .map((p) => p.userId)
+        .filter((id) => id && id !== senderId);
+      if (await hasActiveBlockBetween(senderId, others)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Messaging blocked between users',
+          code: 'MESSAGING_BLOCKED'
+        });
+      }
+    } catch {
+      /* optional */
+    }
+
+    // Phase 29.1 — server-authoritative group send gates (mode, permissions, content, slow mode, rate)
+    if (conversation.type === 'GROUP') {
+      try {
+        const { evaluateGroupSendGate, markGroupMemberSent } = await import(
+          '../services/messaging/groupSendGate'
+        );
+        const gate = await evaluateGroupSendGate({
+          conversationId: conversation.id,
+          senderId,
+          text,
+          attachments,
+          messageType: req.body?.messageType || req.body?.message_type || null,
+          metadata:
+            req.body?.metadata && typeof req.body.metadata === 'object' ? req.body.metadata : null,
+          conversation,
+          membership: senderParticipant
+        });
+        if (!gate.allowed) {
+          try {
+            const { recordGroupAudit } = await import('../services/messaging/groupAudit');
+            await recordGroupAudit({
+              conversationId: conversation.id,
+              actorId: senderId,
+              action: 'message.send_denied',
+              reason: gate.reason || gate.code || null,
+              metadata: { code: gate.code, retryAfterMs: gate.retryAfterMs || 0 }
+            });
+          } catch {
+            /* optional */
+          }
+          const status =
+            gate.code === 'GROUP_SLOW_MODE' ? 429 : gate.code === 'GROUP_LOCKED' ? 403 : 403;
+          return res.status(status).json({
+            success: false,
+            error: gate.reason || 'Send not allowed',
+            code: gate.code || 'GROUP_PERMISSION_DENIED',
+            retryAfterMs: gate.retryAfterMs || 0
+          });
+        }
+        // mark after successful create (see below) — stash flag on request local
+        (req as any).__phase291_markGroupSent = true;
+      } catch (gateError) {
+        console.warn('[messages] group send gate failed open=false policy', (gateError as any)?.message || gateError);
+        // Fail closed for group mode/permission evaluation errors to avoid spam
+        return res.status(503).json({
+          success: false,
+          error: 'Group send policy temporarily unavailable',
+          code: 'GROUP_PERMISSION_DENIED'
+        });
+      }
     }
 
     // Phase 22.1 — idempotent send: duplicate clientMessageId returns existing message (200).
@@ -1888,6 +1966,16 @@ export const postMessage = async (req: Request, res: Response) => {
         lastMessageSenderId: senderId
       }
     });
+
+    // Phase 29.1 — slow mode watermark + lastActivityAt for groups
+    if ((req as any).__phase291_markGroupSent) {
+      try {
+        const { markGroupMemberSent } = await import('../services/messaging/groupSendGate');
+        await markGroupMemberSent(conversation.id, senderId);
+      } catch {
+        /* optional */
+      }
+    }
 
     const resolvedClientMessageId =
       clientMessageId ||

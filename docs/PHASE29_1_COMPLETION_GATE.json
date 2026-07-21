@@ -1,0 +1,99 @@
+{
+  "phase": "29.1",
+  "name": "Enterprise Messaging Groups — Database & Backend Foundation",
+  "date": "2026-07-21",
+  "status": "PASS",
+  "deployed": false,
+  "honestAssessment": "Additive schema, permission engine, send gates, join/invite/lock/restriction APIs, audit, rate limits, and unit tests implemented. SECRET is a new ConversationVisibility enum value (not mapped only to UNLISTED). Phase 22.2 routes preserved. No production migration apply and no Cloud Run deploy in this phase.",
+  "secretDecision": {
+    "representation": "ConversationVisibility.SECRET additive enum value",
+    "notMappedSolelyTo": "UNLISTED",
+    "source": "PHASE29_0_ENTERPRISE_MESSAGING_GROUPS_ARCHITECTURE.md §4.1"
+  },
+  "criteria": [
+    {
+      "id": "secret_verified",
+      "description": "SECRET is additive enum value per approved architecture",
+      "result": "PASS"
+    },
+    {
+      "id": "additive_schema",
+      "description": "Migration additive only; no DirectMessage/Conversation drop/rewrite",
+      "result": "PASS"
+    },
+    {
+      "id": "settings_permissions",
+      "description": "ConversationSettings + permission engine + overrides",
+      "result": "PASS"
+    },
+    {
+      "id": "join_invite",
+      "description": "Join policies, join requests, invite maxUses/expiry/approval/preview",
+      "result": "PASS"
+    },
+    {
+      "id": "modes_slow_lock",
+      "description": "Announcement/read-only/locked modes, slow mode, temporary lockdown",
+      "result": "PASS"
+    },
+    {
+      "id": "send_gates",
+      "description": "Server-authoritative group send gates + UserBlock check",
+      "result": "PASS"
+    },
+    {
+      "id": "audit_rate_limit",
+      "description": "GroupModerationAction audit + rate limits",
+      "result": "PASS"
+    },
+    {
+      "id": "api_contracts",
+      "description": "Additive /api/messages/groups/* routes registered",
+      "result": "PASS"
+    },
+    {
+      "id": "tests",
+      "description": "Unit tests for engine, visibility SECRET, wiring, 22.2 regression",
+      "result": "PASS"
+    },
+    {
+      "id": "docs",
+      "description": "Foundation doc + completion gate",
+      "result": "PASS"
+    },
+    {
+      "id": "no_deploy",
+      "description": "No production deploy performed",
+      "result": "PASS"
+    }
+  ],
+  "artifacts": [
+    "geezle-backend/prisma/schema.prisma",
+    "geezle-backend/prisma/migrations/20260721140000_phase291_enterprise_messaging_groups/migration.sql",
+    "geezle-backend/src/services/messaging/permissionEngine.ts",
+    "geezle-backend/src/services/messaging/groupVisibility.ts",
+    "geezle-backend/src/services/messaging/groupSendGate.ts",
+    "geezle-backend/src/services/messaging/groupRateLimit.ts",
+    "geezle-backend/src/services/messaging/groupAudit.ts",
+    "geezle-backend/src/controllers/groupEnterprise.controller.ts",
+    "geezle-backend/src/controllers/groupMessaging.controller.ts",
+    "geezle-backend/src/controllers/messages.controller.ts",
+    "geezle-backend/src/routes/messages.routes.ts",
+    "geezle-backend/src/services/__tests__/phase291.permissionEngine.unit.test.ts",
+    "geezle-backend/src/__tests__/phase291.enterpriseGroups.api.unit.test.ts",
+    "docs/PHASE29_1_ENTERPRISE_MESSAGING_GROUPS_FOUNDATION.md",
+    "docs/PHASE29_1_COMPLETION_GATE.json"
+  ],
+  "nextPhase": {
+    "id": "29.2",
+    "name": "Real-Time Messaging Engine",
+    "blockedUntil": "Phase 29.1 PASS acceptance",
+    "willDeploy": false
+  },
+  "rollbackPlan": "Do not apply migration in prod until 29.7. If code is merged but unused, revert BE commit. If migration applied later, leave additive objects and roll BE revision.",
+  "risks": [
+    "Join request @@unique(conversationId,userId,status) may need operational care for re-requests after REJECTED (allowed as different status)",
+    "Prisma client generate path may point at workspace package location — ensure CI runs prisma generate in geezle-backend",
+    "In-process rate limits are per-instance until Redis dual-write"
+  ]
+}

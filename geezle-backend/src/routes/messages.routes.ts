@@ -31,6 +31,22 @@ import {
   acceptGroupInvite,
   getMessagesAround
 } from '../controllers/groupMessaging.controller';
+import {
+  createEnterpriseGroup,
+  getEnterpriseGroup,
+  patchEnterpriseGroup,
+  getGroupPermissions,
+  patchGroupPermissions,
+  joinGroupOpen,
+  createJoinRequest,
+  listJoinRequests,
+  decideJoinRequest,
+  lockGroup,
+  unlockGroup,
+  applyMemberRestriction,
+  createEnterpriseInvite,
+  listGroupAudit
+} from '../controllers/groupEnterprise.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { postConversationReceipts } from '../controllers/messageReceipts.controller';
 import {
@@ -66,6 +82,23 @@ router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
 // Phase 22.2 — group invites accept (before :id routes)
 router.post('/invites/:code/accept', authMiddleware, acceptGroupInvite);
+
+// Phase 29.1 — Enterprise Messaging Groups foundation (additive)
+router.post('/groups', authMiddleware, createEnterpriseGroup);
+router.get('/groups/:id', authMiddleware, getEnterpriseGroup);
+router.patch('/groups/:id', authMiddleware, patchEnterpriseGroup);
+router.get('/groups/:id/permissions', authMiddleware, getGroupPermissions);
+router.patch('/groups/:id/permissions', authMiddleware, patchGroupPermissions);
+router.post('/groups/:id/join', authMiddleware, joinGroupOpen);
+router.post('/groups/:id/join-requests', authMiddleware, createJoinRequest);
+router.get('/groups/:id/join-requests', authMiddleware, listJoinRequests);
+router.post('/groups/:id/join-requests/:requestId/:decision', authMiddleware, decideJoinRequest);
+router.post('/groups/:id/lock', authMiddleware, lockGroup);
+router.post('/groups/:id/unlock', authMiddleware, unlockGroup);
+router.post('/groups/:id/restrictions', authMiddleware, applyMemberRestriction);
+router.post('/groups/:id/invites', authMiddleware, createEnterpriseInvite);
+router.get('/groups/:id/audit', authMiddleware, listGroupAudit);
+
 router.get('/conversations/:id', authMiddleware, getConversation);
 // Phase 20.7.8 — media browser + honest security status
 router.get('/conversations/:id/attachments', authMiddleware, listConversationAttachments);

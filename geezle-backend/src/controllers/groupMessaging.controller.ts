@@ -380,17 +380,78 @@ export const acceptGroupInvite = async (req: Request, res: Response) => {
 
     const invite = await (prisma as any).conversationInvite.findUnique({ where: { code } });
     if (!invite || invite.status !== 'PENDING') {
-      return res.status(404).json({ success: false, error: 'Invite not found or inactive' });
+      return res.status(404).json({ success: false, error: 'Invite not found or inactive', code: 'GROUP_INVITE_EXPIRED' });
     }
     if (invite.expiresAt && new Date(invite.expiresAt).getTime() < Date.now()) {
       await (prisma as any).conversationInvite.update({
         where: { id: invite.id },
         data: { status: 'EXPIRED' }
       });
-      return res.status(410).json({ success: false, error: 'Invite expired' });
+      return res.status(410).json({ success: false, error: 'Invite expired', code: 'GROUP_INVITE_EXPIRED' });
     }
     if (invite.inviteeUserId && invite.inviteeUserId !== userId) {
-      return res.status(403).json({ success: false, error: 'Invite is for another user' });
+      return res.status(403).json({ success: false, error: 'Invite is for another user', code: 'GROUP_JOIN_DENIED' });
+    }
+
+    // Phase 29.1 — max uses / one-time
+    const useCount = Number(invite.useCount || 0);
+    const maxUses = invite.maxUses != null ? Number(invite.maxUses) : invite.oneTime ? 1 : null;
+    if (maxUses != null && useCount >= maxUses) {
+      await (prisma as any).conversationInvite.update({
+        where: { id: invite.id },
+        data: { status: 'EXPIRED' }
+      });
+      return res.status(410).json({ success: false, error: 'Invite usage limit reached', code: 'GROUP_INVITE_EXPIRED' });
+    }
+
+    // Phase 29.1 — requireApproval → join request instead of immediate join
+    if (invite.requireApproval) {
+      try {
+        await (prisma as any).conversationJoinRequest.create({
+          data: {
+            id: `cjr_${Date.now().toString(36)}`,
+            conversationId: invite.conversationId,
+            userId,
+            message: 'Via invite (approval required)',
+            status: 'PENDING'
+          }
+        });
+      } catch {
+        /* may already exist */
+      }
+      await (prisma as any).conversationInvite.update({
+        where: { id: invite.id },
+        data: {
+          useCount: useCount + 1,
+          ...(maxUses != null && useCount + 1 >= maxUses ? { status: 'ACCEPTED', acceptedAt: new Date() } : {})
+        }
+      });
+      return res.json({
+        success: true,
+        data: {
+          conversationId: invite.conversationId,
+          joined: false,
+          pendingApproval: true
+        }
+      });
+    }
+
+    // Capacity check
+    try {
+      const conv = await prisma.conversation.findUnique({
+        where: { id: invite.conversationId },
+        select: { maxMembers: true, type: true } as any
+      });
+      if (conv?.maxMembers != null) {
+        const count = await prisma.conversationParticipant.count({
+          where: { conversationId: invite.conversationId, deletedAt: null } as any
+        });
+        if (count >= Number(conv.maxMembers)) {
+          return res.status(403).json({ success: false, error: 'Group is full', code: 'GROUP_FULL' });
+        }
+      }
+    } catch {
+      /* optional columns */
     }
 
     await prisma.conversationParticipant.upsert({
@@ -410,10 +471,37 @@ export const acceptGroupInvite = async (req: Request, res: Response) => {
       } as any
     });
 
+    const nextUse = useCount + 1;
+    const exhausted = maxUses != null && nextUse >= maxUses;
     await (prisma as any).conversationInvite.update({
       where: { id: invite.id },
-      data: { status: 'ACCEPTED', acceptedAt: new Date(), inviteeUserId: userId }
+      data: {
+        useCount: nextUse,
+        status: exhausted || invite.oneTime ? 'ACCEPTED' : 'PENDING',
+        acceptedAt: exhausted || invite.oneTime ? new Date() : invite.acceptedAt,
+        inviteeUserId: invite.inviteeUserId || userId
+      }
     });
+
+    try {
+      const { recordGroupAudit } = await import('../services/messaging/groupAudit');
+      await recordGroupAudit({
+        conversationId: invite.conversationId,
+        actorId: userId,
+        action: 'invite.accepted',
+        targetUserId: userId,
+        targetId: invite.id
+      });
+      const count = await prisma.conversationParticipant.count({
+        where: { conversationId: invite.conversationId, deletedAt: null } as any
+      });
+      await prisma.conversation.update({
+        where: { id: invite.conversationId },
+        data: { memberCount: count } as any
+      });
+    } catch {
+      /* optional */
+    }
 
     return res.json({
       success: true,
