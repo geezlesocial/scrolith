@@ -1,0 +1,23 @@
+# Phase 29.7 — Enterprise Messaging Groups + privacy production backend
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        build,
+        -f,
+        Dockerfile.storyfix.runtime,
+        --no-cache,
+        -t,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p297,
+        --label,
+        phase=29.7,
+        --label,
+        feature=enterprise-messaging-groups,
+        .
+      ]
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p297
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 2400s
