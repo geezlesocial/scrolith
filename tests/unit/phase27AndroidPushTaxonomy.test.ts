@@ -136,8 +136,8 @@ test('AndroidManifest FCM defaults and POST_NOTIFICATIONS', () => {
 });
 
 test('Phase 29 version and production Capacitor origin', () => {
-  assert.match(gradle, /versionCode 39/);
-  assert.match(gradle, /versionName "1\.1\.29"/);
+  assert.match(gradle, /versionCode 40/);
+  assert.match(gradle, /versionName "1\.1\.30"/);
   assert.match(gradle, /debugSymbolLevel/);
   assert.match(capacitor, /scrolith\.com/);
   assert.match(capacitor, /androidScheme: 'https'/);
