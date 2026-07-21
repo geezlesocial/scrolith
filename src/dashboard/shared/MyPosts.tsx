@@ -413,6 +413,26 @@ const MyPosts: React.FC = () => {
     }
   };
 
+  const mergePostUpdate = (item: any, updated: any, flags: Record<string, unknown>) => {
+    // Preserve media when partial API payloads omit or empty attachments after pin/highlight.
+    const nextAttachments =
+      Array.isArray(updated?.attachments) && updated.attachments.length > 0
+        ? updated.attachments
+        : Array.isArray(item.attachments)
+          ? item.attachments
+          : [];
+    return {
+      ...item,
+      ...(updated && typeof updated === 'object' ? updated : {}),
+      ...flags,
+      attachments: nextAttachments,
+      attachmentFileIds:
+        Array.isArray(updated?.attachmentFileIds) && updated.attachmentFileIds.length > 0
+          ? updated.attachmentFileIds
+          : item.attachmentFileIds
+    };
+  };
+
   const togglePin = async (post: any) => {
     setBusyId(post.id);
     try {
@@ -421,14 +441,14 @@ const MyPosts: React.FC = () => {
       setPosts((prev) =>
         prev.map((item) =>
           item.id === post.id
-            ? { ...item, ...updated, isPinned: updated?.isPinned ?? nextPinned }
+            ? mergePostUpdate(item, updated, { isPinned: updated?.isPinned ?? nextPinned })
             : item
         )
       );
       showNotification(
         'success',
         'My Posts',
-        (updated?.isPinned ?? nextPinned) ? 'Pinned to profile.' : 'Unpinned from profile.'
+        (updated?.isPinned ?? nextPinned) ? 'Pinned to profile Overview.' : 'Unpinned from profile.'
       );
       window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { postId: post.id } }));
     } catch (err: any) {
@@ -455,18 +475,16 @@ const MyPosts: React.FC = () => {
       setPosts((prev) =>
         prev.map((item) =>
           item.id === post.id
-            ? {
-                ...item,
-                ...updated,
+            ? mergePostUpdate(item, updated, {
                 isHighlighted: updated?.isHighlighted ?? updated?.is_highlighted ?? next
-              }
+              })
             : item
         )
       );
       showNotification(
         'success',
         'Highlight',
-        next ? 'Post highlighted on your profile.' : 'Highlight removed from profile.'
+        next ? 'Post highlighted on profile Overview.' : 'Highlight removed from profile.'
       );
       window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { postId: post.id } }));
     } catch (err: any) {

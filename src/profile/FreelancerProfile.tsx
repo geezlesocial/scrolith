@@ -1,7 +1,7 @@
 
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MapPin, Star, PlayCircle, Briefcase, GraduationCap, Award, CheckCircle, ShieldCheck, TrendingUp, X, Users, Heart } from 'lucide-react';
+import { MapPin, Star, PlayCircle, Briefcase, GraduationCap, Award, CheckCircle, ShieldCheck, TrendingUp, X, Users, Heart, Pin, Sparkles } from 'lucide-react';
 import { useUser } from '../context/UserContext';
 import { useNotification } from '../context/NotificationContext';
 import { UserProfile, TrustScore } from '../types';
@@ -161,6 +161,9 @@ const FreelancerProfile = () => {
   const [blockedUserIds, setBlockedUserIds] = useState<Set<string>>(new Set());
   const [blockBusyId, setBlockBusyId] = useState<string | null>(null);
   const [showInlineEditor, setShowInlineEditor] = useState(false);
+  /** Pinned + highlighted posts shown on Overview */
+  const [featuredPosts, setFeaturedPosts] = useState<any[]>([]);
+  const [featuredPostsLoading, setFeaturedPostsLoading] = useState(false);
   const publicBaseUrl = getPublicAppOrigin();
   const cleanBaseUrl = publicBaseUrl.replace(/\/$/, '');
   const portfolioItems = useMemo(
@@ -662,6 +665,55 @@ const FreelancerProfile = () => {
     };
   }, [publicUser?.name, publicUser?.username, profile?.title]);
 
+  // Load pinned + highlighted posts for profile Overview (/u/:username)
+  useEffect(() => {
+    const authorId = String(publicUser?.id || '').trim();
+    if (!authorId) {
+      setFeaturedPosts([]);
+      return;
+    }
+    let mounted = true;
+    const loadFeatured = async () => {
+      setFeaturedPostsLoading(true);
+      try {
+        const posts = await CommunityService.getPosts({
+          authorId,
+          limit: 50,
+          status: 'active'
+        });
+        if (!mounted) return;
+        const list = Array.isArray(posts) ? posts : [];
+        const featured = list
+          .filter(
+            (post) =>
+              Boolean(post?.isPinned) ||
+              Boolean(post?.isHighlighted ?? post?.is_highlighted)
+          )
+          .sort((a, b) => {
+            const pinDelta = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+            if (pinDelta !== 0) return pinDelta;
+            const hiDelta =
+              Number(Boolean(b.isHighlighted ?? b.is_highlighted)) -
+              Number(Boolean(a.isHighlighted ?? a.is_highlighted));
+            if (hiDelta !== 0) return hiDelta;
+            return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+          });
+        setFeaturedPosts(featured);
+      } catch {
+        if (mounted) setFeaturedPosts([]);
+      } finally {
+        if (mounted) setFeaturedPostsLoading(false);
+      }
+    };
+    void loadFeatured();
+    const onUpdated = () => void loadFeatured();
+    window.addEventListener('community:post_updated', onUpdated as EventListener);
+    return () => {
+      mounted = false;
+      window.removeEventListener('community:post_updated', onUpdated as EventListener);
+    };
+  }, [publicUser?.id]);
+
   return (
     <div className="bg-gray-50 min-h-screen pb-12">
         {error && (
@@ -853,6 +905,122 @@ const FreelancerProfile = () => {
                         <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
                             <h3 className="text-lg font-bold text-gray-900 mb-4">About Me</h3>
                             <p className="text-gray-600 leading-relaxed">{profile?.bio || "No bio provided yet."}</p>
+                        </div>
+
+                        {/* Pinned & Highlighted posts (My Posts pin/highlight → Overview) */}
+                        <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                            <div>
+                              <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                                <Pin className="w-5 h-5 text-amber-600" aria-hidden />
+                                Featured posts
+                              </h3>
+                              <p className="mt-1 text-sm text-gray-500">
+                                Posts this member pinned or highlighted for visitors.
+                              </p>
+                            </div>
+                            {featuredPostsLoading ? (
+                              <span className="text-xs text-gray-400">Loading…</span>
+                            ) : null}
+                          </div>
+                          {!featuredPostsLoading && featuredPosts.length === 0 ? (
+                            <EmptyState
+                              title="No featured posts yet"
+                              description={
+                                isOwner
+                                  ? 'Pin or highlight posts from My Posts to show them here on your Overview.'
+                                  : 'This member has not pinned or highlighted any posts yet.'
+                              }
+                              className="border-0 bg-slate-50 p-4 shadow-none"
+                            />
+                          ) : (
+                            <div className="space-y-4">
+                              {featuredPosts.map((post) => {
+                                const attachments = Array.isArray(post.attachments) ? post.attachments : [];
+                                const isPinned = Boolean(post.isPinned);
+                                const isHighlighted = Boolean(post.isHighlighted ?? post.is_highlighted);
+                                const preview =
+                                  String(post.content || '')
+                                    .replace(/\s+/g, ' ')
+                                    .trim()
+                                    .slice(0, 220) || 'No caption';
+                                return (
+                                  <article
+                                    key={post.id}
+                                    className={`rounded-xl border p-4 ${
+                                      isHighlighted
+                                        ? 'border-violet-200 bg-violet-50/40'
+                                        : 'border-slate-200 bg-white'
+                                    }`}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2 mb-2">
+                                      {isPinned ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">
+                                          <Pin className="h-3 w-3" />
+                                          Pinned
+                                        </span>
+                                      ) : null}
+                                      {isHighlighted ? (
+                                        <span className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase text-violet-800">
+                                          <Sparkles className="h-3 w-3" />
+                                          Highlight
+                                        </span>
+                                      ) : null}
+                                      {post.title ? (
+                                        <h4 className="text-sm font-semibold text-slate-900">{post.title}</h4>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-sm text-slate-600 leading-relaxed">{preview}</p>
+                                    {attachments.length > 0 ? (
+                                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                        {attachments.slice(0, 3).map((media: any, index: number) => {
+                                          const url =
+                                            resolvePostAttachmentMediaUrl(media) ||
+                                            resolveAssetUrl(String(media?.url || media?.id || '')) ||
+                                            '';
+                                          const mime = String(media?.mimeType || media?.mime_type || media?.type || '').toLowerCase();
+                                          const isVideo =
+                                            mime.startsWith('video/') ||
+                                            /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url);
+                                          if (!url) return null;
+                                          return isVideo ? (
+                                            <div
+                                              key={`${post.id}-m-${index}`}
+                                              className="relative aspect-video overflow-hidden rounded-lg bg-slate-900"
+                                            >
+                                              <video
+                                                src={url}
+                                                className="h-full w-full object-cover"
+                                                muted
+                                                playsInline
+                                                preload="metadata"
+                                              />
+                                            </div>
+                                          ) : (
+                                            <img
+                                              key={`${post.id}-m-${index}`}
+                                              src={url}
+                                              alt=""
+                                              className="aspect-video w-full rounded-lg object-cover bg-slate-100"
+                                              loading="lazy"
+                                            />
+                                          );
+                                        })}
+                                      </div>
+                                    ) : null}
+                                    <div className="mt-3">
+                                      <Link
+                                        to={`/community?post=${encodeURIComponent(post.id)}`}
+                                        className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                                      >
+                                        View post
+                                      </Link>
+                                    </div>
+                                  </article>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
 
                         {/* Experience */}

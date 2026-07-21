@@ -2672,9 +2672,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               ...Object.fromEntries(Object.entries(updated).filter(([, value]) => value !== undefined)),
               title: updated.title !== undefined ? updated.title : item.title,
               content: updated.content !== undefined ? updated.content : item.content,
+              // Keep prior media when a partial update (e.g. pin/highlight) returns empty attachments.
               attachmentFileIds:
-                updated.attachmentFileIds !== undefined ? updated.attachmentFileIds : item.attachmentFileIds,
-              attachments: updated.attachments !== undefined ? updated.attachments : item.attachments,
+                Array.isArray(updated.attachmentFileIds) && updated.attachmentFileIds.length > 0
+                  ? updated.attachmentFileIds
+                  : updated.attachmentFileIds !== undefined &&
+                      !(Array.isArray(item.attachmentFileIds) && item.attachmentFileIds.length > 0)
+                    ? updated.attachmentFileIds
+                    : item.attachmentFileIds,
+              attachments:
+                Array.isArray(updated.attachments) && updated.attachments.length > 0
+                  ? updated.attachments
+                  : updated.attachments !== undefined &&
+                      !(Array.isArray(item.attachments) && item.attachments.length > 0)
+                    ? updated.attachments
+                    : item.attachments,
               tags: updated.tags !== undefined ? updated.tags : item.tags,
               mentions: updated.mentions !== undefined ? updated.mentions : item.mentions,
               topic: updated.topic !== undefined ? updated.topic : item.topic,

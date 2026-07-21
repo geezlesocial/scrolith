@@ -1312,15 +1312,27 @@ class CommunityService {
     regenerateAiInsight?: boolean;
     offerTags?: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
   }): Promise<any> {
-    const attachmentFileIds = Array.from(
-      new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
-    );
-    const response = await api.put(`/community/posts/${postId}`, {
-      ...payload,
-      attachmentFileIds,
-      attachments: attachmentFileIds,
-      attachmentCaptions: payload.attachmentCaptions || {}
-    });
+    // Only send attachment fields when the caller intentionally updates media.
+    // Sending attachments: [] (default) wipes post media on pin/highlight toggles.
+    const hasAttachmentPayload =
+      Object.prototype.hasOwnProperty.call(payload, 'attachments') ||
+      Object.prototype.hasOwnProperty.call(payload, 'attachmentFileIds');
+    const body: Record<string, unknown> = { ...payload };
+    if (hasAttachmentPayload) {
+      const attachmentFileIds = Array.from(
+        new Set([...(payload.attachmentFileIds || []), ...(payload.attachments || [])].filter(Boolean))
+      );
+      body.attachmentFileIds = attachmentFileIds;
+      body.attachments = attachmentFileIds;
+      body.attachmentCaptions = payload.attachmentCaptions || {};
+    } else {
+      delete body.attachments;
+      delete body.attachmentFileIds;
+      if (!Object.prototype.hasOwnProperty.call(payload, 'attachmentCaptions')) {
+        delete body.attachmentCaptions;
+      }
+    }
+    const response = await api.put(`/community/posts/${postId}`, body);
     return extractData<any>(response);
   }
 
