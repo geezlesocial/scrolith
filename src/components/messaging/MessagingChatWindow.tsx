@@ -111,7 +111,14 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
 
   const title = getConversationDisplayName(conversation, user?.id);
   const other = getConversationAvatarParticipant(conversation, user?.id);
-  const avatarUrl = resolveUserAvatarUrl(other) || String(other?.avatar || '').trim();
+  const avatarUrl =
+    resolveUserAvatarUrl(other) ||
+    resolveUserAvatarUrl({
+      avatar: other?.avatar,
+      avatarUrl: other?.avatarUrl,
+      profilePhotoFileId: other?.profilePhotoFileId || other?.profile_photo_file_id
+    }) ||
+    String(other?.avatar || other?.avatarUrl || '').trim();
   const isOnline = Boolean(other?.isOnline ?? other?.is_online);
 
   useEffect(() => {
@@ -205,7 +212,14 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
           aria-label={`Restore conversation with ${title}`}
         >
           <div className="relative h-7 w-7 shrink-0">
-            <EnterpriseAvatar src={avatarUrl} name={title} size="xs" className="!h-7 !w-7" />
+            <EnterpriseAvatar
+              user={other}
+              src={avatarUrl}
+              name={title}
+              size="xs"
+              loading="eager"
+              className="!h-7 !w-7"
+            />
             {isOnline ? (
               <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border border-white bg-emerald-500" />
             ) : null}
@@ -245,9 +259,11 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
       <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
         <div className="relative h-8 w-8 shrink-0">
           <EnterpriseAvatar
+            user={other}
             src={avatarUrl}
             name={title}
             size="sm"
+            loading="eager"
             className="border border-slate-200"
           />
           {isOnline ? (

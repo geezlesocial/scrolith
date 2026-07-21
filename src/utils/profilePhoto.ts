@@ -56,6 +56,25 @@ export const resolveProfilePhotoCandidates = (input?: {
   pushCandidate(out, seen, src);
 
   if (user && typeof user === 'object') {
+    // Prefer file-id based content URLs first (most reliable for uploaded photos).
+    const fileIds = [
+      user.profilePhotoFileId,
+      user.profile_photo_file_id,
+      user.avatarFileId,
+      user.avatar_file_id,
+      user.clientProfilePhotoFileId,
+      user.freelancerProfilePhotoFileId
+    ];
+    for (const fileId of fileIds) {
+      if (!fileId) continue;
+      try {
+        pushCandidate(out, seen, resolveUserAvatarUrl({ profilePhotoFileId: fileId }));
+        pushCandidate(out, seen, resolveUserAvatarUrl(String(fileId)));
+      } catch {
+        // ignore
+      }
+    }
+
     const directKeys = [
       user.avatarUrl,
       user.avatar_url,

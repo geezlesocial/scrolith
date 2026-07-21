@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import OptimizedImage from '../media/OptimizedImage';
 import {
   profilePhotoDebugLabel,
@@ -29,12 +29,14 @@ type EnterpriseAvatarProps = {
   className?: string;
   rounded?: 'full' | 'xl' | '2xl';
   alt?: string;
+  /** Prefer eager for chat bars / headers so photos appear without multi-refresh. */
+  loading?: 'lazy' | 'eager';
 };
 
 /**
- * Phase 21.1.2R — photo-first avatar.
- * Initials are an underlay while loading and a fallback only after all candidates fail.
- * Never permanently hide a valid photo because of one temporary failure.
+ * Photo-first avatar.
+ * Initials are underlay while loading and fallback ONLY when no photo exists
+ * or every candidate permanently fails (not on first transient network error).
  */
 const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   user,
@@ -43,7 +45,8 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   size = 'md',
   className = '',
   rounded = 'full',
-  alt
+  alt,
+  loading = 'eager'
 }) => {
   const displayName = SafeAvatarName(
     name || user,
@@ -55,7 +58,6 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
 
   const candidates = useMemo(
     () => resolveProfilePhotoCandidates({ user, src, name: displayName }),
-    // Recompute when identity-ish fields change
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       src,
@@ -65,7 +67,10 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
       user?.avatarUrl,
       user?.avatar_url,
       user?.profilePhotoFileId,
+      user?.profile_photo_file_id,
       user?.avatarFileId,
+      user?.logoUrl,
+      user?.logo,
       displayName
     ]
   );
@@ -73,12 +78,28 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   const [candidateIndex, setCandidateIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [failedAll, setFailedAll] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failCountRef = useRef(0);
 
   useEffect(() => {
     setCandidateIndex(0);
     setLoaded(false);
     setFailedAll(false);
+    failCountRef.current = 0;
+    setRetryToken(0);
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
   }, [candidates.join('|')]);
+
+  useEffect(
+    () => () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    },
+    []
+  );
 
   const activeSrc = !failedAll && candidates.length > 0 ? candidates[candidateIndex] || '' : '';
   const showImage = Boolean(activeSrc);
@@ -87,34 +108,40 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   const radius =
     rounded === 'full' ? 'rounded-full' : rounded === '2xl' ? 'rounded-2xl' : 'rounded-xl';
 
-  const onImageError = () => {
+  const onImageError = useCallback(() => {
     setLoaded(false);
     const next = candidateIndex + 1;
     if (next < candidates.length) {
       setCandidateIndex(next);
       return;
     }
-    // Temporary network blip: do not permanently mark failedAll for single-candidate
-    // unless there is truly no next URL. Callers can remount with new src later.
+    // Transient failure: retry primary candidate a few times before initials-only.
+    failCountRef.current += 1;
+    if (failCountRef.current <= 3 && candidates.length > 0) {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        setCandidateIndex(0);
+        setFailedAll(false);
+        setRetryToken((t) => t + 1);
+      }, 600 * failCountRef.current);
+      return;
+    }
     setFailedAll(true);
-  };
+  }, [candidateIndex, candidates.length]);
 
   return (
     <div
       className={`relative inline-flex shrink-0 items-center justify-center overflow-hidden font-semibold ${dim.className} ${radius} ${className}`}
       style={{
-        // Once photo is loaded, solid photo covers fully — keep neutral underlay color only for initials mode
         backgroundColor: loaded && showImage ? 'transparent' : colors.bg,
         color: colors.fg
       }}
       role="img"
       aria-label={alt || `${displayName} avatar`}
       data-testid="enterprise-avatar"
-      data-phase="21.1.2R"
       data-has-image={showImage ? 'true' : 'false'}
       data-avatar-state={profilePhotoDebugLabel(candidates, loaded, failedAll || !candidates.length)}
     >
-      {/* Initials underlay: hidden once a valid photo has decoded */}
       <span
         className={`select-none ${dim.text} leading-none transition-opacity duration-150 ${
           loaded && showImage ? 'opacity-0' : 'opacity-100'
@@ -125,8 +152,12 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
       </span>
       {showImage ? (
         <OptimizedImage
-          key={activeSrc}
-          src={activeSrc}
+          key={`${activeSrc}:${retryToken}`}
+          src={
+            retryToken > 0
+              ? `${activeSrc}${activeSrc.includes('?') ? '&' : '?'}_av=${retryToken}`
+              : activeSrc
+          }
           alt={alt || displayName}
           width={dim.px}
           height={dim.px}
@@ -134,9 +165,13 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
             loaded ? 'opacity-100' : 'opacity-0'
           }`}
-          loading="lazy"
+          loading={loading}
           decoding="async"
-          onLoad={() => setLoaded(true)}
+          fetchPriority={loading === 'eager' ? 'high' : 'auto'}
+          onLoad={() => {
+            failCountRef.current = 0;
+            setLoaded(true);
+          }}
           onError={onImageError}
         />
       ) : null}

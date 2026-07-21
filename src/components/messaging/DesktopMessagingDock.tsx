@@ -325,9 +325,11 @@ const DesktopMessagingDock: React.FC = () => {
               <div className={isIconOnly ? 'h-8 w-8' : 'h-7 w-7'}>
                 {avatarUrl ? (
                   <EnterpriseAvatar
+                    user={user}
                     src={avatarUrl}
-                    name="Messaging"
+                    name={user?.name || 'Messaging'}
                     size={isIconOnly ? 'sm' : 'xs'}
+                    loading="eager"
                     className={`border border-white/20 ${isIconOnly ? '!h-8 !w-8' : '!h-7 !w-7'}`}
                   />
                 ) : (
@@ -390,9 +392,11 @@ const DesktopMessagingDock: React.FC = () => {
                 <div className="h-7 w-7">
                   {avatarUrl ? (
                     <EnterpriseAvatar
+                      user={user}
                       src={avatarUrl}
-                      name="Messaging"
+                      name={user?.name || 'Messaging'}
                       size="xs"
+                      loading="eager"
                       className="!h-7 !w-7 border border-white/20"
                     />
                   ) : (

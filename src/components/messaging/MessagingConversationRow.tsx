@@ -63,8 +63,9 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
         <EnterpriseAvatar
           user={other}
           name={name}
-          src={other?.avatar || other?.avatarUrl}
+          src={other?.avatar || other?.avatarUrl || other?.profilePhotoFileId}
           size="md"
+          loading="eager"
           className="!h-11 !w-11 border border-slate-200"
           alt=""
         />

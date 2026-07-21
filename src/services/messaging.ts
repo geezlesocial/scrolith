@@ -183,17 +183,25 @@ const normalizeParticipant = (participant: any) => {
       participant?.is_scrolitha ??
       String(participant?.username || '').toLowerCase() === 'scrolitha'
   );
+  const profilePhotoFileId = safeString(
+    participant?.profilePhotoFileId ?? participant?.profile_photo_file_id ?? ''
+  );
+  const avatarRaw = safeString(
+    (isScrolitha
+      ? resolveScrolithaAvatar({ ...participant, isScrolitha: true }) || getScrolithaProfilePhotoUrl()
+      : null) ||
+      participant?.avatar ||
+      participant?.avatarUrl ||
+      participant?.avatar_url ||
+      ''
+  );
   return {
     id: safeString(participant?.id ?? participant?.userId ?? participant?.user_id),
     name: safeString(isScrolitha ? 'Scrolitha' : participant?.name, 'Unknown'),
-    avatar: safeString(
-      (isScrolitha
-        ? resolveScrolithaAvatar({ ...participant, isScrolitha: true }) || getScrolithaProfilePhotoUrl()
-        : null) ||
-        participant?.avatar ||
-        participant?.avatar_url ||
-        ''
-    ),
+    avatar: avatarRaw,
+    avatarUrl: avatarRaw,
+    profilePhotoFileId: profilePhotoFileId || null,
+    profile_photo_file_id: profilePhotoFileId || null,
     username: safeString(participant?.username),
     gender: safeString(participant?.gender),
     profile_url: safeString(participant?.profile_url ?? participant?.profileUrl),
