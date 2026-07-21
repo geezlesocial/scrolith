@@ -29,6 +29,9 @@ import {
 import { recordGroupAudit } from '../services/messaging/groupAudit';
 import { checkGroupInviteCreateRate } from '../services/messaging/groupRateLimit';
 import { getEffectivePermissionsForMember } from '../services/messaging/groupSendGate';
+import { emitGroupLifecycle, compactMember } from '../services/messaging/groupRealtime';
+import { GROUP_WIRE_EVENTS } from '../services/messaging/groupRealtimeEvents';
+import { groupMetrics } from '../services/messaging/groupMetrics';
 
 const resolveUserId = (req: Request) => {
   const userId = req.user?.id;
@@ -237,6 +240,22 @@ export const createEnterpriseGroup = async (req: Request, res: Response) => {
       action: 'group.created',
       metadata: { visibility, joinPolicy, messagingMode, memberCount: 1 + memberUserIds.length }
     });
+    void emitGroupLifecycle(conversation.id, GROUP_WIRE_EVENTS.GROUP_UPDATED, {
+      action: 'created',
+      actorId: userId,
+      settingsVersion: 1,
+      messagingMode,
+      visibility,
+      joinPolicy
+    });
+    // Notify invited members they were added
+    for (const mid of memberUserIds) {
+      void emitGroupLifecycle(conversation.id, GROUP_WIRE_EVENTS.MEMBER_JOINED, {
+        member: compactMember({ userId: mid, role: 'MEMBER' }),
+        actorId: userId,
+        reason: 'created_with_members'
+      });
+    }
 
     return res.status(201).json({
       success: true,
@@ -389,6 +408,23 @@ export const patchEnterpriseGroup = async (req: Request, res: Response) => {
       action: 'group.updated',
       metadata: { fields: Object.keys(data) }
     });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_UPDATED, {
+      action: 'updated',
+      actorId: userId,
+      settingsVersion: (updated as any).settingsVersion,
+      messagingMode: normalizeMessagingMode((updated as any).messagingMode),
+      visibility: normalizeGroupVisibility((updated as any).visibility),
+      joinPolicy: normalizeJoinPolicy((updated as any).joinPolicy),
+      slowModeSeconds: Number((updated as any).slowModeSeconds || 0),
+      fields: Object.keys(data)
+    });
+    if (data.messagingMode === 'LOCKED' || (updated as any).messagingMode === 'LOCKED') {
+      void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_LOCKED, {
+        actorId: userId,
+        messagingMode: 'LOCKED',
+        settingsVersion: (updated as any).settingsVersion
+      });
+    }
 
     return res.json({ success: true, data: serializeGroup(updated, settings) });
   } catch (e: any) {
@@ -471,6 +507,12 @@ export const patchGroupPermissions = async (req: Request, res: Response) => {
       action: 'group.permissions_updated',
       metadata: { hasOverrides: Boolean(overrides) }
     });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.PERMISSIONS_UPDATED, {
+      actorId: userId,
+      settingsVersion: (updated as any).settingsVersion,
+      // overrides shape only — no secrets
+      hasOverrides: Boolean(overrides)
+    });
     return res.json({
       success: true,
       data: {
@@ -515,6 +557,11 @@ export const joinGroupOpen = async (req: Request, res: Response) => {
     });
     await recountMembers(conversationId);
     await recordGroupAudit({ conversationId, actorId: userId, action: 'member.joined', targetUserId: userId });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.MEMBER_JOINED, {
+      member: compactMember({ userId, role: 'MEMBER' }),
+      actorId: userId,
+      reason: 'open_join'
+    });
     return res.json({ success: true, data: { conversationId, joined: true } });
   } catch (e: any) {
     console.error('joinGroupOpen', e);
@@ -561,6 +608,12 @@ export const createJoinRequest = async (req: Request, res: Response) => {
       action: 'join_request.created',
       targetUserId: userId,
       targetId: row.id
+    });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.JOIN_REQUESTED, {
+      requestId: row.id,
+      userId,
+      // no personal message body in realtime
+      status: 'PENDING'
     });
     return res.status(201).json({ success: true, data: { id: row.id, status: 'PENDING', conversationId } });
   } catch (e: any) {
@@ -674,6 +727,23 @@ export const decideJoinRequest = async (req: Request, res: Response) => {
       targetUserId: row.userId,
       targetId: row.id
     });
+    void emitGroupLifecycle(
+      conversationId,
+      approve ? GROUP_WIRE_EVENTS.JOIN_APPROVED : GROUP_WIRE_EVENTS.JOIN_REJECTED,
+      {
+        requestId: row.id,
+        userId: row.userId,
+        actorId: userId,
+        status: approve ? 'APPROVED' : 'REJECTED'
+      }
+    );
+    if (approve) {
+      void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.MEMBER_JOINED, {
+        member: compactMember({ userId: row.userId, role: 'MEMBER' }),
+        actorId: userId,
+        reason: 'join_approved'
+      });
+    }
     return res.json({ success: true, data: { id: row.id, status: approve ? 'APPROVED' : 'REJECTED' } });
   } catch (e: any) {
     console.error('decideJoinRequest', e);
@@ -712,6 +782,24 @@ export const lockGroup = async (req: Request, res: Response) => {
       action: 'group.locked',
       reason: String(req.body?.reason || '') || null,
       metadata: { expiresInMinutes: minutes }
+    });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_LOCKED, {
+      actorId: userId,
+      messagingMode: 'LOCKED',
+      lockedAt: (updated as any).lockedAt
+        ? new Date((updated as any).lockedAt).toISOString()
+        : new Date().toISOString(),
+      lockExpiresAt: (updated as any).lockExpiresAt
+        ? new Date((updated as any).lockExpiresAt).toISOString()
+        : null,
+      settingsVersion: (updated as any).settingsVersion
+    });
+    // Immediate policy signal so composers block without waiting for group_updated
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_UPDATED, {
+      action: 'locked',
+      messagingMode: 'LOCKED',
+      settingsVersion: (updated as any).settingsVersion,
+      actorId: userId
     });
     return res.json({
       success: true,
@@ -754,6 +842,17 @@ export const unlockGroup = async (req: Request, res: Response) => {
       } as any
     });
     await recordGroupAudit({ conversationId, actorId: userId, action: 'group.unlocked', metadata: { mode } });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_UNLOCKED, {
+      actorId: userId,
+      messagingMode: mode,
+      settingsVersion: (updated as any).settingsVersion
+    });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_UPDATED, {
+      action: 'unlocked',
+      messagingMode: mode,
+      settingsVersion: (updated as any).settingsVersion,
+      actorId: userId
+    });
     return res.json({
       success: true,
       data: { conversationId, messagingMode: (updated as any).messagingMode, lockedAt: null }
@@ -825,6 +924,19 @@ export const applyMemberRestriction = async (req: Request, res: Response) => {
       reason: row.reason,
       metadata: { kind }
     });
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.MEMBER_RESTRICTED, {
+      userId: targetUserId,
+      kind,
+      actorId: userId,
+      endsAt: row.endsAt ? new Date(row.endsAt).toISOString() : null
+    });
+    if (kind === 'BAN' || kind === 'TEMP_BAN') {
+      void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.MEMBER_LEFT, {
+        userId: targetUserId,
+        reason: kind === 'BAN' ? 'banned' : 'temp_banned',
+        actorId: userId
+      });
+    }
     return res.status(201).json({ success: true, data: row });
   } catch (e: any) {
     console.error('applyMemberRestriction', e);
@@ -917,6 +1029,18 @@ export const createEnterpriseInvite = async (req: Request, res: Response) => {
       action: 'invite.created',
       targetId: invite.id,
       metadata: { maxUses, oneTime, requireApproval, previewDisabled }
+    });
+    // Realtime: never broadcast raw invite code — only opaque id + flags for members who can manage
+    void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.INVITE_CREATED, {
+      inviteId: invite.id,
+      role: invite.role,
+      expiresAt: invite.expiresAt?.toISOString?.() || null,
+      maxUses: invite.maxUses,
+      oneTime: invite.oneTime,
+      requireApproval: invite.requireApproval,
+      previewDisabled: invite.previewDisabled,
+      actorId: userId
+      // code intentionally omitted
     });
 
     return res.status(201).json({

@@ -1679,6 +1679,7 @@ export const postMessage = async (req: Request, res: Response) => {
           membership: senderParticipant
         });
         if (!gate.allowed) {
+          let ackStatus = 'rejected';
           try {
             const { recordGroupAudit } = await import('../services/messaging/groupAudit');
             await recordGroupAudit({
@@ -1688,6 +1689,10 @@ export const postMessage = async (req: Request, res: Response) => {
               reason: gate.reason || gate.code || null,
               metadata: { code: gate.code, retryAfterMs: gate.retryAfterMs || 0 }
             });
+            const { groupMetrics } = await import('../services/messaging/groupMetrics');
+            const { mapGateToAckStatus } = await import('../services/messaging/groupRealtimeEvents');
+            groupMetrics.messageSendRejected();
+            ackStatus = mapGateToAckStatus(gate.code, gate.reason);
           } catch {
             /* optional */
           }
@@ -1697,7 +1702,15 @@ export const postMessage = async (req: Request, res: Response) => {
             success: false,
             error: gate.reason || 'Send not allowed',
             code: gate.code || 'GROUP_PERMISSION_DENIED',
-            retryAfterMs: gate.retryAfterMs || 0
+            retryAfterMs: gate.retryAfterMs || 0,
+            sendAck: {
+              status: ackStatus,
+              code: gate.code || 'GROUP_PERMISSION_DENIED',
+              reason: gate.reason || null,
+              retryAfterMs: gate.retryAfterMs || 0,
+              conversationId: conversation.id,
+              clientMessageId: clientMessageId || null
+            }
           });
         }
         // mark after successful create (see below) — stash flag on request local
@@ -1779,7 +1792,23 @@ export const postMessage = async (req: Request, res: Response) => {
             },
             idempotentReplay: true
           };
-          return res.json({ success: true, data: payloadExisting, idempotentReplay: true });
+          try {
+            const { groupMetrics } = await import('../services/messaging/groupMetrics');
+            if (conversation.type === 'GROUP') groupMetrics.messageDuplicate();
+          } catch {
+            /* optional */
+          }
+          return res.json({
+            success: true,
+            data: payloadExisting,
+            idempotentReplay: true,
+            sendAck: {
+              status: 'duplicate',
+              conversationId: conversation.id,
+              messageId: payloadExisting.id,
+              clientMessageId: clientMessageId || null
+            }
+          });
         }
       } catch (lookupError: any) {
         // Column may not exist until migration applied — fall through to create.
@@ -2030,6 +2059,28 @@ export const postMessage = async (req: Request, res: Response) => {
 
     receiverIds.forEach((id) => emitToUser(req, id, 'messages:new', payload));
     emitToUser(req, senderId, 'messages:sent', payload);
+    // Phase 29.2 — dual-emit into authorized group room (members who joined room)
+    if (conversation.type === 'GROUP') {
+      try {
+        const realtime = (await import('../utils/realtime')).default;
+        const { groupRoomName } = await import('../services/messaging/groupRealtimeEvents');
+        const { groupMetrics } = await import('../services/messaging/groupMetrics');
+        realtime.emitToRoom(groupRoomName(conversation.id), 'messages:new', payload);
+        groupMetrics.messageSend();
+        // clear recording indicator for sender on successful send
+        const { clearUserEphemeral, setRecordingState } = await import(
+          '../services/messaging/groupEphemeralIndicators'
+        );
+        clearUserEphemeral(conversation.id, senderId);
+        void setRecordingState({
+          conversationId: conversation.id,
+          userId: senderId,
+          isRecording: false
+        });
+      } catch {
+        /* optional */
+      }
+    }
     traceMessageEvent('api.post_message.emitted', {
       conversationId: conversation.id,
       senderId,
@@ -2280,7 +2331,15 @@ export const postMessage = async (req: Request, res: Response) => {
     return res.json({
       success: true,
       data: payload,
-      ...(scrolithaTurn ? { scrolithaTurn } : {})
+      ...(scrolithaTurn ? { scrolithaTurn } : {}),
+      // Phase 29.2 — stable send acknowledgement (REST/socket parity contract)
+      sendAck: {
+        status: 'accepted',
+        conversationId: conversation.id,
+        messageId: payload.id,
+        clientMessageId: resolvedClientMessageId || null,
+        orderingCursor: `${message.createdAt.toISOString()}|${message.id}`
+      }
     });
   } catch (error: any) {
     console.error('Post message error:', error);
@@ -2289,7 +2348,11 @@ export const postMessage = async (req: Request, res: Response) => {
       senderId: req.body?.senderId || resolveUserId(req),
       error: String(error?.message || error)
     });
-    return res.status(500).json({ success: false, error: error.message || 'Failed to send message' });
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send message',
+      sendAck: { status: 'error', reason: String(error?.message || 'error').slice(0, 120) }
+    });
   }
 };
 
@@ -2860,6 +2923,23 @@ export const toggleReaction = async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Not authorized' });
     }
 
+    // Phase 29.2 — block between reactor and participants
+    try {
+      const { hasActiveBlockBetween } = await import('../services/messaging/groupSendGate');
+      const others = message.conversation.participants
+        .map((p) => p.userId)
+        .filter((id) => id && id !== userId);
+      if (await hasActiveBlockBetween(userId, others)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Messaging blocked',
+          code: 'MESSAGING_BLOCKED'
+        });
+      }
+    } catch {
+      /* optional */
+    }
+
     const existingForUser = await prisma.messageReaction.findFirst({
       where: { messageId, userId },
       orderBy: { createdAt: 'asc' },
@@ -2919,6 +2999,18 @@ export const toggleReaction = async (req: Request, res: Response) => {
       emitToUser(req, targetUserId, 'messages:updated', payload);
       emitToUser(req, targetUserId, 'messages:reaction', payload);
     });
+    try {
+      const { groupMetrics } = await import('../services/messaging/groupMetrics');
+      groupMetrics.reaction();
+      if ((message.conversation as any)?.type === 'GROUP') {
+        const realtime = (await import('../utils/realtime')).default;
+        const { groupRoomName } = await import('../services/messaging/groupRealtimeEvents');
+        realtime.emitToRoom(groupRoomName(message.conversationId), 'messages:reaction', payload);
+        realtime.emitToRoom(groupRoomName(message.conversationId), 'messages:updated', payload);
+      }
+    } catch {
+      /* optional */
+    }
 
     // Push / in-app for other participants when a reaction is added (not on remove).
     if (reacted) {

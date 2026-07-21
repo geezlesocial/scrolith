@@ -242,6 +242,26 @@ export const removeGroupMember = async (req: Request, res: Response) => {
       data: { deletedAt: new Date() }
     });
 
+    // Phase 29.2 — realtime membership leave/kick
+    try {
+      const { emitGroupLifecycle } = await import('../services/messaging/groupRealtime');
+      const { GROUP_WIRE_EVENTS } = await import('../services/messaging/groupRealtimeEvents');
+      await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.MEMBER_LEFT, {
+        userId: memberUserId,
+        reason: selfLeave ? 'left' : 'kicked',
+        actorId: userId
+      });
+      const count = await prisma.conversationParticipant.count({
+        where: { conversationId, deletedAt: null } as any
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { memberCount: count } as any
+      });
+    } catch {
+      /* optional */
+    }
+
     return res.json({ success: true, data: { removed: memberUserId } });
   } catch (e: any) {
     console.error('removeGroupMember', e);
@@ -299,6 +319,20 @@ export const updateGroupMember = async (req: Request, res: Response) => {
       where: { id: (target as any).id },
       data
     } as any);
+
+    if (req.body?.role !== undefined) {
+      try {
+        const { emitGroupLifecycle } = await import('../services/messaging/groupRealtime');
+        const { GROUP_WIRE_EVENTS } = await import('../services/messaging/groupRealtimeEvents');
+        await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.MEMBER_ROLE, {
+          userId: memberUserId,
+          role: normalizeMemberRole((updated as any).role),
+          actorId: userId
+        });
+      } catch {
+        /* optional */
+      }
+    }
 
     return res.json({
       success: true,

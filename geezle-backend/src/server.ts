@@ -1135,6 +1135,36 @@ communityNs.on('connection', (socket) => {
           /* optional */
         }
 
+        // Phase 29.2 — typing rate limit + multi-typer attribution (memory only)
+        let multiTyping: any = null;
+        try {
+          const {
+            checkTypingRate,
+            setTypingState
+          } = require('./services/messaging/groupEphemeralIndicators');
+          const { groupMetrics } = require('./services/messaging/groupMetrics');
+          if (isTyping) {
+            const rate = checkTypingRate(conversationId, userId);
+            if (!rate.allowed) {
+              groupMetrics.typingRateLimited();
+              return;
+            }
+          }
+          const providedNameEarly = String(payload?.name || '').trim();
+          const fallbackNameEarly = String((socket as any).data?.user?.email || 'Someone')
+            .split('@')[0]
+            .trim();
+          multiTyping = setTypingState({
+            conversationId,
+            userId,
+            name: providedNameEarly || fallbackNameEarly || 'Someone',
+            isTyping
+          });
+          groupMetrics.typingEvent();
+        } catch {
+          /* optional */
+        }
+
         let targets = participantIds.filter((participantId) => participantId !== userId);
         if (!targets.length) return;
 
@@ -1162,20 +1192,32 @@ communityNs.on('connection', (socket) => {
           userId,
           name: providedName || fallbackName || 'Someone',
           isTyping,
-          at: new Date().toISOString()
+          at: new Date().toISOString(),
+          // Phase 29.2 — multi-typer list for authorized members only
+          typing: multiTyping?.typing || undefined,
+          typers: multiTyping?.typing || undefined
         };
 
         targets.forEach((targetUserId) => {
           communityNs.to(`community:user:${targetUserId}`).emit('messages:typing', typingPayload);
         });
+        // Authorized group room (members who passed join gate)
+        try {
+          const { groupRoomName } = require('./services/messaging/groupRealtimeEvents');
+          communityNs.to(groupRoomName(conversationId)).emit('messages:typing', typingPayload);
+        } catch {
+          /* optional */
+        }
         void recordRealtimeEventDelivery({
           namespace: 'community',
           roomKey: `conversation:${conversationId}`,
           eventName: 'messages:typing',
           targetCount: targets.length,
           payload: {
-            ...typingPayload,
-            targets
+            conversationId,
+            userId,
+            isTyping: typingPayload.isTyping,
+            targetCount: targets.length
           },
           triggeredBy: 'runtime',
           persist: false
@@ -1238,6 +1280,7 @@ communityNs.on('connection', (socket) => {
   });
 
   // Phase 22.3 — recording indicator (voice note), reuses typing fan-out path
+  // Phase 29.2 — multi-recorder attribution + group room emit
   socket.on('messages:recording', (payload: any) => {
     const handleRecording = async () => {
       try {
@@ -1252,6 +1295,22 @@ communityNs.on('connection', (socket) => {
           const { getMessagingPrivacySettings } = require('./services/messaging/messagingPrivacyPolicy');
           const privacy = await getMessagingPrivacySettings(userId);
           if (privacy.recordingIndicatorsEnabled === false && isRecording) return;
+        } catch {
+          /* optional */
+        }
+        let multiRecording: any = null;
+        try {
+          const { setRecordingState } = require('./services/messaging/groupEphemeralIndicators');
+          const providedNameEarly = String(payload?.name || '').trim();
+          const fallbackNameEarly = String((socket as any).data?.user?.email || 'Someone')
+            .split('@')[0]
+            .trim();
+          multiRecording = setRecordingState({
+            conversationId,
+            userId,
+            name: providedNameEarly || fallbackNameEarly || 'Someone',
+            isRecording
+          });
         } catch {
           /* optional */
         }
@@ -1277,16 +1336,110 @@ communityNs.on('connection', (socket) => {
           userId,
           name: providedName || fallbackName || 'Someone',
           isRecording,
-          at: new Date().toISOString()
+          at: new Date().toISOString(),
+          recording: multiRecording?.recording || undefined,
+          recorders: multiRecording?.recording || undefined
         };
         targets.forEach((targetUserId) => {
           communityNs.to(`community:user:${targetUserId}`).emit('messages:recording', recordingPayload);
         });
+        try {
+          const { groupRoomName } = require('./services/messaging/groupRealtimeEvents');
+          communityNs.to(groupRoomName(conversationId)).emit('messages:recording', recordingPayload);
+        } catch {
+          /* optional */
+        }
       } catch (error) {
         console.error('messages:recording error:', error);
       }
     };
     void handleRecording();
+  });
+
+  // Phase 29.2 — authorized join to group room (never trust client-only membership)
+  socket.on('messages:group:join', (payload: any) => {
+    const handleGroupJoin = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const conversationId = String(payload?.conversationId || '').trim();
+        if (!userId || !conversationId) return;
+        const { authorizeGroupRealtimeAccess } = require('./services/messaging/groupRealtime');
+        const { groupRoomName, GROUP_WIRE_EVENTS } = require('./services/messaging/groupRealtimeEvents');
+        const { groupMetrics } = require('./services/messaging/groupMetrics');
+        const { snapshotEphemeral } = require('./services/messaging/groupEphemeralIndicators');
+        const auth = await authorizeGroupRealtimeAccess(conversationId, userId);
+        if (!auth.allowed) {
+          groupMetrics.socketJoinDenied();
+          socket.emit(GROUP_WIRE_EVENTS.GROUP_ROOM_DENIED, {
+            conversationId,
+            reason: auth.reason
+          });
+          return;
+        }
+        const room = groupRoomName(conversationId);
+        socket.join(room);
+        groupMetrics.socketJoin();
+        const ephemeral = snapshotEphemeral(conversationId);
+        socket.emit(GROUP_WIRE_EVENTS.GROUP_ROOM_JOINED, {
+          conversationId,
+          room,
+          visibility: auth.visibility,
+          typing: ephemeral.typing,
+          recording: ephemeral.recording
+        });
+      } catch (error) {
+        console.error('messages:group:join error:', error);
+      }
+    };
+    void handleGroupJoin();
+  });
+
+  socket.on('messages:group:leave', (payload: any) => {
+    try {
+      const conversationId = String(payload?.conversationId || '').trim();
+      if (!conversationId) return;
+      const { groupRoomName } = require('./services/messaging/groupRealtimeEvents');
+      socket.leave(groupRoomName(conversationId));
+    } catch {
+      /* optional */
+    }
+  });
+
+  // Phase 29.2 — reconnect catch-up over socket (same domain as REST)
+  socket.on('messages:catchup', (payload: any, ack?: (result: any) => void) => {
+    const handleCatchup = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const conversationId = String(payload?.conversationId || '').trim();
+        if (!userId || !conversationId) {
+          const denied = { success: false, code: 'GROUP_NOT_MEMBER' };
+          if (typeof ack === 'function') ack(denied);
+          return;
+        }
+        const { buildGroupCatchup } = require('./services/messaging/groupCatchup');
+        const { GROUP_WIRE_EVENTS } = require('./services/messaging/groupRealtimeEvents');
+        const result = await buildGroupCatchup({
+          conversationId,
+          userId,
+          cursor: payload?.cursor || null,
+          limit: payload?.limit
+        });
+        if (!result.ok) {
+          const denied = { success: false, code: result.code, error: result.error };
+          socket.emit(GROUP_WIRE_EVENTS.CATCHUP_ACK, denied);
+          if (typeof ack === 'function') ack(denied);
+          return;
+        }
+        const ok = { success: true, data: result.data };
+        socket.emit(GROUP_WIRE_EVENTS.CATCHUP, ok);
+        socket.emit(GROUP_WIRE_EVENTS.CATCHUP_ACK, ok);
+        if (typeof ack === 'function') ack(ok);
+      } catch (error) {
+        console.error('messages:catchup error:', error);
+        if (typeof ack === 'function') ack({ success: false, code: 'error' });
+      }
+    };
+    void handleCatchup();
   });
 
   socket.on('community:join', (payload: { userId: string }) => {
@@ -2540,6 +2693,32 @@ communityNs.on('connection', (socket) => {
       void releasePresenceLease(socket.id, {
         reason: String(reason || '').trim() || 'disconnect'
       });
+      // Phase 29.2 — clear stale typing/recording indicators for this user
+      try {
+        const {
+          clearUserEphemeralEverywhere
+        } = require('./services/messaging/groupEphemeralIndicators');
+        const { groupRoomName } = require('./services/messaging/groupRealtimeEvents');
+        const affected: string[] = clearUserEphemeralEverywhere(presenceUserId);
+        for (const conversationId of affected) {
+          communityNs.to(groupRoomName(conversationId)).emit('messages:typing', {
+            conversationId,
+            userId: presenceUserId,
+            isTyping: false,
+            at: new Date().toISOString(),
+            reason: 'disconnect'
+          });
+          communityNs.to(groupRoomName(conversationId)).emit('messages:recording', {
+            conversationId,
+            userId: presenceUserId,
+            isRecording: false,
+            at: new Date().toISOString(),
+            reason: 'disconnect'
+          });
+        }
+      } catch {
+        /* optional */
+      }
     }
     void recordRealtimeSocketDisconnected(socket.id, String(reason || '').trim() || 'disconnect');
     communityNs.to('community:admin').emit('realtime:session_changed', {

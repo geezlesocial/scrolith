@@ -47,6 +47,13 @@ import {
   createEnterpriseInvite,
   listGroupAudit
 } from '../controllers/groupEnterprise.controller';
+import {
+  postGroupPin,
+  deleteGroupPin,
+  getGroupPins,
+  getGroupCatchup,
+  getGroupRealtimeMetrics
+} from '../controllers/groupRealtime.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { postConversationReceipts } from '../controllers/messageReceipts.controller';
 import {
@@ -98,6 +105,12 @@ router.post('/groups/:id/unlock', authMiddleware, unlockGroup);
 router.post('/groups/:id/restrictions', authMiddleware, applyMemberRestriction);
 router.post('/groups/:id/invites', authMiddleware, createEnterpriseInvite);
 router.get('/groups/:id/audit', authMiddleware, listGroupAudit);
+// Phase 29.2 — pins + reconnect catch-up + metrics
+router.get('/groups/metrics/realtime', authMiddleware, getGroupRealtimeMetrics);
+router.get('/groups/:id/pins', authMiddleware, getGroupPins);
+router.post('/groups/:id/pins', authMiddleware, postGroupPin);
+router.delete('/groups/:id/pins/:messageId', authMiddleware, deleteGroupPin);
+router.get('/groups/:id/catchup', authMiddleware, getGroupCatchup);
 
 router.get('/conversations/:id', authMiddleware, getConversation);
 // Phase 20.7.8 — media browser + honest security status
