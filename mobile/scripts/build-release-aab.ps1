@@ -6,9 +6,9 @@ $ErrorActionPreference = 'Stop'
 $MobileRoot = Split-Path -Parent $PSScriptRoot
 $GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.29'
-$VersionCode = 39
-$VersionName = '1.1.29'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.30'
+$VersionCode = 40
+$VersionName = '1.1.30'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -29,9 +29,10 @@ $env:VITE_LOG_LEVEL = 'error'
 $env:VITE_SOCKET_TRACE = 'false'
 $env:VITE_MESSAGES_TRACE_DEBUG = 'false'
 $env:VITE_ALLOW_LOCAL_API_IN_PROD = 'false'
-$env:VITE_API_URL = 'https://scrolith-backend-1080932774304.asia-southeast1.run.app/api'
-$env:VITE_API_BASE_URL = 'https://scrolith-backend-1080932774304.asia-southeast1.run.app/api'
-$env:VITE_BACKEND_URL = 'https://scrolith-backend-1080932774304.asia-southeast1.run.app'
+# Match production web / Cloud Run FE (Phase 29.7)
+$env:VITE_API_URL = 'https://api.scrolith.com/api'
+$env:VITE_API_BASE_URL = 'https://api.scrolith.com/api'
+$env:VITE_BACKEND_URL = 'https://api.scrolith.com'
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $LogDir = Join-Path $OutDir 'logs'
@@ -122,7 +123,7 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = '21.1'
+  phase = '29.7'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24

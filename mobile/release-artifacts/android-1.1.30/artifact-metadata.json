@@ -1,0 +1,19 @@
+﻿{
+    "phase":  "29.7",
+    "webCommit":  "4402ba14",
+    "compileSdk":  36,
+    "javaHome":  "C:\\Program Files\\Microsoft\\jdk-21.0.11.10-hotspot",
+    "versionCode":  40,
+    "targetSdk":  36,
+    "aab":  "C:\\Projects\\mobile\\release-artifacts\\android-1.1.30\\Scrolith-1.1.30-40-release.aab",
+    "minSdk":  24,
+    "sizeBytes":  10105785,
+    "sha256":  "6f1e6e866c14891c2ce5ef66b78f5da31da2753cb9b516ba69cc46749e27f143",
+    "builtAt":  "2026-07-22T00:26:48.0199639+08:00",
+    "applicationId":  "com.scrolith.scrolith",
+    "shrinkResources":  true,
+    "md5":  "f7a32142a76a7c37f7cf45bcb2893be3",
+    "versionName":  "1.1.30",
+    "minifyEnabled":  true,
+    "sha1":  "cb82ce7dc03f71b451df9463e4e2f208177e8e5e"
+}

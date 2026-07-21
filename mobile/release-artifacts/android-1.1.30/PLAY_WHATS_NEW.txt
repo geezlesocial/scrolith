@@ -1,0 +1,7 @@
+Scrolith 1.1.30
+• Enterprise Messaging Groups: create public, private & secret groups
+• Group invites, join requests, roles, pins, slow mode & lockdown
+• Messaging Privacy works again on phones: online, last seen, read receipts, typing
+• Open Privacy from Messages (shield) or the conversation menu
+• Group discovery, search & admin tools for organizations
+• Push routing, reconnect & notification sound reliability
