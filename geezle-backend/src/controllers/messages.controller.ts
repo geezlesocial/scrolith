@@ -1715,6 +1715,23 @@ export const postMessage = async (req: Request, res: Response) => {
         }
         // mark after successful create (see below) — stash flag on request local
         (req as any).__phase291_markGroupSent = true;
+        // Phase 29.5 — abuse assessment (recommendations; optional auto-restrict signal only)
+        try {
+          const { assessMessageSendAbuse } = await import(
+            '../services/messaging/groupAbuseProtection.service'
+          );
+          const abuse = assessMessageSendAbuse({
+            userId: senderId,
+            conversationId: conversation.id,
+            text,
+            attachmentCount: attachments.length
+          });
+          if (abuse.score >= 50) {
+            (req as any).__phase295_abuse = abuse;
+          }
+        } catch {
+          /* optional */
+        }
       } catch (gateError) {
         console.warn('[messages] group send gate failed open=false policy', (gateError as any)?.message || gateError);
         // Fail closed for group mode/permission evaluation errors to avoid spam
@@ -2339,7 +2356,17 @@ export const postMessage = async (req: Request, res: Response) => {
         messageId: payload.id,
         clientMessageId: resolvedClientMessageId || null,
         orderingCursor: `${message.createdAt.toISOString()}|${message.id}`
-      }
+      },
+      // Phase 29.5 — abuse recommendations (never auto-punish unless configured elsewhere)
+      ...((req as any).__phase295_abuse
+        ? {
+            abuseSignals: {
+              score: (req as any).__phase295_abuse.score,
+              signals: (req as any).__phase295_abuse.signals,
+              recommendations: (req as any).__phase295_abuse.recommendations
+            }
+          }
+        : {})
     });
   } catch (error: any) {
     console.error('Post message error:', error);

@@ -54,6 +54,12 @@ import {
   getGroupCatchup,
   getGroupRealtimeMetrics
 } from '../controllers/groupRealtime.controller';
+import {
+  searchGroupsEnterprise,
+  saveGroupSearch,
+  discoverGroups,
+  getGroupHealth
+} from '../controllers/groupIntelligence.controller';
 import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
 import { postConversationReceipts } from '../controllers/messageReceipts.controller';
 import {
@@ -90,8 +96,15 @@ router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
 // Phase 22.2 — group invites accept (before :id routes)
 router.post('/invites/:code/accept', authMiddleware, acceptGroupInvite);
 
+// Phase 29.5 — search + discovery + static paths (before :id routes)
+router.get('/groups/search', authMiddleware, searchGroupsEnterprise);
+router.post('/groups/search/saved', authMiddleware, saveGroupSearch);
+router.get('/groups/discover', authMiddleware, discoverGroups);
+router.get('/groups/metrics/realtime', authMiddleware, getGroupRealtimeMetrics);
+
 // Phase 29.1 — Enterprise Messaging Groups foundation (additive)
 router.post('/groups', authMiddleware, createEnterpriseGroup);
+router.get('/groups/:id/health', authMiddleware, getGroupHealth);
 router.get('/groups/:id', authMiddleware, getEnterpriseGroup);
 router.patch('/groups/:id', authMiddleware, patchEnterpriseGroup);
 router.get('/groups/:id/permissions', authMiddleware, getGroupPermissions);
@@ -105,8 +118,7 @@ router.post('/groups/:id/unlock', authMiddleware, unlockGroup);
 router.post('/groups/:id/restrictions', authMiddleware, applyMemberRestriction);
 router.post('/groups/:id/invites', authMiddleware, createEnterpriseInvite);
 router.get('/groups/:id/audit', authMiddleware, listGroupAudit);
-// Phase 29.2 — pins + reconnect catch-up + metrics
-router.get('/groups/metrics/realtime', authMiddleware, getGroupRealtimeMetrics);
+// Phase 29.2 — pins + reconnect catch-up
 router.get('/groups/:id/pins', authMiddleware, getGroupPins);
 router.post('/groups/:id/pins', authMiddleware, postGroupPin);
 router.delete('/groups/:id/pins/:messageId', authMiddleware, deleteGroupPin);

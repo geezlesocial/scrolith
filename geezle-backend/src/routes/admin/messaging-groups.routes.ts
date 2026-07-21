@@ -17,6 +17,11 @@ import {
   adminExportMessagingGroups,
   adminMessagingGroupsMetrics
 } from '../../controllers/admin.messagingGroups.controller';
+import {
+  adminSearchMessagingGroups,
+  adminMessagingGroupsAnalytics,
+  adminGroupHealth
+} from '../../controllers/groupIntelligence.controller';
 
 const router = express.Router();
 
@@ -55,7 +60,22 @@ router.get(
   requireAnyPermission('messaging.groups.export', 'chat.records.export'),
   adminExportMessagingGroups
 );
+router.get(
+  '/search',
+  requireAnyPermission('messaging.groups.read', 'chat.read_any'),
+  adminSearchMessagingGroups
+);
+router.get(
+  '/analytics',
+  requireAnyPermission('messaging.groups.read', 'chat.read_any'),
+  adminMessagingGroupsAnalytics
+);
 router.get('/', requireAnyPermission('messaging.groups.read', 'chat.read_any'), adminListMessagingGroups);
+router.get(
+  '/:id/health',
+  requireAnyPermission('messaging.groups.read', 'chat.read_any'),
+  adminGroupHealth
+);
 router.get('/:id', requireAnyPermission('messaging.groups.read', 'chat.read_any'), adminGetMessagingGroup);
 router.post(
   '/:id/actions',
