@@ -133,8 +133,8 @@ test('Phase 29 manifest icon, default channel, production hosts, POST_NOTIFICATI
 });
 
 test('Phase 29 version code > 35 and package identity', () => {
-  assert.match(gradle, /versionCode 41/);
-  assert.match(gradle, /versionName "1\.1\.31"/);
+  assert.match(gradle, /versionCode 42/);
+  assert.match(gradle, /versionName "1.1.32"/);
   assert.match(gradle, /applicationId "com\.scrolith\.scrolith"/);
   assert.equal(packageJson.version, '1.1.31');
   assert.match(capacitor, /hostname: 'scrolith\.com'/);

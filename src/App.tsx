@@ -776,10 +776,14 @@ const AppContent = () => {
   );
   const biometricCheckingRef = useRef(false);
   const biometricVerifiedRef = useRef(false);
+  const biometricEnabledRef = useRef(false);
   const appBackgroundAtRef = useRef<number | null>(null);
   const appWasBackgroundedRef = useRef(false);
   const lastBiometricSuccessAtRef = useRef(0);
   const lastBiometricPromptAtRef = useRef(0);
+  /** True while OS biometric sheet is open — ignore app background/foreground churn from that sheet. */
+  const biometricPromptInFlightRef = useRef(false);
+  const promptBiometricsRef = useRef<(reason?: string) => Promise<void>>(async () => undefined);
   const [isNative, setIsNative] = useState(() => hasNativeRuntime());
 
   useEffect(() => {
@@ -1037,7 +1041,9 @@ const AppContent = () => {
   }, []);
 
   useEffect(() => {
-    setBiometricEnabled(Boolean(isNative && readBiometricPreference()));
+    const enabled = Boolean(isNative && readBiometricPreference());
+    biometricEnabledRef.current = enabled;
+    setBiometricEnabled(enabled);
     if (!isNative) {
       updateBiometricVerified(true);
     }
@@ -1045,49 +1051,70 @@ const AppContent = () => {
 
   const promptBiometrics = useCallback(
     async (reason?: string) => {
-      if (!isNative || !biometricEnabled || biometricCheckingRef.current) return;
+      if (!isNative || !biometricEnabledRef.current) return;
       if (!isAuthenticated || !user) return;
+      // Already unlocked — never re-open OS sheet or re-show overlay race.
       if (biometricVerifiedRef.current) return;
+      if (biometricCheckingRef.current || biometricPromptInFlightRef.current) return;
+
       const now = Date.now();
-      if (now - lastBiometricPromptAtRef.current < 1200) return;
+      // Grace window after a successful unlock (covers OEM app-state thrash + dialog dismiss).
+      if (now - lastBiometricSuccessAtRef.current < 8_000) {
+        updateBiometricVerified(true);
+        return;
+      }
+      if (now - lastBiometricPromptAtRef.current < 1500) return;
       lastBiometricPromptAtRef.current = now;
 
       updateBiometricChecking(true);
+      biometricPromptInFlightRef.current = true;
       setBiometricError(null);
 
-      const { authenticateBiometrics, checkBiometrics } = await import('./mobile/biometrics');
-      const info = await checkBiometrics();
-      if (!info.available) {
-        setBiometricEnabled(false);
-        writeBiometricPreference(false);
-        updateBiometricVerified(true);
-        updateBiometricChecking(false);
-        showNotification('alert', 'Biometrics Unavailable', 'No biometric hardware detected on this device.');
-        return;
-      }
+      try {
+        const { authenticateBiometrics, checkBiometrics } = await import('./mobile/biometrics');
+        const info = await checkBiometrics();
+        if (!info.available) {
+          setBiometricEnabled(false);
+          biometricEnabledRef.current = false;
+          writeBiometricPreference(false);
+          updateBiometricVerified(true);
+          showNotification('alert', 'Biometrics Unavailable', 'No biometric hardware detected on this device.');
+          return;
+        }
 
-      const label = getBiometryLabel(info.biometryType);
-      setBiometryLabel(label);
+        const label = getBiometryLabel(info.biometryType);
+        setBiometryLabel(label);
 
-      const auth = await authenticateBiometrics(reason || `Unlock Scrolith with ${label}`);
-      if (auth.ok) {
-        updateBiometricVerified(true);
-        lastBiometricSuccessAtRef.current = Date.now();
-        setBiometricError(null);
-      } else {
+        const auth = await authenticateBiometrics(reason || `Unlock Scrolith with ${label}`);
+        if (auth.ok) {
+          lastBiometricSuccessAtRef.current = Date.now();
+          // Clear background flags so dismiss of OS sheet doesn't re-lock.
+          appWasBackgroundedRef.current = false;
+          appBackgroundAtRef.current = null;
+          updateBiometricVerified(true);
+          setBiometricError(null);
+        } else {
+          // User cancelled or failed — keep overlay, allow retry (not stuck on Checking).
+          updateBiometricVerified(false);
+          const code = String((auth as any)?.code || '').toLowerCase();
+          const cancelled =
+            code.includes('cancel') ||
+            code.includes('user') ||
+            /cancel|dismiss|user.?cancel/i.test(String(auth.error || ''));
+          setBiometricError(cancelled ? null : auth.error || 'Authentication failed.');
+        }
+      } catch (error: any) {
         updateBiometricVerified(false);
-        setBiometricError(auth.error || 'Authentication failed.');
+        setBiometricError(error?.message || 'Authentication failed.');
+      } finally {
+        biometricPromptInFlightRef.current = false;
+        updateBiometricChecking(false);
       }
-      updateBiometricChecking(false);
     },
-    [
-      isNative,
-      biometricEnabled,
-      isAuthenticated,
-      user,
-      showNotification
-    ]
+    [isNative, isAuthenticated, user, showNotification]
   );
+
+  promptBiometricsRef.current = promptBiometrics;
 
   useEffect(() => {
     if (!isNative) return;
@@ -1137,51 +1164,82 @@ const AppContent = () => {
     };
   }, [isAuthenticated, isNative, navigate, user?.id]);
 
+  // Gate: prompt once when biometric unlock is required. Depend on user.id only
+  // so callback identity churn does not re-lock after a successful unlock.
   useEffect(() => {
-    if (!biometricEnabled || !isAuthenticated || !user) {
+    if (!biometricEnabled || !isAuthenticated || !user?.id) {
       updateBiometricVerified(true);
       setBiometricError(null);
       return;
     }
+    // Already verified this session — do not reset (prevents duplicate lock overlay).
+    if (biometricVerifiedRef.current) return;
+    if (Date.now() - lastBiometricSuccessAtRef.current < 8_000) {
+      updateBiometricVerified(true);
+      return;
+    }
     updateBiometricVerified(false);
-    void promptBiometrics();
-  }, [biometricEnabled, isAuthenticated, user, promptBiometrics]);
+    void promptBiometricsRef.current();
+  }, [biometricEnabled, isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (!isNative || !biometricEnabled) return;
     let isMounted = true;
     let listenerHandle: { remove: () => Promise<void> } | null = null;
 
-    void import('@capacitor/app').then(({ App: CapacitorApp }) => {
-      return CapacitorApp.addListener('appStateChange', ({ isActive }) => {
-        if (!isActive) {
-          appBackgroundAtRef.current = Date.now();
-          appWasBackgroundedRef.current = true;
+    void import('@capacitor/app')
+      .then(({ App: CapacitorApp }) => {
+        return CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+          // OS biometric sheet often pauses the WebView. Do not treat that as a full lock.
+          if (biometricPromptInFlightRef.current || biometricCheckingRef.current) {
+            if (isActive) {
+              // Sheet closed; if we already unlocked, keep unlocked.
+              if (biometricVerifiedRef.current) {
+                appWasBackgroundedRef.current = false;
+                appBackgroundAtRef.current = null;
+              }
+            }
+            return;
+          }
+
+          if (!isActive) {
+            appBackgroundAtRef.current = Date.now();
+            appWasBackgroundedRef.current = true;
+            // Only re-lock after a real background, not during an in-flight prompt.
+            if (biometricVerifiedRef.current) {
+              updateBiometricVerified(false);
+            }
+            return;
+          }
+
+          const backgroundAt = appBackgroundAtRef.current;
+          const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
+          const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1500;
+          appWasBackgroundedRef.current = false;
+          appBackgroundAtRef.current = null;
+
+          if (!resumedFromBackground) return;
+
+          // Skip re-lock right after a successful unlock or while still verified.
+          if (biometricVerifiedRef.current) return;
+          if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) {
+            updateBiometricVerified(true);
+            return;
+          }
+          if (!biometricEnabledRef.current) return;
           updateBiometricVerified(false);
+          void promptBiometricsRef.current(`Unlock Scrolith with ${biometryLabel}`);
+        });
+      })
+      .then((handle) => {
+        if (!handle) return;
+        if (!isMounted) {
+          void handle.remove();
           return;
         }
-
-        const backgroundAt = appBackgroundAtRef.current;
-        const backgroundDurationMs = backgroundAt ? Date.now() - backgroundAt : 0;
-        const resumedFromBackground = appWasBackgroundedRef.current && backgroundDurationMs >= 1000;
-        appWasBackgroundedRef.current = false;
-        appBackgroundAtRef.current = null;
-
-        if (!resumedFromBackground) return;
-
-        // Avoid immediate re-prompts caused by OEM app-state callbacks around biometric dialogs.
-        if (Date.now() - lastBiometricSuccessAtRef.current < 15_000) return;
-        updateBiometricVerified(false);
-        void promptBiometrics(`Unlock Scrolith with ${biometryLabel}`);
-      });
-    }).then((handle) => {
-      if (!handle) return;
-      if (!isMounted) {
-        void handle.remove();
-        return;
-      }
-      listenerHandle = handle;
-    }).catch(() => {});
+        listenerHandle = handle;
+      })
+      .catch(() => {});
 
     return () => {
       isMounted = false;
@@ -1189,7 +1247,7 @@ const AppContent = () => {
         void listenerHandle.remove();
       }
     };
-  }, [isNative, biometricEnabled, promptBiometrics, biometryLabel]);
+  }, [isNative, biometricEnabled, biometryLabel]);
 
   // Hide Navbar/Footer on Admin Dashboard for full screen feel
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/dev-docs');
