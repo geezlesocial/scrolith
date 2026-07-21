@@ -832,15 +832,134 @@ export const MessagingService = {
 
   createGroupInvite: async (
     conversationId: string,
-    options?: { inviteeUserId?: string; role?: string; expiresInHours?: number }
+    options?: {
+      inviteeUserId?: string;
+      role?: string;
+      expiresInHours?: number;
+      maxUses?: number;
+      oneTime?: boolean;
+      requireApproval?: boolean;
+      previewDisabled?: boolean;
+      label?: string;
+    }
   ) => {
-    const response = await api.post(`/messages/conversations/${conversationId}/invites`, options || {});
-    return extractData<any>(response);
+    // Prefer Phase 29.1 enterprise invite path; fall back to Phase 22.2
+    try {
+      const response = await api.post(`/messages/groups/${conversationId}/invites`, options || {});
+      return extractData<any>(response);
+    } catch {
+      const response = await api.post(`/messages/conversations/${conversationId}/invites`, options || {});
+      return extractData<any>(response);
+    }
   },
 
   acceptGroupInvite: async (code: string) => {
     const response = await api.post(`/messages/invites/${encodeURIComponent(code)}/accept`);
     conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  /** Phase 29.1/29.3 — enterprise group create wizard */
+  createEnterpriseGroup: async (payload: Record<string, unknown>) => {
+    const response = await api.post('/messages/groups', payload);
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  getEnterpriseGroup: async (conversationId: string) => {
+    const response = await api.get(`/messages/groups/${conversationId}`);
+    return extractData<any>(response);
+  },
+
+  patchEnterpriseGroup: async (conversationId: string, patch: Record<string, unknown>) => {
+    const response = await api.patch(`/messages/groups/${conversationId}`, patch);
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  getGroupPermissions: async (conversationId: string) => {
+    const response = await api.get(`/messages/groups/${conversationId}/permissions`);
+    return extractData<any>(response);
+  },
+
+  patchGroupPermissions: async (conversationId: string, permissionOverrides: Record<string, unknown> | null) => {
+    const response = await api.patch(`/messages/groups/${conversationId}/permissions`, {
+      permissionOverrides
+    });
+    return extractData<any>(response);
+  },
+
+  joinGroupOpen: async (conversationId: string) => {
+    const response = await api.post(`/messages/groups/${conversationId}/join`);
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  createGroupJoinRequest: async (conversationId: string, message?: string) => {
+    const response = await api.post(`/messages/groups/${conversationId}/join-requests`, { message });
+    return extractData<any>(response);
+  },
+
+  listGroupJoinRequests: async (conversationId: string, status = 'PENDING') => {
+    const response = await api.get(`/messages/groups/${conversationId}/join-requests`, {
+      params: { status }
+    });
+    return safeArray<any>(extractData<any>(response));
+  },
+
+  decideGroupJoinRequest: async (
+    conversationId: string,
+    requestId: string,
+    decision: 'approve' | 'reject'
+  ) => {
+    const response = await api.post(
+      `/messages/groups/${conversationId}/join-requests/${requestId}/${decision}`
+    );
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  lockGroup: async (conversationId: string, body?: { reason?: string; expiresInMinutes?: number }) => {
+    const response = await api.post(`/messages/groups/${conversationId}/lock`, body || {});
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  unlockGroup: async (conversationId: string, messagingMode?: string) => {
+    const response = await api.post(`/messages/groups/${conversationId}/unlock`, {
+      messagingMode: messagingMode || 'EVERYONE'
+    });
+    conversationCache.clear();
+    return extractData<any>(response);
+  },
+
+  applyGroupRestriction: async (
+    conversationId: string,
+    body: { userId: string; kind: string; reason?: string; endsAt?: string }
+  ) => {
+    const response = await api.post(`/messages/groups/${conversationId}/restrictions`, body);
+    return extractData<any>(response);
+  },
+
+  listGroupPins: async (conversationId: string) => {
+    const response = await api.get(`/messages/groups/${conversationId}/pins`);
+    return safeArray<any>(extractData<any>(response));
+  },
+
+  pinGroupMessage: async (conversationId: string, messageId: string) => {
+    const response = await api.post(`/messages/groups/${conversationId}/pins`, { messageId });
+    return extractData<any>(response);
+  },
+
+  unpinGroupMessage: async (conversationId: string, messageId: string) => {
+    const response = await api.delete(`/messages/groups/${conversationId}/pins/${messageId}`);
+    return extractData<any>(response);
+  },
+
+  getGroupCatchup: async (conversationId: string, cursor?: string | null, limit = 50) => {
+    const response = await api.get(`/messages/groups/${conversationId}/catchup`, {
+      params: { cursor: cursor || undefined, limit }
+    });
     return extractData<any>(response);
   },
 

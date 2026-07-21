@@ -1,9 +1,23 @@
 /**
- * Phase 22.2 — Group management panel (members, roles, invites, meta).
+ * Phase 22.2 + 29.3 — Group management panel.
+ * Tabs: General · Members · Invites · Join requests · Restrictions · Danger
  */
 import React, { useCallback, useEffect, useState } from 'react';
 import { MessagingService } from '../../services/messaging';
-import { Users, UserPlus, Link2, Crown, Shield, Trash2, X } from 'lucide-react';
+import {
+  Users,
+  UserPlus,
+  Link2,
+  Crown,
+  Shield,
+  Trash2,
+  X,
+  QrCode,
+  Lock,
+  Bell,
+  UserCheck,
+  AlertTriangle
+} from 'lucide-react';
 
 export type GroupMember = {
   userId: string;
@@ -14,6 +28,7 @@ export type GroupMember = {
   role: string;
   notifications?: string;
   isMuted?: boolean;
+  isOnline?: boolean;
 };
 
 type Props = {
@@ -23,10 +38,11 @@ type Props = {
   isGroup?: boolean;
   initialTitle?: string | null;
   canManage?: boolean;
-  /** Current signed-in user id (for notification prefs) */
   currentUserId?: string | null;
   onUpdated?: () => void;
 };
+
+type TabId = 'general' | 'members' | 'invites' | 'requests' | 'restrictions' | 'danger';
 
 const roleBadge = (role: string) => {
   const r = String(role || 'MEMBER').toUpperCase();
@@ -35,6 +51,15 @@ const roleBadge = (role: string) => {
   if (r === 'MODERATOR') return { label: 'Mod', className: 'bg-sky-100 text-sky-800' };
   return { label: 'Member', className: 'bg-slate-100 text-slate-700' };
 };
+
+const TABS: { id: TabId; label: string }[] = [
+  { id: 'general', label: 'General' },
+  { id: 'members', label: 'Members' },
+  { id: 'invites', label: 'Invites' },
+  { id: 'requests', label: 'Requests' },
+  { id: 'restrictions', label: 'Modes' },
+  { id: 'danger', label: 'Danger' }
+];
 
 const GroupManagePanel: React.FC<Props> = ({
   conversationId,
@@ -46,16 +71,24 @@ const GroupManagePanel: React.FC<Props> = ({
   currentUserId = null,
   onUpdated
 }) => {
+  const [tab, setTab] = useState<TabId>('general');
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState(String(initialTitle || ''));
   const [description, setDescription] = useState('');
+  const [visibility, setVisibility] = useState('PRIVATE');
+  const [messagingMode, setMessagingMode] = useState('EVERYONE');
+  const [slowModeSeconds, setSlowModeSeconds] = useState(0);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteMeta, setInviteMeta] = useState<any>(null);
   const [addUserId, setAddUserId] = useState('');
   const [myNotifications, setMyNotifications] = useState('ALL');
+  const [joinRequests, setJoinRequests] = useState<any[]>([]);
+  const [pins, setPins] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+  const [groupProfile, setGroupProfile] = useState<any>(null);
 
   const load = useCallback(async () => {
     if (!conversationId || !open) return;
@@ -71,12 +104,37 @@ const GroupManagePanel: React.FC<Props> = ({
         );
         if (me?.notifications) setMyNotifications(String(me.notifications).toUpperCase());
       }
+      try {
+        const profile = await MessagingService.getEnterpriseGroup(conversationId);
+        setGroupProfile(profile);
+        if (profile?.title || profile?.name) setTitle(String(profile.title || profile.name || ''));
+        if (profile?.description != null) setDescription(String(profile.description || ''));
+        if (profile?.visibility) setVisibility(String(profile.visibility).toUpperCase());
+        if (profile?.messagingMode) setMessagingMode(String(profile.messagingMode).toUpperCase());
+        if (profile?.slowModeSeconds != null) setSlowModeSeconds(Number(profile.slowModeSeconds) || 0);
+      } catch {
+        /* enterprise endpoint may be unavailable until migration */
+      }
+      try {
+        const pinList = await MessagingService.listGroupPins(conversationId);
+        setPins(Array.isArray(pinList) ? pinList : []);
+      } catch {
+        setPins([]);
+      }
+      if (canManage) {
+        try {
+          const reqs = await MessagingService.listGroupJoinRequests(conversationId, 'PENDING');
+          setJoinRequests(Array.isArray(reqs) ? reqs : []);
+        } catch {
+          setJoinRequests([]);
+        }
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load members');
     } finally {
       setLoading(false);
     }
-  }, [conversationId, open, currentUserId]);
+  }, [conversationId, open, currentUserId, canManage]);
 
   useEffect(() => {
     void load();
@@ -92,11 +150,23 @@ const GroupManagePanel: React.FC<Props> = ({
     setSaving(true);
     setError(null);
     try {
-      await MessagingService.updateGroupMeta(conversationId, {
-        title: title.trim(),
-        description: description.trim()
-      });
+      try {
+        await MessagingService.patchEnterpriseGroup(conversationId, {
+          name: title.trim(),
+          description: description.trim(),
+          visibility,
+          messagingMode,
+          slowModeSeconds
+        });
+      } catch {
+        await MessagingService.updateGroupMeta(conversationId, {
+          title: title.trim(),
+          description: description.trim(),
+          visibility
+        });
+      }
       onUpdated?.();
+      await load();
     } catch (e: any) {
       setError(e?.message || 'Failed to save group');
     } finally {
@@ -104,13 +174,19 @@ const GroupManagePanel: React.FC<Props> = ({
     }
   };
 
-  const createInvite = async () => {
+  const createInvite = async (opts?: { oneTime?: boolean; maxUses?: number }) => {
     setSaving(true);
     setError(null);
     try {
-      const data = await MessagingService.createGroupInvite(conversationId, { expiresInHours: 168 });
+      const data = await MessagingService.createGroupInvite(conversationId, {
+        expiresInHours: 168,
+        oneTime: opts?.oneTime,
+        maxUses: opts?.maxUses,
+        previewDisabled: visibility === 'SECRET'
+      });
       setInviteCode(data?.code || null);
       setInviteLink(data?.joinPath || (data?.code ? `/messages/join/${data.code}` : null));
+      setInviteMeta(data);
     } catch (e: any) {
       setError(e?.message || 'Failed to create invite');
     } finally {
@@ -160,6 +236,47 @@ const GroupManagePanel: React.FC<Props> = ({
     }
   };
 
+  const decideRequest = async (requestId: string, decision: 'approve' | 'reject') => {
+    setSaving(true);
+    try {
+      await MessagingService.decideGroupJoinRequest(conversationId, requestId, decision);
+      await load();
+      onUpdated?.();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update request');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const lockOrUnlock = async (lock: boolean) => {
+    setSaving(true);
+    try {
+      if (lock) await MessagingService.lockGroup(conversationId, { reason: 'Admin lockdown' });
+      else await MessagingService.unlockGroup(conversationId, 'EVERYONE');
+      await load();
+      onUpdated?.();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update lockdown');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyInvite = async () => {
+    const text = inviteLink
+      ? `${typeof window !== 'undefined' ? window.location.origin : ''}${inviteLink}`
+      : inviteCode || '';
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const onlineCount = members.filter((m) => m.isOnline).length;
+
   return (
     <div
       className="fixed inset-0 z-[80] flex justify-end bg-slate-900/40"
@@ -169,205 +286,441 @@ const GroupManagePanel: React.FC<Props> = ({
     >
       <button type="button" className="flex-1 cursor-default" aria-label="Close overlay" onClick={onClose} />
       <aside className="flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Users className="h-5 w-5 text-indigo-600" />
-            <h2 className="text-base font-semibold text-slate-900">Group settings</h2>
+        <header className="border-b border-slate-100 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-indigo-600" />
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Group settings</h2>
+                <p className="text-[11px] text-slate-500">
+                  {members.length} members
+                  {onlineCount ? ` · ${onlineCount} online` : ''}
+                  {pins.length ? ` · ${pins.length} pinned` : ''}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+              aria-label="Close"
+            >
+              <X className="h-5 w-5" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-            aria-label="Close"
+          <div
+            className="mt-3 flex gap-1 overflow-x-auto pb-1"
+            role="tablist"
+            aria-label="Group settings tabs"
           >
-            <X className="h-5 w-5" />
-          </button>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === t.id}
+                data-testid={`group-tab-${t.id}`}
+                onClick={() => setTab(t.id)}
+                className={`shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                  tab === t.id ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {t.label}
+                {t.id === 'requests' && joinRequests.length ? (
+                  <span className="ml-1 rounded-full bg-white/20 px-1.5">{joinRequests.length}</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
         </header>
 
         <div className="flex-1 space-y-5 overflow-y-auto p-4">
           {error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-          ) : null}
-
-          <section className="space-y-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title</label>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="Group name"
-              disabled={!canManage || saving}
-              data-testid="group-title-input"
-            />
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="min-h-[72px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="What is this group for?"
-              disabled={!canManage || saving}
-            />
-            {canManage ? (
-              <button
-                type="button"
-                onClick={() => void saveMeta()}
-                disabled={saving}
-                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              >
-                Save group info
-              </button>
-            ) : null}
-          </section>
-
-          <section className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">Members ({members.length})</h3>
-              {loading ? <span className="text-xs text-slate-400">Loading…</span> : null}
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
             </div>
-            <ul className="space-y-2" data-testid="group-members-list">
-              {members.map((m) => {
-                const badge = roleBadge(m.role);
-                const mid = m.userId || m.id || '';
-                return (
-                  <li
-                    key={mid}
-                    className="flex items-center gap-2 rounded-xl border border-slate-100 px-3 py-2"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium text-slate-900">{m.name}</div>
-                      {m.username ? (
-                        <div className="truncate text-xs text-slate-500">@{m.username}</div>
-                      ) : null}
-                    </div>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
-                      {badge.label}
-                    </span>
-                    {canManage && String(m.role).toUpperCase() !== 'OWNER' ? (
-                      <select
-                        className="max-w-[100px] rounded-lg border border-slate-200 text-xs"
-                        value={String(m.role || 'MEMBER').toUpperCase()}
-                        onChange={(e) => void changeRole(mid, e.target.value)}
-                        aria-label={`Role for ${m.name}`}
-                      >
-                        <option value="MEMBER">Member</option>
-                        <option value="MODERATOR">Moderator</option>
-                        <option value="ADMIN">Admin</option>
-                      </select>
-                    ) : null}
-                    {canManage && String(m.role).toUpperCase() !== 'OWNER' ? (
-                      <button
-                        type="button"
-                        onClick={() => void removeMember(mid)}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        aria-label={`Remove ${m.name}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-
-          {canManage ? (
-            <section className="space-y-2">
-              <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-900">
-                <UserPlus className="h-4 w-4" /> Add member
-              </h3>
-              <div className="flex gap-2">
-                <input
-                  value={addUserId}
-                  onChange={(e) => setAddUserId(e.target.value)}
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="User id"
-                  data-testid="group-add-member-input"
-                />
-                <button
-                  type="button"
-                  onClick={() => void addMember()}
-                  disabled={saving || !addUserId.trim()}
-                  className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Add
-                </button>
-              </div>
-            </section>
           ) : null}
 
-          {currentUserId ? (
-            <section className="space-y-2">
-              <h3 className="text-sm font-semibold text-slate-900">My notifications</h3>
-              <select
+          {tab === 'general' ? (
+            <section className="space-y-2" data-testid="group-tab-panel-general">
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title</label>
+              <input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                value={myNotifications}
-                disabled={saving}
-                data-testid="group-my-notifications"
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setMyNotifications(next);
-                  void (async () => {
-                    setSaving(true);
-                    try {
-                      await MessagingService.updateGroupMember(conversationId, currentUserId, {
-                        notifications: next
-                      });
-                    } catch (err: any) {
-                      setError(err?.message || 'Failed to update notifications');
-                    } finally {
-                      setSaving(false);
-                    }
-                  })();
-                }}
-              >
-                <option value="ALL">All messages</option>
-                <option value="MENTIONS">Mentions only</option>
-                <option value="NONE">None</option>
-              </select>
-              <p className="text-[11px] text-slate-500">
-                @mentions still notify you when muted or on Mentions-only.
-              </p>
-            </section>
-          ) : null}
+                placeholder="Group name"
+                disabled={!canManage || saving}
+                data-testid="group-title-input"
+              />
+              <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Description
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="min-h-[72px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                placeholder="What is this group for?"
+                disabled={!canManage || saving}
+              />
+              {canManage ? (
+                <>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Visibility
+                  </label>
+                  <select
+                    value={visibility}
+                    onChange={(e) => setVisibility(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    disabled={saving}
+                  >
+                    <option value="PRIVATE">Private</option>
+                    <option value="PUBLIC">Public</option>
+                    <option value="SECRET">Secret</option>
+                    <option value="UNLISTED">Unlisted</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void saveMeta()}
+                    disabled={saving}
+                    className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    Save group info
+                  </button>
+                </>
+              ) : null}
 
-          {canManage ? (
-            <section className="space-y-2">
-              <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-900">
-                <Link2 className="h-4 w-4" /> Invite link
-              </h3>
-              <button
-                type="button"
-                onClick={() => void createInvite()}
-                disabled={saving}
-                className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-                data-testid="group-create-invite"
-              >
-                Generate invite
-              </button>
-              {inviteCode ? (
-                <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                  <div>
-                    Code: <span className="font-mono font-semibold">{inviteCode}</span>
-                  </div>
-                  {inviteLink ? <div className="mt-1 break-all">Path: {inviteLink}</div> : null}
+              {currentUserId ? (
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+                    <Bell className="h-4 w-4" /> My notifications
+                  </h3>
+                  <select
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    value={myNotifications}
+                    disabled={saving}
+                    data-testid="group-my-notifications"
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setMyNotifications(next);
+                      void (async () => {
+                        setSaving(true);
+                        try {
+                          await MessagingService.updateGroupMember(conversationId, currentUserId, {
+                            notifications: next
+                          });
+                        } catch (err: any) {
+                          setError(err?.message || 'Failed to update notifications');
+                        } finally {
+                          setSaving(false);
+                        }
+                      })();
+                    }}
+                  >
+                    <option value="ALL">All messages</option>
+                    <option value="MENTIONS">Mentions only</option>
+                    <option value="NONE">None</option>
+                  </select>
+                </div>
+              ) : null}
+
+              {pins.length ? (
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <h3 className="text-sm font-semibold text-slate-900">Pinned ({pins.length})</h3>
+                  <ul className="space-y-1">
+                    {pins.slice(0, 8).map((p: any) => (
+                      <li
+                        key={p.id || p.messageId}
+                        className="rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-900"
+                      >
+                        {String(p?.message?.text || p.messageId || 'Pinned message').slice(0, 120)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               ) : null}
             </section>
           ) : null}
 
-          <section className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <div className="mb-1 flex items-center gap-1 font-semibold text-slate-800">
-              <Shield className="h-3.5 w-3.5" /> Roles
-            </div>
-            <p>
-              <Crown className="mr-1 inline h-3 w-3 text-amber-600" />
-              Owner controls ownership; Admins manage members and invites; Moderators help keep
-              discussions healthy; Members participate.
-            </p>
-            <p className="mt-1">
-              @mentions notify mentioned members even when muted or on Mentions-only notifications.
-            </p>
-          </section>
+          {tab === 'members' ? (
+            <section className="space-y-2" data-testid="group-tab-panel-members">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-900">Members ({members.length})</h3>
+                {loading ? <span className="text-xs text-slate-400">Loading…</span> : null}
+              </div>
+              <ul className="space-y-2" data-testid="group-members-list">
+                {members.map((m) => {
+                  const badge = roleBadge(m.role);
+                  const mid = m.userId || m.id || '';
+                  return (
+                    <li
+                      key={mid}
+                      className="flex items-center gap-2 rounded-xl border border-slate-100 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-900">
+                          {m.name}
+                          {m.isOnline ? (
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          ) : null}
+                        </div>
+                        {m.username ? (
+                          <div className="truncate text-xs text-slate-500">@{m.username}</div>
+                        ) : null}
+                      </div>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}
+                      >
+                        {badge.label}
+                      </span>
+                      {canManage && String(m.role).toUpperCase() !== 'OWNER' ? (
+                        <select
+                          className="max-w-[100px] rounded-lg border border-slate-200 text-xs"
+                          value={String(m.role || 'MEMBER').toUpperCase()}
+                          onChange={(e) => void changeRole(mid, e.target.value)}
+                          aria-label={`Role for ${m.name}`}
+                        >
+                          <option value="MEMBER">Member</option>
+                          <option value="MODERATOR">Moderator</option>
+                          <option value="ADMIN">Admin</option>
+                        </select>
+                      ) : null}
+                      {canManage && String(m.role).toUpperCase() !== 'OWNER' ? (
+                        <button
+                          type="button"
+                          onClick={() => void removeMember(mid)}
+                          className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          aria-label={`Remove ${m.name}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+              {canManage ? (
+                <div className="space-y-2 border-t border-slate-100 pt-3">
+                  <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+                    <UserPlus className="h-4 w-4" /> Add member
+                  </h3>
+                  <div className="flex gap-2">
+                    <input
+                      value={addUserId}
+                      onChange={(e) => setAddUserId(e.target.value)}
+                      className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                      placeholder="User id"
+                      data-testid="group-add-member-input"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void addMember()}
+                      disabled={saving || !addUserId.trim()}
+                      className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      Add
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {tab === 'invites' ? (
+            <section className="space-y-3" data-testid="group-tab-panel-invites">
+              {canManage ? (
+                <>
+                  <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+                    <Link2 className="h-4 w-4" /> Invite links
+                  </h3>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void createInvite()}
+                      disabled={saving}
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                      data-testid="group-create-invite"
+                    >
+                      Generate invite
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void createInvite({ oneTime: true, maxUses: 1 })}
+                      disabled={saving}
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+                    >
+                      One-time invite
+                    </button>
+                  </div>
+                  {inviteCode ? (
+                    <div className="space-y-2 rounded-xl bg-slate-50 px-3 py-3 text-xs text-slate-700">
+                      <div>
+                        Code: <span className="font-mono font-semibold">{inviteCode}</span>
+                      </div>
+                      {inviteLink ? <div className="break-all">Path: {inviteLink}</div> : null}
+                      {inviteMeta?.expiresAt ? <div>Expires: {inviteMeta.expiresAt}</div> : null}
+                      {inviteMeta?.maxUses != null ? (
+                        <div>
+                          Uses: {inviteMeta.useCount || 0}/{inviteMeta.maxUses}
+                        </div>
+                      ) : null}
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void copyInvite()}
+                          className="rounded-lg bg-white px-2 py-1 font-semibold shadow-sm"
+                        >
+                          Copy link
+                        </button>
+                        <span className="inline-flex items-center gap-1 text-slate-500">
+                          <QrCode className="h-3.5 w-3.5" /> QR via join path
+                        </span>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-sm text-slate-500">Only admins can manage invites.</p>
+              )}
+            </section>
+          ) : null}
+
+          {tab === 'requests' ? (
+            <section className="space-y-2" data-testid="group-tab-panel-requests">
+              <h3 className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+                <UserCheck className="h-4 w-4" /> Join requests
+              </h3>
+              {!canManage ? (
+                <p className="text-sm text-slate-500">Only approvers can review requests.</p>
+              ) : joinRequests.length === 0 ? (
+                <p className="text-sm text-slate-500">No pending requests.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {joinRequests.map((r) => (
+                    <li
+                      key={r.id}
+                      className="flex items-center gap-2 rounded-xl border border-slate-100 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1 text-sm">
+                        <div className="font-medium text-slate-900">{r.userId}</div>
+                        <div className="text-xs text-slate-500">Pending</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white"
+                        onClick={() => void decideRequest(r.id, 'approve')}
+                        disabled={saving}
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-lg bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"
+                        onClick={() => void decideRequest(r.id, 'reject')}
+                        disabled={saving}
+                      >
+                        Reject
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
+
+          {tab === 'restrictions' ? (
+            <section className="space-y-3" data-testid="group-tab-panel-restrictions">
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Messaging mode
+                </span>
+                <select
+                  value={messagingMode}
+                  onChange={(e) => setMessagingMode(e.target.value)}
+                  disabled={!canManage || saving}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                >
+                  <option value="EVERYONE">Everyone</option>
+                  <option value="ADMINS_ONLY">Admins only</option>
+                  <option value="MODS_PLUS">Mods + admins</option>
+                  <option value="ANNOUNCEMENT">Announcement</option>
+                  <option value="READ_ONLY">Read only</option>
+                  <option value="LOCKED">Locked</option>
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Slow mode (seconds)
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  value={slowModeSeconds}
+                  onChange={(e) => setSlowModeSeconds(Number(e.target.value) || 0)}
+                  disabled={!canManage || saving}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              </label>
+              {canManage ? (
+                <button
+                  type="button"
+                  onClick={() => void saveMeta()}
+                  disabled={saving}
+                  className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Apply modes
+                </button>
+              ) : null}
+              {groupProfile?.content ? (
+                <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  Content: images {groupProfile.content.allowImages === false ? 'off' : 'on'}, files{' '}
+                  {groupProfile.content.allowFiles === false ? 'off' : 'on'}, voice{' '}
+                  {groupProfile.content.allowVoice === false ? 'off' : 'on'}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          {tab === 'danger' ? (
+            <section className="space-y-3" data-testid="group-tab-panel-danger">
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                Lockdown immediately blocks sends for all members. DMs are unaffected.
+              </div>
+              {canManage ? (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void lockOrUnlock(true)}
+                    disabled={saving}
+                    className="inline-flex items-center gap-1 rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    <Lock className="h-4 w-4" /> Lock group
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void lockOrUnlock(false)}
+                    disabled={saving}
+                    className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800"
+                  >
+                    Unlock
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">Only owners/admins can lock the group.</p>
+              )}
+              <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <div className="mb-1 flex items-center gap-1 font-semibold text-slate-800">
+                  <Shield className="h-3.5 w-3.5" /> Roles
+                </div>
+                <p>
+                  <Crown className="mr-1 inline h-3 w-3 text-amber-600" />
+                  Owner controls ownership; Admins manage members and invites; Moderators help keep
+                  discussions healthy; Members participate.
+                </p>
+              </div>
+            </section>
+          ) : null}
         </div>
       </aside>
     </div>

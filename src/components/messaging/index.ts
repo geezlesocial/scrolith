@@ -19,6 +19,7 @@ export {
   MessageAttachmentsList
 } from './MessageAttachmentRenderer';
 export { default as GroupManagePanel } from './GroupManagePanel';
+export { default as GroupCreateWizard } from './GroupCreateWizard';
 export { default as MessageDeliveryTicks } from './MessageDeliveryTicks';
 export { default as MessagingPrivacySettingsPanel } from './MessagingPrivacySettingsPanel';
 export {

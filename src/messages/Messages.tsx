@@ -39,6 +39,12 @@ import ScrolithaEntityCards from '../components/scrolitha/ScrolithaEntityCards';
 import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversationMenu';
 import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
+import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
+import {
+  formatMultiRecorderLabel,
+  formatMultiTyperLabel,
+  resolveGroupComposerRestriction
+} from '../utils/groupMessagingUx';
 import MessageDeliveryTicks from '../components/messaging/MessageDeliveryTicks';
 import MessagingPrivacySettingsPanel from '../components/messaging/MessagingPrivacySettingsPanel';
 import {
@@ -242,9 +248,10 @@ const Messages = () => {
   const [showConversationMenu, setShowConversationMenu] = useState(false);
   const [showGroupManage, setShowGroupManage] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [createGroupTitle, setCreateGroupTitle] = useState('');
-  const [createGroupMemberIds, setCreateGroupMemberIds] = useState('');
-  const [createGroupBusy, setCreateGroupBusy] = useState(false);
+  /** Phase 29.3 — enterprise group profile for active conversation */
+  const [activeGroupProfile, setActiveGroupProfile] = useState<any>(null);
+  const [groupPins, setGroupPins] = useState<any[]>([]);
+  const [groupSendAckStatus, setGroupSendAckStatus] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [showMessageSettings, setShowMessageSettings] = useState(false);
   const [messageSettingsTab, setMessageSettingsTab] = useState<'privacy' | 'inbox' | 'safety'>('privacy');
@@ -284,6 +291,8 @@ const Messages = () => {
   
   // Advanced Features State
   const [typingUser, setTypingUser] = useState<string | null>(null);
+  /** Phase 29.3 multi-typer / multi-recorder display label */
+  const [presenceIndicatorLabel, setPresenceIndicatorLabel] = useState<string | null>(null);
   const [isGettingAiSuggestion, setIsGettingAiSuggestion] = useState(false);
   const [replyToMessage, setReplyToMessage] = useState<Message | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -1109,7 +1118,65 @@ const Messages = () => {
   ).toUpperCase();
   const canManageActiveGroup =
       isActiveGroupConversation &&
-      (myGroupRole === 'OWNER' || myGroupRole === 'ADMIN' || String(user?.role || '').toLowerCase().includes('admin'));
+      (myGroupRole === 'OWNER' ||
+          myGroupRole === 'ADMIN' ||
+          String(user?.role || '').toLowerCase().includes('admin') ||
+          Boolean(activeGroupProfile?.permissions?.canEditGroup));
+  const groupComposerRestriction = useMemo(
+      () =>
+          resolveGroupComposerRestriction({
+              isGroup: isActiveGroupConversation,
+              messagingMode:
+                  activeGroupProfile?.messagingMode || (activeConvo as any)?.messagingMode,
+              slowModeSeconds: activeGroupProfile?.slowModeSeconds,
+              canSend: activeGroupProfile?.permissions?.canSend,
+              content: activeGroupProfile?.content || null,
+              lockedAt: activeGroupProfile?.lockedAt,
+              sendAckStatus: groupSendAckStatus
+          }),
+      [isActiveGroupConversation, activeGroupProfile, groupSendAckStatus, activeConvo]
+  );
+
+  // Phase 29.3 — load enterprise group profile + pins; join authorized socket room
+  useEffect(() => {
+      if (!activeConvoId || !isActiveGroupConversation) {
+          setActiveGroupProfile(null);
+          setGroupPins([]);
+          setGroupSendAckStatus(null);
+          return;
+      }
+      let cancelled = false;
+      void (async () => {
+          try {
+              const profile = await MessagingService.getEnterpriseGroup(activeConvoId);
+              if (!cancelled) setActiveGroupProfile(profile || null);
+          } catch {
+              if (!cancelled) setActiveGroupProfile(null);
+          }
+          try {
+              const pins = await MessagingService.listGroupPins(activeConvoId);
+              if (!cancelled) setGroupPins(Array.isArray(pins) ? pins : []);
+          } catch {
+              if (!cancelled) setGroupPins([]);
+          }
+      })();
+      try {
+          if (socket && isConnected) {
+              socket.emit('messages:group:join', { conversationId: activeConvoId });
+          }
+      } catch {
+          /* optional */
+      }
+      return () => {
+          cancelled = true;
+          try {
+              if (socket) socket.emit('messages:group:leave', { conversationId: activeConvoId });
+          } catch {
+              /* optional */
+          }
+      };
+  }, [activeConvoId, isActiveGroupConversation, socket, isConnected]);
+
   const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
   const otherPresenceState = String(
       (otherParticipant as any)?.presenceState ||
@@ -1998,12 +2065,32 @@ const Messages = () => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           const typingUserId = String(payload?.userId || '').trim();
           if (!convoId || convoId !== activeConvoIdRef.current) return;
+          if (typingUserId && typingUserId === userIdRef.current && !payload?.typing) return;
+
+          // Phase 29.3 — multi-typer array from Phase 29.2
+          const multi = formatMultiTyperLabel(
+              Array.isArray(payload?.typing) ? payload.typing : Array.isArray(payload?.typers) ? payload.typers : null,
+              userIdRef.current
+          );
+          if (multi) {
+              setPresenceIndicatorLabel(multi);
+              setTypingUser(multi);
+              if (typingIndicatorTimerRef.current) window.clearTimeout(typingIndicatorTimerRef.current);
+              typingIndicatorTimerRef.current = window.setTimeout(() => {
+                  setTypingUser(null);
+                  setPresenceIndicatorLabel(null);
+                  typingIndicatorTimerRef.current = null;
+              }, 6000);
+              return;
+          }
+
           if (!typingUserId || typingUserId === userIdRef.current) return;
 
           if (!payload?.isTyping) {
               setTypingUser((current) =>
                   current && !String(current).startsWith('recording:') ? null : current
               );
+              setPresenceIndicatorLabel(null);
               if (typingIndicatorTimerRef.current) {
                   window.clearTimeout(typingIndicatorTimerRef.current);
                   typingIndicatorTimerRef.current = null;
@@ -2012,6 +2099,7 @@ const Messages = () => {
           }
 
           setTypingUser(String(payload?.name || 'Someone').trim() || 'Someone');
+          setPresenceIndicatorLabel(null);
           if (typingIndicatorTimerRef.current) {
               window.clearTimeout(typingIndicatorTimerRef.current);
           }
@@ -2025,11 +2113,25 @@ const Messages = () => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           const recUserId = String(payload?.userId || '').trim();
           if (!convoId || convoId !== activeConvoIdRef.current) return;
+          const multiRec = formatMultiRecorderLabel(
+              Array.isArray(payload?.recording)
+                  ? payload.recording
+                  : Array.isArray(payload?.recorders)
+                    ? payload.recorders
+                    : null,
+              userIdRef.current
+          );
+          if (multiRec) {
+              setTypingUser(`recording:${multiRec.replace(/ is recording…$/, '').replace(/ are recording…$/, '')}`);
+              setPresenceIndicatorLabel(multiRec);
+              return;
+          }
           if (!recUserId || recUserId === userIdRef.current) return;
           if (!payload?.isRecording) {
               setTypingUser((current) =>
                   current && String(current).startsWith('recording:') ? null : current
               );
+              setPresenceIndicatorLabel(null);
               return;
           }
           const name = String(payload?.name || 'Someone').trim() || 'Someone';
@@ -2687,6 +2789,10 @@ const Messages = () => {
       e.preventDefault();
       const trimmed = messageInput.trim();
       if ((!trimmed && pendingAttachments.length === 0) || !activeConvoId || !user) return;
+      if (isActiveGroupConversation && groupComposerRestriction.blocked) {
+          showNotification('error', 'Group', groupComposerRestriction.message || 'Sending is disabled.');
+          return;
+      }
       if (hasPendingUploadsInFlight(pendingAttachments)) {
           showNotification('info', 'Attachments', 'Please wait for uploads to finish before sending.');
           return;
@@ -3836,14 +3942,17 @@ const Messages = () => {
                                             </span>
                                         ) : null}
                                     </div>
-                                    {typingUser ? (
+                                    {typingUser || presenceIndicatorLabel ? (
                                         <span
                                             className="text-xs text-indigo-600 flex items-center font-medium"
                                             data-testid="messages-typing-indicator"
+                                            aria-live="polite"
                                         >
-                                            {String(typingUser).startsWith('recording:')
-                                                ? `${String(typingUser).replace(/^recording:/, '')} is recording…`
-                                                : `${typingUser} is typing…`}
+                                            {presenceIndicatorLabel
+                                                ? presenceIndicatorLabel
+                                                : String(typingUser).startsWith('recording:')
+                                                  ? `${String(typingUser).replace(/^recording:/, '')} is recording…`
+                                                  : `${typingUser} is typing…`}
                                         </span>
                                     ) : isActiveGroupConversation ? (
                                         <span className="text-xs text-gray-500 flex items-center">
@@ -4411,14 +4520,19 @@ const Messages = () => {
                                 </div>
                             )})}
                             
-                            {/* Typing Indicator */}
-                            {typingUser && (
-                                <div className="flex justify-start animate-fade-in">
+                            {/* Typing / recording Indicator (Phase 29.3 multi-typer aware) */}
+                            {(typingUser || presenceIndicatorLabel) && (
+                                <div className="flex justify-start animate-fade-in" aria-live="polite">
                                     <div className="flex items-center rounded-2xl rounded-bl-none border border-gray-200 bg-white px-4 py-2 text-xs italic text-gray-500 shadow-sm">
                                         <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce mr-1"></span>
                                         <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce mr-1 delay-100"></span>
                                         <span className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce delay-200"></span>
-                                        <span className="ml-2">{typingUser} is typing...</span>
+                                        <span className="ml-2">
+                                            {presenceIndicatorLabel ||
+                                                (String(typingUser).startsWith('recording:')
+                                                    ? `${String(typingUser).replace(/^recording:/, '')} is recording…`
+                                                    : `${typingUser} is typing...`)}
+                                        </span>
                                     </div>
                                 </div>
                             )}
@@ -4643,6 +4757,37 @@ const Messages = () => {
                                 </div>
                             )}
 
+                            {/* Phase 29.3 — group pins + composer policy banners */}
+                            {isActiveGroupConversation && groupPins.length > 0 ? (
+                                <div
+                                    className="mx-2 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+                                    data-testid="group-pins-banner"
+                                >
+                                    <div className="font-semibold">
+                                        {groupPins.length} pinned message
+                                        {groupPins.length === 1 ? '' : 's'}
+                                    </div>
+                                    <div className="mt-0.5 truncate opacity-90">
+                                        {String(
+                                            groupPins[0]?.message?.text || groupPins[0]?.messageId || ''
+                                        ).slice(0, 120)}
+                                    </div>
+                                </div>
+                            ) : null}
+                            {isActiveGroupConversation && groupComposerRestriction.message ? (
+                                <div
+                                    className={`mx-2 mb-2 rounded-xl border px-3 py-2 text-xs ${
+                                        groupComposerRestriction.blocked
+                                            ? 'border-rose-200 bg-rose-50 text-rose-900'
+                                            : 'border-slate-200 bg-slate-50 text-slate-700'
+                                    }`}
+                                    data-testid="group-composer-restriction"
+                                    role="status"
+                                >
+                                    {groupComposerRestriction.message}
+                                </div>
+                            ) : null}
+
                             {/* Phase 20.8 — Smart Composer: + / input / mic / suggest / send */}
                             <SmartComposer
                                 value={messageInput}
@@ -4668,7 +4813,8 @@ const Messages = () => {
                                     Boolean(activeConvoId) &&
                                     Boolean(messageInput.trim() || pendingAttachments.length) &&
                                     !hasPendingUploadsInFlight(pendingAttachments) &&
-                                    !pendingAttachments.some((item) => item.uploadState === 'failed')
+                                    !pendingAttachments.some((item) => item.uploadState === 'failed') &&
+                                    !(isActiveGroupConversation && groupComposerRestriction.blocked)
                                 }
                                 onPickFiles={() => uploadInputRef.current?.click()}
                                 onPickMedia={() => mediaInputRef.current?.click()}
@@ -4762,100 +4908,24 @@ const Messages = () => {
             }}
         />
     ) : null}
-    <MobileDialog
-        open={showCreateGroup}
-        onClose={() => !createGroupBusy && setShowCreateGroup(false)}
-        size="md"
-        title="Create group"
-        closeDisabled={createGroupBusy}
-        footer={
-            <MobileDialogFooter>
-                <button
-                    type="button"
-                    className="rounded-xl border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700"
-                    onClick={() => setShowCreateGroup(false)}
-                    disabled={createGroupBusy}
-                >
-                    Cancel
-                </button>
-                <button
-                    type="button"
-                    className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                    data-testid="create-group-submit"
-                    disabled={createGroupBusy || !createGroupTitle.trim()}
-                    onClick={() => {
-                        void (async () => {
-                            if (!user?.id) return;
-                            setCreateGroupBusy(true);
-                            try {
-                                const memberIds = createGroupMemberIds
-                                    .split(/[,\s]+/)
-                                    .map((id) => id.trim())
-                                    .filter(Boolean);
-                                const participants = Array.from(new Set([user.id, ...memberIds]));
-                                const id = await MessagingService.createConversation(participants, {
-                                    type: 'GROUP',
-                                    title: createGroupTitle.trim()
-                                });
-                                setShowCreateGroup(false);
-                                setCreateGroupTitle('');
-                                setCreateGroupMemberIds('');
-                                await refreshMessages();
-                                if (id) {
-                                    setActiveConvoId(id);
-                                    navigate(`/messages/${id}`);
-                                    setShowGroupManage(true);
-                                }
-                                showNotification('success', 'Group created', 'Your group is ready.');
-                            } catch (error: any) {
-                                showNotification(
-                                    'error',
-                                    'Create group',
-                                    error?.message || 'Failed to create group.'
-                                );
-                            } finally {
-                                setCreateGroupBusy(false);
-                            }
-                        })();
-                    }}
-                >
-                    {createGroupBusy ? 'Creating…' : 'Create group'}
-                </button>
-            </MobileDialogFooter>
-        }
-    >
-        <div className="space-y-4">
-            <p className="text-xs text-gray-500">
-                Create a private group conversation. You become the Owner. Type{' '}
-                <span className="font-semibold">@username</span> in messages to mention members
-                ({MENTION_TOKEN_HINT.toLowerCase()}).
-            </p>
-            <label className="block space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Group title</span>
-                <input
-                    value={createGroupTitle}
-                    onChange={(e) => setCreateGroupTitle(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    placeholder="e.g. Product team"
-                    data-testid="create-group-title"
-                    disabled={createGroupBusy}
-                />
-            </label>
-            <label className="block space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Member user ids (comma-separated)
-                </span>
-                <input
-                    value={createGroupMemberIds}
-                    onChange={(e) => setCreateGroupMemberIds(e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm"
-                    placeholder="userId1, userId2"
-                    data-testid="create-group-members"
-                    disabled={createGroupBusy}
-                />
-            </label>
-        </div>
-    </MobileDialog>
+    {user?.id ? (
+        <GroupCreateWizard
+            open={showCreateGroup}
+            onClose={() => setShowCreateGroup(false)}
+            currentUserId={user.id}
+            onCreated={(id) => {
+                setShowCreateGroup(false);
+                void refreshMessages();
+                if (id) {
+                    setActiveConvoId(id);
+                    navigate(`/messages/${id}`);
+                    setShowGroupManage(true);
+                }
+                showNotification('success', 'Group created', 'Your messaging group is ready.');
+            }}
+            onError={(message) => showNotification('error', 'Create group', message)}
+        />
+    ) : null}
     <MobileDialog
         open={showMessageSettings}
         onClose={() => setShowMessageSettings(false)}
