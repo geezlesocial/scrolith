@@ -99,11 +99,32 @@ const rankRecommendedJob = (job: any) => {
 const serializeJob = (job: any) => {
   const pro = job.client ? resolveUserProStatus(job.client) : { employerIsPro: false };
   const clientIsVerified = resolveUserVerified(job.client);
+  // Phase 28F — parse free-text budget for display conversion without schema change.
+  // Historical budget strings stay as-is; parsed amount/currency aid MoneyDisplay.
+  const budgetText = job.budget || '';
+  const budgetMatch = String(budgetText)
+    .replace(/,/g, '')
+    .match(/(?:([A-Z]{3})\s*)?(\d+(?:\.\d+)?)(?:\s*([A-Z]{3}))?/i);
+  const budgetAmount = budgetMatch ? Number(budgetMatch[2]) : null;
+  const budgetCurrency = (
+    budgetMatch?.[1] ||
+    budgetMatch?.[3] ||
+    (job.client as any)?.preferredCurrency ||
+    'USD'
+  )
+    ?.toString()
+    .toUpperCase();
+  const hourly = /\/\s*hr|per\s*hour|hourly/i.test(String(budgetText));
   return ({
   id: job.id,
   title: job.title,
   description: job.description,
-  budget: job.budget || '',
+  budget: budgetText,
+  // Phase 28F display helpers (non-breaking)
+  budgetAmount: Number.isFinite(budgetAmount as number) ? budgetAmount : null,
+  budgetCurrency: budgetCurrency || 'USD',
+  budgetIsHourly: hourly,
+  currency: budgetCurrency || 'USD',
   type: job.type.toLowerCase(),
   postedTime: job.postedTime.toISOString(),
   tags: job.tags || [],

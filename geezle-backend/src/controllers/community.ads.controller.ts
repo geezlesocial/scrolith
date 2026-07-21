@@ -10,6 +10,7 @@ import { buildCommunityAdActivationReadiness } from '../services/communityAdActi
 import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.service';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
 import { resolveEffectiveCurrencies } from '../services/fx.service';
+import { buildAdsConfigCurrencyView } from '../services/currencySurface.service';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
 
@@ -1264,6 +1265,39 @@ export const createAdDraft = async (req: Request, res: Response) => {
       });
     }
     const budgetBase = toBase.amount;
+
+    // Phase 28F — daily spend validated in platform base (same as total budget).
+    const dailySpendEntered = Number(payload.dailySpend ?? payload.daily_spend ?? 0);
+    if (Number.isFinite(dailySpendEntered) && dailySpendEntered > 0) {
+      const dailyBase = convertMajorViaRates(
+        dailySpendEntered,
+        campaignCurrency,
+        baseCode,
+        rates,
+        baseCode
+      );
+      if (!dailyBase.ok) {
+        return res.status(400).json({
+          success: false,
+          error: dailyBase.error || 'Unable to convert daily spend to platform base currency.'
+        });
+      }
+      if (dailyBase.amount > budgetBase + 1e-9) {
+        return res.status(400).json({
+          success: false,
+          error: 'Daily spend cannot exceed total budget.',
+          data: {
+            dailySpendEntered,
+            dailySpendBase: dailyBase.amount,
+            budgetEntered: budget,
+            budgetBase,
+            campaignCurrency,
+            pricingCurrency: baseCode
+          }
+        });
+      }
+    }
+
     if (!Number.isFinite(budget) || budgetBase < minBudgetBase - 1e-9) {
       const minDisplay = convertMajorViaRates(minBudgetBase, baseCode, campaignCurrency, rates, baseCode);
       const minLabel = minDisplay.ok
@@ -2391,13 +2425,37 @@ export const getAdsAnalytics = async (_req: Request, res: Response) => {
   }
 };
 
-export const getAdsConfig = async (_req: Request, res: Response) => {
+export const getAdsConfig = async (req: Request, res: Response) => {
   try {
     const existing = await prisma.appSetting.findUnique({ where: { scope: ADS_CONFIG_SCOPE } });
-    if (!existing) {
-      return res.json({ success: true, data: mergeAdsConfig(defaultAdsConfig) });
+    const merged = mergeAdsConfig(existing?.data || defaultAdsConfig);
+    // Phase 28F — optional displayCurrency query converts CPM/CPC/min/max for campaign UI.
+    const displayCurrency = String(
+      req.query?.displayCurrency || req.query?.currency || req.headers['x-display-currency'] || ''
+    )
+      .trim()
+      .toUpperCase();
+    if (displayCurrency && /^[A-Z]{3}$/.test(displayCurrency)) {
+      const currencyView = await buildAdsConfigCurrencyView({
+        adsConfig: merged,
+        displayCurrency
+      });
+      return res.json({
+        success: true,
+        data: {
+          ...merged,
+          // Preserve canonical USD maps; add display companions for FE.
+          cpmByPlacementDisplay: currencyView.cpmByPlacementDisplay,
+          cpcByPlacementDisplay: currencyView.cpcByPlacementDisplay,
+          minBudgetDisplay: currencyView.minBudgetDisplay,
+          maxBudgetDisplay: currencyView.maxBudgetDisplay,
+          displayCurrency: currencyView.displayCurrency,
+          pricingCurrency: currencyView.pricingCurrency,
+          currencyView
+        }
+      });
     }
-    return res.json({ success: true, data: mergeAdsConfig(existing.data || defaultAdsConfig) });
+    return res.json({ success: true, data: merged });
   } catch (error: any) {
     console.error('Get ads config error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Failed to load ads config' });

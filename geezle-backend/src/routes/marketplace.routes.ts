@@ -5,12 +5,14 @@ import {
   archiveMarketplaceListing,
   contactMarketplaceSeller,
   createMarketplaceListing,
+  createMarketplaceOrder,
   favoriteMarketplaceListing,
   getMarketplaceDashboardCounts,
   getMarketplaceListingByIdOrSlug,
   getMarketplaceSettings,
   listMarketplaceListings,
   listMarketplaceCategories,
+  quoteMarketplaceCheckout,
   removeMarketplaceMedia,
   reportMarketplaceListing,
   reserveMarketplaceListing,
@@ -208,6 +210,37 @@ router.post('/listings/:id/reserve', authMiddleware, async (req, res) => {
     return res.json({ success: true, data });
   } catch (error: any) {
     return handleError(res, error, 'Failed to reserve marketplace listing');
+  }
+});
+
+/** Phase 28F — checkout quote with COD-safe commission (no platform fee on cash delivery). */
+router.post('/listings/:id/checkout-quote', authMiddleware, async (req, res) => {
+  try {
+    const data = await quoteMarketplaceCheckout({
+      listingId: String(req.params.id || '').trim(),
+      paymentMethod: req.body?.paymentMethod || req.body?.payment_method || null,
+      quantity: parseNumber(req.body?.quantity, 1),
+      buyerCurrency: req.body?.currency || req.body?.buyerCurrency || null
+    });
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to quote marketplace checkout');
+  }
+});
+
+/** Phase 28F — create marketplace order (settlement amounts locked in listing currency). */
+router.post('/listings/:id/orders', authMiddleware, async (req, res) => {
+  try {
+    const data = await createMarketplaceOrder({
+      listingId: String(req.params.id || '').trim(),
+      buyerId: String(req.user?.id || '').trim(),
+      paymentMethod: req.body?.paymentMethod || req.body?.payment_method || null,
+      deliveryOption: req.body?.deliveryOption || req.body?.delivery_option || null,
+      quantity: parseNumber(req.body?.quantity, 1)
+    });
+    return res.status(201).json({ success: true, data });
+  } catch (error: any) {
+    return handleError(res, error, 'Failed to create marketplace order');
   }
 });
 

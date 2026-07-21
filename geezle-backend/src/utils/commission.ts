@@ -94,3 +94,50 @@ export const computeCommissionBreakdown = (amount: number, settings: any) => {
     totalFee
   };
 };
+
+/**
+ * Phase 28F — commission only for online payment rails.
+ * Cash on delivery / offline meetup cash: no platform commission.
+ */
+export const isCommissionExemptPaymentMethod = (paymentMethod?: string | null) => {
+  const key = String(paymentMethod || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!key) return false;
+  return (
+    key === 'cod' ||
+    key === 'cash' ||
+    key === 'cash_on_delivery' ||
+    key === 'cash_on_meetup' ||
+    key === 'meetup_cash' ||
+    key.includes('cash_on_delivery') ||
+    key.endsWith('_cod')
+  );
+};
+
+export const computeCommissionBreakdownForPayment = (
+  amount: number,
+  settings: any,
+  paymentMethod?: string | null
+) => {
+  if (isCommissionExemptPaymentMethod(paymentMethod)) {
+    const normalized = normalizeCommissionSettings(settings);
+    return {
+      settings: normalized,
+      freelancerFee: 0,
+      employerFee: 0,
+      totalFee: 0,
+      applies: false,
+      reason: 'cod_no_commission' as const,
+      paymentMethod: paymentMethod || null
+    };
+  }
+  const breakdown = computeCommissionBreakdown(amount, settings);
+  return {
+    ...breakdown,
+    applies: breakdown.totalFee > 0,
+    reason: 'online_payment' as const,
+    paymentMethod: paymentMethod || null
+  };
+};

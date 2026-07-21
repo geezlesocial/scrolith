@@ -726,6 +726,166 @@ const validateListingPayload = async (input: any, settings: any) => {
 
 const buildMarketplaceOrderNumber = () => `MKT-${Date.now().toString().slice(-8)}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
 
+/**
+ * Phase 28F — marketplace checkout quote.
+ * Commission applies only for online payments (Stripe/PayPal/wallet/…).
+ * Cash on delivery: zero platform commission (seller delivers personally).
+ */
+export const quoteMarketplaceCheckout = async (params: {
+  listingId: string;
+  paymentMethod?: string | null;
+  quantity?: number;
+  buyerCurrency?: string | null;
+}) => {
+  const listing = await prisma.marketplaceListing.findUnique({
+    where: { id: String(params.listingId || '').trim() }
+  });
+  if (!listing) {
+    const err: any = new Error('Listing not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const qty = Math.max(1, Math.min(Number(params.quantity) || 1, Number(listing.quantity) || 1));
+  const unitPrice = Number(listing.price || 0);
+  const sourceCurrency = String(listing.currency || 'USD').toUpperCase() || 'USD';
+  const subtotal = Number((unitPrice * qty).toFixed(2));
+  const paymentMethod = String(params.paymentMethod || listing.paymentMethods?.[0] || 'cash_on_delivery');
+
+  const settings = await getMarketplaceSettings();
+  const { computeMarketplaceCommission, convertMajorFailClosed } = await import('./currencySurface.service');
+  const commission = computeMarketplaceCommission({
+    amount: subtotal,
+    paymentMethod,
+    marketplaceSettings: settings
+  });
+
+  const buyerCurrency = String(params.buyerCurrency || sourceCurrency)
+    .trim()
+    .toUpperCase() || sourceCurrency;
+  let displaySubtotal = subtotal;
+  let displayCommission = commission.commissionAmount;
+  let displaySellerEarnings = commission.sellerEarnings;
+  let displayConverted = false;
+  if (buyerCurrency !== sourceCurrency) {
+    const subConv = await convertMajorFailClosed({
+      amount: subtotal,
+      fromCurrency: sourceCurrency,
+      toCurrency: buyerCurrency
+    });
+    const feeConv = await convertMajorFailClosed({
+      amount: commission.commissionAmount,
+      fromCurrency: sourceCurrency,
+      toCurrency: buyerCurrency
+    });
+    const earnConv = await convertMajorFailClosed({
+      amount: commission.sellerEarnings,
+      fromCurrency: sourceCurrency,
+      toCurrency: buyerCurrency
+    });
+    if (subConv.ok && feeConv.ok && earnConv.ok) {
+      displaySubtotal = Number(subConv.amount.toFixed(2));
+      displayCommission = Number(feeConv.amount.toFixed(2));
+      displaySellerEarnings = Number(earnConv.amount.toFixed(2));
+      displayConverted = true;
+    }
+  }
+
+  return {
+    listingId: listing.id,
+    quantity: qty,
+    unitPrice,
+    subtotal,
+    currency: sourceCurrency,
+    paymentMethod,
+    commission,
+    buyer: {
+      currency: buyerCurrency,
+      subtotal: displaySubtotal,
+      platformFee: displayCommission,
+      sellerEarnings: displaySellerEarnings,
+      total: displaySubtotal,
+      converted: displayConverted
+    },
+    // Settlement amounts always remain in listing currency (historical preservation).
+    settlement: {
+      currency: sourceCurrency,
+      subtotal,
+      platformFee: commission.commissionAmount,
+      sellerEarnings: commission.sellerEarnings,
+      total: subtotal
+    }
+  };
+};
+
+export const createMarketplaceOrder = async (params: {
+  listingId: string;
+  buyerId: string;
+  paymentMethod?: string | null;
+  deliveryOption?: string | null;
+  quantity?: number;
+}) => {
+  const listing = await prisma.marketplaceListing.findUnique({
+    where: { id: String(params.listingId || '').trim() }
+  });
+  if (!listing) {
+    const err: any = new Error('Listing not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  if (String(listing.sellerId) === String(params.buyerId)) {
+    const err: any = new Error('You cannot purchase your own listing');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (String(listing.status || '').toLowerCase() !== 'active') {
+    const err: any = new Error('Listing is not available for purchase');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const quote = await quoteMarketplaceCheckout({
+    listingId: listing.id,
+    paymentMethod: params.paymentMethod,
+    quantity: params.quantity
+  });
+
+  const order = await prisma.marketplaceOrder.create({
+    data: {
+      listingId: listing.id,
+      buyerId: params.buyerId,
+      sellerId: listing.sellerId,
+      orderNumber: buildMarketplaceOrderNumber(),
+      amount: quote.settlement.total,
+      currency: quote.settlement.currency,
+      paymentMethod: quote.paymentMethod,
+      paymentStatus: quote.commission.isCod ? 'pending_cod' : 'pending',
+      status: 'pending',
+      deliveryOption: params.deliveryOption || null
+    }
+  });
+
+  await prisma.marketplaceAuditLog
+    .create({
+      data: {
+        listingId: listing.id,
+        actorId: params.buyerId,
+        action: 'order.created',
+        payload: {
+          orderId: order.id,
+          paymentMethod: quote.paymentMethod,
+          commission: quote.commission,
+          settlement: quote.settlement
+        } as any
+      }
+    })
+    .catch(() => null);
+
+  return {
+    order,
+    quote
+  };
+};
+
 export const listMarketplaceCategories = async (includeInactive = false) => {
   await ensureMarketplaceCategoriesSeeded();
   return prisma.category.findMany({

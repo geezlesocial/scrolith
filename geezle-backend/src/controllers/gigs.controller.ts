@@ -129,8 +129,19 @@ export const serializeGig = (
       type: 'fixed',
       amount: gig.price,
       minAmount: undefined,
-      maxAmount: undefined
+      maxAmount: undefined,
+      // Phase 28F — package prices are platform pricing currency (USD) unless meta overrides.
+      currency:
+        String((gig as any)?.meta?.currency || (gig as any)?.currency || 'USD')
+          .trim()
+          .toUpperCase() || 'USD'
     },
+    // Canonical source currency for conversion (display via MoneyDisplay / checkout FX).
+    currency:
+      String((gig as any)?.meta?.currency || (gig as any)?.currency || 'USD')
+        .trim()
+        .toUpperCase() || 'USD',
+    pricingCurrency: 'USD',
     pricingMode: gig.pricingMode || 'packages',
     packages: safeArray(gig.packages),
     extras: safeArray(gig.extras),

@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import { initiateHostedCheckout } from '../services/payments/providers/payoneer';
 import { createFxLock } from '../services/fxLock.service';
-import { computeCommissionBreakdown } from '../utils/commission';
+import { computeCommissionBreakdownForPayment } from '../utils/commission';
+import { resolveChargeAmount, PLATFORM_PRICING_CURRENCY } from '../services/currencySurface.service';
 import { notifyAdmins } from '../utils/notify';
 import { sendSystemMessage } from '../services/systemMessaging';
 import { maybeDecryptSecret } from '../utils/secretCipher';
@@ -281,21 +282,47 @@ export const purchaseGig = async (req: Request, res: Response) => {
     const { price, deliveryDays, packageName } = resolvePackagePricing(gig, Number.isFinite(packageIndex) ? packageIndex : 0);
     const extras = Array.isArray(req.body?.extras) ? req.body.extras : [];
     const extrasTotal = resolveExtrasTotal(gig, extras);
-    const baseAmount = price + extrasTotal;
+    const sourceAmount = price + extrasTotal;
 
-    if (!Number.isFinite(baseAmount) || baseAmount <= 0) {
+    if (!Number.isFinite(sourceAmount) || sourceAmount <= 0) {
       return fail(res, 400, 'Invalid pricing for this gig', 'ERR_INVALID_PRICING');
     }
 
     const settings = await getOrCreateSettings();
-    const commissionBreakdown = computeCommissionBreakdown(baseAmount, settings);
+    // Phase 28F — gig package/extras prices are canonical platform pricing currency (USD)
+    // unless the gig meta overrides source currency. Convert fail-closed into charge currency.
+    const sourceCurrency =
+      String((gig as any)?.meta?.currency || (gig as any)?.currency || PLATFORM_PRICING_CURRENCY)
+        .trim()
+        .toUpperCase() || PLATFORM_PRICING_CURRENCY;
+    const currency = (req.body?.currency || settings.paymentCurrency || settings.currency || sourceCurrency)
+      .toString()
+      .toUpperCase();
+    const chargeResolved = await resolveChargeAmount({
+      amountSource: sourceAmount,
+      sourceCurrency,
+      chargeCurrency: currency
+    });
+    if (!chargeResolved.ok) {
+      return fail(
+        res,
+        400,
+        chargeResolved.error || `Unable to convert gig price from ${sourceCurrency} to ${currency}`,
+        'ERR_FX_UNAVAILABLE'
+      );
+    }
+    const baseAmount = chargeResolved.chargeAmount;
+    const requestedProvider = (req.body?.provider || 'auto').toString().toLowerCase();
+    const commissionBreakdown = computeCommissionBreakdownForPayment(
+      baseAmount,
+      settings,
+      requestedProvider === 'auto' ? 'online' : requestedProvider
+    );
     const employerFee = commissionBreakdown.employerFee;
     const freelancerCommission = commissionBreakdown.freelancerFee;
     const totalCharged = Number((baseAmount + employerFee).toFixed(2));
     const adminRevenueUserId = employerFee > 0 ? await getAdminRevenueUserId() : null;
-    const currency = (req.body?.currency || settings.paymentCurrency || settings.currency || 'USD').toString().toUpperCase();
     const country = (req.body?.country || user.country || 'US').toString().toUpperCase();
-    const requestedProvider = (req.body?.provider || 'auto').toString().toLowerCase();
 
     let provider = requestedProvider;
     if (requestedProvider === 'auto') {

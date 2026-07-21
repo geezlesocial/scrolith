@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
-import { computeCommissionBreakdown } from '../utils/commission';
+import { computeCommissionBreakdownForPayment } from '../utils/commission';
 import prisma from '../utils/prismaClient';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_mock_key', {
@@ -59,7 +59,11 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
     const order = await prisma.order.findUnique({ where: { id: orderId } });
     const baseAmount = Number(order?.amount ?? requestedAmount);
     const settings = await getOrCreateSettings();
-    const commissionBreakdown = computeCommissionBreakdown(baseAmount, settings);
+    const commissionBreakdown = computeCommissionBreakdownForPayment(
+      baseAmount,
+      settings,
+      String(req.body?.provider || req.body?.paymentMethod || 'online')
+    );
     const employerFee = commissionBreakdown.employerFee;
     const freelancerCommission = commissionBreakdown.freelancerFee;
     const totalCharged = Number((baseAmount + employerFee).toFixed(2));
@@ -260,7 +264,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
             const settings = await getOrCreateSettings();
             const order = await prisma.order.findUnique({ where: { id: orderId } });
             const baseAmount = Number(order?.amount ?? 0);
-            const commissionBreakdown = computeCommissionBreakdown(baseAmount, settings);
+            const commissionBreakdown = computeCommissionBreakdownForPayment(
+              baseAmount,
+              settings,
+              String(paymentIntent?.metadata?.provider || 'online')
+            );
             const commissionFromMetadata = Number(paymentIntent?.metadata?.freelancerCommission);
             const freelancerCommission =
               Number.isFinite(commissionFromMetadata) && commissionFromMetadata >= 0
