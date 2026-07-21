@@ -1,0 +1,6 @@
+Scrolith 1.1.31
+• Full conversation menu on mobile: archive, mute, star, privacy & more
+• Messaging Privacy sheet opens correctly on phones
+• Enterprise Messaging Groups (public, private, secret)
+• Invites, join requests, roles, pins, slow mode & lockdown
+• Push routing, reconnect & notification reliability

@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Phase 29.7 enterprise messaging groups + mobile Message Privacy fix over 1.1.29 / 39.
-        versionCode 40
-        versionName "1.1.30"
+        // Phase 29.7 conversation menu portal + messaging groups over 1.1.30 / 40.
+        versionCode 41
+        versionName "1.1.31"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
