@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Loader2, PlusCircle, Radio, Volume2, VolumeX, X } from 'lucide-react';
+import FeedLoadSkeleton from '../../components/feed/FeedLoadSkeleton';
 import type { AdCampaign, ScrollAdsRuntimePolicy } from '../../types';
 import ScrollCard from './ScrollCard';
 import ScrollAdOverlay from './ScrollAdOverlay';
@@ -2023,9 +2024,11 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
         }}
       >
         {loading ? (
-          <div className="flex h-screen items-center justify-center">
-            <Loader2 className="h-8 w-8 animate-spin text-cyan-300" />
-          </div>
+          <FeedLoadSkeleton
+            variant="scroll"
+            label="Loading Scroll feed"
+            className="h-screen w-full"
+          />
         ) : items.length === 0 ? (
           <div className="flex h-screen flex-col items-center justify-center px-6 text-center">
             <p className="text-xl font-semibold">No Scroll videos yet.</p>
@@ -2104,16 +2107,31 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
                   reactionTargetId={getPostBridgeSource(scroll)?.postId || scroll.id}
                 />
                 ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-black" aria-hidden>
-                    <div className="h-24 w-16 animate-pulse rounded-lg bg-white/10" />
+                  <div
+                    className="relative flex h-full w-full items-center justify-center overflow-hidden bg-black"
+                    aria-hidden
+                    data-virtualized-placeholder="cold"
+                  >
+                    <div className="absolute inset-0 scrolith-shimmer-dark opacity-50" />
+                    <div className="relative z-[1] flex flex-col items-center gap-3">
+                      <div className="h-28 w-16 rounded-xl border border-white/10 bg-white/5" />
+                      <div className="h-2 w-20 rounded-full bg-white/10" />
+                    </div>
                   </div>
                 )}
               </div>
             );
             })}
             {loadingMore ? (
-              <div className="flex h-16 items-center justify-center">
+              <div
+                className="flex h-20 flex-col items-center justify-center gap-2 bg-black/80"
+                role="status"
+                aria-label="Loading more Scroll videos"
+              >
                 <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
+                <span className="text-[11px] font-medium tracking-wide text-white/50">
+                  Loading more…
+                </span>
               </div>
             ) : null}
           </>

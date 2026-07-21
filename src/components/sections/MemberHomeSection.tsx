@@ -8941,9 +8941,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             {memberHomeHighlightItems.length ? (
               <Suspense
                 fallback={
-                  <div className="rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm rise-fade-delay-1">
-                    Loading discovery board...
-                  </div>
+                  <FeedLoadSkeleton
+                    count={1}
+                    compact
+                    className="rise-fade-delay-1"
+                    label="Loading discovery board"
+                  />
                 }
               >
                 <MemberHomeHighlightsBoard
@@ -8958,9 +8961,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
             <Suspense
               fallback={
-                <div className="mt-4 rounded-3xl border border-white/70 bg-white p-5 text-sm text-slate-500 shadow-sm">
-                  Loading live streams...
-                </div>
+                <FeedLoadSkeleton
+                  count={1}
+                  compact
+                  className="mt-4"
+                  label="Loading live streams"
+                />
               }
             >
               <LiveFeaturedRail
@@ -9017,7 +9023,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   Feed intelligence
                 </span>
               </div>
-              <div className="sticky top-24 z-10 -mx-2 sm:-mx-4 border-y border-slate-100 bg-white/95 px-2 sm:px-4 py-3 backdrop-blur">
+              <div
+                className="sticky top-24 z-10 -mx-2 sm:-mx-4 border-y border-slate-100 bg-white/95 px-2 sm:px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-white/90"
+                data-feed-sticky-chrome="true"
+              >
                 <div className="flex flex-wrap items-center gap-3">
                 {showIntentModes ? (
                   <>
@@ -9031,8 +9040,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                       <button
                         key={value}
                         onClick={() => setFeedTab(value)}
-                        className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide ${
-                          feedTab === value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'
+                        className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide transition-colors duration-150 ${
+                          feedTab === value
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200/80'
                         }`}
                       >
                         <Icon className="mr-2 inline h-4 w-4" />
@@ -9139,13 +9150,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 className="space-y-4"
               >
               {shouldShowInitialSkeleton({ loading: feedLoading, existingItemCount: feedItems.length }) ? (
-                <div
-                  className="min-h-[24rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm"
-                  role="status"
-                  aria-live="polite"
-                >
-                  Loading your feed...
-                </div>
+                <FeedLoadSkeleton
+                  count={3}
+                  className="min-h-[24rem]"
+                  label="Loading your professional feed"
+                />
               ) : feedItems.length === 0 && feedStream.length === 0 ? (
                 <div className="min-h-[12rem] rounded-3xl border border-white/70 bg-white p-6 text-center text-sm text-slate-500 shadow-sm">
                   {feedTopic || feedRegion
@@ -9196,7 +9205,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   return (
                     <React.Fragment key={getStableFeedReactKey(post, postIndex)}>
                       <article
-                        className={`${enterprisePostCard} ${postDensity === 'compact' ? enterprisePostCardCompact : enterprisePostCardPadding}`}
+                        data-feed-card="true"
+                        className={`feed-card-enter ${enterprisePostCard} ${postDensity === 'compact' ? enterprisePostCardCompact : enterprisePostCardPadding}`}
                         data-testid="enterprise-post-card"
                         data-post-card-design="21.1.5"
                         data-feed-post-id={String(post.id || '') || undefined}
@@ -9679,10 +9689,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               {feedLoadingMore ? (
                 <FeedLoadSkeleton count={2} className="pb-2" label="Loading more posts" />
               ) : renderedFeedItemCount < Math.max(feedItems.length, feedStream.length) ? (
-                <div className="flex min-h-[3rem] flex-col items-center gap-2 pb-2">
-                  <div className="text-center text-xs font-medium text-slate-500">
-                    Preparing more for you…
-                  </div>
+                <div className="flex min-h-[3rem] flex-col items-center gap-3 pb-2">
+                  <FeedLoadSkeleton
+                    count={1}
+                    compact
+                    className="w-full opacity-90"
+                    label="Preparing more posts for you"
+                  />
                   {/* Progressive reveal fallback for keyboard / reduced-motion users */}
                   <button
                     type="button"
@@ -9694,7 +9707,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         return next;
                       })
                     }
-                    className="rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+                    className="rounded-full border border-slate-200 bg-white px-4 py-1.5 text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
                   >
                     Show more
                   </button>

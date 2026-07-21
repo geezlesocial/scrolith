@@ -2691,14 +2691,14 @@ const CommunityHome = () => {
   }, []);
 
   // Full-page skeleton only on first paint with no posts — never unmount feed during soft reloads.
+  // Enterprise shell (not a spinner) so layout feels instant while content streams in.
   if (loading && posts.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center min-h-[12rem]">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-500">Loading Community...</p>
-        </div>
-      </div>
+      <FeedLoadSkeleton
+        variant="page"
+        label="Loading Scrolith Community"
+        className="min-h-screen"
+      />
     );
   }
 
@@ -3292,7 +3292,11 @@ const CommunityHome = () => {
                 <h2 className="text-base font-bold sm:text-lg">{getModuleTitle(modules, 'feed', 'Community Feed')}</h2>
                 <Link to="/community" className="inline-flex self-start rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 sm:self-auto sm:text-sm">Create Post</Link>
               </div>
-              <div className="space-y-4 bg-slate-50/40 p-3 sm:p-4" data-feed-scroll-root="true">
+              <div
+                className="space-y-4 bg-slate-50/40 p-3 sm:p-4"
+                data-feed-scroll-root="true"
+                data-feed-stability="enterprise-ux"
+              >
                 <PullToRefresh
                   onRefresh={async () => {
                     // Soft refresh: prepend fresh orchestrated items; never clear visible feed.
@@ -3363,7 +3367,8 @@ const CommunityHome = () => {
                       data-testid="enterprise-post-card"
                       data-post-card-design="21.1.5"
                       data-feed-post-id={String(post.id || '') || undefined}
-                      className={`${enterprisePostCard} ${enterprisePostCardPadding} ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
+                      data-feed-card="true"
+                      className={`feed-card-enter ${enterprisePostCard} ${enterprisePostCardPadding} ${focusPostId === post.id ? 'ring-2 ring-blue-100' : ''}`}
                     >
                       <PostHeader
                         author={resolvedAuthor}
