@@ -1,0 +1,18 @@
+﻿{
+    "deploymentPerformed":  false,
+    "playUpload":  false,
+    "aabPath":  "C:\\Projects\\mobile\\android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "releaseCopyPath":  "C:\\Projects\\mobile\\release-artifacts\\android-1.1.28\\Scrolith-1.1.28-38-release.aab",
+    "features":  [
+                     "scroll-mute-next-to-create",
+                     "scroll-brand-under-follow",
+                     "no-mute-author-overlap",
+                     "phase29-push-sound"
+                 ],
+    "packageName":  "com.scrolith.scrolith",
+    "versionCode":  38,
+    "sha256":  "7e59948f6b376395e09a2deec33c473346ed0472b86b0f4ea21220c1b4cf0b37",
+    "frontendCommit":  "d111acfd",
+    "versionName":  "1.1.28",
+    "sizeBytes":  10087145
+}

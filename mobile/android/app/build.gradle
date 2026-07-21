@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Scroll Mute/Unmute + brand layout over 1.1.26 / 36.
-        versionCode 37
-        versionName "1.1.27"
+        // Scroll mute layout (no author overlap) over 1.1.27 / 37.
+        versionCode 38
+        versionName "1.1.28"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
