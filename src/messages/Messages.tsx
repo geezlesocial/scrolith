@@ -9,7 +9,8 @@ import {
   mergeDirectConversations,
   messageMatchesConversation,
   getMessagePreviewText,
-  getConversationPreviewText
+  getConversationPreviewText,
+  normalizeMessageReactions
 } from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
@@ -62,8 +63,10 @@ import {
 } from '../services/messagingEngine';
 import { computeComposerTextareaHeight, mobileComposerPlaceholder } from './messagesWorkspaceLayout';
 import {
+  applyLocalReactionToggle,
   buildClientSendId,
   createLocalPendingAttachment,
+  getReactionChipEntries,
   hasPendingUploadsInFlight,
   MESSAGE_UPLOAD_CONCURRENCY,
   pendingToAttachmentIds,
@@ -2106,23 +2109,55 @@ const Messages = () => {
                       last_message_at: nextLastAt
                   };
               }
+              const isReactionUpdate =
+                  payload?.updateKind === 'reaction' ||
+                  Array.isArray(payload?.reactions) ||
+                  Boolean(payload?.reactionSummary || payload?.reaction_summary);
+              const nextReactions = Array.isArray(payload?.reactions)
+                  ? normalizeMessageReactions(payload.reactions)
+                  : null;
+              const nextReactionSummary =
+                  payload?.reactionSummary ??
+                  payload?.reaction_summary ??
+                  (nextReactions
+                      ? nextReactions.reduce((acc: Record<string, number>, reaction: any) => {
+                            const key = String(reaction?.emoji || '').trim();
+                            if (!key) return acc;
+                            acc[key] = (acc[key] || 0) + 1;
+                            return acc;
+                        }, {})
+                      : undefined);
               const nextMessages = c.messages.map(m => {
                   if (m.id !== messageId) return m;
                   return {
                       ...m,
-                      text: payload?.text ?? m.text,
-                      timestamp: payload?.timestamp ?? m.timestamp,
-                      editedAt: payload?.editedAt ?? payload?.edited_at ?? m.editedAt ?? m.edited_at ?? null,
-                      edited_at: payload?.edited_at ?? payload?.editedAt ?? m.edited_at ?? m.editedAt ?? null,
+                      text: isReactionUpdate ? m.text : (payload?.text ?? m.text),
+                      timestamp: isReactionUpdate ? m.timestamp : (payload?.timestamp ?? m.timestamp),
+                      editedAt: isReactionUpdate
+                          ? m.editedAt ?? m.edited_at ?? null
+                          : payload?.editedAt ?? payload?.edited_at ?? m.editedAt ?? m.edited_at ?? null,
+                      edited_at: isReactionUpdate
+                          ? m.edited_at ?? m.editedAt ?? null
+                          : payload?.edited_at ?? payload?.editedAt ?? m.edited_at ?? m.editedAt ?? null,
                       isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? m.isDeleted ?? m.is_deleted),
                       is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? m.is_deleted ?? m.isDeleted),
                       deletedAt: payload?.deletedAt ?? payload?.deleted_at ?? m.deletedAt ?? m.deleted_at ?? null,
                       deleted_at: payload?.deleted_at ?? payload?.deletedAt ?? m.deleted_at ?? m.deletedAt ?? null,
-                      attachments: Array.isArray(payload?.attachments) ? payload.attachments : m.attachments,
-                      reactions: Array.isArray(payload?.reactions) ? payload.reactions : m.reactions,
-                      reactionSummary: payload?.reactionSummary || m.reactionSummary
+                      attachments:
+                          isReactionUpdate || !Array.isArray(payload?.attachments)
+                              ? m.attachments
+                              : payload.attachments,
+                      reactions: nextReactions !== null ? nextReactions : m.reactions,
+                      reactionSummary:
+                          nextReactionSummary !== undefined ? nextReactionSummary : m.reactionSummary
                   };
               });
+              if (isReactionUpdate) {
+                  return {
+                      ...c,
+                      messages: nextMessages
+                  };
+              }
               const nextLast = nextMessages[nextMessages.length - 1];
               const nextLastText =
                   payload?.lastMessage ??
@@ -2221,6 +2256,7 @@ const Messages = () => {
       socket.on('presence:update', handlePresence);
       socket.on('presence:updated', handlePresence);
       socket.on('messages:updated', handleMessageUpdated);
+      socket.on('messages:reaction', handleMessageUpdated);
       socket.on('messages:conversation_updated', handleConversationUpdated);
       socket.on('messages:conversation_deleted', handleConversationDeleted);
       socket.on('messages:privacy:updated', handlePrivacyUpdated);
@@ -2234,6 +2270,7 @@ const Messages = () => {
           socket.off('presence:update', handlePresence);
           socket.off('presence:updated', handlePresence);
           socket.off('messages:updated', handleMessageUpdated);
+          socket.off('messages:reaction', handleMessageUpdated);
           socket.off('messages:conversation_updated', handleConversationUpdated);
           socket.off('messages:conversation_deleted', handleConversationDeleted);
           socket.off('messages:privacy:updated', handlePrivacyUpdated);
@@ -3124,36 +3161,11 @@ const Messages = () => {
               if (conversation.id !== activeConvoId) return conversation;
               return {
                   ...conversation,
-                  messages: conversation.messages.map(message => {
-                      if (message.id !== messageId) return message;
-                      const reactions = Array.isArray(message.reactions) ? [...message.reactions] : [];
-                      const existingReaction = reactions.find(
-                          (reaction) =>
-                              String(reaction.userId || reaction.user_id) === String(user.id)
-                      );
-                      const withoutMine = reactions.filter(
-                          (reaction) =>
-                              String(reaction.userId || reaction.user_id) !== String(user.id)
-                      );
-                      if (existingReaction?.emoji === emoji) {
-                          return {
-                              ...message,
-                              reactions: withoutMine
-                          };
-                      }
-                      return {
-                          ...message,
-                          reactions: [
-                              ...withoutMine,
-                              {
-                                  user_id: user.id,
-                                  userId: user.id,
-                                  emoji,
-                                  timestamp: new Date().toISOString()
-                              }
-                          ]
-                      };
-                  })
+                  messages: conversation.messages.map((message) =>
+                      message.id === messageId
+                          ? (applyLocalReactionToggle(message, user.id, emoji) as any)
+                          : message
+                  )
               };
           })
       );
@@ -3171,6 +3183,19 @@ const Messages = () => {
           updateMessageReactionLocally(messageId, emoji);
           const updated = await MessagingService.toggleReaction(activeConvoId, messageId, user.id, emoji);
           if (updated?.messageId) {
+              const nextReactions = Array.isArray(updated.reactions)
+                  ? normalizeMessageReactions(updated.reactions)
+                  : null;
+              const nextSummary =
+                  updated.reactionSummary ||
+                  (nextReactions
+                      ? nextReactions.reduce((acc: Record<string, number>, reaction: any) => {
+                            const key = String(reaction?.emoji || '').trim();
+                            if (!key) return acc;
+                            acc[key] = (acc[key] || 0) + 1;
+                            return acc;
+                        }, {})
+                      : undefined);
               setConversations(prev =>
                   prev.map(conversation => {
                       if (conversation.id !== activeConvoId) return conversation;
@@ -3180,8 +3205,9 @@ const Messages = () => {
                               if (message.id !== updated.messageId) return message;
                               return {
                                   ...message,
-                                  reactions: Array.isArray(updated.reactions) ? updated.reactions : message.reactions,
-                                  reactionSummary: updated.reactionSummary || message.reactionSummary
+                                  reactions: nextReactions !== null ? nextReactions : message.reactions,
+                                  reactionSummary:
+                                      nextSummary !== undefined ? nextSummary : message.reactionSummary
                               };
                           })
                       };
@@ -4039,6 +4065,7 @@ const Messages = () => {
                                     acc[emojiKey] = (acc[emojiKey] || 0) + 1;
                                     return acc;
                                 }, {});
+                                const reactionChips = isDeleted ? [] : getReactionChipEntries(msg);
                                 if (dealFlowEvent) {
                                     return (
                                         <div id={`message-${msg.id}`} key={msg.id} className={`flex min-w-0 justify-center rounded-2xl transition ${highlightedMessageId === msg.id ? 'ring-4 ring-yellow-200 ring-offset-2' : ''}`}>
@@ -4254,6 +4281,7 @@ const Messages = () => {
                                                             void handleToggleReaction(msg.id, emoji);
                                                         }}
                                                         disabled={messageActionBusyId === msg.id}
+                                                        aria-pressed={myReaction === emoji}
                                                         className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ${
                                                             myReaction === emoji
                                                                 ? 'border-blue-200 bg-blue-50 text-blue-700'
@@ -4267,6 +4295,43 @@ const Messages = () => {
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Always-visible reaction labels (sender + receiver) */}
+                                    {reactionChips.length > 0 ? (
+                                        <div
+                                            className={`mt-1 flex flex-wrap gap-1 ${
+                                                msg.senderId === user?.id ? 'justify-end' : 'justify-start'
+                                            }`}
+                                            aria-label="Message reactions"
+                                        >
+                                            {reactionChips.map(({ emoji, count }) => (
+                                                <button
+                                                    key={`${msg.id}-chip-${emoji}`}
+                                                    type="button"
+                                                    disabled={messageActionBusyId === msg.id}
+                                                    onClick={(event) => {
+                                                        event.preventDefault();
+                                                        event.stopPropagation();
+                                                        void handleToggleReaction(msg.id, emoji);
+                                                    }}
+                                                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] shadow-sm transition ${
+                                                        myReaction === emoji
+                                                            ? 'border-blue-300 bg-blue-50 font-semibold text-blue-700'
+                                                            : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                                                    }`}
+                                                    aria-label={`${emoji} ${count}${
+                                                        myReaction === emoji ? ', your reaction' : ''
+                                                    }`}
+                                                    title={myReaction === emoji ? 'Remove your reaction' : 'React'}
+                                                >
+                                                    <span>{emoji}</span>
+                                                    {count > 1 ? (
+                                                        <span className="font-semibold">{count}</span>
+                                                    ) : null}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    ) : null}
 
                                     {/* Message Actions */}
                                     <div className={`mt-1.5 flex max-w-full ${msg.senderId === user?.id ? 'justify-end' : 'justify-start'}`}>

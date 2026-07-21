@@ -267,6 +267,19 @@ export const isOptimisticMessageId = (messageId?: string | null): boolean => {
 };
 
 export const getReactionCounts = (message: Message | null | undefined): Record<string, number> => {
+  const summary =
+    message && typeof (message as any).reactionSummary === 'object' && (message as any).reactionSummary
+      ? ((message as any).reactionSummary as Record<string, number>)
+      : null;
+  if (summary && Object.keys(summary).length > 0) {
+    return Object.entries(summary).reduce((acc: Record<string, number>, [emoji, count]) => {
+      const key = String(emoji || '').trim();
+      const n = Number(count) || 0;
+      if (!key || n <= 0) return acc;
+      acc[key] = n;
+      return acc;
+    }, {});
+  }
   const reactions = Array.isArray(message?.reactions) ? message!.reactions : [];
   return reactions.reduce((acc: Record<string, number>, reaction: any) => {
     const emoji = String(reaction?.emoji || '').trim();
@@ -274,6 +287,18 @@ export const getReactionCounts = (message: Message | null | undefined): Record<s
     acc[emoji] = (acc[emoji] || 0) + 1;
     return acc;
   }, {});
+};
+
+/** Stable ordered emoji chips for always-visible reaction labels under a bubble. */
+export const getReactionChipEntries = (
+  message: Message | null | undefined
+): Array<{ emoji: string; count: number }> => {
+  const counts = getReactionCounts(message);
+  const preferred = QUICK_REACTIONS.filter((emoji) => (counts[emoji] || 0) > 0);
+  const extras = Object.keys(counts)
+    .filter((emoji) => !QUICK_REACTIONS.includes(emoji) && (counts[emoji] || 0) > 0)
+    .sort();
+  return [...preferred, ...extras].map((emoji) => ({ emoji, count: counts[emoji] }));
 };
 
 export const getMyReaction = (
@@ -304,21 +329,29 @@ export const applyLocalReactionToggle = (
   const withoutMine = reactions.filter(
     (reaction: any) => String(reaction?.userId || reaction?.user_id || '').trim() !== me
   );
-  if (existing && String(existing.emoji || '') === nextEmoji) {
-    return { ...message, reactions: withoutMine };
-  }
+  const nextReactions =
+    existing && String(existing.emoji || '') === nextEmoji
+      ? withoutMine
+      : [
+          ...withoutMine,
+          {
+            user_id: me,
+            userId: me,
+            emoji: nextEmoji,
+            timestamp: new Date().toISOString()
+          }
+        ];
+  const reactionSummary = nextReactions.reduce((acc: Record<string, number>, reaction: any) => {
+    const key = String(reaction?.emoji || '').trim();
+    if (!key) return acc;
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
   return {
     ...message,
-    reactions: [
-      ...withoutMine,
-      {
-        user_id: me,
-        userId: me,
-        emoji: nextEmoji,
-        timestamp: new Date().toISOString()
-      }
-    ]
-  };
+    reactions: nextReactions,
+    reactionSummary
+  } as Message;
 };
 
 export const markMessageDeletedEveryone = (message: Message): Message => ({

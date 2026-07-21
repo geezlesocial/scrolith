@@ -108,6 +108,10 @@ const normalizeReaction = (reaction: any): MessageReaction => {
   } as MessageReaction;
 };
 
+/** Public normalizer for socket / partial API reaction payloads (inbox realtime). */
+export const normalizeMessageReactions = (raw: any): MessageReaction[] =>
+  safeArray<any>(raw).map(normalizeReaction).filter((entry) => Boolean(entry.emoji));
+
 const normalizeMessage = (raw: any): Message => {
   const conversationId = safeString(raw?.conversationId ?? raw?.conversation_id);
   const senderId = safeString(raw?.senderId ?? raw?.sender_id);

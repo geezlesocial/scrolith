@@ -196,6 +196,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       ,{ ev: 'i18n:override_updated', fn: forward('i18n:override_updated') }
       ,{ ev: 'reactions:updated', fn: forward('reactions:updated') }
       ,{ ev: 'messages:updated', fn: forward('messages:updated') }
+      ,{ ev: 'messages:reaction', fn: forward('messages:reaction') }
       ,{ ev: 'messages:typing', fn: forward('messages:typing') }
       ,{ ev: 'messages:recording', fn: forward('messages:recording') }
       ,{ ev: 'messages:receipts', fn: forward('messages:receipts') }

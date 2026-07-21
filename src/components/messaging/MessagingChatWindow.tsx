@@ -27,6 +27,7 @@ import {
   canDeleteForMe,
   canEditOrUnsendMessage,
   getMyReaction,
+  getReactionChipEntries,
   getReactionCounts,
   insertSuggestionIntoDraft,
   isFailedOutgoingMessage,
@@ -330,6 +331,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
             const editing = editingMessageId === message.id;
             const myReaction = getMyReaction(message, user?.id);
             const reactionCounts = getReactionCounts(message);
+            const reactionChips = deleted ? [] : getReactionChipEntries(message);
             const mediaAttachments = deleted ? [] : extractMessageAttachments(message);
 
             return (
@@ -337,7 +339,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                 <div className="max-w-[86%]">
                   <div
                     className={[
-                      'rounded-2xl px-3 py-2 text-sm shadow-sm',
+                      'relative rounded-2xl px-3 py-2 text-sm shadow-sm',
                       mine
                         ? failed
                           ? 'bg-red-50 text-red-800 ring-1 ring-red-200'
@@ -448,6 +450,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                                 : 'border-slate-200 bg-white text-slate-700'
                             ].join(' ')}
                             aria-label={`React with ${emoji}`}
+                            aria-pressed={myReaction === emoji}
                           >
                             <span>{emoji}</span>
                             {reactionCounts[emoji] ? (
@@ -458,6 +461,42 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                       </div>
                     ) : null}
                   </div>
+
+                  {/* Always-visible reaction labels for sender + receiver */}
+                  {reactionChips.length > 0 ? (
+                    <div
+                      className={`mt-1 flex flex-wrap gap-1 ${mine ? 'justify-end' : 'justify-start'}`}
+                      aria-label="Message reactions"
+                    >
+                      {reactionChips.map(({ emoji, count }) => (
+                        <button
+                          key={`${message.id}-chip-${emoji}`}
+                          type="button"
+                          disabled={actionBusyId === message.id}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setActionBusyId(message.id);
+                            void toggleReaction(conversationId, message.id, emoji)
+                              .catch((error) => {
+                                setSendError(getRecoverableActionMessage('Reaction', error));
+                              })
+                              .finally(() => setActionBusyId(null));
+                          }}
+                          className={[
+                            'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] shadow-sm',
+                            myReaction === emoji
+                              ? 'border-blue-300 bg-blue-50 font-semibold text-blue-700'
+                              : 'border-slate-200 bg-white text-slate-700'
+                          ].join(' ')}
+                          aria-label={`${emoji} ${count}${myReaction === emoji ? ', your reaction' : ''}`}
+                          title={myReaction === emoji ? 'Remove your reaction' : 'React'}
+                        >
+                          <span>{emoji}</span>
+                          {count > 1 ? <span className="font-semibold">{count}</span> : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
 
                   <div className={`mt-1 flex ${mine ? 'justify-end' : 'justify-start'}`}>
                     <button

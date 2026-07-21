@@ -9,7 +9,11 @@ import React, {
   useState
 } from 'react';
 import type { Conversation, Message, UploadedFile } from '../types';
-import { MessagingService, messageMatchesConversation } from '../services/messaging';
+import {
+  MessagingService,
+  messageMatchesConversation,
+  normalizeMessageReactions
+} from '../services/messaging';
 import { getConversationMergeKey } from '../services/messagingMerge';
 import {
   applyIncomingPreviewUpdate,
@@ -1206,13 +1210,27 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const updated = await MessagingService.toggleReaction(id, mid, user.id, emoji);
         if (updated?.messageId) {
+          const nextReactions = Array.isArray(updated.reactions)
+            ? normalizeMessageReactions(updated.reactions)
+            : null;
+          const nextSummary =
+            updated.reactionSummary ||
+            (nextReactions
+              ? nextReactions.reduce((acc: Record<string, number>, reaction: any) => {
+                  const key = String(reaction?.emoji || '').trim();
+                  if (!key) return acc;
+                  acc[key] = (acc[key] || 0) + 1;
+                  return acc;
+                }, {})
+              : undefined);
           updateThreadMessages(id, (messages) =>
             messages.map((entry) =>
               entry.id === updated.messageId
                 ? {
                     ...entry,
-                    reactions: Array.isArray(updated.reactions) ? updated.reactions : entry.reactions,
-                    reactionSummary: updated.reactionSummary || (entry as any).reactionSummary
+                    reactions: nextReactions !== null ? nextReactions : entry.reactions,
+                    reactionSummary:
+                      nextSummary !== undefined ? nextSummary : (entry as any).reactionSummary
                   }
                 : entry
             )
@@ -1791,7 +1809,23 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!conversationId || !messageId) return;
       const deletedForMe = Boolean(payload?.deletedForMe ?? payload?.deleted_for_me);
       const deletedEveryone = Boolean(payload?.isDeleted ?? payload?.is_deleted);
+      const isReactionUpdate =
+        payload?.updateKind === 'reaction' ||
+        Array.isArray(payload?.reactions) ||
+        Boolean(payload?.reactionSummary || payload?.reaction_summary);
       const hasReactions = Array.isArray(payload?.reactions);
+      const nextReactions = hasReactions ? normalizeMessageReactions(payload.reactions) : null;
+      const nextReactionSummary =
+        payload?.reactionSummary ??
+        payload?.reaction_summary ??
+        (nextReactions
+          ? nextReactions.reduce((acc: Record<string, number>, reaction: any) => {
+              const key = String(reaction?.emoji || '').trim();
+              if (!key) return acc;
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {})
+          : undefined);
 
       setThreadCache((prev) => {
         const current = prev[conversationId];
@@ -1809,16 +1843,31 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
               }
               return {
                 ...entry,
-                text: payload?.text ?? entry.text,
+                // Reaction-only events omit text/attachments — preserve existing body.
+                text: isReactionUpdate
+                  ? entry.text
+                  : payload?.text !== undefined
+                    ? payload.text
+                    : entry.text,
                 isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? entry.isDeleted),
                 is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? entry.is_deleted),
-                editedAt: payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
-                edited_at: payload?.edited_at ?? payload?.editedAt ?? entry.edited_at,
+                editedAt: isReactionUpdate
+                  ? entry.editedAt
+                  : payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
+                edited_at: isReactionUpdate
+                  ? entry.edited_at
+                  : payload?.edited_at ?? payload?.editedAt ?? entry.edited_at,
                 deletedAt: payload?.deletedAt ?? payload?.deleted_at ?? entry.deletedAt,
                 deleted_at: payload?.deleted_at ?? payload?.deletedAt ?? entry.deleted_at,
-                reactions: hasReactions ? payload.reactions : entry.reactions,
-                reactionSummary: payload?.reactionSummary ?? (entry as any).reactionSummary,
-                attachments: Array.isArray(payload?.attachments) ? payload.attachments : entry.attachments
+                reactions: nextReactions !== null ? nextReactions : entry.reactions,
+                reactionSummary:
+                  nextReactionSummary !== undefined
+                    ? nextReactionSummary
+                    : (entry as any).reactionSummary,
+                attachments:
+                  isReactionUpdate || !Array.isArray(payload?.attachments)
+                    ? entry.attachments
+                    : payload.attachments
               };
             });
         return {
@@ -1843,14 +1892,33 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
                 return {
                   ...entry,
-                  text: payload?.text ?? entry.text,
+                  text: isReactionUpdate
+                    ? entry.text
+                    : payload?.text !== undefined
+                      ? payload.text
+                      : entry.text,
                   isDeleted: Boolean(payload?.isDeleted ?? payload?.is_deleted ?? entry.isDeleted),
                   is_deleted: Boolean(payload?.is_deleted ?? payload?.isDeleted ?? entry.is_deleted),
-                  editedAt: payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
-                  edited_at: payload?.edited_at ?? payload?.editedAt ?? entry.edited_at,
-                  reactions: hasReactions ? payload.reactions : entry.reactions
+                  editedAt: isReactionUpdate
+                    ? entry.editedAt
+                    : payload?.editedAt ?? payload?.edited_at ?? entry.editedAt,
+                  edited_at: isReactionUpdate
+                    ? entry.edited_at
+                    : payload?.edited_at ?? payload?.editedAt ?? entry.edited_at,
+                  reactions: nextReactions !== null ? nextReactions : entry.reactions,
+                  reactionSummary:
+                    nextReactionSummary !== undefined
+                      ? nextReactionSummary
+                      : (entry as any).reactionSummary
                 };
               });
+          // Reaction updates should not reshuffle inbox preview/order.
+          if (isReactionUpdate && !deletedForMe && !deletedEveryone) {
+            return {
+              ...conversation,
+              messages: nextMessages
+            } as Conversation;
+          }
           const last = nextMessages[nextMessages.length - 1];
           const preview =
             payload?.lastMessage ??
@@ -1872,7 +1940,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             last_message_at: lastAt
           } as Conversation;
         });
-        return sortConversationsByRecent(next);
+        return isReactionUpdate && !deletedForMe && !deletedEveryone
+          ? next
+          : sortConversationsByRecent(next);
       });
     };
 
@@ -1951,6 +2021,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
     socket.on('presence:update', handlePresence);
     socket.on('presence:updated', handlePresence);
     socket.on('messages:updated', handleMessageUpdated);
+    socket.on('messages:reaction', handleMessageUpdated);
     socket.on('messages:conversation_updated', handleConversationUpdated);
     socket.on('messages:conversation_deleted', handleConversationDeleted);
 
@@ -1977,6 +2048,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       socket.off('presence:update', handlePresence);
       socket.off('presence:updated', handlePresence);
       socket.off('messages:updated', handleMessageUpdated);
+      socket.off('messages:reaction', handleMessageUpdated);
       socket.off('messages:conversation_updated', handleConversationUpdated);
       socket.off('messages:conversation_deleted', handleConversationDeleted);
       Object.values(typingClearTimersRef.current).forEach((timer) => window.clearTimeout(timer));
