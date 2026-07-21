@@ -1,0 +1,19 @@
+﻿{
+    "versionName":  "1.1.26",
+    "versionCode":  36,
+    "packageName":  "com.scrolith.scrolith",
+    "aabPath":  "C:\\Projects\\mobile\\android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "releaseCopyPath":  "C:\\Projects\\mobile\\release-artifacts\\android-1.1.26\\Scrolith-1.1.26-36-release.aab",
+    "sizeBytes":  10086990,
+    "sha256":  "19c2ab335dc684e3ca34f37c546d41b9b113a4ae66082fae0314c06e925d7a90",
+    "mappingPath":  "C:\\Projects\\mobile\\android\\app\\build\\outputs\\mapping\\release\\mapping.txt",
+    "nativeSymbols":  [
+
+                      ],
+    "buildResult":  "BUILD SUCCESSFUL",
+    "signingResult":  "signed (jarsigner verify)",
+    "deploymentPerformed":  false,
+    "soundResource":  "scrolith",
+    "soundPronunciation":  "Scroll it",
+    "channelMigration":  "v1_to_v2"
+}

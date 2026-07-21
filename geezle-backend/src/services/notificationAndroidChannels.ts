@@ -1,9 +1,40 @@
 /**
- * Phase 25 — Android FCM channel + enterprise category mapping for push delivery.
+ * Phase 25/27/29 — Android FCM channel + enterprise category mapping for push delivery.
  * Keep channel ids aligned with geezle/src/utils/notificationTaxonomy.ts and mobile/push.ts.
+ *
+ * Phase 29 — sound migration: active delivery uses *_v2 channels with Scrolith sound "scrolith"
+ * (res/raw/scrolith.wav). Pronunciation guidance only: "Scroll it".
+ * Legacy *_v1 ids remain valid for devices still holding those channels.
  */
 
 export const ANDROID_CHANNEL_IDS = {
+  messages: 'scrolith_messages_v2',
+  community: 'scrolith_community_v2',
+  marketplace: 'scrolith_marketplace_v2',
+  jobs: 'scrolith_jobs_v2',
+  gigs: 'scrolith_gigs_v2',
+  scroll: 'scrolith_scroll_v2',
+  stories: 'scrolith_stories_v2',
+  posts: 'scrolith_posts_v2',
+  follows: 'scrolith_follows_v2',
+  mentions: 'scrolith_mentions_v2',
+  comments: 'scrolith_comments_v2',
+  orders: 'scrolith_orders_v2',
+  wallet: 'scrolith_wallet_v2',
+  payments: 'scrolith_payments_v2',
+  admin: 'scrolith_admin_v2',
+  security: 'scrolith_security_v2',
+  system: 'scrolith_system_v2',
+  scrolitha: 'scrolith_scrolitha_v2',
+  /** Legacy umbrella social */
+  social: 'scrolith_social_v2',
+  /** Freelancing alias → gigs channel */
+  freelancing: 'scrolith_gigs_v2',
+  alerts: 'scrolith_alerts_v2'
+} as const;
+
+/** Phase 29 — retained for legacy payload compatibility (do not delete on device). */
+export const ANDROID_LEGACY_CHANNEL_IDS = {
   messages: 'scrolith_messages_v1',
   community: 'scrolith_community_v1',
   marketplace: 'scrolith_marketplace_v1',
@@ -20,12 +51,14 @@ export const ANDROID_CHANNEL_IDS = {
   security: 'scrolith_security_v1',
   system: 'scrolith_system_v1',
   scrolitha: 'scrolith_scrolitha_v1',
-  /** Legacy umbrella social */
   social: 'scrolith_social_v1',
-  /** Freelancing alias → gigs channel */
-  freelancing: 'scrolith_gigs_v1',
-  alerts: 'scrolith_alerts_v2'
+  freelancing: 'scrolith_gigs_v1'
 } as const;
+
+/** Scrolith notification sound resource (no extension). Pronunciation: "Scroll it". */
+export const SCROLITH_NOTIFICATION_SOUND = 'scrolith';
+export const SCROLITH_NOTIFICATION_SOUND_PRONUNCIATION = 'Scroll it';
+export const SCROLITH_NOTIFICATION_SMALL_ICON = 'ic_stat_scrolith';
 
 export type AndroidChannelId = (typeof ANDROID_CHANNEL_IDS)[keyof typeof ANDROID_CHANNEL_IDS];
 
@@ -53,7 +86,9 @@ export type NotificationCategoryKey =
   | 'admin'
   | 'security'
   | 'system'
-  | 'social';
+  | 'social'
+  | 'wallet'
+  | 'payment';
 
 const LABEL_BY_CATEGORY: Record<NotificationCategoryKey, string> = {
   message: 'Message',
@@ -79,7 +114,9 @@ const LABEL_BY_CATEGORY: Record<NotificationCategoryKey, string> = {
   admin: 'Admin',
   security: 'Security',
   system: 'System',
-  social: 'Social'
+  social: 'Social',
+  wallet: 'Wallet',
+  payment: 'Payment'
 };
 
 const CHANNEL_BY_CATEGORY: Record<NotificationCategoryKey, AndroidChannelId> = {
@@ -105,9 +142,42 @@ const CHANNEL_BY_CATEGORY: Record<NotificationCategoryKey, AndroidChannelId> = {
   scrolitha: ANDROID_CHANNEL_IDS.scrolitha,
   admin: ANDROID_CHANNEL_IDS.admin,
   security: ANDROID_CHANNEL_IDS.security,
-  // Campaigns use alerts channel so the custom Scrolith ("Scroll it") sound plays.
-  system: ANDROID_CHANNEL_IDS.alerts,
-  social: ANDROID_CHANNEL_IDS.posts
+  system: ANDROID_CHANNEL_IDS.system,
+  social: ANDROID_CHANNEL_IDS.posts,
+  wallet: ANDROID_CHANNEL_IDS.wallet,
+  payment: ANDROID_CHANNEL_IDS.payments
+};
+
+/** Allowlist for FCM channelId — reject arbitrary client channel ids. */
+export const ANDROID_CHANNEL_ID_ALLOWLIST = new Set<string>([
+  ...Object.values(ANDROID_CHANNEL_IDS),
+  ...Object.values(ANDROID_LEGACY_CHANNEL_IDS),
+  'scrolith_alerts_v2',
+  'general',
+  'messages',
+  'posts',
+  'campaigns_scrolith_v1',
+  'campaigns_scrolith_v2'
+]);
+
+export const isAllowedAndroidChannelId = (channelId: unknown): boolean => {
+  const id = String(channelId || '').trim();
+  return Boolean(id) && ANDROID_CHANNEL_ID_ALLOWLIST.has(id);
+};
+
+/**
+ * Sanitize optional override channelId from payload/meta.
+ * Arbitrary ids are rejected; category resolution is used instead.
+ */
+export const sanitizeAndroidChannelId = (
+  requested: unknown,
+  fallback: AndroidChannelId
+): AndroidChannelId => {
+  const id = String(requested || '').trim();
+  if (!id) return fallback;
+  if (!isAllowedAndroidChannelId(id)) return fallback;
+  // Prefer active allowlisted ids; cast only when on allowlist.
+  return id as AndroidChannelId;
 };
 
 const coerce = (value: unknown) => String(value ?? '').trim().toLowerCase();
@@ -134,7 +204,7 @@ export const resolveNotificationCategory = (input: {
   const entity = coerce(input.entityType || bag.entityType || bag.entity_type);
   const haystack = `${type} ${entity} ${coerce(input.title)}`;
 
-  // Admin "Send App Campaign" and similar blasts → system (high-priority alerts channel).
+  // Admin "Send App Campaign" and similar blasts → system (alerts channel override).
   if (
     type === 'app_campaign' ||
     type === 'campaign' ||
@@ -163,8 +233,17 @@ export const resolveNotificationCategory = (input: {
   ) {
     return 'marketplace';
   }
-  if (type === 'payment' || type.includes('payout') || type.includes('payment_')) {
-    return 'order';
+  // Phase 29 — wallet / payment
+  if (type.includes('wallet') || type.includes('balance') || type === 'payout' || type.includes('payout_')) {
+    return 'wallet';
+  }
+  if (
+    type === 'payment' ||
+    type.includes('payment_') ||
+    type.includes('refund') ||
+    type.includes('receipt')
+  ) {
+    return 'payment';
   }
   if (
     type === 'message' ||
@@ -230,7 +309,7 @@ export const resolveNotificationCategory = (input: {
   }
   if (type.includes('admin') || type.includes('moderation') || type.includes('moderator')) return 'admin';
   if (type.includes('post') || type.includes('publication')) return 'post';
-  if (type.includes('social') || type.includes('campaign')) return 'social';
+  if (type.includes('social')) return 'social';
   if (type.includes('system') || type.includes('account')) return 'system';
   return 'system';
 };
@@ -241,7 +320,25 @@ export const getNotificationCategoryLabel = (
 
 export const resolveAndroidChannelId = (
   input: Parameters<typeof resolveNotificationCategory>[0]
-): AndroidChannelId => CHANNEL_BY_CATEGORY[resolveNotificationCategory(input)];
+): AndroidChannelId => {
+  const category = resolveNotificationCategory(input);
+  const type = coerce(input.type || input.data?.type || input.meta?.type || input.data?.notificationType);
+  // Campaigns use alerts channel so the custom Scrolith ("Scroll it") sound plays at MAX.
+  if (
+    type === 'app_campaign' ||
+    type === 'campaign' ||
+    type.includes('app_campaign') ||
+    (type.includes('campaign') && !type.includes('ad') && category === 'system')
+  ) {
+    return ANDROID_CHANNEL_IDS.alerts;
+  }
+  // Optional explicit channel from data — allowlist only.
+  const requested =
+    (input.data && (input.data.channelId || input.data.androidChannelId)) ||
+    (input.meta && (input.meta.channelId || input.meta.androidChannelId));
+  const mapped = CHANNEL_BY_CATEGORY[category];
+  return sanitizeAndroidChannelId(requested, mapped);
+};
 
 export const formatNotificationTitleWithCategory = (
   title: string,

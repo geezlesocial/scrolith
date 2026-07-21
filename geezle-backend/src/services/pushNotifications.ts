@@ -8,7 +8,10 @@ import {
   resolveAndroidChannelId,
   resolveNotificationCategory,
   getNotificationCategoryLabel,
-  resolveAndroidNotificationTag
+  resolveAndroidNotificationTag,
+  SCROLITH_NOTIFICATION_SOUND,
+  SCROLITH_NOTIFICATION_SMALL_ICON,
+  ANDROID_CHANNEL_IDS
 } from './notificationAndroidChannels';
 
 export type PushNotificationPayload = {
@@ -79,11 +82,12 @@ const INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
   'messaging/invalid-argument'
 ]);
-/** @deprecated Prefer resolveAndroidChannelId — kept as migration fallback */
-const SCROLITH_ANDROID_CHANNEL_ID = 'scrolith_alerts_v2';
-const SCROLITH_ANDROID_SOUND = 'scrolith';
+/** Default / migration fallback channel (FCM manifest default). */
+const SCROLITH_ANDROID_CHANNEL_ID = ANDROID_CHANNEL_IDS.alerts;
+/** Scrolith notification sound resource (no extension). Pronunciation: "Scroll it". */
+const SCROLITH_ANDROID_SOUND = SCROLITH_NOTIFICATION_SOUND;
 /** Phase 25 monochrome status icon (drawable name without extension). */
-const SCROLITH_ANDROID_SMALL_ICON = 'ic_stat_scrolith';
+const SCROLITH_ANDROID_SMALL_ICON = SCROLITH_NOTIFICATION_SMALL_ICON;
 /** Brand primary #0B5FFF */
 const SCROLITH_ANDROID_COLOR = '#0B5FFF';
 
@@ -527,7 +531,15 @@ const buildAndroidPushConfig = (payload?: PushNotificationPayload): admin.messag
       // Tag by conversation/entity for intelligent grouping (replaces prior notify).
       tag,
       // Click routing uses data.deepLink / data.link consumed by Capacitor push listeners.
-      visibility: category === 'admin' || category === 'security' ? 'private' : 'public',
+      // Messages / wallet / payments: private lock-screen (preview privacy).
+      visibility:
+        category === 'message' ||
+        category === 'admin' ||
+        category === 'security' ||
+        category === 'wallet' ||
+        category === 'payment'
+          ? 'private'
+          : 'public',
       notificationCount:
         typeof payload?.data?.badgeCount === 'number'
           ? payload.data.badgeCount
