@@ -104,7 +104,11 @@ const normalizeUser = (user?: User): User | null => {
 };
 
 class AuthService {
-  static async login(credentials: { email: string; password: string }) {
+  static async login(credentials: {
+    email: string;
+    password: string;
+    humanVerificationToken?: string | null;
+  }) {
     try {
       const response = await withAuthRequestTimeout(
         api.post('/auth/login', credentials, {
@@ -170,7 +174,15 @@ class AuthService {
     }
   }
 
-  static async register(userData: any) {
+  static async register(userData: {
+    email: string;
+    name: string;
+    password: string;
+    role?: any;
+    recaptchaToken?: string;
+    humanVerificationToken?: string | null;
+    [key: string]: any;
+  }) {
     try {
       const response = await withAuthRequestTimeout(
         api.post('/auth/register', userData, {

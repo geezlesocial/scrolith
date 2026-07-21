@@ -8,6 +8,7 @@ import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { executeRecaptcha } from '../services/recaptcha';
 import { useT } from '../i18n/useT';
+import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const Signup = () => {
   const t = useT();
@@ -29,6 +30,8 @@ const Signup = () => {
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [hvToken, setHvToken] = useState<string | null>(null);
+  const [hvRequired, setHvRequired] = useState(false);
 
   const defaultSignupContent = {
     headline: t('auth.signup.headline', 'Create your Scrolith account'),
@@ -111,6 +114,11 @@ const Signup = () => {
     
     if (!validateForm()) return;
 
+    if (hvRequired && !hvToken) {
+      setErrors({ submit: t('auth.signup.hv_required', 'Please complete human verification to continue.') });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
@@ -137,7 +145,14 @@ const Signup = () => {
       const fullName = `${formData.firstName.trim()} ${formData.lastName.trim()}`;
       
       // Call register from context - pass email, name, password, and role
-      const success = await register(formData.email, fullName, formData.password, role, recaptchaToken);
+      const success = await register(
+        formData.email,
+        fullName,
+        formData.password,
+        role,
+        recaptchaToken,
+        hvToken
+      );
 
       if (success) {
         navigate('/', { replace: true });
@@ -440,11 +455,17 @@ const Signup = () => {
               </div>
             </div>
 
+            <ScrolithHumanVerification
+              endpoint="signup"
+              onVerified={setHvToken}
+              onRequiredChange={setHvRequired}
+            />
+
             {/* Submit Button */}
             <div>
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || (hvRequired && !hvToken)}
                 className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               >
                 {isLoading ? (

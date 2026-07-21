@@ -7,6 +7,7 @@ import { CMSService } from '../services/cms';
 import AuthSocialButtons from './AuthSocialButtons';
 import { useT } from '../i18n/useT';
 import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
+import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const IS_MOBILE_APP_BUILD = import.meta.env.VITE_SCROLITH_MOBILE_APP === 'true';
 
@@ -72,6 +73,8 @@ const Login = () => {
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
   const [twoFAChallenge, setTwoFAChallenge] = useState<string | null>(null);
   const [twoFACode, setTwoFACode] = useState('');
+  const [hvToken, setHvToken] = useState<string | null>(null);
+  const [hvRequired, setHvRequired] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -171,9 +174,19 @@ const Login = () => {
         return;
       }
 
+      if (hvRequired && !hvToken) {
+        setError(t('auth.login.hv_required', 'Please complete human verification to continue.'));
+        setLoading(false);
+        return;
+      }
+
       // Intercept Admin 2FA challenge before establishing a session.
       const { AuthService } = await import('../services/authService');
-      const raw = await AuthService.login({ email, password });
+      const raw = await AuthService.login({
+        email,
+        password,
+        humanVerificationToken: hvToken || undefined
+      });
       if ((raw as any).requires2FA && (raw as any).challengeToken) {
         setTwoFAChallenge(String((raw as any).challengeToken));
         setTwoFACode('');
@@ -368,10 +381,18 @@ const Login = () => {
             </Link>
           </div>
 
+          {!twoFAChallenge && (
+            <ScrolithHumanVerification
+              endpoint="login"
+              onVerified={setHvToken}
+              onRequiredChange={setHvRequired}
+            />
+          )}
+
           <div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (hvRequired && !hvToken && !twoFAChallenge)}
               className="flex w-full items-center justify-center rounded-xl border border-transparent bg-slate-950 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-slate-950/15 transition hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
             >
               {loading ? t('auth.login.loading', 'Signing in...') : loginContent.submit_label}

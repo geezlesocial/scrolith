@@ -7,6 +7,7 @@ import { CMSService } from '../../services/cms';
 import { commerceService } from '../../services/commerce';
 import { jobsApi } from '../../services/jobs';
 import type { PlatformIntegrationsSettings } from '../../types';
+import HumanVerificationPanel from './HumanVerificationPanel';
 
 const defaultIntegrations: PlatformIntegrationsSettings = {
   recaptcha: {
@@ -421,12 +422,19 @@ const GoogleSettings: React.FC = () => {
         </button>
       </div>
 
+      <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 text-sm text-blue-900">
+        <strong>Scrolith Human Verification</strong> is the recommended built-in CAPTCHA alternative (privacy-friendly, no Google scripts).
+        Google reCAPTCHA remains available as an optional third-party provider below.
+      </div>
+
+      <HumanVerificationPanel />
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2">
               <ShieldCheck className="w-5 h-5 text-blue-600" />
-              <h3 className="text-lg font-bold text-gray-900">Google reCAPTCHA</h3>
+              <h3 className="text-lg font-bold text-gray-900">Google reCAPTCHA (optional)</h3>
             </div>
             <Toggle
               enabled={Boolean(integrations.recaptcha?.enabled)}

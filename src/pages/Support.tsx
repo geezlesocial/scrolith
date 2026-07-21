@@ -6,6 +6,7 @@ import { useNotification } from '../context/NotificationContext';
 import { Ticket, CheckCircle, Upload, ArrowRight, User, Mail, Phone, RefreshCw, MessageSquare, Paperclip } from 'lucide-react';
 import { TicketCategory, SupportTicket, TicketStatus } from '../types';
 import { executeRecaptcha } from '../services/recaptcha';
+import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const Support = () => {
     const { showNotification } = useNotification();
@@ -16,6 +17,8 @@ const Support = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [createdTicket, setCreatedTicket] = useState<SupportTicket | null>(null);
     const [categories, setCategories] = useState<TicketCategory[]>([]);
+    const [hvToken, setHvToken] = useState<string | null>(null);
+    const [hvRequired, setHvRequired] = useState(false);
 
     const [formData, setFormData] = useState({
         fullName: '',
@@ -41,6 +44,10 @@ const Support = () => {
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (hvRequired && !hvToken) {
+            showNotification('error', 'Verification required', 'Please complete human verification before submitting.');
+            return;
+        }
         setIsSubmitting(true);
         try {
             const recaptchaConfig = (settings as any)?.integrations?.recaptcha || {};
@@ -70,8 +77,9 @@ const Support = () => {
             const ticket = await SupportService.createTicket({
                 ...formData,
                 attachments,
-                recaptchaToken
-            });
+                recaptchaToken,
+                humanVerificationToken: hvToken || undefined
+            } as any);
             setCreatedTicket(ticket);
             showNotification('success', 'Ticket Created', `Your tracking code is ${ticket.tracking_code}`);
             setFormData({ fullName: '', email: '', mobile: '', subject: '', message: '', category: categories[0]?.name || '', file: null });
@@ -268,9 +276,15 @@ const Support = () => {
                                         </div>
                                     </div>
 
+                                    <ScrolithHumanVerification
+                                        endpoint="support"
+                                        onVerified={setHvToken}
+                                        onRequiredChange={setHvRequired}
+                                    />
+
                                     <button 
                                         type="submit" 
-                                        disabled={isSubmitting}
+                                        disabled={isSubmitting || (hvRequired && !hvToken)}
                                         className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50"
                                     >
                                         {isSubmitting ? 'Creating Ticket...' : 'Submit Ticket'}

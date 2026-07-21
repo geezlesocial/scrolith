@@ -5,6 +5,7 @@ import { CMSService } from '../services/cms';
 import { AuthPagesConfig } from '../types';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
+import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const ResetPassword = () => {
   const { showNotification } = useNotification();
@@ -17,6 +18,8 @@ const ResetPassword = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
+  const [hvToken, setHvToken] = useState<string | null>(null);
+  const [hvRequired, setHvRequired] = useState(false);
 
   const token = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -85,9 +88,18 @@ const ResetPassword = () => {
       return;
     }
 
+    if (hvRequired && !hvToken) {
+      setError('Please complete human verification to continue.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await api.post('/auth/reset-password', { token, password });
+      await api.post('/auth/reset-password', {
+        token,
+        password,
+        humanVerificationToken: hvToken || undefined
+      });
       showNotification('success', 'Password updated', 'You can now sign in with your new password.');
       navigate('/auth/login?reset=success', { replace: true });
     } catch (err: any) {
@@ -170,10 +182,16 @@ const ResetPassword = () => {
               <p className="text-xs text-gray-500">Passwords must be at least 8 characters and include letters and numbers.</p>
             </div>
 
+            <ScrolithHumanVerification
+              endpoint="password_reset"
+              onVerified={setHvToken}
+              onRequiredChange={setHvRequired}
+            />
+
             <div>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (hvRequired && !hvToken)}
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 {loading ? 'Updating...' : resetContent.submit_label}

@@ -6,6 +6,7 @@ import { AuthPagesConfig } from '../types';
 import api from '../services/api';
 import { useNotification } from '../context/NotificationContext';
 import { useT } from '../i18n/useT';
+import ScrolithHumanVerification from '../components/human-verification/ScrolithHumanVerification';
 
 const ForgotPassword = () => {
   const t = useT();
@@ -15,6 +16,8 @@ const ForgotPassword = () => {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
+  const [hvToken, setHvToken] = useState<string | null>(null);
+  const [hvRequired, setHvRequired] = useState(false);
 
   const defaultContent = {
     headline: t('auth.forgot.headline', 'Forgot your password?'),
@@ -56,11 +59,18 @@ const ForgotPassword = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email) return;
+    if (hvRequired && !hvToken) {
+      setError(t('auth.forgot.hv_required', 'Please complete human verification to continue.'));
+      return;
+    }
     setLoading(true);
     setError('');
 
     try {
-      await api.post('/auth/forgot-password', { email });
+      await api.post('/auth/forgot-password', {
+        email,
+        humanVerificationToken: hvToken || undefined
+      });
       setSubmitted(true);
       showNotification(
         'success',
@@ -130,10 +140,16 @@ const ForgotPassword = () => {
               </div>
             </div>
 
+            <ScrolithHumanVerification
+              endpoint="forgot_password"
+              onVerified={setHvToken}
+              onRequiredChange={setHvRequired}
+            />
+
             <div>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (hvRequired && !hvToken)}
                 className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
               >
                 {loading ? 'Sending...' : forgotContent.submit_label}
