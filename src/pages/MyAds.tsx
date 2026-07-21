@@ -1896,7 +1896,7 @@ const MyAds = () => {
   }, [formOpen, form.currency, selectedCurrency.code]);
 
   const getPlacementRate = useCallback(
-    (placement: string, kind: 'cpmByPlacement' | 'cpcByPlacement') => {
+    (placement: string, kind: 'cpmByPlacement' | 'cpcByPlacement' | 'cpmByPlacementDisplay' | 'cpcByPlacementDisplay') => {
       const normalized = normalizePlacement(placement);
       const source = (adsConfig?.[kind] || {}) as Record<string, any>;
       const aliases = [normalized];
@@ -1913,14 +1913,37 @@ const MyAds = () => {
 
   const primaryPlacement = form.placements[0] || placementOptions[0]?.value || 'community_feed';
   const activeRates = useMemo(() => {
-    return {
-      cpm: getPlacementRate(primaryPlacement, 'cpmByPlacement'),
-      cpc: getPlacementRate(primaryPlacement, 'cpcByPlacement')
+    // Phase 28F — placement CPM/CPC are canonical USD; convert into campaign currency for estimates.
+    // Prefer server-provided *Display maps when present (getAdsConfig?displayCurrency=).
+    const cpmDisplay = getPlacementRate(primaryPlacement, 'cpmByPlacementDisplay');
+    const cpcDisplay = getPlacementRate(primaryPlacement, 'cpcByPlacementDisplay');
+    const cpmBase = getPlacementRate(primaryPlacement, 'cpmByPlacement');
+    const cpcBase = getPlacementRate(primaryPlacement, 'cpcByPlacement');
+    const convertRate = (base: number, preconverted: number) => {
+      if (Number.isFinite(preconverted) && preconverted > 0 && campaignCurrency !== pricingCurrency) {
+        return preconverted;
+      }
+      if (campaignCurrency === pricingCurrency) return base;
+      const r = convertAmountDetailed(base, pricingCurrency, campaignCurrency);
+      return r.ok ? r.amount : base;
     };
-  }, [getPlacementRate, primaryPlacement]);
+    return {
+      cpm: convertRate(cpmBase, cpmDisplay),
+      cpc: convertRate(cpcBase, cpcDisplay),
+      cpmBase,
+      cpcBase
+    };
+  }, [
+    getPlacementRate,
+    primaryPlacement,
+    campaignCurrency,
+    pricingCurrency,
+    convertAmountDetailed
+  ]);
 
   const estimatedOutcomes = useMemo(() => {
     const budget = toNumber(form.budget);
+    // budget is in campaign currency; rates are converted to the same currency (28F).
     if (form.pricingModel === 'CPM') {
       return {
         impressions: activeRates.cpm > 0 ? Math.floor((budget / activeRates.cpm) * 1000) : 0,

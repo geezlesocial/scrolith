@@ -141,3 +141,55 @@ export const toBaseAmount = (
     rates,
     baseCurrency
   });
+
+/**
+ * Phase 28F — convert a map of placement rates (CPM/CPC) from pricing currency to display.
+ * Unconvertible keys are omitted (fail closed) rather than returning the raw USD number under a foreign symbol.
+ */
+export const convertPlacementRateMap = (
+  rateMap: Record<string, number> | null | undefined,
+  fromCurrency: string,
+  toCurrency: string,
+  rates: RateMap,
+  baseCurrency = 'USD'
+): Record<string, number> => {
+  const from = normalizeCode(fromCurrency, baseCurrency);
+  const to = normalizeCode(toCurrency, from);
+  const out: Record<string, number> = {};
+  const source = rateMap && typeof rateMap === 'object' ? rateMap : {};
+  for (const [key, raw] of Object.entries(source)) {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) continue;
+    if (from === to) {
+      out[key] = n;
+      continue;
+    }
+    const converted = convertMajorUnits({
+      amount: n,
+      fromCurrency: from,
+      toCurrency: to,
+      rates,
+      baseCurrency
+    });
+    if (converted.ok) out[key] = converted.amount;
+  }
+  return out;
+};
+
+/** Phase 28F — true when method is cash-on-delivery / offline cash (no platform commission). */
+export const isCodPaymentMethod = (method?: string | null): boolean => {
+  const key = String(method || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (!key) return false;
+  return (
+    key === 'cod' ||
+    key === 'cash' ||
+    key === 'cash_on_delivery' ||
+    key === 'cash_on_meetup' ||
+    key === 'meetup_cash' ||
+    key.includes('cash_on_delivery') ||
+    key.endsWith('_cod')
+  );
+};

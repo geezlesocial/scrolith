@@ -3,7 +3,9 @@ import {
   convertMajorUnits,
   formatConvertedMoney,
   convertBaseLimit,
-  toBaseAmount
+  toBaseAmount,
+  convertPlacementRateMap,
+  isCodPaymentMethod
 } from '../moneyConversion';
 
 const rates = new Map<string, number>([
@@ -74,5 +76,24 @@ describe('Phase 28D money conversion invariants', () => {
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.amount).toBe(42);
+  });
+});
+
+describe('Phase 28F surface helpers', () => {
+  test('placement CPM/CPC maps convert without symbol-only trap', () => {
+    const converted = convertPlacementRateMap(
+      { community_feed: 5, scroll_preroll: 8, chat_sidebar: 0.2 },
+      'USD',
+      'PHP',
+      rates
+    );
+    expect(converted.community_feed).toBeCloseTo(286.25, 5);
+    expect(converted.scroll_preroll).toBeCloseTo(458, 5);
+    expect(converted.chat_sidebar).toBeCloseTo(11.45, 5);
+  });
+
+  test('COD payment method detection', () => {
+    expect(isCodPaymentMethod('cash_on_delivery')).toBe(true);
+    expect(isCodPaymentMethod('stripe')).toBe(false);
   });
 });

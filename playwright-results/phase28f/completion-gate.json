@@ -1,0 +1,23 @@
+﻿{
+  "phase": "28F",
+  "title": "Full Currency Surface Completion",
+  "deployed": false,
+  "status": "IMPLEMENTED",
+  "next": "28G",
+  "surfaces": {
+    "ads": { "cpmCpcConversion": true, "dailySpendBaseValidation": true, "placementSurfaces": ["homepage","homepage_feed","community_feed","scroll_preroll","scroll_feed","forum_listing","thread_detail","chat_sidebar"] },
+    "jobs": { "budgetParseHelpers": true, "historicalBudgetPreserved": true },
+    "gigs": { "checkoutFxFailClosed": true, "pricingCurrencyUsd": true },
+    "marketplace": { "checkoutQuote": true, "orderCreate": true, "codNoCommission": true, "onlineCommission": true }
+  },
+  "foundation": {
+    "baseCurrency": "USD",
+    "fxEngine": "preserved",
+    "catalog": "preserved",
+    "walletHistorical": "preserved"
+  },
+  "tests": {
+    "backend": "phase28f.currencySurfaces.unit.test.ts",
+    "frontend": "moneyConversion.phase28d.test.ts (28F cases)"
+  }
+}
