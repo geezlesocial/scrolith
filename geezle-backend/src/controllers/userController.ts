@@ -721,7 +721,21 @@ export const getUserSettings = async (req: Request, res: Response) => {
     if (!canAccessUser(req, userId)) return fail(res, 403, 'Not authorized', 'ERR_FORBIDDEN');
 
     const settings = await getOrCreateSettings(userId);
-    return ok(res, toSettingsResponse(settings));
+    // Authoritative TOTP enrollment lives on User; surface it on settings payload.
+    const user2fa = await prisma.user
+      .findUnique({
+        where: { id: userId },
+        select: { twoFactorEnabled: true, twoFactorEnrolledAt: true, twoFactorWaivedUntil: true }
+      })
+      .catch(() => null);
+    const response = toSettingsResponse(settings);
+    if (user2fa) {
+      response.two_factor_enabled = Boolean(user2fa.twoFactorEnabled);
+      response.twoFactorEnabled = Boolean(user2fa.twoFactorEnabled);
+      (response as any).twoFactorEnrolledAt = user2fa.twoFactorEnrolledAt;
+      (response as any).twoFactorWaivedUntil = user2fa.twoFactorWaivedUntil;
+    }
+    return ok(res, response);
   } catch (error: any) {
     console.error('getUserSettings error:', error);
     return fail(res, 500, error?.message || 'Failed to load settings', 'ERR_INTERNAL');
@@ -783,7 +797,19 @@ export const updateUserSettings = async (req: Request, res: Response) => {
     if (jobApplicationNotifications !== undefined) data.notifyJobApplications = Boolean(jobApplicationNotifications);
     if (applicationUpdateNotifications !== undefined) data.notifyApplicationUpdates = Boolean(applicationUpdateNotifications);
     if (marketingEmails !== undefined) data.marketingEmails = Boolean(marketingEmails);
-    if (twoFactorEnabled !== undefined) data.twoFactorEnabled = Boolean(twoFactorEnabled);
+    // Do not allow enabling real 2FA via a bare settings toggle — must complete Authenticator enrollment.
+    // Disabling via settings without a TOTP code is also blocked (use /auth/2fa/disable).
+    if (twoFactorEnabled !== undefined) {
+      if (Boolean(twoFactorEnabled) === true) {
+        return fail(
+          res,
+          400,
+          'Enable Two-Factor Authentication via Google Authenticator enrollment (Security settings).',
+          'ERR_2FA_ENROLL_REQUIRED'
+        );
+      }
+      // Ignore false here; disable requires TOTP confirmation on /auth/2fa/disable.
+    }
     if (loginAlerts !== undefined) data.loginAlerts = Boolean(loginAlerts);
 
     const updated = await prisma.userSettings.update({

@@ -67,9 +67,7 @@ export const begin2FAEnrollment = async (req: Request, res: Response) => {
       select: { id: true, email: true, role: true, twoFactorEnabled: true }
     });
     if (!user) return res.status(404).json({ success: false, error: 'User not found' });
-    if (!isAdminRole(user.role)) {
-      return res.status(403).json({ success: false, error: 'Admin 2FA enrollment is limited to admin roles' });
-    }
+    // Available to all authenticated users (freelancer/employer/admin security settings).
     const secret = generateBase32Secret(20);
     await prisma.user.update({
       where: { id: userId },
@@ -78,10 +76,18 @@ export const begin2FAEnrollment = async (req: Request, res: Response) => {
         twoFactorEnabled: false
       } as any
     });
+    // Keep UserSettings flag in sync for dashboard toggles that still read it.
+    await prisma.userSettings
+      .upsert({
+        where: { userId },
+        create: { userId, twoFactorEnabled: false } as any,
+        update: { twoFactorEnabled: false } as any
+      })
+      .catch(() => undefined);
     const otpauthUrl = buildOtpAuthUri({
       secret,
       accountName: user.email,
-      issuer: 'Scrolith Admin'
+      issuer: 'Scrolith'
     });
     return res.json({
       success: true,
@@ -125,6 +131,13 @@ export const confirm2FAEnrollment = async (req: Request, res: Response) => {
         twoFactorWaivedReason: null
       } as any
     });
+    await prisma.userSettings
+      .upsert({
+        where: { userId },
+        create: { userId, twoFactorEnabled: true } as any,
+        update: { twoFactorEnabled: true } as any
+      })
+      .catch(() => undefined);
     return res.json({
       success: true,
       data: {
@@ -164,6 +177,13 @@ export const disableMy2FA = async (req: Request, res: Response) => {
         twoFactorEnrolledAt: null
       } as any
     });
+    await prisma.userSettings
+      .upsert({
+        where: { userId },
+        create: { userId, twoFactorEnabled: false } as any,
+        update: { twoFactorEnabled: false } as any
+      })
+      .catch(() => undefined);
     return res.json({ success: true, data: { enabled: false } });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e?.message || 'Failed to disable 2FA' });
@@ -241,49 +261,109 @@ export const resetUser2FA = async (req: Request, res: Response) => {
         twoFactorEnrolledAt: null
       } as any
     });
+    await prisma.userSettings
+      .upsert({
+        where: { userId: targetId },
+        create: { userId: targetId, twoFactorEnabled: false } as any,
+        update: { twoFactorEnabled: false } as any
+      })
+      .catch(() => undefined);
     return res.json({ success: true, data: { userId: targetId, twoFactorEnabled: false } });
   } catch (e: any) {
     return res.status(500).json({ success: false, error: e?.message || 'Failed to reset 2FA' });
   }
 };
 
-export const listAdmin2FADirectory = async (_req: Request, res: Response) => {
+export const listAdmin2FADirectory = async (req: Request, res: Response) => {
   try {
-    const admins = await prisma.user.findMany({
-      where: {
-        OR: [{ role: 'ADMIN' as any }, { role: 'SUPER_ADMIN' as any }]
-      },
+    const q = String(req.query.q || req.query.search || '').trim();
+    const onlyEnrolled = String(req.query.enrolled || '') === '1' || String(req.query.enrolled || '') === 'true';
+    const onlyAdmins = String(req.query.adminsOnly || '') === '1' || String(req.query.adminsOnly || '') === 'true';
+
+    const where: any = {};
+    if (onlyAdmins) {
+      where.OR = [{ role: 'ADMIN' as any }, { role: 'SUPER_ADMIN' as any }];
+    }
+    if (onlyEnrolled) {
+      where.twoFactorEnabled = true;
+    }
+    if (q) {
+      where.AND = [
+        ...(where.AND || []),
+        {
+          OR: [
+            { email: { contains: q, mode: 'insensitive' } },
+            { name: { contains: q, mode: 'insensitive' } },
+            { username: { contains: q, mode: 'insensitive' } }
+          ]
+        }
+      ];
+    }
+
+    const users = await prisma.user.findMany({
+      where,
       select: {
         id: true,
         email: true,
         name: true,
+        username: true,
         role: true,
         isActive: true,
         twoFactorEnabled: true,
         twoFactorEnrolledAt: true,
         twoFactorWaivedUntil: true,
         twoFactorWaivedReason: true,
+        twoFactorWaivedById: true,
         lastLoginAt: true
       },
-      orderBy: { email: 'asc' }
+      orderBy: [{ twoFactorEnabled: 'desc' }, { email: 'asc' }],
+      take: Math.min(Number(req.query.limit) || 100, 200)
     });
     const controls = await getSystemControls();
     return res.json({
       success: true,
       data: {
         policyEnforced: controls.admin2FA,
-        admins: admins.map((a) => ({
+        // keep legacy key for existing UI
+        admins: users.map((a) => ({
+          ...a,
+          waived: isWaived(a)
+        })),
+        users: users.map((a) => ({
           ...a,
           waived: isWaived(a)
         }))
       }
     });
   } catch (e: any) {
-    return res.status(500).json({ success: false, error: e?.message || 'Failed to list admin 2FA' });
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to list 2FA directory' });
   }
 };
 
-/** Called from login after password OK */
+const createChallenge = async (userId: string, needsSetup: boolean) => {
+  const challengeToken = crypto.randomBytes(24).toString('hex');
+  await prisma.appSetting.upsert({
+    where: { scope: `2fa_challenge_${challengeToken}` },
+    create: {
+      scope: `2fa_challenge_${challengeToken}`,
+      data: {
+        userId,
+        exp: Date.now() + 10 * 60 * 1000,
+        needsSetup
+      }
+    },
+    update: {
+      data: {
+        userId,
+        exp: Date.now() + 10 * 60 * 1000,
+        needsSetup
+      }
+    }
+  });
+  return challengeToken;
+};
+
+/** Called from login after password OK — all enrolled users + admin policy enforcement */
 export const evaluateAdmin2FAGate = async (user: {
   id: string;
   role: string;
@@ -295,53 +375,23 @@ export const evaluateAdmin2FAGate = async (user: {
   | { required: false }
   | { required: true; challengeToken: string }
 > => {
-  const controls = await getSystemControls();
-  if (!controls.admin2FA) return { required: false };
-  if (!isAdminRole(user.role)) return { required: false };
   if (isWaived(user)) return { required: false };
-  if (!user.twoFactorEnabled || !user.twoFactorSecret) {
-    // Policy on but not enrolled → still challenge with setup required
-    const challengeToken = crypto.randomBytes(24).toString('hex');
-    await prisma.appSetting.upsert({
-      where: { scope: `2fa_challenge_${challengeToken}` },
-      create: {
-        scope: `2fa_challenge_${challengeToken}`,
-        data: {
-          userId: user.id,
-          exp: Date.now() + 10 * 60 * 1000,
-          needsSetup: true
-        }
-      },
-      update: {
-        data: {
-          userId: user.id,
-          exp: Date.now() + 10 * 60 * 1000,
-          needsSetup: true
-        }
-      }
-    });
-    return { required: true, challengeToken };
+
+  const controls = await getSystemControls();
+  const adminPolicy = controls.admin2FA && isAdminRole(user.role);
+  const userEnrolled = Boolean(user.twoFactorEnabled && user.twoFactorSecret);
+
+  // Enrolled users always challenged at login (unless waived).
+  if (userEnrolled) {
+    return { required: true, challengeToken: await createChallenge(user.id, false) };
   }
-  const challengeToken = crypto.randomBytes(24).toString('hex');
-  await prisma.appSetting.upsert({
-    where: { scope: `2fa_challenge_${challengeToken}` },
-    create: {
-      scope: `2fa_challenge_${challengeToken}`,
-      data: {
-        userId: user.id,
-        exp: Date.now() + 10 * 60 * 1000,
-        needsSetup: false
-      }
-    },
-    update: {
-      data: {
-        userId: user.id,
-        exp: Date.now() + 10 * 60 * 1000,
-        needsSetup: false
-      }
-    }
-  });
-  return { required: true, challengeToken };
+
+  // Platform Admin 2FA policy: admins must enroll even if not yet enabled.
+  if (adminPolicy) {
+    return { required: true, challengeToken: await createChallenge(user.id, true) };
+  }
+
+  return { required: false };
 };
 
 export const verify2FALogin = async (req: Request, res: Response) => {
