@@ -28,6 +28,17 @@ const platformVars = ['platform.name', 'platform.url', 'platform.supportUrl'];
 export const SYSTEM_MESSAGE_VARIABLES: Record<string, string[]> = {
   password_reset: ['user.name', 'user.email', 'reset.link', 'reset.expiresMinutes', ...platformVars],
   new_message: ['user.name', 'user.email', 'sender.name', 'sender.email', 'message.preview', 'message.link', ...platformVars],
+  message_reaction: [
+    'user.name',
+    'user.email',
+    'sender.name',
+    'sender.email',
+    'message.preview',
+    'message.link',
+    'message.emoji',
+    'message.reactionEmoji',
+    ...platformVars
+  ],
   order_update: ['user.name', 'user.email', 'order.id', 'order.status', 'order.total', 'order.link', 'currency', ...platformVars],
   contract_update: ['user.name', 'user.email', 'contract.title', 'contract.status', 'contract.link', ...platformVars],
   wallet_withdrawal_update: ['user.name', 'user.email', 'withdrawal.amount', 'withdrawal.currency', 'withdrawal.status', 'withdrawal.link', ...platformVars],
@@ -124,6 +135,25 @@ const defaultEmailTemplates = {
     ),
     text: textBlock([
       'New message from {{sender.name}}',
+      '{{message.preview}}',
+      'Open conversation: {{message.link}}'
+    ])
+  },
+  message_reaction: {
+    subject: '{{sender.name}} reacted to your message on Scrolith',
+    html: wrapEmailHtml(
+      'Message reaction',
+      `
+        <h2 style="margin-top:0;font-size:22px;color:#0f172a;">{{sender.name}} reacted {{message.emoji}}</h2>
+        <p style="margin:8px 0 0;font-size:15px;line-height:1.6;color:#334155;">
+          {{message.preview}}
+        </p>
+      `,
+      '{{message.link}}',
+      'Open Conversation'
+    ),
+    text: textBlock([
+      '{{sender.name}} reacted {{message.emoji}}',
       '{{message.preview}}',
       'Open conversation: {{message.link}}'
     ])
@@ -275,6 +305,24 @@ export const defaultSystemMessagesConfig: SystemMessagesConfig = {
   templates: {
     password_reset: defaultTemplate('password_reset', 'Password Reset'),
     new_message: defaultTemplate('new_message', 'New Message'),
+    message_reaction: (() => {
+      const base = defaultTemplate('message_reaction', 'Message Reaction');
+      return {
+        ...base,
+        // Prefer push + in-app for reactions; avoid email spam on every emoji.
+        email: { ...base.email, enabled: false },
+        notification: {
+          enabled: true,
+          title: '{{sender.name}} reacted {{message.emoji}}',
+          message: '{{message.preview}}'
+        },
+        push: {
+          enabled: true,
+          title: '{{sender.name}} reacted {{message.emoji}}',
+          message: '{{message.preview}}'
+        }
+      };
+    })(),
     order_update: defaultTemplate('order_update', 'Order Update'),
     contract_update: defaultTemplate('contract_update', 'Contract Update'),
     wallet_withdrawal_update: defaultTemplate('wallet_withdrawal_update', 'Withdrawal Update'),

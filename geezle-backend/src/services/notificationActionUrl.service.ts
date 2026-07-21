@@ -374,7 +374,12 @@ export const buildNotificationActionUrl = (
     })}`;
   }
 
-  if (conversationId || normalizedType === 'message' || normalizedType === 'new_message') {
+  if (
+    conversationId ||
+    normalizedType === 'message' ||
+    normalizedType === 'new_message' ||
+    normalizedType === 'message_reaction'
+  ) {
     if (conversationId) return `/messages/${encodeURIComponent(conversationId)}`;
     return '/messages';
   }

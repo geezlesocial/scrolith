@@ -3,7 +3,10 @@ import prisma from '../utils/prismaClient';
 import { resolveUserProStatus } from '../utils/proStatus';
 import { syncFileUsages, removeUsage } from '../utils/fileUsage';
 import { notifyAdmins } from '../utils/notify';
-import { dispatchMessageReceiptNotifications } from '../services/messageNotifications';
+import {
+  dispatchMessageReceiptNotifications,
+  dispatchMessageReactionNotifications
+} from '../services/messageNotifications';
 import {
   formatLastMessagePreview,
   resolveStoredLastMessageText,
@@ -2785,12 +2788,24 @@ export const toggleReaction = async (req: Request, res: Response) => {
       if (!emojiKey) return;
       reactionSummary[emojiKey] = (reactionSummary[emojiKey] || 0) + 1;
     });
+    const reacted = !hasSame;
     const payload = {
       conversationId: message.conversationId,
+      conversation_id: message.conversationId,
       messageId,
+      message_id: messageId,
+      id: messageId,
       reactions: reactions.map(formatReaction),
       reactionSummary,
-      userReaction: hasSame ? null : emoji
+      reaction_summary: reactionSummary,
+      userReaction: reacted ? emoji : null,
+      user_reaction: reacted ? emoji : null,
+      reactorUserId: userId,
+      reactor_user_id: userId,
+      reacted,
+      emoji: reacted ? emoji : null,
+      // Pure reaction update — clients must not clear text/attachments from absence of these fields.
+      updateKind: 'reaction'
     };
 
     const fanoutUserIds = Array.from(
@@ -2799,14 +2814,38 @@ export const toggleReaction = async (req: Request, res: Response) => {
         ...message.conversation.participants.map((entry) => String(entry.userId || '').trim())
       ].filter(Boolean))
     );
+    // Realtime: fanout to every participant (including reactor) so both sender and receiver
+    // see reaction chips without a refresh. Dual-event for older and newer clients.
     fanoutUserIds.forEach((targetUserId) => {
       emitToUser(req, targetUserId, 'messages:updated', payload);
+      emitToUser(req, targetUserId, 'messages:reaction', payload);
     });
+
+    // Push / in-app for other participants when a reaction is added (not on remove).
+    if (reacted) {
+      const participantIds = message.conversation.participants
+        .map((entry) => String(entry.userId || '').trim())
+        .filter(Boolean);
+      void dispatchMessageReactionNotifications({
+        receiverIds: participantIds,
+        reactorUserId: userId,
+        conversationId: message.conversationId,
+        messageId,
+        messageAuthorId: message.senderId,
+        emoji,
+        messagePreview: resolveMessageSnippet(message),
+        isGroup: (message.conversation as any)?.type === 'GROUP'
+      }).catch((notifyError) => {
+        console.warn('Failed to send message reaction notifications', notifyError);
+      });
+    }
+
     traceMessageEvent('api.toggle_reaction.success', {
       conversationId: message.conversationId,
       messageId,
       userId,
       emoji,
+      reacted,
       reactionSummary
     });
 

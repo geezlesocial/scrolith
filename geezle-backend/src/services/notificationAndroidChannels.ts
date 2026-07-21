@@ -155,7 +155,13 @@ export const resolveNotificationCategory = (input: {
   if (type === 'payment' || type.includes('payout') || type.includes('payment_')) {
     return 'order';
   }
-  if (type === 'message' || type === 'new_message' || type.includes('message') || type.includes('chat')) {
+  if (
+    type === 'message' ||
+    type === 'new_message' ||
+    type === 'message_reaction' ||
+    type.includes('message') ||
+    type.includes('chat')
+  ) {
     return 'message';
   }
   // Jobs before story / status substring collisions.

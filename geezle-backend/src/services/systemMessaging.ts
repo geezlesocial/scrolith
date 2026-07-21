@@ -146,15 +146,29 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
   const user = await resolveUserIdentity(input.userId, input.user);
   const targetUserId = input.userId || user?.id || null;
   const settings = await resolveUserSettings(targetUserId);
+  const typeKey = String(input.typeOverride || input.templateKey || '')
+    .trim()
+    .toLowerCase();
   const isMessageNotification =
-    input.templateKey === 'new_message' || String(input.typeOverride || '').trim().toLowerCase() === 'message';
+    input.templateKey === 'new_message' || typeKey === 'message' || typeKey === 'new_message';
+  const isMessageReactionNotification =
+    input.templateKey === 'message_reaction' || typeKey === 'message_reaction';
   const rawContext = input.context && typeof input.context === 'object' ? input.context : undefined;
   const contextualPreview = String(rawContext?.message?.preview || '').trim();
   const contextualTitle = String(rawContext?.sender?.name || '').trim();
-  const fallbackTitle = isMessageNotification
-    ? `New message${contextualTitle ? ` from ${contextualTitle}` : ''}`
-    : template.label;
-  const fallbackMessage = isMessageNotification ? contextualPreview || 'You received a new message.' : '';
+  const reactionEmoji = String(
+    rawContext?.message?.emoji || rawContext?.message?.reactionEmoji || ''
+  ).trim();
+  const fallbackTitle = isMessageReactionNotification
+    ? `${contextualTitle || 'Someone'} reacted${reactionEmoji ? ` ${reactionEmoji}` : ''}`
+    : isMessageNotification
+      ? `New message${contextualTitle ? ` from ${contextualTitle}` : ''}`
+      : template.label;
+  const fallbackMessage = isMessageReactionNotification
+    ? contextualPreview || `${contextualTitle || 'Someone'} reacted to a message.`
+    : isMessageNotification
+      ? contextualPreview || 'You received a new message.'
+      : '';
   const actionUrl =
     normalizeNotificationActionUrl(
       input.actionUrl ||
@@ -199,9 +213,12 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
 
   if (targetUserId && (input.forceNotification || (template.notification?.enabled && inAppAllowed))) {
     const title = interpolateTemplate(template.notification.title, context) || fallbackTitle;
-    const message = isMessageNotification
-      ? fallbackMessage || interpolateTemplate(template.notification.message, context) || 'You received a new message.'
-      : interpolateTemplate(template.notification.message, context);
+    const message =
+      isMessageReactionNotification || isMessageNotification
+        ? fallbackMessage ||
+          interpolateTemplate(template.notification.message, context) ||
+          (isMessageReactionNotification ? 'Someone reacted to a message.' : 'You received a new message.')
+        : interpolateTemplate(template.notification.message, context);
 
     const created = await prisma.notification.create({
       data: {
@@ -236,16 +253,20 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
     const baseMessage =
       createdNotification && notificationCreated
         ? undefined
-        : isMessageNotification
-          ? fallbackMessage || interpolateTemplate(template.notification.message, context) || 'You received a new message.'
+        : isMessageReactionNotification || isMessageNotification
+          ? fallbackMessage ||
+            interpolateTemplate(template.notification.message, context) ||
+            (isMessageReactionNotification ? 'Someone reacted to a message.' : 'You received a new message.')
           : interpolateTemplate(template.notification.message, context);
     const pushTitle =
-      isMessageNotification
+      isMessageReactionNotification || isMessageNotification
         ? fallbackTitle
         : interpolateTemplate(template.push.title, context) || baseTitle || fallbackTitle;
     const pushMessage =
-      isMessageNotification
-        ? fallbackMessage || baseMessage || 'You received a new message.'
+      isMessageReactionNotification || isMessageNotification
+        ? fallbackMessage ||
+          baseMessage ||
+          (isMessageReactionNotification ? 'Someone reacted to a message.' : 'You received a new message.')
         : interpolateTemplate(template.push.message, context) || baseMessage || '';
     const pushResult = await sendPushToUser(targetUserId, {
       id: createdNotification?.id,
