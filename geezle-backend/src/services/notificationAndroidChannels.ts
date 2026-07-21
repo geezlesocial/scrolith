@@ -105,7 +105,8 @@ const CHANNEL_BY_CATEGORY: Record<NotificationCategoryKey, AndroidChannelId> = {
   scrolitha: ANDROID_CHANNEL_IDS.scrolitha,
   admin: ANDROID_CHANNEL_IDS.admin,
   security: ANDROID_CHANNEL_IDS.security,
-  system: ANDROID_CHANNEL_IDS.system,
+  // Campaigns use alerts channel so the custom Scrolith ("Scroll it") sound plays.
+  system: ANDROID_CHANNEL_IDS.alerts,
   social: ANDROID_CHANNEL_IDS.posts
 };
 
@@ -132,6 +133,16 @@ export const resolveNotificationCategory = (input: {
   const type = coerce(input.type || bag.type || bag.notificationType);
   const entity = coerce(input.entityType || bag.entityType || bag.entity_type);
   const haystack = `${type} ${entity} ${coerce(input.title)}`;
+
+  // Admin "Send App Campaign" and similar blasts → system (high-priority alerts channel).
+  if (
+    type === 'app_campaign' ||
+    type === 'campaign' ||
+    type.includes('app_campaign') ||
+    (type.includes('campaign') && !type.includes('ad'))
+  ) {
+    return 'system';
+  }
 
   // Phase 27 — explicit product aliases before substring matching.
   if (type === 'chat' || type === 'group_chat' || type === 'dm' || type === 'direct_message') {

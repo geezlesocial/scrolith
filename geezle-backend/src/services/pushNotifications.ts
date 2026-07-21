@@ -199,23 +199,41 @@ const setCredentialMetadata = (
  * "The default Firebase app does not exist" when only named apps exist.
  * That previously 500'd admin app analytics on every request.
  */
-const PUSH_APP_NAME = '[DEFAULT]';
+/** Must match mobile google-services.json project_id (Android FCM tokens). */
+const EXPECTED_FIREBASE_PROJECT_ID = String(
+  process.env.FIREBASE_PROJECT_ID || process.env.FCM_PROJECT_ID || 'scrolith-platform'
+)
+  .trim()
+  .toLowerCase();
 
-const getExistingDefaultApp = (): admin.app.App | null => {
+const PUSH_APP_NAME = 'scrolith-push';
+
+const getExistingPushApp = (): admin.app.App | null => {
   try {
     const apps = Array.isArray(admin.apps) ? admin.apps.filter(Boolean) : [];
-    const defaultApp = apps.find((app) => app?.name === PUSH_APP_NAME || app?.name === '[DEFAULT]');
-    if (defaultApp) return defaultApp;
-    // Only call admin.app() when a default is known to exist.
-    if (apps.some((app) => !app?.name || app.name === '[DEFAULT]')) {
-      return admin.app();
-    }
+    const named = apps.find((app) => app?.name === PUSH_APP_NAME);
+    if (named) return named;
   } catch {
-    // No default app — fall through to initialize.
+    // ignore
   }
   return null;
 };
 
+const resolveServiceAccountProjectId = (serviceAccount?: admin.ServiceAccount | null) =>
+  String(
+    serviceAccount?.projectId ||
+      (serviceAccount as any)?.project_id ||
+      process.env.FIREBASE_PROJECT_ID ||
+      ''
+  )
+    .trim()
+    .toLowerCase();
+
+/**
+ * Initialize a *named* Firebase app dedicated to FCM.
+ * Never reuse ADC / Cloud Run SA (GCP project scrolith-500821) for Android tokens
+ * from Firebase project scrolith-platform — that causes messaging/mismatched-credential.
+ */
 const initializePushFirebaseApp = (
   credential: admin.credential.Credential,
   source: PushCredentialSource,
@@ -223,53 +241,55 @@ const initializePushFirebaseApp = (
   credentialPath?: string | null
 ): admin.app.App => {
   setCredentialMetadata(source, serviceAccount || null, credentialPath);
-  // Prefer default app for messaging; if default was somehow taken, use a dedicated name.
+  const projectId = resolveServiceAccountProjectId(serviceAccount);
+  if (projectId && EXPECTED_FIREBASE_PROJECT_ID && projectId !== EXPECTED_FIREBASE_PROJECT_ID) {
+    const msg = `FCM credential project "${projectId}" does not match required Firebase project "${EXPECTED_FIREBASE_PROJECT_ID}". Android tokens will fail with messaging/mismatched-credential.`;
+    firebaseInitError = msg;
+    throw new Error(msg);
+  }
+
   try {
-    const existing = getExistingDefaultApp();
+    const existing = getExistingPushApp();
     if (existing) {
       firebaseApp = existing;
+      firebaseInitError = null;
       return existing;
     }
-    firebaseApp = admin.initializeApp({ credential });
+    firebaseApp = admin.initializeApp(
+      {
+        credential,
+        projectId: projectId || EXPECTED_FIREBASE_PROJECT_ID || undefined
+      },
+      PUSH_APP_NAME
+    );
   } catch (error: any) {
     const message = String(error?.message || error || '');
     if (/already exists/i.test(message)) {
-      firebaseApp = getExistingDefaultApp() || admin.app();
-      return firebaseApp;
+      firebaseApp = getExistingPushApp() || admin.app(PUSH_APP_NAME);
+    } else {
+      throw error;
     }
-    // Named fallback keeps push isolated from storage's scrolith-storage app.
-    firebaseApp = admin.initializeApp({ credential }, 'scrolith-push');
   }
   firebaseInitError = null;
   if (!initSuccessLogged) {
     initSuccessLogged = true;
-    console.log('[push] Firebase Admin initialized', {
+    console.log('[push] Firebase Admin initialized for FCM', {
       source,
-      projectId: firebaseProjectId,
+      projectId: firebaseProjectId || projectId || EXPECTED_FIREBASE_PROJECT_ID,
       credentialPath: firebaseCredentialPath,
-      appName: firebaseApp.name
+      appName: firebaseApp?.name,
+      expectedProjectId: EXPECTED_FIREBASE_PROJECT_ID
     });
   }
-  return firebaseApp;
+  return firebaseApp as admin.app.App;
 };
-
-const trimEnv = (value: unknown) => String(value || '').trim();
-
-const shouldUseApplicationDefault = () =>
-  Boolean(
-    trimEnv(process.env.GOOGLE_APPLICATION_CREDENTIALS) ||
-      trimEnv(process.env.K_SERVICE) ||
-      trimEnv(process.env.K_REVISION) ||
-      trimEnv(process.env.GOOGLE_CLOUD_PROJECT) ||
-      trimEnv(process.env.GCLOUD_PROJECT)
-  );
 
 const getFirebaseApp = (): admin.app.App | null => {
   if (firebaseApp) return firebaseApp;
 
-  const existingDefault = getExistingDefaultApp();
-  if (existingDefault) {
-    firebaseApp = existingDefault;
+  const existingNamed = getExistingPushApp();
+  if (existingNamed) {
+    firebaseApp = existingNamed;
     return firebaseApp;
   }
 
@@ -287,14 +307,10 @@ const getFirebaseApp = (): admin.app.App | null => {
       );
     }
 
-    if (shouldUseApplicationDefault()) {
-      return initializePushFirebaseApp(
-        admin.credential.applicationDefault(),
-        'application_default',
-        null,
-        process.env.GOOGLE_APPLICATION_CREDENTIALS || null
-      );
-    }
+    // Do NOT fall back to Cloud Run ADC — wrong GCP project vs Firebase Android tokens.
+    firebaseInitError =
+      'Missing FCM_SERVICE_ACCOUNT_JSON for Firebase project scrolith-platform. ' +
+      'Configure Secret Manager FCM_SERVICE_ACCOUNT_JSON (firebase-adminsdk for scrolith-platform).';
   } catch (error) {
     firebaseInitError = (error as any)?.message || 'Firebase initialization failed';
     if (!initErrorLogged) {
@@ -304,12 +320,9 @@ const getFirebaseApp = (): admin.app.App | null => {
     return null;
   }
 
-  if (!firebaseInitError) {
-    firebaseInitError = 'Missing Firebase credentials';
-  }
   if (!initErrorLogged) {
     initErrorLogged = true;
-    console.warn('[push] Push notifications disabled: missing Firebase credentials.');
+    console.warn('[push] Push notifications disabled:', firebaseInitError);
   }
   return null;
 };
@@ -560,6 +573,7 @@ const sendToTokens = async (
   const message = buildPushMessage(payload);
   const messaging = admin.messaging(app);
   const summary: PushSendResult = { attempted: tokens.length, sent: 0, failed: 0, errors: [] };
+  const runtime = getPushRuntimeStatus();
 
   for (const batch of chunk(tokens, 500)) {
     try {
@@ -575,13 +589,26 @@ const sendToTokens = async (
         if (res.success) {
           summary.sent += 1;
           if (res.messageId) {
-            console.log('[push] sent', { token: batch[idx], messageId: res.messageId });
+            console.log('[push] sent', {
+              messageId: res.messageId,
+              projectId: runtime.projectId || EXPECTED_FIREBASE_PROJECT_ID
+            });
           }
           return;
         }
         summary.failed += 1;
         const code = res.error?.code;
-        summary.errors.push({ token: batch[idx], code, message: res.error?.message });
+        const errMessage = res.error?.message || 'Push send failed';
+        // Surface credential mismatch clearly for admin campaign UI.
+        if (String(code || '').includes('mismatched-credential')) {
+          summary.errors.push({
+            token: batch[idx],
+            code,
+            message: `${errMessage} (FCM project must be ${EXPECTED_FIREBASE_PROJECT_ID}; active=${runtime.projectId || 'unknown'})`
+          });
+        } else {
+          summary.errors.push({ token: batch[idx], code, message: errMessage });
+        }
       });
 
       const invalidTokens = batch.filter((token, idx) => {
