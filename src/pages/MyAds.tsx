@@ -49,6 +49,7 @@ const toNumber = (value: any): number => {
 
 const CAMPAIGN_DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Format amount already denominated in `code` (no conversion). */
 const formatCurrency = (amount: number, code?: string) => {
   const currency = code || 'USD';
   try {
@@ -56,6 +57,37 @@ const formatCurrency = (amount: number, code?: string) => {
   } catch (e) {
     return `${currency} ${amount.toFixed(2)}`;
   }
+};
+
+/**
+ * Phase 28D — format a base/pricing-currency amount into display currency with conversion.
+ * Never attaches a foreign symbol without converting when a rate exists.
+ */
+const formatConvertedCurrency = (
+  amount: number,
+  fromCode: string,
+  toCode: string,
+  convert: (amount: number, from: string, to: string) => number,
+  convertDetailed?: (
+    amount: number,
+    from: string,
+    to: string
+  ) => { ok: boolean; amount: number }
+) => {
+  const from = String(fromCode || 'USD').toUpperCase();
+  const to = String(toCode || from).toUpperCase();
+  if (from === to) return formatCurrency(amount, from);
+  if (convertDetailed) {
+    const r = convertDetailed(amount, from, to);
+    if (!r.ok) return formatCurrency(amount, from);
+    return formatCurrency(r.amount, to);
+  }
+  const converted = convert(amount, from, to);
+  // Heuristic: if convert returns same number for different codes, fail closed to source
+  if (from !== to && Math.abs(converted - amount) < 1e-12 && amount !== 0) {
+    return formatCurrency(amount, from);
+  }
+  return formatCurrency(converted, to);
 };
 
 const DEFAULT_ALLOWED_PLACEMENTS = [
@@ -696,7 +728,14 @@ const MyAds = () => {
     boostMedia?: any[];
   } | null) || null;
   const { showNotification } = useNotification();
-  const { availableCurrencies, currency: selectedCurrency } = useCurrency();
+  const {
+    availableCurrencies,
+    currency: selectedCurrency,
+    convertAmount,
+    convertAmountDetailed,
+    convertFromBase,
+    baseCurrency
+  } = useCurrency();
   const { user } = useUser();
   const handledBoostPrefillRef = useRef<string>('');
   const handledPromotionSourceRef = useRef<string>('');
@@ -760,8 +799,21 @@ const MyAds = () => {
   const maxPlacements = Math.max(1, Math.min(8, Number(adsConfig?.maxPlacementsPerAd ?? 8)));
   const maxImageAssets = Math.max(1, Math.min(12, Number(adsConfig?.maxImageAssets ?? 6)));
   const maxVideoAssets = Math.max(1, Math.min(3, Number(adsConfig?.maxVideoAssets ?? 1)));
-  const minBudget = Math.max(0, Number(adsConfig?.minBudget ?? 10));
-  const maxBudget = Math.max(minBudget, Number(adsConfig?.maxBudget ?? 10000));
+  // Phase 28D — admin min/max are canonical USD (pricingCurrency)
+  const pricingCurrency = String(adsConfig?.pricingCurrency || baseCurrency || 'USD').toUpperCase();
+  const minBudgetBase = Math.max(0, Number(adsConfig?.minBudget ?? 10));
+  const maxBudgetBase = Math.max(minBudgetBase, Number(adsConfig?.maxBudget ?? 10000));
+  /** Display/input currency for current form (campaign currency). */
+  const campaignCurrency = String(form?.currency || selectedCurrency?.code || pricingCurrency).toUpperCase();
+  /** Converted limits for UI and client-side checks (never symbol-only). */
+  const minBudget = useMemo(() => {
+    const r = convertAmountDetailed(minBudgetBase, pricingCurrency, campaignCurrency);
+    return r.ok ? r.amount : minBudgetBase;
+  }, [campaignCurrency, convertAmountDetailed, minBudgetBase, pricingCurrency]);
+  const maxBudget = useMemo(() => {
+    const r = convertAmountDetailed(maxBudgetBase, pricingCurrency, campaignCurrency);
+    return r.ok ? r.amount : maxBudgetBase;
+  }, [campaignCurrency, convertAmountDetailed, maxBudgetBase, pricingCurrency]);
 
   const normalizeStatus = (status?: string) =>
     (status || '').toString().toLowerCase().replace(/-/g, '_');
@@ -2156,13 +2208,36 @@ const MyAds = () => {
       showNotification('warning', 'Placement limit', `You can select up to ${maxPlacements} placements.`);
       return;
     }
-    if (toNumber(form.budget) < minBudget) {
-      showNotification('warning', 'Budget too low', `Minimum ad budget is ${minBudget} ${form.currency}.`);
-      return;
-    }
-    if (toNumber(form.budget) > maxBudget) {
-      showNotification('warning', 'Budget too high', `Maximum ad budget is ${maxBudget} ${form.currency}.`);
-      return;
+    {
+      // Validate against canonical base thresholds (USD), not symbol-swapped numbers.
+      const entered = toNumber(form.budget);
+      const enteredCurrency = String(form.currency || pricingCurrency).toUpperCase();
+      const baseResult = convertAmountDetailed(entered, enteredCurrency, pricingCurrency);
+      const budgetBase = baseResult.ok ? baseResult.amount : entered;
+      if (!baseResult.ok && enteredCurrency !== pricingCurrency) {
+        showNotification(
+          'warning',
+          'Rate unavailable',
+          `Cannot validate budget in ${enteredCurrency}: FX rate unavailable. Use ${pricingCurrency} or try again after rates refresh.`
+        );
+        return;
+      }
+      if (budgetBase < minBudgetBase) {
+        showNotification(
+          'warning',
+          'Budget too low',
+          `Minimum ad budget is ${formatConvertedCurrency(minBudgetBase, pricingCurrency, enteredCurrency, convertAmount, convertAmountDetailed)} (canonical ${minBudgetBase} ${pricingCurrency}).`
+        );
+        return;
+      }
+      if (budgetBase > maxBudgetBase) {
+        showNotification(
+          'warning',
+          'Budget too high',
+          `Maximum ad budget is ${formatConvertedCurrency(maxBudgetBase, pricingCurrency, enteredCurrency, convertAmount, convertAmountDetailed)} (canonical ${maxBudgetBase} ${pricingCurrency}).`
+        );
+        return;
+      }
     }
     if (toNumber(form.dailySpend) > 0 && toNumber(form.dailySpend) > toNumber(form.budget)) {
       showNotification('warning', 'Daily spend', 'Daily spend cannot exceed total budget.');
@@ -2779,7 +2854,10 @@ const MyAds = () => {
     : '';
   const policySignals = [
     { label: 'Placement limit', value: `${maxPlacements} surfaces` },
-    { label: 'Budget guardrail', value: `${formatCurrency(minBudget, form.currency)} to ${formatCurrency(maxBudget, form.currency)}` },
+    {
+      label: 'Budget guardrail',
+      value: `${formatConvertedCurrency(minBudgetBase, pricingCurrency, campaignCurrency, convertAmount, convertAmountDetailed)} to ${formatConvertedCurrency(maxBudgetBase, pricingCurrency, campaignCurrency, convertAmount, convertAmountDetailed)}`
+    },
     { label: 'Creative capacity', value: `${maxImageAssets} images / ${maxVideoAssets} video` },
     { label: 'Checkout routes', value: paymentGateways.length > 0 ? `${paymentGateways.length} active` : 'No active gateways' }
   ];
@@ -2836,8 +2914,25 @@ const MyAds = () => {
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Portfolio budget</p>
               <Wallet className="h-4 w-4 text-sky-600" />
             </div>
-            <p className="mt-3 text-2xl font-bold text-slate-950">{formatCurrency(studioPortfolio.budget, selectedCurrency.code)}</p>
-            <p className="mt-1 text-xs text-slate-500">Remaining {formatCurrency(studioPortfolio.remaining, selectedCurrency.code)}</p>
+            <p className="mt-3 text-2xl font-bold text-slate-950">
+              {formatConvertedCurrency(
+                studioPortfolio.budget,
+                pricingCurrency,
+                selectedCurrency.code,
+                convertAmount,
+                convertAmountDetailed
+              )}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Remaining{' '}
+              {formatConvertedCurrency(
+                studioPortfolio.remaining,
+                pricingCurrency,
+                selectedCurrency.code,
+                convertAmount,
+                convertAmountDetailed
+              )}
+            </p>
           </div>
           <div className="rounded-2xl border border-white/70 bg-white/90 p-4 shadow-sm">
             <div className="flex items-center justify-between">
@@ -3872,7 +3967,7 @@ const MyAds = () => {
                     min={0}
                     value={form.budget}
                     onChange={(e) => setForm((prev) => ({ ...prev, budget: toNumber(e.target.value) }))}
-                    placeholder={`Budget (min ${minBudget})`}
+                    placeholder={`Budget (min ${formatConvertedCurrency(minBudgetBase, pricingCurrency, campaignCurrency, convertAmount, convertAmountDetailed)})`}
                     className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
                   />
                 </div>
@@ -3880,7 +3975,41 @@ const MyAds = () => {
                   <FieldLabel label="Currency" help="Billing currency for this campaign and estimated outcomes." />
                   <select
                     value={form.currency}
-                    onChange={(e) => setForm((prev) => ({ ...prev, currency: e.target.value }))}
+                    onChange={(e) => {
+                      const nextCurrency = String(e.target.value || pricingCurrency).toUpperCase();
+                      setForm((prev) => {
+                        const prevCurrency = String(prev.currency || pricingCurrency).toUpperCase();
+                        if (prevCurrency === nextCurrency) {
+                          return { ...prev, currency: nextCurrency };
+                        }
+                        // Recalculate from canonical base amounts to avoid round-trip drift
+                        const budgetBase = convertAmountDetailed(
+                          toNumber(prev.budget),
+                          prevCurrency,
+                          pricingCurrency
+                        );
+                        const dailyBase = convertAmountDetailed(
+                          toNumber(prev.dailySpend),
+                          prevCurrency,
+                          pricingCurrency
+                        );
+                        const nextBudget = budgetBase.ok
+                          ? convertAmountDetailed(budgetBase.amount, pricingCurrency, nextCurrency)
+                          : { ok: false as const, amount: toNumber(prev.budget) };
+                        const nextDaily = dailyBase.ok
+                          ? convertAmountDetailed(dailyBase.amount, pricingCurrency, nextCurrency)
+                          : { ok: false as const, amount: toNumber(prev.dailySpend) };
+                        return {
+                          ...prev,
+                          currency: nextCurrency,
+                          budget: nextBudget.ok ? Number(nextBudget.amount.toFixed(2)) : prev.budget,
+                          dailySpend:
+                            toNumber(prev.dailySpend) > 0 && nextDaily.ok
+                              ? Number(nextDaily.amount.toFixed(2))
+                              : prev.dailySpend
+                        };
+                      });
+                    }}
                     className="rounded-xl border border-gray-200 px-4 py-3 text-sm w-full"
                   >
                     {currencyOptions.map((c) => (

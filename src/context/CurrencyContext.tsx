@@ -4,17 +4,32 @@ import { Currency } from '../types';
 import { INITIAL_CURRENCIES } from '../constants';
 import api from '../services/api';
 import { useSocket } from './SocketContext';
+import { convertMajorUnits, formatConvertedMoney, formatMoneyMajor } from '../utils/moneyConversion';
 
 interface CurrencyContextType {
   currency: Currency;
   setCurrency: (code: string) => void;
   availableCurrencies: Currency[];
+  /**
+   * Format amount for display in preferred currency.
+   * Converts from fromCurrency (default: platform base).
+   * Never attaches a foreign symbol without conversion when rates exist.
+   */
   formatPrice: (amount: number | string | null | undefined, options?: { fromCurrency?: string }) => string;
-  /** Convert major units between currencies using catalog rates (preview). */
+  /** Convert major units; returns original amount only when currencies match or conversion fails (check ok). */
   convertAmount: (amount: number, fromCurrency: string, toCurrency: string) => number;
+  /** Full conversion result with ok flag — prefer this for guards. */
+  convertAmountDetailed: (
+    amount: number,
+    fromCurrency: string,
+    toCurrency: string
+  ) => { ok: boolean; amount: number; rate?: number; error?: string };
   baseCurrency: string;
   ratesReady: boolean;
+  ratesMap: Map<string, number>;
   refreshCurrencies: () => Promise<void>;
+  /** Convert a base-currency limit (e.g. ads min USD) into display currency. */
+  convertFromBase: (baseAmount: number, toCurrency?: string) => number;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
@@ -45,8 +60,8 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const list = Array.isArray(payload) && payload.length ? payload : INITIAL_CURRENCIES;
       setAvailableCurrencies(list);
       if (meta.baseCurrency) setBaseCurrency(String(meta.baseCurrency).toUpperCase());
+      else setBaseCurrency('USD');
 
-      // Prefer server preference when authenticated
       let preferredCode: string | null = localStorage.getItem(STORAGE_KEY);
       try {
         const prefRes = await api.get('/currencies/preference');
@@ -57,8 +72,9 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       const selected =
-        list.find((c: any) => c.code === preferredCode) ||
+        list.find((c: any) => c.code === preferredCode && c.isActive !== false) ||
         list.find((c: any) => c.isDefault) ||
+        list.find((c: any) => c.code === 'USD') ||
         list[0];
       if (selected) {
         setCurrencyState(selected);
@@ -78,19 +94,25 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   useEffect(() => {
     if (!socket) return;
     const handleSettings = () => refreshCurrencies();
+    // Phase 28D — real-time pricing/catalog invalidation hooks (project conventions)
     socket.on('settings:updated', handleSettings);
+    socket.on('currency:catalog:updated', handleSettings);
+    socket.on('currency:rates:updated', handleSettings);
+    socket.on('currency:policy:updated', handleSettings);
     return () => {
       socket.off('settings:updated', handleSettings);
+      socket.off('currency:catalog:updated', handleSettings);
+      socket.off('currency:rates:updated', handleSettings);
+      socket.off('currency:policy:updated', handleSettings);
     };
   }, [socket, refreshCurrencies]);
 
   const setCurrency = useCallback(
     (code: string) => {
-      const found = availableCurrencies.find((c) => c.code === code);
+      const found = availableCurrencies.find((c) => c.code === code && (c as any).isActive !== false);
       if (!found) return;
       setCurrencyState(found);
       localStorage.setItem(STORAGE_KEY, found.code);
-      // Persist server-side when authenticated (Phase 28)
       void api.put('/currencies/preference', { preferredCurrency: found.code }).catch(() => undefined);
     },
     [availableCurrencies]
@@ -113,29 +135,54 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return null;
   };
 
-  const rateMap = useMemo(() => {
+  const ratesMap = useMemo(() => {
     const map = new Map<string, number>();
     availableCurrencies.forEach((c) => {
       const rate = Number((c as any).rate);
-      map.set(String(c.code).toUpperCase(), Number.isFinite(rate) && rate > 0 ? rate : 1);
+      // Phase 28D — never invent rate 1 for non-base codes
+      if (Number.isFinite(rate) && rate > 0) {
+        map.set(String(c.code).toUpperCase(), rate);
+      }
     });
-    map.set(baseCurrency, 1);
+    map.set(String(baseCurrency || 'USD').toUpperCase(), 1);
+    map.set('USD', map.get('USD') || 1);
     return map;
   }, [availableCurrencies, baseCurrency]);
 
-  /** Rates are "quote per 1 base". Cross: amount_in_to = amount_in_from / fromRate * toRate */
+  const convertAmountDetailed = useCallback(
+    (amount: number, fromCurrency: string, toCurrency: string) => {
+      const result = convertMajorUnits({
+        amount,
+        fromCurrency,
+        toCurrency,
+        rates: ratesMap,
+        baseCurrency
+      });
+      if (!result.ok) return { ok: false, amount, error: result.error };
+      return { ok: true, amount: result.amount, rate: result.rate };
+    },
+    [baseCurrency, ratesMap]
+  );
+
+  /**
+   * Preview conversion. When rate is missing, returns the original amount (caller should
+   * not re-label with toCurrency). Prefer convertAmountDetailed for strict checks.
+   */
   const convertAmount = useCallback(
     (amount: number, fromCurrency: string, toCurrency: string) => {
-      const from = String(fromCurrency || baseCurrency).toUpperCase();
-      const to = String(toCurrency || baseCurrency).toUpperCase();
-      if (!Number.isFinite(amount)) return 0;
-      if (from === to) return amount;
-      const fromRate = rateMap.get(from);
-      const toRate = rateMap.get(to);
-      if (!fromRate || !toRate) return amount;
-      return (amount / fromRate) * toRate;
+      const detailed = convertAmountDetailed(amount, fromCurrency, toCurrency);
+      return detailed.amount;
     },
-    [baseCurrency, rateMap]
+    [convertAmountDetailed]
+  );
+
+  const convertFromBase = useCallback(
+    (baseAmount: number, toCurrency?: string) => {
+      const to = String(toCurrency || currency.code || baseCurrency).toUpperCase();
+      const detailed = convertAmountDetailed(baseAmount, baseCurrency || 'USD', to);
+      return detailed.ok ? detailed.amount : baseAmount;
+    },
+    [baseCurrency, convertAmountDetailed, currency.code]
   );
 
   const formatPrice = useCallback(
@@ -143,13 +190,18 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const base = coerceNumber(amount);
       const safeBase = base ?? 0;
       const from = String(options?.fromCurrency || baseCurrency || 'USD').toUpperCase();
-      const value = convertAmount(safeBase, from, currency.code);
-      return new Intl.NumberFormat(undefined, {
-        style: 'currency',
-        currency: currency.code
-      }).format(value);
+      const to = String(currency.code || baseCurrency || 'USD').toUpperCase();
+      const formatted = formatConvertedMoney({
+        amount: safeBase,
+        fromCurrency: from,
+        toCurrency: to,
+        rates: ratesMap,
+        baseCurrency
+      });
+      // If conversion failed, format in source currency (never ₱10 for $10)
+      return formatted.text;
     },
-    [baseCurrency, convertAmount, currency.code]
+    [baseCurrency, currency.code, ratesMap]
   );
 
   return (
@@ -160,9 +212,12 @@ export const CurrencyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         availableCurrencies,
         formatPrice,
         convertAmount,
+        convertAmountDetailed,
         baseCurrency,
         ratesReady,
-        refreshCurrencies
+        ratesMap,
+        refreshCurrencies,
+        convertFromBase
       }}
     >
       {children}
@@ -175,3 +230,5 @@ export const useCurrency = () => {
   if (!context) throw new Error('useCurrency must be used within CurrencyProvider');
   return context;
 };
+
+export { formatMoneyMajor };

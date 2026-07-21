@@ -43,7 +43,7 @@ export const MoneyDisplay: React.FC<MoneyDisplayProps> = ({
   locked = false,
   compact = false
 }) => {
-  const { currency, availableCurrencies, formatPrice, convertAmount, baseCurrency } = useCurrency();
+  const { currency, formatPrice, convertAmount, convertAmountDetailed, baseCurrency } = useCurrency();
 
   const source = String(sourceCurrency || baseCurrency || 'USD').trim().toUpperCase();
   const display = String(displayCurrency || currency?.code || source).trim().toUpperCase();
@@ -61,16 +61,29 @@ export const MoneyDisplay: React.FC<MoneyDisplayProps> = ({
     }
 
     let converted = base;
+    let convertedOk = false;
     if (lockedRate != null && Number(lockedRate) > 0) {
       converted = base * Number(lockedRate);
+      convertedOk = true;
+    } else if (typeof convertAmountDetailed === 'function') {
+      const r = convertAmountDetailed(base, source, display);
+      converted = r.amount;
+      convertedOk = r.ok;
     } else if (typeof convertAmount === 'function') {
       converted = convertAmount(base, source, display);
-    } else {
-      // Fallback: formatPrice assumes amount is already base-currency major units
+      // Fail closed: if amount unchanged for different codes, treat as no conversion
+      convertedOk = !(Math.abs(converted - base) < 1e-12 && base !== 0);
+    }
+
+    // Phase 28D invariant: never show ₱10 for $10 when conversion failed
+    if (!convertedOk) {
       return {
-        primary: formatPrice(base),
+        primary: new Intl.NumberFormat(undefined, {
+          style: 'currency',
+          currency: source
+        }).format(base),
         secondary: showBaseSecondary
-          ? new Intl.NumberFormat(undefined, { style: 'currency', currency: source }).format(base)
+          ? `Rate unavailable for ${display}`
           : null
       };
     }
@@ -89,7 +102,18 @@ export const MoneyDisplay: React.FC<MoneyDisplayProps> = ({
         : null;
 
     return { primary: primaryText, secondary: secondaryText };
-  }, [amount, base, convertAmount, display, formatPrice, locked, lockedRate, showBaseSecondary, source]);
+  }, [
+    amount,
+    base,
+    convertAmount,
+    convertAmountDetailed,
+    display,
+    formatPrice,
+    locked,
+    lockedRate,
+    showBaseSecondary,
+    source
+  ]);
 
   return (
     <span className={className} data-testid="money-display" data-currency={display} data-source={source}>

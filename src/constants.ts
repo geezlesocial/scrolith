@@ -5,6 +5,7 @@ import type {
     KYCDocument
 } from './types';
 
+/** Phase 28D — platform catalog fallback (23 active incl. USD). Server catalog is authoritative. */
 export const INITIAL_CURRENCIES: Currency[] = [
     { code: 'USD', name: 'US Dollar', symbol: '$', rate: 1, isActive: true, isDefault: true },
     { code: 'EUR', name: 'Euro', symbol: '€', rate: 0.92, isActive: true },
@@ -20,18 +21,15 @@ export const INITIAL_CURRENCIES: Currency[] = [
     { code: 'NGN', name: 'Nigerian Naira', symbol: '₦', rate: 1500, isActive: true },
     { code: 'KRW', name: 'South Korean Won', symbol: '₩', rate: 1330, isActive: true },
     { code: 'INR', name: 'Indian Rupee', symbol: '₹', rate: 83.5, isActive: true },
-    { code: 'PHP', name: 'Philippine Peso', symbol: '₱', rate: 56.2, isActive: true },
+    { code: 'PHP', name: 'Philippine Peso', symbol: '₱', rate: 57.25, isActive: true },
     { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh', rate: 135, isActive: true },
     { code: 'IDR', name: 'Indonesian Rupiah', symbol: 'Rp', rate: 15600, isActive: true },
     { code: 'THB', name: 'Thai Baht', symbol: '฿', rate: 36.1, isActive: true },
     { code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM', rate: 4.75, isActive: true },
     { code: 'VND', name: 'Vietnamese Dong', symbol: '₫', rate: 24600, isActive: true },
-    { code: 'MXN', name: 'Mexican Peso', symbol: '$', rate: 16.8, isActive: true },
+    { code: 'MXN', name: 'Mexican Peso', symbol: 'MX$', rate: 16.8, isActive: true },
     { code: 'BRL', name: 'Brazilian Real', symbol: 'R$', rate: 5.05, isActive: true },
     { code: 'ZAR', name: 'South African Rand', symbol: 'R', rate: 18.9, isActive: true },
-    { code: 'SAR', name: 'Saudi Riyal', symbol: '﷼', rate: 3.75, isActive: true },
-    { code: 'AED', name: 'UAE Dirham', symbol: 'د.إ', rate: 3.67, isActive: true },
-    { code: 'TRY', name: 'Turkish Lira', symbol: '₺', rate: 31.5, isActive: true },
 ];
 
 export const CATEGORIES: ListingCategory[] = [
