@@ -6979,3 +6979,113 @@ enum AdStatus {
   ENDED
   REJECTED
 }
+
+// ============ Phase 30 — Scrolith Human Verification ============
+
+model HumanVerificationSettings {
+  id        String   @id @default(cuid())
+  scope     String   @unique @default("default")
+  data      Json
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model HumanVerificationPolicy {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  enabled   Boolean  @default(true)
+  endpoint  String?
+  rules     Json
+  priority  Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([endpoint, enabled])
+}
+
+model HumanVerificationChallenge {
+  id                     String    @id @default(cuid())
+  challengeToken         String    @unique
+  endpoint               String
+  challengeType          String
+  difficulty             String
+  prompt                 Json
+  options                Json
+  answerHash             String
+  verificationTokenHash  String?
+  verificationExpiresAt  DateTime?
+  verificationConsumedAt DateTime?
+  expiresAt              DateTime
+  usedAt                 DateTime?
+  solvedAt               DateTime?
+  status                 String    @default("pending")
+  attemptCount           Int       @default(0)
+  ipAddress              String?
+  userAgent              String?
+  fingerprint            String?
+  sessionId              String?
+  userId                 String?
+  riskScore              Int       @default(0)
+  solveTimeMs            Int?
+  country                String?
+  browser                String?
+  metadata               Json?
+  createdAt              DateTime  @default(now())
+
+  attempts HumanVerificationAttempt[]
+
+  @@index([expiresAt])
+  @@index([endpoint, createdAt])
+  @@index([ipAddress, createdAt])
+  @@index([status, createdAt])
+  @@index([verificationTokenHash])
+}
+
+model HumanVerificationAttempt {
+  id            String   @id @default(cuid())
+  challengeId   String
+  success       Boolean
+  selectedValue String?
+  ipAddress     String?
+  userAgent     String?
+  fingerprint   String?
+  errorCode     String?
+  solveTimeMs   Int?
+  createdAt     DateTime @default(now())
+
+  challenge HumanVerificationChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+
+  @@index([challengeId])
+  @@index([createdAt])
+  @@index([success, createdAt])
+}
+
+model HumanVerificationAnalytics {
+  id         String   @id @default(cuid())
+  date       DateTime @db.Date
+  endpoint   String?
+  metric     String
+  value      Float    @default(0)
+  dimensions Json?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([date, endpoint, metric])
+  @@index([date])
+}
+
+model HumanVerificationAuditLog {
+  id          String   @id @default(cuid())
+  action      String
+  actorId     String?
+  actorEmail  String?
+  endpoint    String?
+  challengeId String?
+  details     Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([createdAt])
+}

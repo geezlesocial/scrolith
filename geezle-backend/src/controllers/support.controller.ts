@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import prisma from '../utils/prismaClient';
 import realtime from '../utils/realtime';
 import { verifyRecaptcha } from '../utils/recaptcha';
+import { enforceHumanVerification } from '../utils/humanVerificationGate';
 import { sendSystemEmail } from '../services/email.service';
 import { toAbsoluteFrontendUrl } from '../services/notificationActionUrl.service';
 import { sendPushToUser } from '../services/pushNotifications';
@@ -429,6 +430,9 @@ export const createTicket = async (req: Request, res: Response) => {
     if (recaptchaCheck.enforced && !recaptchaCheck.success) {
       return res.status(400).json({ success: false, error: recaptchaCheck.error || 'reCAPTCHA verification failed' });
     }
+
+    // Phase 30 — Scrolith Human Verification (support)
+    if (!(await enforceHumanVerification(req, res, 'support'))) return;
 
     const fullName = cleanString(payload.full_name ?? payload.fullName);
     const email = cleanString(payload.email);

@@ -1143,6 +1143,39 @@ router.post(
   resetUser2FA
 );
 
+
+// Phase 30 � Scrolith Human Verification admin
+import {
+  getHumanVerificationSettings,
+  updateHumanVerificationSettings,
+  getHumanVerificationAnalytics,
+  getHumanVerificationAuditLogs
+} from '../../controllers/admin.humanVerification.controller';
+router.get(
+  '/security/human-verification/settings',
+  requireAnyPermission('settings.read', 'settings.enterprise_change'),
+  getHumanVerificationSettings
+);
+router.patch(
+  '/security/human-verification/settings',
+  requireAnyPermission('settings.enterprise_change', 'settings.read'),
+  updateHumanVerificationSettings
+);
+router.put(
+  '/security/human-verification/settings',
+  requireAnyPermission('settings.enterprise_change', 'settings.read'),
+  updateHumanVerificationSettings
+);
+router.get(
+  '/security/human-verification/analytics',
+  requireAnyPermission('settings.read', 'analytics.read'),
+  getHumanVerificationAnalytics
+);
+router.get(
+  '/security/human-verification/audit',
+  requireAnyPermission('settings.read', 'audit.read'),
+  getHumanVerificationAuditLogs
+);
 // ============ GENERAL SETTINGS (for backward compatibility) ============
 router.get('/settings', (req, res) => {
   res.json({

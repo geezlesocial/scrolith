@@ -6,6 +6,7 @@ import crypto from 'crypto';
 import { Role as PrismaRole, KYCStatus as PrismaKYCStatus } from '@prisma/client'; // Import Prisma Client, Role, and KYCStatus enums
 import { resolveUserProStatus } from '../utils/proStatus';
 import { verifyRecaptcha } from '../utils/recaptcha';
+import { enforceHumanVerification } from '../utils/humanVerificationGate';
 import {
   completeFollowOnboarding,
   getFollowOnboardingStatus
@@ -278,6 +279,9 @@ export const register = async (req: Request, res: Response) => {
       return res.status(400).json({ error: recaptchaCheck.error || 'reCAPTCHA verification failed' });
     }
 
+    // Phase 30 — Scrolith Human Verification (signup)
+    if (!(await enforceHumanVerification(req, res, 'signup'))) return;
+
     // General Settings → Allow Registrations
     try {
       const { getSystemControls } = await import('../services/systemControls.service');
@@ -376,6 +380,9 @@ export const login = async (req: Request, res: Response) => {
         code: 'MISSING_CREDENTIALS'
       });
     }
+
+    // Phase 30 — Scrolith Human Verification (login)
+    if (!(await enforceHumanVerification(req, res, 'login'))) return;
 
     // Find user by normalized email (safe select with fallback for older schemas)
     const user = await safeFindUserByEmail(email);
@@ -632,6 +639,9 @@ export const forgotPassword = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
+    // Phase 30 — Scrolith Human Verification (forgot password)
+    if (!(await enforceHumanVerification(req, res, 'forgot_password'))) return;
+
     const user = await prisma.user.findUnique({
       where: { email },
       select: { id: true, name: true, email: true }
@@ -690,6 +700,9 @@ export const resetPassword = async (req: Request, res: Response) => {
     if (!token || !password) {
       return res.status(400).json({ success: false, error: 'Token and new password are required' });
     }
+
+    // Phase 30 — Scrolith Human Verification (password reset)
+    if (!(await enforceHumanVerification(req, res, 'password_reset'))) return;
 
     if (!isStrongPassword(password)) {
       return res.status(400).json({
