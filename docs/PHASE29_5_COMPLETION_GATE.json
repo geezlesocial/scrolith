@@ -61,7 +61,10 @@
     "id": "29.6",
     "name": "Testing & Certification",
     "blockedUntil": "Explicit Phase 29.5 acceptance",
-    "willDeploy": false
+    "willDeploy": false,
+    "status": "COMPLETED",
+    "completionGate": "docs/PHASE29_6_COMPLETION_GATE.json"
   },
+
   "rollbackPlan": "Revert commits. Drop optional indexes if ever applied. In-memory search history is ephemeral."
 }

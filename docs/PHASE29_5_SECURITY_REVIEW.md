@@ -21,10 +21,14 @@
 
 - Recent/saved searches are in-process (not multi-instance durable)
 - Full PostgreSQL FTS/trigram not enabled (contains + fuzzy score)
-- Load/soak certification remains Phase 29.6
+- Load/soak certification completed in Phase 29.6 (in-process + design; cloud 10k/24h soak deferred to 29.7 ops)
 
 ## Explicit non-actions
 
 - No production migration apply
 - No deploy
 - No AI auto-punishments
+
+## Follow-on
+
+Phase 29.6 certification pack: `docs/PHASE29_6_*.md` and `docs/PHASE29_6_COMPLETION_GATE.json`.
