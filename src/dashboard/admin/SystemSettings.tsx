@@ -30,6 +30,7 @@ import { normalizeDealFlowSettings } from '../../utils/dealFlow';
 import { normalizeStorefrontSettings } from '../../utils/storefront';
 import { normalizeContentOfferSettings } from '../../utils/contentOffers';
 import FxControlPlanePanel from './fx/FxControlPlanePanel';
+import Admin2FAControlPanel from './Admin2FAControlPanel';
 
 const TabButton = ({ id, label, icon: Icon, activeTab, setActiveTab }: any) => (
     <button 
