@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // Phase 29 — push sound + channel v2 migration over 1.1.25 / 35.
-        versionCode 36
-        versionName "1.1.26"
+        // Scroll Mute/Unmute + brand layout over 1.1.26 / 36.
+        versionCode 37
+        versionName "1.1.27"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
