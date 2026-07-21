@@ -1,0 +1,14 @@
+﻿{
+    "feature":  "scroll-mute-unmute-label",
+    "playUpload":  false,
+    "aabPath":  "C:\\Projects\\mobile\\android\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+    "releaseCopyPath":  "C:\\Projects\\mobile\\release-artifacts\\android-1.1.27\\Scrolith-1.1.27-37-release.aab",
+    "packageName":  "com.scrolith.scrolith",
+    "versionCode":  37,
+    "deploymentPerformed":  true,
+    "sha256":  "d22bfda5c6a517eb1bf195efdce2cb1c4efc682bd25d41b851ba701b3d8fd7f5",
+    "frontendCommit":  "6655be02",
+    "frontendRevision":  "scrolith-frontend-00255-nic",
+    "versionName":  "1.1.27",
+    "sizeBytes":  10087043
+}
