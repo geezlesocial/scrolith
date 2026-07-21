@@ -1,0 +1,7 @@
+Scrolith 1.1.29
+• Manage your Stories: edit, update, or delete from the 3-dot menu and My Posts
+• Clearer Scroll controls: Mute/Unmute next to Create (no overlap with names)
+• More reliable profile photos, messaging avatars, and Google/LinkedIn sign-in logos
+• Smarter message emails: only when you’re offline, at most once a day (push & in-app still real-time)
+• Notification sound & channel improvements, reaction labels, and loading stability
+• Multi-currency money display across marketplace, jobs, gigs, and ads
