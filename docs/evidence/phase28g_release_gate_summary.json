@@ -1,0 +1,30 @@
+﻿{
+  "phase": "28G",
+  "title": "Currency Surface Deployment & Production Certification",
+  "status": "PROMOTED",
+  "overall": "PASS",
+  "backendCommit": "7d93d445",
+  "frontendCommit": "225cc002",
+  "backendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p28g",
+  "frontendImage": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p28g",
+  "backendBuildId": "c06119fa-c33d-473f-823b-730d663a8300",
+  "frontendBuildId": "80c91ec4-53e4-4f31-83cf-65971930d224",
+  "previousBackend": "scrolith-backend-00189-yuc",
+  "previousFrontend": "scrolith-frontend-00249-huc",
+  "promotedBackend": "scrolith-backend-00191-gol",
+  "promotedFrontend": "scrolith-frontend-00251-lok",
+  "tag": "p28g",
+  "smoke": {
+    "taggedBeHealth200": true,
+    "currenciesBaseUsd": true,
+    "marketplaceSettings200": true,
+    "myAdsPlacementConversionInBundle": true,
+    "prodApi200": true,
+    "prodSite200": true,
+    "promoted": true
+  },
+  "rollback": {
+    "backend": "gcloud run services update-traffic scrolith-backend --region=asia-southeast1 --project=scrolith-500821 --to-revisions=scrolith-backend-00189-yuc=100",
+    "frontend": "gcloud run services update-traffic scrolith-frontend --region=asia-southeast1 --project=scrolith-500821 --to-revisions=scrolith-frontend-00249-huc=100"
+  }
+}
