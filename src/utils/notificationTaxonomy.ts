@@ -603,6 +603,13 @@ export const ANDROID_CHANNEL_DEFINITIONS: Array<{
     visibility: 1
   },
   {
+    id: ANDROID_CHANNEL_IDS.alerts,
+    name: 'Scrolith alerts (Scroll it)',
+    description: 'Important Scrolith alerts and campaigns with the Scrolith sound (Scroll it)',
+    importance: 5,
+    visibility: 1
+  },
+  {
     id: ANDROID_CHANNEL_IDS.follows,
     name: 'Follows',
     description: 'New followers and follow activity',

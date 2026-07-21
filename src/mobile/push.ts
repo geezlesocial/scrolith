@@ -173,21 +173,35 @@ const ensureAndroidNotificationChannels = async () => {
   // Visibility 0=private (lock-screen content hidden) · 1=public.
   // Channel ids are stable — never recreate with new ids casually.
   // Users can mute individual channels without losing DMs.
+  // Capacitor Android: sound is res/raw name WITHOUT extension (raw/scrolith.wav → "scrolith").
+  // Spoken brand: "Scroll it". File/channel resource id remains scrolith.
+  const SCROLITH_SOUND = 'scrolith';
   const channels: Channel[] = [
     ...ANDROID_CHANNEL_DEFINITIONS.map((def) => ({
       id: def.id,
       name: def.name,
       description: def.description,
-      sound: 'scrolith.wav',
+      sound: SCROLITH_SOUND,
       importance: def.importance,
       visibility: def.visibility,
       vibration: true
     })),
+    // High-priority campaign / system alert channel with custom Scrolith sound.
+    {
+      id: ANDROID_CHANNEL_IDS.alerts,
+      name: 'Scrolith alerts (Scroll it)',
+      description: 'Important Scrolith alerts and campaigns with the Scrolith sound (Scroll it).',
+      sound: SCROLITH_SOUND,
+      importance: 5 as const,
+      visibility: 1 as const,
+      vibration: true
+    },
     // Legacy short-id channels retained so history/OS settings remain valid.
     {
       id: 'general',
       name: 'Scrolith notifications (legacy)',
       description: 'Legacy notification channel retained for compatibility.',
+      sound: SCROLITH_SOUND,
       importance: 3,
       visibility: 1,
       vibration: true
@@ -196,6 +210,7 @@ const ensureAndroidNotificationChannels = async () => {
       id: 'messages',
       name: 'Messages (legacy)',
       description: 'Legacy messages channel retained for compatibility.',
+      sound: SCROLITH_SOUND,
       importance: 3,
       visibility: 1,
       vibration: true
@@ -204,6 +219,7 @@ const ensureAndroidNotificationChannels = async () => {
       id: 'posts',
       name: 'Posts and community (legacy)',
       description: 'Legacy posts channel retained for compatibility.',
+      sound: SCROLITH_SOUND,
       importance: 3,
       visibility: 1,
       vibration: true
@@ -212,7 +228,17 @@ const ensureAndroidNotificationChannels = async () => {
       id: 'campaigns_scrolith_v2',
       name: 'Scrolith campaigns (legacy)',
       description: 'Legacy campaigns channel retained for compatibility.',
+      sound: SCROLITH_SOUND,
       importance: 3,
+      visibility: 1,
+      vibration: true
+    },
+    {
+      id: 'scrolith_alerts_v2',
+      name: 'Scrolith alerts (Scroll it)',
+      description: 'Default FCM channel with Scrolith sound (Scroll it).',
+      sound: SCROLITH_SOUND,
+      importance: 5,
       visibility: 1,
       vibration: true
     }
