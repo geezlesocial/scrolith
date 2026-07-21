@@ -49,19 +49,16 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
       merged += 1;
       continue;
     }
-    // Fill missing metadata; preserve admin rate if positive
+    // Fill missing metadata; preserve admin rate if positive and not a false 1:1 placeholder
+    // Phase 28E: non-base rate===1 is treated as unset (symbol-only trap) → use seed catalog rate
     const rateNum = Number(prev.rate);
+    const hasRealRate = Number.isFinite(rateNum) && rateNum > 0 && !(rateNum === 1 && catalog.code !== baseCurrency);
     const next = {
       ...prev,
       code: catalog.code,
       name: prev.name || catalog.name,
       symbol: prev.symbol || catalog.symbol,
-      rate:
-        catalog.code === baseCurrency
-          ? 1
-          : Number.isFinite(rateNum) && rateNum > 0
-            ? rateNum
-            : catalog.seedRateVsUsd,
+      rate: catalog.code === baseCurrency ? 1 : hasRealRate ? rateNum : catalog.seedRateVsUsd,
       isActive: prev.isActive !== false,
       isDefault: catalog.code === baseCurrency ? true : Boolean(prev.isDefault) && catalog.code === baseCurrency,
       minorUnit: prev.minorUnit ?? catalog.minorUnit,
