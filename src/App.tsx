@@ -370,6 +370,7 @@ const JobDetail = React.lazy(() => import('./main/JobDetail'));
 const Blog = React.lazy(() => import('./pages/Blog'));
 const BlogPost = React.lazy(() => import('./pages/BlogPost'));
 const StaticPage = React.lazy(() => import('./pages/StaticPage'));
+const MaintenancePage = React.lazy(() => import('./pages/MaintenancePage'));
 const MarketplacePage = React.lazy(() => import('./pages/marketplace/MarketplacePage'));
 const AnswersPage = React.lazy(() => import('./pages/AnswersPage'));
 const GuidesPage = React.lazy(() => import('./pages/GuidesPage'));
@@ -1503,6 +1504,7 @@ const AppContent = () => {
                 }
               />
               <Route path="/auth/oauth/callback" element={<OAuthCallback />} />
+              <Route path="/maintenance" element={<MaintenancePage />} />
               
                {/* Browse & Search Pages */}
                <Route path="/browse" element={renderResponsiveMobilePage('Browse gigs', <BrowseTalent />)} />

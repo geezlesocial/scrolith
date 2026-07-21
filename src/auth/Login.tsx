@@ -70,6 +70,8 @@ const Login = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [authConfig, setAuthConfig] = useState<AuthPagesConfig | null>(null);
+  const [twoFAChallenge, setTwoFAChallenge] = useState<string | null>(null);
+  const [twoFACode, setTwoFACode] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -124,36 +126,77 @@ const Login = () => {
   };
   const socialConfig = authConfig?.social_auth ?? (authConfig as any)?.socialAuth;
 
+  const completePostLogin = () => {
+    if (shouldUseMobilePostLoginRoute() && !isStoredAdminUser()) {
+      const target = resolveAuthenticatedEntryPath(null);
+      try {
+        window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+        window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+      } catch {
+        // Best-effort route recovery for Android WebView.
+      }
+      navigate(target, { replace: true });
+      window.setTimeout(() => {
+        if (window.location.pathname.replace(/\/+$/, '') !== target) {
+          window.location.replace(new URL(target, window.location.origin).href);
+        }
+      }, 1_500);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      // Call login without a hardcoded role - the backend will determine the role
-      const success = await login(email, password, { redirect: false });
-      
-      if (success) {
-        // Native/mobile auth pages must not race back to the desktop root shell.
-        if (shouldUseMobilePostLoginRoute() && !isStoredAdminUser()) {
-          const target = resolveAuthenticatedEntryPath(null);
+      // Step 2 — Google Authenticator challenge for admin accounts when Admin 2FA is enforced
+      if (twoFAChallenge) {
+        const { AuthService } = await import('../services/authService');
+        const result = await AuthService.verify2FALogin(twoFAChallenge, twoFACode.trim());
+        if (result.success && result.user) {
           try {
-            window.sessionStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
-            window.localStorage.setItem(MOBILE_POST_AUTH_TARGET_KEY, target);
+            localStorage.setItem('user', JSON.stringify(result.user));
           } catch {
-            // Best-effort route recovery for Android WebView.
+            /* ignore */
           }
-          navigate(target, { replace: true });
-          window.setTimeout(() => {
-            if (window.location.pathname.replace(/\/+$/, '') !== target) {
-              window.location.replace(new URL(target, window.location.origin).href);
-            }
-          }, 1_500);
+          window.location.assign(
+            String(result.user.role || '').toLowerCase().includes('admin')
+              ? '/admin/dashboard'
+              : resolveAuthenticatedEntryPath(result.user as any)
+          );
+          return;
         }
+        setError(result.error || 'Invalid authenticator code');
         return;
-      } else {
-        setError(t('auth.login.invalid_credentials', 'Invalid credentials'));
       }
+
+      // Intercept Admin 2FA challenge before establishing a session.
+      const { AuthService } = await import('../services/authService');
+      const raw = await AuthService.login({ email, password });
+      if ((raw as any).requires2FA && (raw as any).challengeToken) {
+        setTwoFAChallenge(String((raw as any).challengeToken));
+        setTwoFACode('');
+        setError('');
+        return;
+      }
+      if (raw.success && raw.user) {
+        // AuthService already persisted token + user; refresh app state and route.
+        try {
+          window.dispatchEvent(new Event('scrolith:auth-changed'));
+        } catch {
+          /* ignore */
+        }
+        const role = String(raw.user.role || '').toLowerCase();
+        if (role.includes('admin')) {
+          window.location.assign('/admin/dashboard');
+          return;
+        }
+        completePostLogin();
+        window.location.assign(resolveAuthenticatedEntryPath(raw.user as any));
+        return;
+      }
+      setError(raw.error || t('auth.login.invalid_credentials', 'Invalid credentials'));
     } catch (err: any) {
       setError(err.message || t('auth.login.failed', 'Login failed'));
     } finally {
@@ -231,6 +274,44 @@ const Login = () => {
             {error || t('auth.login.error_region', 'Login status messages will appear here.')}
           </div>
           <div className="space-y-4">
+            {twoFAChallenge ? (
+              <div className="space-y-3 rounded-xl border border-indigo-200 bg-indigo-50/60 p-4">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 text-indigo-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-indigo-950">Admin Google Authenticator</p>
+                    <p className="mt-1 text-xs text-indigo-800">
+                      Enter the 6-digit code from Google Authenticator (or a one-time backup code).
+                    </p>
+                  </div>
+                </div>
+                <input
+                  id="totp-code"
+                  name="totp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  required
+                  maxLength={12}
+                  value={twoFACode}
+                  onChange={(e) => setTwoFACode(e.target.value)}
+                  className="block w-full rounded-xl border border-indigo-200 bg-white px-4 py-3 text-center text-lg tracking-[0.35em] text-slate-950 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                  placeholder="000000"
+                  data-testid="login-2fa-code"
+                />
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-indigo-700 hover:text-indigo-900"
+                  onClick={() => {
+                    setTwoFAChallenge(null);
+                    setTwoFACode('');
+                  }}
+                >
+                  Back to password
+                </button>
+              </div>
+            ) : (
+              <>
             <div>
               <label htmlFor="email-address" className="mb-1.5 block text-sm font-semibold text-slate-800">
                 {t('auth.login.email_placeholder', 'Email address')}
@@ -275,6 +356,8 @@ const Login = () => {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center justify-between">

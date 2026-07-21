@@ -67,6 +67,9 @@ const extractAuthPayload = (response: any): AuthResponse => {
     ...nested,
     token,
     user,
+    requires2FA: root?.requires2FA ?? nested?.requires2FA,
+    challengeToken: root?.challengeToken ?? root?.challenge_token ?? nested?.challengeToken,
+    code: root?.code ?? nested?.code,
     error: root?.error ?? root?.message ?? nested?.error ?? nested?.message,
     message: root?.message ?? nested?.message ?? root?.error ?? nested?.error,
     success: root?.success ?? nested?.success
@@ -111,6 +114,16 @@ class AuthService {
         'Login request timed out. Please check your connection and try again.'
       );
       const payload = extractAuthPayload(response);
+      // Admin Google 2FA challenge (General Settings → Admin 2FA)
+      if (payload?.requires2FA || payload?.code === '2FA_REQUIRED') {
+        return {
+          success: false,
+          requires2FA: true,
+          challengeToken: payload.challengeToken || payload.challenge_token,
+          error: payload?.message || 'Authenticator code required',
+          user: payload?.user || null
+        };
+      }
       if (payload?.token && payload?.user) {
         const user = normalizeUser(payload.user);
         if (user) {
@@ -126,6 +139,34 @@ class AuthService {
       return { success: false, error: payload?.error || payload?.message || 'Login failed' };
     } catch (error: any) {
       return { success: false, error: extractErrorMessage(error, 'Login failed') };
+    }
+  }
+
+  static async verify2FALogin(challengeToken: string, code: string) {
+    try {
+      const response = await withAuthRequestTimeout(
+        api.post(
+          '/auth/2fa/verify',
+          { challengeToken, code },
+          { timeout: AUTH_REQUEST_TIMEOUT_MS, __skipRetry: true } as any
+        ),
+        '2FA verification timed out. Please try again.'
+      );
+      const payload = extractAuthPayload(response);
+      if (payload?.token && payload?.user) {
+        const user = normalizeUser(payload.user);
+        if (user) {
+          await tokenStore.set(payload.token);
+          api.defaults.headers.common.Authorization = `Bearer ${payload.token}`;
+          try {
+            localStorage.setItem('user', JSON.stringify(user));
+          } catch {}
+          return { success: true, user, token: payload.token };
+        }
+      }
+      return { success: false, error: payload?.error || 'Invalid authenticator code' };
+    } catch (error: any) {
+      return { success: false, error: extractErrorMessage(error, '2FA verification failed') };
     }
   }
 

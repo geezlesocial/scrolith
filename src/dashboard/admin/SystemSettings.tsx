@@ -2933,34 +2933,104 @@ const SystemSettings = () => {
                                 <input 
                                     type="checkbox" 
                                     checked={registrationsEnabled} 
-                                    onChange={e => handleChange('system', 'registrationsEnabled', e.target.checked)} 
+                                    onChange={e => {
+                                        const next = e.target.checked;
+                                        handleChange('system', 'registrationsEnabled', next);
+                                        void AdminService.saveSystemSettings({ registrationsEnabled: next } as SystemConfig)
+                                            .then(() => showNotification('success', 'Registrations', next ? 'Sign-ups enabled.' : 'Sign-ups disabled.'))
+                                            .catch(() => showNotification('error', 'Save Failed', 'Could not update registrations setting.'));
+                                    }} 
                                     className="rounded text-blue-600" 
+                                    data-testid="setting-registrations-enabled"
                                 />
                             </div>
                             <div className="flex items-center justify-between">
                                 <div>
                                     <span className="text-sm font-medium text-gray-700">Enforce KYC</span>
-                                    <p className="text-xs text-gray-500">Require identity verification</p>
+                                    <p className="text-xs text-gray-500">Require identity verification for sensitive actions</p>
                                 </div>
                                 <input 
                                     type="checkbox" 
                                     checked={kycEnabled} 
-                                    onChange={e => handleChange('system', 'kycEnforced', e.target.checked)} 
+                                    onChange={e => {
+                                        const next = e.target.checked;
+                                        handleChange('system', 'kycEnforced', next);
+                                        void AdminService.saveSystemSettings({ kycEnforced: next } as SystemConfig)
+                                            .then(() => showNotification('success', 'KYC Enforcement', next ? 'KYC required for sensitive actions.' : 'KYC enforcement off.'))
+                                            .catch(() => showNotification('error', 'Save Failed', 'Could not update KYC setting.'));
+                                    }} 
                                     className="rounded text-blue-600" 
+                                    data-testid="setting-kyc-enforced"
                                 />
                             </div>
                             <div className="flex items-center justify-between">
                                 <div>
                                     <span className="text-sm font-medium text-gray-700">Admin 2FA</span>
-                                    <p className="text-xs text-gray-500">Require 2FA for admin access</p>
+                                    <p className="text-xs text-gray-500">Require Google Authenticator for admin access</p>
                                 </div>
                                 <input 
                                     type="checkbox" 
                                     checked={admin2FAEnabled} 
-                                    onChange={e => handleChange('system', 'admin2FA', e.target.checked)} 
+                                    onChange={e => {
+                                        const next = e.target.checked;
+                                        handleChange('system', 'admin2FA', next);
+                                        void AdminService.saveSystemSettings({ admin2FA: next } as SystemConfig)
+                                            .then(() => showNotification('success', 'Admin 2FA', next ? 'Admin 2FA enforced at login.' : 'Admin 2FA policy disabled.'))
+                                            .catch(() => showNotification('error', 'Save Failed', 'Could not update Admin 2FA setting.'));
+                                    }} 
                                     className="rounded text-blue-600" 
+                                    data-testid="setting-admin-2fa"
                                 />
                             </div>
+                            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+                                <h4 className="text-sm font-semibold text-slate-900">Maintenance page (CMS-controlled)</h4>
+                                <p className="text-xs text-slate-600">
+                                    Shown to non-admins when Maintenance Mode is on. Also available as public status at{' '}
+                                    <code className="rounded bg-white px-1">/maintenance</code>.
+                                </p>
+                                {(['title', 'message', 'contactEmail', 'ctaLabel', 'ctaUrl'] as const).map((field) => (
+                                    <label key={field} className="block text-xs font-medium text-slate-700">
+                                        {field === 'contactEmail' ? 'Contact email' : field === 'ctaLabel' ? 'Button label' : field === 'ctaUrl' ? 'Button URL' : field === 'title' ? 'Title' : 'Message'}
+                                        {field === 'message' ? (
+                                            <textarea
+                                                className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm"
+                                                rows={3}
+                                                value={String((localSettings.system as any)?.maintenancePage?.[field] || '')}
+                                                onChange={(e) =>
+                                                    handleChange('system', 'maintenancePage', {
+                                                        ...((localSettings.system as any)?.maintenancePage || {}),
+                                                        [field]: e.target.value
+                                                    })
+                                                }
+                                            />
+                                        ) : (
+                                            <input
+                                                className="mt-1 w-full rounded-lg border border-slate-300 p-2 text-sm"
+                                                value={String((localSettings.system as any)?.maintenancePage?.[field] || '')}
+                                                onChange={(e) =>
+                                                    handleChange('system', 'maintenancePage', {
+                                                        ...((localSettings.system as any)?.maintenancePage || {}),
+                                                        [field]: e.target.value
+                                                    })
+                                                }
+                                            />
+                                        )}
+                                    </label>
+                                ))}
+                                <button
+                                    type="button"
+                                    className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                                    onClick={() => {
+                                        const page = (localSettings.system as any)?.maintenancePage || {};
+                                        void AdminService.saveSystemSettings({ maintenancePage: page } as SystemConfig)
+                                            .then(() => showNotification('success', 'Maintenance page', 'Fault page content saved.'))
+                                            .catch(() => showNotification('error', 'Save Failed', 'Could not save maintenance page.'));
+                                    }}
+                                >
+                                    Save maintenance page
+                                </button>
+                            </div>
+                            <Admin2FAControlPanel enabled={admin2FAEnabled} />
                         </div>
 
                         <div className={`p-4 rounded-lg flex items-center justify-between ${
