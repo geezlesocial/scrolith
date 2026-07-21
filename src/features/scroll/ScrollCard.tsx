@@ -894,35 +894,6 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       )}
 
-      {/* Mute / Unmute — top-center (where Scroll brand sat). Visible on mobile + desktop with label. */}
-      <div
-        className={`pointer-events-auto absolute left-1/2 top-3 z-40 -translate-x-1/2 transition-opacity duration-300 ${
-          overlayControlsVisible || isActive ? 'opacity-100' : 'opacity-90'
-        }`}
-        data-testid="scroll-mute-control"
-      >
-        <button
-          type="button"
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            revealControls();
-            onToggleMute();
-          }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-md transition hover:bg-black/75 active:scale-[0.98]"
-          aria-label={muted ? 'Unmute Scroll audio' : 'Mute Scroll audio'}
-          aria-pressed={muted}
-          title={muted ? 'Unmute' : 'Mute'}
-        >
-          {muted ? (
-            <VolumeX className="h-3.5 w-3.5 text-white" aria-hidden />
-          ) : (
-            <Volume2 className="h-3.5 w-3.5 text-cyan-200" aria-hidden />
-          )}
-          <span>{muted ? 'Unmute' : 'Mute'}</span>
-        </button>
-      </div>
-
       {/* Phase 23 — adaptive buffer health (active only, non-intrusive) */}
       {isActive && bufferHealth > 0 && bufferHealth < 0.35 ? (
         <div
@@ -940,8 +911,10 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         }`}
       />
 
-      <div className="pointer-events-none absolute left-4 right-4 top-4 z-30 flex items-start justify-between gap-3">
-          <div className="pointer-events-auto">
+      {/* top-14 clears feed Mute/Create header so the name never sits under those controls */}
+      <div className="pointer-events-none absolute left-3 right-3 top-14 z-30 flex items-start justify-between gap-2 sm:left-4 sm:right-4 sm:top-16 sm:gap-3">
+          {/* Author column — full remaining width under header; name truncates, never under Mute */}
+          <div className="pointer-events-auto min-w-0 flex-1 pr-2">
             {authorProfileUrl ? (
               <button
                 type="button"
@@ -950,9 +923,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   event.stopPropagation();
                   navigate(authorProfileUrl, { state: { fromMobileHome: true } });
                 }}
-                className="flex items-start gap-3 text-left"
+                className="flex w-full max-w-full items-start gap-2.5 text-left sm:gap-3"
               >
-                <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
+                <div className="h-10 w-10 shrink-0 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
                   {authorAvatar ? (
                     <OptimizedImage
                       src={authorAvatar}
@@ -966,9 +939,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                     <span>{authorInitial(authorName)}</span>
                   )}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 overflow-hidden">
                   <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
                     <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
                     {scroll.isAIEnhanced ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
@@ -986,8 +959,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                 </div>
               </button>
             ) : (
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
+              <div className="flex w-full max-w-full items-start gap-2.5 sm:gap-3">
+                <div className="h-10 w-10 shrink-0 rounded-full bg-white/15 ring-2 ring-white/70 overflow-hidden flex items-center justify-center text-sm font-semibold">
                   {authorAvatar ? (
                     <OptimizedImage
                       src={authorAvatar}
@@ -1001,9 +974,9 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                     <span>{authorInitial(authorName)}</span>
                   )}
                 </div>
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1 overflow-hidden">
                   <p className="truncate text-sm font-semibold leading-tight">{authorName}</p>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-2">
                     <p className="truncate text-xs text-white/80">{scroll.author?.username ? `@${scroll.author.username}` : 'Scrolith'}</p>
                     {scroll.isAIEnhanced ? (
                       <span className="inline-flex items-center gap-1 rounded-full bg-cyan-500/20 px-2 py-1 text-[10px] font-semibold text-cyan-100 ring-1 ring-cyan-300/40">
@@ -1052,12 +1025,14 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
             </div>
           </div>
 
+        {/* Right chrome: owner/expand only. Mute is in ScrollFeed header next to Create (no name overlap). */}
         <div
-          className={`pointer-events-auto flex items-center gap-2 transition-all duration-300 ${
+          className={`pointer-events-auto flex shrink-0 items-center gap-1.5 sm:gap-2 transition-all duration-300 ${
             hasOwnerActions || overlayControlsVisible
               ? 'translate-y-0 opacity-100'
-              : '-translate-y-2 opacity-0 pointer-events-none'
+              : 'opacity-0 pointer-events-none'
           }`}
+          data-testid="scroll-top-right-chrome"
         >
           <button
             type="button"

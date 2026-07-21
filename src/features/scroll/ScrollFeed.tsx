@@ -1916,27 +1916,31 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           </button>
         </div>
       ) : null}
-      <header className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 py-4">
+      {/*
+        Top chrome: Back | spacer | Mute + Create.
+        Mute stays in the right cluster only — never centered over the author name.
+      */}
+      <header className="pointer-events-none absolute inset-x-0 top-0 z-40 flex items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-4 sm:py-4">
         <button
           type="button"
           onClick={handleClose}
-          className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
+          className="pointer-events-auto inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/45 text-white hover:bg-black/65 transition"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <div className="pointer-events-auto flex items-center gap-2">
+        <div className="pointer-events-auto ml-auto flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
-            className="inline-flex h-10 items-center gap-1.5 rounded-full bg-black/45 px-3 text-xs font-semibold text-white transition hover:bg-black/65"
+            className="inline-flex h-10 max-w-full items-center gap-1.5 rounded-full border border-white/20 bg-black/55 px-3 text-xs font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-black/75"
             aria-label={muted ? 'Unmute all Scrolls' : 'Mute all Scrolls'}
             aria-pressed={muted}
-            data-testid="scroll-feed-mute-control"
+            data-testid="scroll-mute-control"
             title={muted ? 'Unmute' : 'Mute'}
           >
-            {muted ? <VolumeX className="h-4 w-4" aria-hidden /> : <Volume2 className="h-4 w-4" aria-hidden />}
-            <span className="hidden sm:inline">{muted ? 'Unmute' : 'Mute'}</span>
+            {muted ? <VolumeX className="h-4 w-4 shrink-0" aria-hidden /> : <Volume2 className="h-4 w-4 shrink-0" aria-hidden />}
+            <span className="whitespace-nowrap">{muted ? 'Unmute' : 'Mute'}</span>
           </button>
           <button
             type="button"
@@ -1946,7 +1950,7 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
               setRemixSource(null);
               setCreateOpen(true);
             }}
-            className="inline-flex items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
+            className="inline-flex shrink-0 items-center gap-2 rounded-full bg-cyan-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-200 transition"
           >
             <PlusCircle className="h-4 w-4" />
             Create
