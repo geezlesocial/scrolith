@@ -1,11 +1,16 @@
 /**
- * Phase 25 — Enterprise notification taxonomy for labels, Android channels,
+ * Phase 25/27/29 — Enterprise notification taxonomy for labels, Android channels,
  * and deep-link routing. Pure helpers — no network side effects.
  *
  * Channel ids must match:
  * - geezle/src/mobile/push.ts (client createChannel)
  * - geezle-backend/src/services/notificationAndroidChannels.ts (FCM channelId)
  * - AndroidManifest default_notification_channel_id (migration fallback)
+ *
+ * Phase 29 — sound migration (Android channel sound is immutable after create):
+ * Enterprise channels move v1 → v2 with Scrolith notification sound resource "scrolith"
+ * (res/raw/scrolith.wav). Pronunciation guidance: "Scroll it".
+ * Legacy v1 channels remain creatable for old payloads; new FCM routes to v2.
  */
 
 export type NotificationCategoryKey =
@@ -32,13 +37,44 @@ export type NotificationCategoryKey =
   | 'admin'
   | 'security'
   | 'system'
-  | 'social';
+  | 'social'
+  | 'wallet'
+  | 'payment';
 
 /**
  * Android notification channel ids (must match FCM android.notification.channelId).
- * Phase 25 expands the enterprise set while retaining v1 ids for migration.
+ * Phase 29: active delivery uses *_v2 for Scrolith sound migration.
  */
 export const ANDROID_CHANNEL_IDS = {
+  messages: 'scrolith_messages_v2',
+  community: 'scrolith_community_v2',
+  marketplace: 'scrolith_marketplace_v2',
+  jobs: 'scrolith_jobs_v2',
+  gigs: 'scrolith_gigs_v2',
+  scroll: 'scrolith_scroll_v2',
+  stories: 'scrolith_stories_v2',
+  posts: 'scrolith_posts_v2',
+  follows: 'scrolith_follows_v2',
+  mentions: 'scrolith_mentions_v2',
+  comments: 'scrolith_comments_v2',
+  orders: 'scrolith_orders_v2',
+  wallet: 'scrolith_wallet_v2',
+  payments: 'scrolith_payments_v2',
+  admin: 'scrolith_admin_v2',
+  security: 'scrolith_security_v2',
+  system: 'scrolith_system_v2',
+  /** AI assistant */
+  scrolitha: 'scrolith_scrolitha_v2',
+  /** Legacy umbrella social — still created for prior installs */
+  social: 'scrolith_social_v2',
+  /** Freelancing alias retained (maps to gigs channel for delivery) */
+  freelancing: 'scrolith_gigs_v2',
+  /** Default FCM / high-priority alerts (already v2 since Phase 25) */
+  alerts: 'scrolith_alerts_v2'
+} as const;
+
+/** Phase 29 — legacy channel ids retained on device for old FCM payloads. */
+export const ANDROID_LEGACY_CHANNEL_IDS = {
   messages: 'scrolith_messages_v1',
   community: 'scrolith_community_v1',
   marketplace: 'scrolith_marketplace_v1',
@@ -54,17 +90,25 @@ export const ANDROID_CHANNEL_IDS = {
   admin: 'scrolith_admin_v1',
   security: 'scrolith_security_v1',
   system: 'scrolith_system_v1',
-  /** AI assistant (retained) */
   scrolitha: 'scrolith_scrolitha_v1',
-  /** Legacy umbrella social channel — still created for prior installs */
   social: 'scrolith_social_v1',
-  /** Freelancing alias retained (maps to gigs channel for delivery) */
-  freelancing: 'scrolith_gigs_v1',
-  /** Fallback / migration default used by prior releases */
-  alerts: 'scrolith_alerts_v2'
+  freelancing: 'scrolith_gigs_v1'
 } as const;
 
+/**
+ * Scrolith notification sound — Android raw resource name WITHOUT extension.
+ * File: android/app/src/main/res/raw/scrolith.wav
+ * Pronunciation (spoken brand cue only): "Scroll it"
+ * Do not rename the app package or product brand to "Scroll it".
+ */
+export const SCROLITH_NOTIFICATION_SOUND = 'scrolith';
+export const SCROLITH_NOTIFICATION_SOUND_PRONUNCIATION = 'Scroll it';
+export const SCROLITH_NOTIFICATION_SMALL_ICON = 'ic_stat_scrolith';
+
 export type AndroidChannelId = (typeof ANDROID_CHANNEL_IDS)[keyof typeof ANDROID_CHANNEL_IDS];
+
+/** Sound urgency policy for channel design (Android still respects user mute). */
+export type NotificationSoundPolicy = 'high' | 'standard' | 'silent';
 
 export type NotificationCategoryMeta = {
   key: NotificationCategoryKey;
@@ -74,6 +118,7 @@ export type NotificationCategoryMeta = {
   channelId: AndroidChannelId;
   /** Localization key (i18n-ready) */
   i18nKey: string;
+  soundPolicy: NotificationSoundPolicy;
 };
 
 const CATEGORY_META: Record<NotificationCategoryKey, NotificationCategoryMeta> = {
@@ -81,145 +126,183 @@ const CATEGORY_META: Record<NotificationCategoryKey, NotificationCategoryMeta> =
     key: 'message',
     label: 'Message',
     channelId: ANDROID_CHANNEL_IDS.messages,
-    i18nKey: 'notification.category.message'
+    i18nKey: 'notification.category.message',
+    soundPolicy: 'high'
   },
   story: {
     key: 'story',
     label: 'Story',
     channelId: ANDROID_CHANNEL_IDS.stories,
-    i18nKey: 'notification.category.story'
+    i18nKey: 'notification.category.story',
+    soundPolicy: 'standard'
   },
   scroll: {
     key: 'scroll',
     label: 'Scroll',
     channelId: ANDROID_CHANNEL_IDS.scroll,
-    i18nKey: 'notification.category.scroll'
+    i18nKey: 'notification.category.scroll',
+    soundPolicy: 'standard'
   },
   comment: {
     key: 'comment',
     label: 'Comment',
     channelId: ANDROID_CHANNEL_IDS.comments,
-    i18nKey: 'notification.category.comment'
+    i18nKey: 'notification.category.comment',
+    soundPolicy: 'standard'
   },
   reply: {
     key: 'reply',
     label: 'Reply',
     channelId: ANDROID_CHANNEL_IDS.comments,
-    i18nKey: 'notification.category.reply'
+    i18nKey: 'notification.category.reply',
+    soundPolicy: 'standard'
   },
   mention: {
     key: 'mention',
     label: 'Mention',
     channelId: ANDROID_CHANNEL_IDS.mentions,
-    i18nKey: 'notification.category.mention'
+    i18nKey: 'notification.category.mention',
+    soundPolicy: 'standard'
   },
   reaction: {
     key: 'reaction',
     label: 'Reaction',
     channelId: ANDROID_CHANNEL_IDS.posts,
-    i18nKey: 'notification.category.reaction'
+    i18nKey: 'notification.category.reaction',
+    soundPolicy: 'standard'
   },
   follow: {
     key: 'follow',
     label: 'Follow',
     channelId: ANDROID_CHANNEL_IDS.follows,
-    i18nKey: 'notification.category.follow'
+    i18nKey: 'notification.category.follow',
+    soundPolicy: 'standard'
   },
   post: {
     key: 'post',
     label: 'Post',
     channelId: ANDROID_CHANNEL_IDS.posts,
-    i18nKey: 'notification.category.post'
+    i18nKey: 'notification.category.post',
+    soundPolicy: 'standard'
   },
   community: {
     key: 'community',
     label: 'Community',
     channelId: ANDROID_CHANNEL_IDS.community,
-    i18nKey: 'notification.category.community'
+    i18nKey: 'notification.category.community',
+    soundPolicy: 'standard'
   },
   marketplace: {
     key: 'marketplace',
     label: 'Marketplace',
     channelId: ANDROID_CHANNEL_IDS.marketplace,
-    i18nKey: 'notification.category.marketplace'
+    i18nKey: 'notification.category.marketplace',
+    soundPolicy: 'standard'
   },
   order: {
     key: 'order',
     label: 'Order',
     channelId: ANDROID_CHANNEL_IDS.orders,
-    i18nKey: 'notification.category.order'
+    i18nKey: 'notification.category.order',
+    soundPolicy: 'high'
   },
   job: {
     key: 'job',
     label: 'Job',
     channelId: ANDROID_CHANNEL_IDS.jobs,
-    i18nKey: 'notification.category.job'
+    i18nKey: 'notification.category.job',
+    soundPolicy: 'high'
   },
   gig: {
     key: 'gig',
     label: 'Gig',
     channelId: ANDROID_CHANNEL_IDS.gigs,
-    i18nKey: 'notification.category.gig'
+    i18nKey: 'notification.category.gig',
+    soundPolicy: 'high'
   },
   freelancing: {
     key: 'freelancing',
     label: 'Gig',
     channelId: ANDROID_CHANNEL_IDS.gigs,
-    i18nKey: 'notification.category.gig'
+    i18nKey: 'notification.category.gig',
+    soundPolicy: 'high'
   },
   event: {
     key: 'event',
     label: 'Event',
     channelId: ANDROID_CHANNEL_IDS.community,
-    i18nKey: 'notification.category.event'
+    i18nKey: 'notification.category.event',
+    soundPolicy: 'standard'
   },
   live: {
     key: 'live',
     label: 'Live',
     channelId: ANDROID_CHANNEL_IDS.scroll,
-    i18nKey: 'notification.category.live'
+    i18nKey: 'notification.category.live',
+    soundPolicy: 'standard'
   },
   series: {
     key: 'series',
     label: 'Series',
     channelId: ANDROID_CHANNEL_IDS.posts,
-    i18nKey: 'notification.category.series'
+    i18nKey: 'notification.category.series',
+    soundPolicy: 'standard'
   },
   playlist: {
     key: 'playlist',
     label: 'Playlist',
     channelId: ANDROID_CHANNEL_IDS.posts,
-    i18nKey: 'notification.category.playlist'
+    i18nKey: 'notification.category.playlist',
+    soundPolicy: 'standard'
   },
   scrolitha: {
     key: 'scrolitha',
     label: 'Scrolitha',
     channelId: ANDROID_CHANNEL_IDS.scrolitha,
-    i18nKey: 'notification.category.scrolitha'
+    i18nKey: 'notification.category.scrolitha',
+    soundPolicy: 'standard'
   },
   admin: {
     key: 'admin',
     label: 'Admin',
     channelId: ANDROID_CHANNEL_IDS.admin,
-    i18nKey: 'notification.category.admin'
+    i18nKey: 'notification.category.admin',
+    soundPolicy: 'high'
   },
   security: {
     key: 'security',
     label: 'Security',
     channelId: ANDROID_CHANNEL_IDS.security,
-    i18nKey: 'notification.category.security'
+    i18nKey: 'notification.category.security',
+    soundPolicy: 'high'
   },
   system: {
     key: 'system',
     label: 'System',
     channelId: ANDROID_CHANNEL_IDS.system,
-    i18nKey: 'notification.category.system'
+    i18nKey: 'notification.category.system',
+    soundPolicy: 'standard'
   },
   social: {
     key: 'social',
     label: 'Social',
     channelId: ANDROID_CHANNEL_IDS.posts,
-    i18nKey: 'notification.category.social'
+    i18nKey: 'notification.category.social',
+    soundPolicy: 'standard'
+  },
+  wallet: {
+    key: 'wallet',
+    label: 'Wallet',
+    channelId: ANDROID_CHANNEL_IDS.wallet,
+    i18nKey: 'notification.category.wallet',
+    soundPolicy: 'high'
+  },
+  payment: {
+    key: 'payment',
+    label: 'Payment',
+    channelId: ANDROID_CHANNEL_IDS.payments,
+    i18nKey: 'notification.category.payment',
+    soundPolicy: 'high'
   }
 };
 
@@ -264,8 +347,17 @@ export const resolveNotificationCategory = (input: {
   ) {
     return 'marketplace';
   }
-  if (type === 'payment' || type.includes('payout') || type.includes('payment_')) {
-    return 'order';
+  // Phase 29 — wallet / payment before generic order
+  if (type.includes('wallet') || type.includes('balance') || type === 'payout' || type.includes('payout_')) {
+    return 'wallet';
+  }
+  if (
+    type === 'payment' ||
+    type.includes('payment_') ||
+    type.includes('refund') ||
+    type.includes('receipt')
+  ) {
+    return 'payment';
   }
   if (
     type === 'message' ||
@@ -366,7 +458,11 @@ export const resolveNotificationCategory = (input: {
   if (type.includes('post') || type.includes('publication')) {
     return 'post';
   }
-  if (type.includes('social') || type.includes('campaign')) {
+  // App campaigns → system category; FCM uses high-priority alerts channel via resolveCampaignChannel
+  if (type === 'app_campaign' || type === 'campaign' || (type.includes('campaign') && !type.includes('ad'))) {
+    return 'system';
+  }
+  if (type.includes('social')) {
     return 'social';
   }
   if (type.includes('system') || type.includes('account')) {
@@ -389,7 +485,19 @@ export const getNotificationCategoryLabel = (
 
 export const resolveAndroidChannelId = (
   input: Parameters<typeof resolveNotificationCategory>[0]
-): AndroidChannelId => getNotificationCategoryMeta(input).channelId;
+): AndroidChannelId => {
+  const category = resolveNotificationCategory(input);
+  // High-priority app campaigns use the alerts channel (custom Scrolith sound, MAX importance).
+  const type = coerce(input.type || input.notificationType || input.metadata?.type);
+  if (
+    type === 'app_campaign' ||
+    type === 'campaign' ||
+    (type.includes('campaign') && !type.includes('ad') && category === 'system')
+  ) {
+    return ANDROID_CHANNEL_IDS.alerts;
+  }
+  return getNotificationCategoryMeta(input).channelId;
+};
 
 /**
  * Prefix push/in-app titles with the category when not already present.
@@ -484,6 +592,12 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
   if ((type.includes('marketplace') || type.includes('listing')) && listingId) {
     return `/marketplace/listing/${encodeURIComponent(listingId)}`;
   }
+  if ((type.includes('wallet') || type.includes('payout')) && !type.includes('payment')) {
+    return '/wallet';
+  }
+  if (type.includes('payment') || type.includes('refund')) {
+    return orderId ? `/wallet?receipt=${encodeURIComponent(orderId)}` : '/wallet';
+  }
   if (type.includes('order') && orderId) {
     return `/gigs/${encodeURIComponent(orderId)}`;
   }
@@ -545,138 +659,183 @@ export const ANDROID_CHANNEL_DEFINITIONS: Array<{
   importance: 3 | 4 | 5;
   /** 0=private lock screen, 1=public */
   visibility: 0 | 1;
+  soundPolicy: NotificationSoundPolicy;
 }> = [
   {
     id: ANDROID_CHANNEL_IDS.messages,
     name: 'Messages',
     description: 'Direct messages and chat activity',
     importance: 5,
-    visibility: 0
+    visibility: 0,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.community,
     name: 'Community',
     description: 'Group approvals, announcements, and community activity',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.marketplace,
     name: 'Marketplace',
     description: 'Listing interest and marketplace updates',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.jobs,
     name: 'Jobs',
     description: 'Applications, recruiter views, and hiring updates',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.gigs,
     name: 'Gigs',
     description: 'Orders, proposals, contracts, and freelancing',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.scroll,
     name: 'Scroll',
     description: 'New Scrolls and short-video activity',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.stories,
     name: 'Stories',
     description: 'Story updates from people you follow',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.posts,
     name: 'Posts',
     description: 'New posts, reactions, and publications',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.alerts,
     name: 'Scrolith alerts (Scroll it)',
-    description: 'Important Scrolith alerts and campaigns with the Scrolith sound (Scroll it)',
+    description: 'Important Scrolith alerts and campaigns with the Scrolith notification sound (Scroll it)',
     importance: 5,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.follows,
     name: 'Follows',
     description: 'New followers and follow activity',
     importance: 3,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.mentions,
     name: 'Mentions',
     description: 'When someone mentions you',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.comments,
     name: 'Comments',
     description: 'Comments and replies on your content',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.orders,
     name: 'Orders',
     description: 'Marketplace and gig order updates',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'high'
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.wallet,
+    name: 'Wallet',
+    description: 'Wallet balance, payouts, and transfers',
+    importance: 4,
+    visibility: 0,
+    soundPolicy: 'high'
+  },
+  {
+    id: ANDROID_CHANNEL_IDS.payments,
+    name: 'Payments',
+    description: 'Payment confirmations, refunds, and receipts',
+    importance: 5,
+    visibility: 0,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.admin,
     name: 'Admin',
     description: 'Moderation and administrative notices',
     importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.security,
     name: 'Security',
     description: 'Login, password, and account security alerts',
     importance: 5,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'high'
   },
   {
     id: ANDROID_CHANNEL_IDS.system,
     name: 'System',
     description: 'Product updates and system notices',
     importance: 3,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.scrolitha,
     name: 'Scrolitha',
     description: 'Scrolitha AI assistant notifications',
     importance: 3,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   },
   {
     id: ANDROID_CHANNEL_IDS.social,
     name: 'Social',
     description: 'Legacy social activity channel',
     importance: 3,
-    visibility: 1
-  },
-  {
-    id: ANDROID_CHANNEL_IDS.alerts,
-    name: 'Alerts',
-    description: 'Migration fallback alerts channel',
-    importance: 4,
-    visibility: 1
+    visibility: 1,
+    soundPolicy: 'standard'
   }
 ];
+
+/** Allowlisted channel ids for FCM (active + legacy + short legacy). */
+export const ANDROID_CHANNEL_ID_ALLOWLIST = new Set<string>([
+  ...Object.values(ANDROID_CHANNEL_IDS),
+  ...Object.values(ANDROID_LEGACY_CHANNEL_IDS),
+  'scrolith_alerts_v2',
+  'general',
+  'messages',
+  'posts',
+  'campaigns_scrolith_v1',
+  'campaigns_scrolith_v2'
+]);
+
+export const isAllowedAndroidChannelId = (channelId: unknown): boolean => {
+  const id = String(channelId || '').trim();
+  return Boolean(id) && ANDROID_CHANNEL_ID_ALLOWLIST.has(id);
+};

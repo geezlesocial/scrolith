@@ -12,21 +12,24 @@ import {
 
 describe('Phase 25 notification taxonomy', () => {
   it('exposes the enterprise channel set', () => {
-    expect(ANDROID_CHANNEL_IDS.messages).toBe('scrolith_messages_v1');
-    expect(ANDROID_CHANNEL_IDS.community).toBe('scrolith_community_v1');
-    expect(ANDROID_CHANNEL_IDS.marketplace).toBe('scrolith_marketplace_v1');
-    expect(ANDROID_CHANNEL_IDS.jobs).toBe('scrolith_jobs_v1');
-    expect(ANDROID_CHANNEL_IDS.gigs).toBe('scrolith_gigs_v1');
-    expect(ANDROID_CHANNEL_IDS.scroll).toBe('scrolith_scroll_v1');
-    expect(ANDROID_CHANNEL_IDS.stories).toBe('scrolith_stories_v1');
-    expect(ANDROID_CHANNEL_IDS.posts).toBe('scrolith_posts_v1');
-    expect(ANDROID_CHANNEL_IDS.follows).toBe('scrolith_follows_v1');
-    expect(ANDROID_CHANNEL_IDS.mentions).toBe('scrolith_mentions_v1');
-    expect(ANDROID_CHANNEL_IDS.comments).toBe('scrolith_comments_v1');
-    expect(ANDROID_CHANNEL_IDS.orders).toBe('scrolith_orders_v1');
-    expect(ANDROID_CHANNEL_IDS.admin).toBe('scrolith_admin_v1');
-    expect(ANDROID_CHANNEL_IDS.security).toBe('scrolith_security_v1');
-    expect(ANDROID_CHANNEL_IDS.system).toBe('scrolith_system_v1');
+    // Phase 29 — active delivery channels are *_v2 (Scrolith sound migration).
+    expect(ANDROID_CHANNEL_IDS.messages).toBe('scrolith_messages_v2');
+    expect(ANDROID_CHANNEL_IDS.community).toBe('scrolith_community_v2');
+    expect(ANDROID_CHANNEL_IDS.marketplace).toBe('scrolith_marketplace_v2');
+    expect(ANDROID_CHANNEL_IDS.jobs).toBe('scrolith_jobs_v2');
+    expect(ANDROID_CHANNEL_IDS.gigs).toBe('scrolith_gigs_v2');
+    expect(ANDROID_CHANNEL_IDS.scroll).toBe('scrolith_scroll_v2');
+    expect(ANDROID_CHANNEL_IDS.stories).toBe('scrolith_stories_v2');
+    expect(ANDROID_CHANNEL_IDS.posts).toBe('scrolith_posts_v2');
+    expect(ANDROID_CHANNEL_IDS.follows).toBe('scrolith_follows_v2');
+    expect(ANDROID_CHANNEL_IDS.mentions).toBe('scrolith_mentions_v2');
+    expect(ANDROID_CHANNEL_IDS.comments).toBe('scrolith_comments_v2');
+    expect(ANDROID_CHANNEL_IDS.orders).toBe('scrolith_orders_v2');
+    expect(ANDROID_CHANNEL_IDS.wallet).toBe('scrolith_wallet_v2');
+    expect(ANDROID_CHANNEL_IDS.payments).toBe('scrolith_payments_v2');
+    expect(ANDROID_CHANNEL_IDS.admin).toBe('scrolith_admin_v2');
+    expect(ANDROID_CHANNEL_IDS.security).toBe('scrolith_security_v2');
+    expect(ANDROID_CHANNEL_IDS.system).toBe('scrolith_system_v2');
   });
 
   it('routes categories to distinct channels', () => {

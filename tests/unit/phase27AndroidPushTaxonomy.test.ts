@@ -32,14 +32,14 @@ test('Phase 27 aliases map to enterprise categories and stable channels', () => 
   assert.equal(resolveNotificationCategory({ type: 'group_invite' }), 'community');
   assert.equal(resolveNotificationCategory({ type: 'community_request' }), 'community');
   assert.equal(resolveNotificationCategory({ type: 'marketplace_inquiry' }), 'marketplace');
-  assert.equal(resolveNotificationCategory({ type: 'payment' }), 'order');
+  assert.equal(resolveNotificationCategory({ type: 'payment' }), 'payment');
   assert.equal(resolveNotificationCategory({ type: 'followed_you' }), 'follow');
   assert.equal(resolveNotificationCategory({ type: 'scroll_uploaded' }), 'scroll');
 
   assert.equal(resolveAndroidChannelId({ type: 'chat' }), ANDROID_CHANNEL_IDS.messages);
   assert.equal(resolveAndroidChannelId({ type: 'group_invite' }), ANDROID_CHANNEL_IDS.community);
   assert.equal(resolveAndroidChannelId({ type: 'marketplace_inquiry' }), ANDROID_CHANNEL_IDS.marketplace);
-  assert.equal(resolveAndroidChannelId({ type: 'payment' }), ANDROID_CHANNEL_IDS.orders);
+  assert.equal(resolveAndroidChannelId({ type: 'payment' }), ANDROID_CHANNEL_IDS.payments);
   assert.equal(resolveAndroidChannelId({ type: 'security_login' }), ANDROID_CHANNEL_IDS.security);
 });
 
@@ -135,9 +135,9 @@ test('AndroidManifest FCM defaults and POST_NOTIFICATIONS', () => {
   assert.match(manifest, /enableOnBackInvokedCallback/);
 });
 
-test('Phase 27 version and production Capacitor origin', () => {
-  assert.match(gradle, /versionCode 35/);
-  assert.match(gradle, /versionName "1\.1\.25"/);
+test('Phase 29 version and production Capacitor origin', () => {
+  assert.match(gradle, /versionCode 36/);
+  assert.match(gradle, /versionName "1\.1\.26"/);
   assert.match(gradle, /debugSymbolLevel/);
   assert.match(capacitor, /scrolith\.com/);
   assert.match(capacitor, /androidScheme: 'https'/);

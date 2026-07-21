@@ -9,6 +9,8 @@ import { extractPathFromAppUrl } from './runtime/deepLinkUtils';
 import {
   ANDROID_CHANNEL_DEFINITIONS,
   ANDROID_CHANNEL_IDS,
+  ANDROID_LEGACY_CHANNEL_IDS,
+  SCROLITH_NOTIFICATION_SOUND,
   buildEnterprisePushDeepLink
 } from '../utils/notificationTaxonomy';
 
@@ -168,16 +170,24 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
 const ensureAndroidNotificationChannels = async () => {
   if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return;
 
-  // Phase 25/27 multi-channel taxonomy (Android 8+).
+  // Phase 25/27/29 multi-channel taxonomy (Android 8+).
   // Importance: 5=MAX, 4=HIGH, 3=DEFAULT.
   // Visibility 0=private (lock-screen content hidden) · 1=public.
-  // Channel ids are stable — never recreate with new ids casually.
-  // Users can mute individual channels without losing DMs.
+  // Phase 29: active ids are *_v2 (Scrolith sound). Android does not update
+  // channel sound after create — do not re-id every release; only on sound migration.
   // Capacitor Android: sound is res/raw name WITHOUT extension (raw/scrolith.wav → "scrolith").
-  // Spoken brand: "Scroll it". File/channel resource id remains scrolith.
-  const SCROLITH_SOUND = 'scrolith';
-  const channels: Channel[] = [
-    ...ANDROID_CHANNEL_DEFINITIONS.map((def) => ({
+  // Spoken brand cue only: "Scroll it". Resource id remains scrolith.
+  const SCROLITH_SOUND = SCROLITH_NOTIFICATION_SOUND;
+  const seen = new Set<string>();
+  const channels: Channel[] = [];
+  const pushChannel = (channel: Channel) => {
+    if (!channel.id || seen.has(channel.id)) return;
+    seen.add(channel.id);
+    channels.push(channel);
+  };
+
+  for (const def of ANDROID_CHANNEL_DEFINITIONS) {
+    pushChannel({
       id: def.id,
       name: def.name,
       description: def.description,
@@ -185,25 +195,50 @@ const ensureAndroidNotificationChannels = async () => {
       importance: def.importance,
       visibility: def.visibility,
       vibration: true
-    })),
-    // High-priority campaign / system alert channel with custom Scrolith sound.
-    {
-      id: ANDROID_CHANNEL_IDS.alerts,
-      name: 'Scrolith alerts (Scroll it)',
-      description: 'Important Scrolith alerts and campaigns with the Scrolith sound (Scroll it).',
+    });
+  }
+
+  // Phase 29 — legacy v1 enterprise channels (retain for old FCM payloads; do not delete).
+  const legacyPairs: Array<{ id: string; name: string }> = [
+    { id: ANDROID_LEGACY_CHANNEL_IDS.messages, name: 'Messages (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.community, name: 'Community (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.marketplace, name: 'Marketplace (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.jobs, name: 'Jobs (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.gigs, name: 'Gigs (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.scroll, name: 'Scroll (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.stories, name: 'Stories (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.posts, name: 'Posts (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.follows, name: 'Follows (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.mentions, name: 'Mentions (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.comments, name: 'Comments (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.orders, name: 'Orders (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.admin, name: 'Admin (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.security, name: 'Security (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.system, name: 'System (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.scrolitha, name: 'Scrolitha (legacy v1)' },
+    { id: ANDROID_LEGACY_CHANNEL_IDS.social, name: 'Social (legacy v1)' }
+  ];
+  for (const legacy of legacyPairs) {
+    pushChannel({
+      id: legacy.id,
+      name: legacy.name,
+      description: 'Legacy channel retained for older payloads. New alerts use v2 channels with Scrolith sound (Scroll it).',
       sound: SCROLITH_SOUND,
-      importance: 5 as const,
-      visibility: 1 as const,
+      importance: 3,
+      visibility: 1,
       vibration: true
-    },
-    // Legacy short-id channels retained so history/OS settings remain valid.
+    });
+  }
+
+  // Short-id / pre-enterprise legacy channels
+  for (const channel of [
     {
       id: 'general',
       name: 'Scrolith notifications (legacy)',
       description: 'Legacy notification channel retained for compatibility.',
       sound: SCROLITH_SOUND,
-      importance: 3,
-      visibility: 1,
+      importance: 3 as const,
+      visibility: 1 as const,
       vibration: true
     },
     {
@@ -211,8 +246,8 @@ const ensureAndroidNotificationChannels = async () => {
       name: 'Messages (legacy)',
       description: 'Legacy messages channel retained for compatibility.',
       sound: SCROLITH_SOUND,
-      importance: 3,
-      visibility: 1,
+      importance: 3 as const,
+      visibility: 1 as const,
       vibration: true
     },
     {
@@ -220,8 +255,17 @@ const ensureAndroidNotificationChannels = async () => {
       name: 'Posts and community (legacy)',
       description: 'Legacy posts channel retained for compatibility.',
       sound: SCROLITH_SOUND,
-      importance: 3,
-      visibility: 1,
+      importance: 3 as const,
+      visibility: 1 as const,
+      vibration: true
+    },
+    {
+      id: 'campaigns_scrolith_v1',
+      name: 'Scrolith campaigns (legacy v1)',
+      description: 'Legacy campaigns channel retained for compatibility.',
+      sound: SCROLITH_SOUND,
+      importance: 3 as const,
+      visibility: 1 as const,
       vibration: true
     },
     {
@@ -229,20 +273,13 @@ const ensureAndroidNotificationChannels = async () => {
       name: 'Scrolith campaigns (legacy)',
       description: 'Legacy campaigns channel retained for compatibility.',
       sound: SCROLITH_SOUND,
-      importance: 3,
-      visibility: 1,
-      vibration: true
-    },
-    {
-      id: 'scrolith_alerts_v2',
-      name: 'Scrolith alerts (Scroll it)',
-      description: 'Default FCM channel with Scrolith sound (Scroll it).',
-      sound: SCROLITH_SOUND,
-      importance: 5,
-      visibility: 1,
+      importance: 3 as const,
+      visibility: 1 as const,
       vibration: true
     }
-  ];
+  ] as Channel[]) {
+    pushChannel(channel);
+  }
 
   for (const channel of channels) {
     try {
