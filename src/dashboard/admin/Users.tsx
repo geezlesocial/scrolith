@@ -179,10 +179,12 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   const [analytics, setAnalytics] = useState<SubscriberAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [partialWarning, setPartialWarning] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const [subSourceFilter, setSubSourceFilter] = useState<string>('all');
   const [subStatusFilter, setSubStatusFilter] = useState<string>('all');
+  const [userStatusFilter, setUserStatusFilter] = useState<'all' | 'active' | 'inactive' | 'suspended' | 'banned' | 'restricted'>('all');
   const [searchTerm, setSearchTerm] = useState('');
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -239,34 +241,66 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     };
   }, [editingUser?.id, isEditModalOpen]);
 
+  const resolveUserStatus = (u: Partial<UserType> & { status?: string; flags?: any }) => {
+    const statusValue = String(u.status ?? (u.isActive === false ? 'inactive' : 'active')).toLowerCase();
+    const flags = (u as any).flags || {};
+    if (statusValue === 'banned' || flags.isBanned) return 'banned';
+    if (statusValue === 'restricted' || flags.isRestricted) return 'restricted';
+    if (statusValue === 'suspended' || flags.isSuspended) return 'suspended';
+    if (statusValue === 'inactive' || u.isActive === false) return 'inactive';
+    return 'active';
+  };
+
   const loadData = async () => {
     setRefreshing(true);
     setError(null);
+    setPartialWarning(null);
+    // Load users first (primary). Secondary sources must not blank the entire page.
     try {
-      const [uData, wData, sData, gData, demoData] = await Promise.all([
-        AdminService.getUsers(),
-        WalletService.getAllWallets(),
-        AdminService.getSubscribers(),
-        GcoinService.getAllWallets(),
-        AdminService.getSystemDemoAccountsOverview().catch(() => null)
-      ]);
-      setUsers(uData || []);
-      setWallets(wData || []);
-      setSubscribers(sData || []);
-      setGcoinWallets(gData || []);
-      setDemoOverview(demoData);
-      showNotification('success', 'Data Loaded', 'User data refreshed successfully.');
-    } catch (error) {
-      console.error('Failed to load users/subscribers data:', error);
-      setError('Failed to load user or subscriber data. Please try again.');
-      showNotification('error', 'Load Error', 'Failed to load user or subscriber data.');
-      setUsers([]);
-      setWallets([]);
-      setSubscribers([]);
-    } finally {
+      const uData = await AdminService.getUsers();
+      setUsers(Array.isArray(uData) ? uData : []);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+      setError('Failed to load users. Your session may be inactive or unauthorized.');
+      showNotification('error', 'Load Error', 'Failed to load users.');
       setLoading(false);
       setRefreshing(false);
+      return;
     }
+
+    const secondaryErrors: string[] = [];
+    const [wResult, sResult, gResult, demoResult] = await Promise.allSettled([
+      WalletService.getAllWallets(),
+      AdminService.getSubscribers(),
+      GcoinService.getAllWallets(),
+      AdminService.getSystemDemoAccountsOverview()
+    ]);
+
+    if (wResult.status === 'fulfilled') setWallets(wResult.value || []);
+    else {
+      secondaryErrors.push('wallets');
+      setWallets([]);
+    }
+    if (sResult.status === 'fulfilled') setSubscribers(sResult.value || []);
+    else {
+      secondaryErrors.push('subscribers');
+      setSubscribers([]);
+    }
+    if (gResult.status === 'fulfilled') setGcoinWallets(gResult.value || []);
+    else {
+      secondaryErrors.push('gcoin');
+      setGcoinWallets([]);
+    }
+    if (demoResult.status === 'fulfilled') setDemoOverview(demoResult.value);
+    else setDemoOverview(null);
+
+    if (secondaryErrors.length) {
+      setPartialWarning(`Loaded users, but failed: ${secondaryErrors.join(', ')}. Deactivated accounts remain listed.`);
+    } else {
+      showNotification('success', 'Data Loaded', 'User data refreshed successfully.');
+    }
+    setLoading(false);
+    setRefreshing(false);
   };
 
   const loadAnalytics = async () => {
@@ -324,12 +358,25 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
   const handleStatusUpdate = async (userId: string, status: string) => {
     try {
+      // Optimistic keep-in-list update so deactivated rows never "disappear"
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId
+            ? {
+                ...u,
+                status,
+                isActive: status === 'active' || status === 'restricted'
+              }
+            : u
+        )
+      );
       await AdminService.updateUserStatus(userId, status, adminId);
       showNotification('success', 'Status Updated', `User status set to ${status}.`);
       loadData();
     } catch (error) {
       console.error('Failed to update status:', error);
       showNotification('error', 'Status Error', 'Failed to update user status.');
+      loadData();
     }
   };
 
@@ -454,15 +501,19 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   };
 
   const handleDeleteUser = async (userId: string) => {
-    if (window.confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+    if (
+      window.confirm(
+        'Soft-delete this user? They will be deactivated and remain visible under Inactive so you can reactivate them.'
+      )
+    ) {
       try {
-        await AdminService.deleteUser(userId, adminId);
-        showNotification('success', 'User Deleted', 'User account removed.');
+        await AdminService.updateUserStatus(userId, 'inactive', adminId);
+        showNotification('success', 'User Deactivated', 'Account marked inactive (recoverable).');
         loadData();
         if (onUserDeleted) onUserDeleted();
       } catch (error) {
-        console.error('Failed to delete user:', error);
-        showNotification('error', 'Deletion Error', 'Failed to delete user account.');
+        console.error('Failed to soft-delete user:', error);
+        showNotification('error', 'Deletion Error', 'Failed to deactivate user account.');
       }
     }
   };
@@ -555,19 +606,38 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     if (!bulkAction || selectedUsers.length === 0) return;
 
     const action = bulkAction;
-    const confirmed = window.confirm(
-      `Are you sure you want to ${action} ${selectedUsers.length} selected user(s)?`
-    );
+    const selectedRows = users.filter((u) => selectedUsers.includes(u.id));
+    const adminSelected = selectedRows.filter((u) => String(u.role || '').toLowerCase() === 'admin');
+    const includesSelf = Boolean(adminId && selectedUsers.includes(adminId));
 
+    if (action === 'deactivate' && (adminSelected.length > 0 || includesSelf)) {
+      const ok = window.confirm(
+        `Warning: selection includes ${adminSelected.length} admin account(s)${
+          includesSelf ? ' and your own account' : ''
+        }. Deactivating admins can lock the dashboard. Continue?`
+      );
+      if (!ok) return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to ${action} ${selectedUsers.length} selected user(s)?` +
+        (action === 'deactivate'
+          ? '\n\nDeactivated accounts stay visible under Status filter “Inactive” so you can reactivate them.'
+          : '')
+    );
     if (!confirmed) return;
 
     try {
-      // Implement bulk actions based on selection
       if (action === 'delete') {
         for (const userId of selectedUsers) {
-          await AdminService.deleteUser(userId, adminId);
+          // Soft-deactivate instead of hard-delete so the row remains recoverable
+          await AdminService.updateUserStatus(userId, 'inactive', adminId);
         }
-        showNotification('success', 'Bulk Action', `${selectedUsers.length} users deleted successfully.`);
+        showNotification(
+          'success',
+          'Bulk Action',
+          `${selectedUsers.length} user(s) deactivated (soft). They remain listed as Inactive.`
+        );
       } else if (action === 'activate') {
         for (const userId of selectedUsers) {
           await AdminService.updateUserStatus(userId, 'active', adminId);
@@ -577,15 +647,21 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
         for (const userId of selectedUsers) {
           await AdminService.updateUserStatus(userId, 'inactive', adminId);
         }
-        showNotification('success', 'Bulk Action', `${selectedUsers.length} users deactivated successfully.`);
+        showNotification(
+          'success',
+          'Bulk Action',
+          `${selectedUsers.length} users deactivated. Filter Status → Inactive to review and reactivate.`
+        );
       }
 
       setSelectedUsers([]);
       setBulkAction('');
+      if (action === 'deactivate' || action === 'delete') setUserStatusFilter('all');
       loadData();
     } catch (error) {
       console.error('Failed to perform bulk action:', error);
       showNotification('error', 'Bulk Action Failed', 'Failed to perform bulk action.');
+      loadData();
     }
   };
 
@@ -614,11 +690,27 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     return matchesSource && matchesStatus && matchesSearch;
   });
 
-  const filteredUsers = users.filter(u =>
-    !searchTerm ||
-    u.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    u.email.toLowerCase().includes(searchTerm.toLowerCase())
+  const statusCounts = users.reduce(
+    (acc, u) => {
+      const s = resolveUserStatus(u);
+      acc[s] = (acc[s] || 0) + 1;
+      acc.all += 1;
+      return acc;
+    },
+    { all: 0, active: 0, inactive: 0, suspended: 0, banned: 0, restricted: 0 } as Record<string, number>
   );
+
+  const filteredUsers = users.filter((u) => {
+    const status = resolveUserStatus(u);
+    const matchesStatus = userStatusFilter === 'all' || status === userStatusFilter;
+    const q = searchTerm.trim().toLowerCase();
+    const matchesSearch =
+      !q ||
+      u.name?.toLowerCase().includes(q) ||
+      u.username?.toLowerCase().includes(q) ||
+      u.email?.toLowerCase().includes(q);
+    return matchesStatus && matchesSearch;
+  });
 
   const editingWallet = editingUser?.id ? getUserWallet(editingUser.id) : undefined;
   const editingGcoinWallet = editingUser?.id ? getGcoinWallet(editingUser.id) : undefined;
@@ -632,11 +724,15 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     );
   }
 
-  if (error) {
+  if (error && users.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <div className="text-red-500 text-lg mb-2">Error Loading Data</div>
-        <div className="text-gray-600 mb-4">{error}</div>
+        <div className="text-gray-600 mb-4 max-w-md text-center">{error}</div>
+        <p className="text-xs text-gray-500 mb-4 max-w-md text-center">
+          If accounts were bulk-deactivated, platform login is blocked until users are reactivated. Contact engineering
+          or re-login after recovery.
+        </p>
         <button
           onClick={loadData}
           className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
@@ -650,6 +746,11 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
   return (
     <div className="space-y-6">
+      {partialWarning ? (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {partialWarning}
+        </div>
+      ) : null}
       <div className="flex justify-between items-center">
         <div className="flex space-x-2 bg-gray-100 p-1 rounded-lg">
           <button
@@ -679,6 +780,22 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
         </div>
 
         <div className="flex items-center space-x-3">
+          {subTab === 'users' ? (
+            <select
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+              value={userStatusFilter}
+              onChange={(e) => setUserStatusFilter(e.target.value as typeof userStatusFilter)}
+              data-testid="admin-users-status-filter"
+              aria-label="Filter users by status"
+            >
+              <option value="all">All statuses ({statusCounts.all})</option>
+              <option value="active">Active ({statusCounts.active || 0})</option>
+              <option value="inactive">Inactive ({statusCounts.inactive || 0})</option>
+              <option value="suspended">Suspended ({statusCounts.suspended || 0})</option>
+              <option value="banned">Banned ({statusCounts.banned || 0})</option>
+              <option value="restricted">Restricted ({statusCounts.restricted || 0})</option>
+            </select>
+          ) : null}
           <div className="relative">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input
@@ -702,6 +819,11 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
       {subTab === 'users' && (
         <>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+            Deactivated accounts stay in this list with status <strong>Inactive</strong>. Use the status filter or the
+            unlock button to reactivate. Bulk &quot;Delete&quot; soft-deactivates (does not hard-erase) so recovery remains
+            possible.
+          </div>
           <div className="bg-white border border-gray-200 rounded-xl p-4 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -862,8 +984,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                 >
                   <option value="">Bulk Actions</option>
                   <option value="activate">Activate</option>
-                  <option value="deactivate">Deactivate</option>
-                  <option value="delete">Delete</option>
+                  <option value="deactivate">Deactivate (keep visible)</option>
+                  <option value="delete">Soft-delete (deactivate)</option>
                 </select>
                 <button
                   onClick={handleBulkAction}
@@ -997,7 +1119,36 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                       <td className="px-6 py-4 text-gray-500 text-sm">
                         {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : 'N/A'}
                       </td>
-                      <td className="px-6 py-4 text-right space-x-2">
+                      <td className="px-6 py-4 text-right space-x-1">
+                        <button
+                          className={
+                            isInactive || isSuspended
+                              ? 'text-emerald-700 hover:bg-emerald-50 p-1.5 rounded'
+                              : 'text-gray-500 hover:bg-gray-100 p-1.5 rounded'
+                          }
+                          title={isInactive || isSuspended ? 'Activate account' : 'Deactivate account'}
+                          data-testid={`admin-user-toggle-active-${u.id}`}
+                          onClick={() => {
+                            if (isInactive || isSuspended) {
+                              handleStatusUpdate(u.id, 'active');
+                              return;
+                            }
+                            if (u.id === adminId) {
+                              if (
+                                !window.confirm(
+                                  'Deactivate your own admin account? You may lose dashboard access until reactivated.'
+                                )
+                              ) {
+                                return;
+                              }
+                            } else if (!window.confirm(`Deactivate ${userLabel}? They will stay listed as Inactive.`)) {
+                              return;
+                            }
+                            handleStatusUpdate(u.id, 'inactive');
+                          }}
+                        >
+                          {isInactive || isSuspended ? <Unlock className="w-4 h-4" /> : <Clock className="w-4 h-4" />}
+                        </button>
                         <button
                           className="text-gray-600 hover:bg-gray-100 p-1.5 rounded"
                           title="View Wallet"
@@ -1037,9 +1188,18 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                           <Edit3 className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDeleteUser(u.id)}
+                          onClick={() => {
+                            if (
+                              !window.confirm(
+                                `Soft-delete ${userLabel}? Account will be deactivated and remain listed as Inactive.`
+                              )
+                            ) {
+                              return;
+                            }
+                            handleStatusUpdate(u.id, 'inactive');
+                          }}
                           className="text-red-600 hover:bg-red-50 p-1.5 rounded"
-                          title="Delete User"
+                          title="Soft-delete (deactivate)"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
