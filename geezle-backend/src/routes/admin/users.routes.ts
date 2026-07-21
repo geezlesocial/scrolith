@@ -300,6 +300,31 @@ router.post('/:id/status', requireAnyPermission('users.update_status', 'users.mo
 
   try {
     const statusResult = applyStatusOverride(userId, status);
+
+    // Guard: never leave zero active platform admins after a deactivate/ban/suspend.
+    if (prismaClient && statusResult.isActive === false) {
+      const target = await prismaClient.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, isActive: true }
+      });
+      const role = String(target?.role || '').toUpperCase();
+      if (role === 'ADMIN' || role === 'SUPER_ADMIN') {
+        const activeAdmins = await prismaClient.user.count({
+          where: {
+            isActive: true,
+            role: { in: ['ADMIN', 'SUPER_ADMIN'] as any }
+          }
+        });
+        const targetIsActiveAdmin = Boolean(target?.isActive);
+        if (targetIsActiveAdmin && activeAdmins <= 1) {
+          return res.status(400).json({
+            success: false,
+            error: 'Cannot deactivate the last active admin account'
+          });
+        }
+      }
+    }
+
     if (prismaClient && statusResult.isActive !== undefined) {
       await prismaClient.user.update({
         where: { id: userId },
@@ -317,7 +342,17 @@ router.post('/:id/status', requireAnyPermission('users.update_status', 'users.mo
       }
     }
 
-    res.json({ success: true, message: 'User status updated' });
+    res.json({
+      success: true,
+      message: 'User status updated',
+      data: {
+        userId,
+        status: statusResult.status,
+        isActive: statusResult.isActive,
+        // Soft status only — inactive users remain listed in GET /admin/users
+        remainsListed: true
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to update status' });
   }
@@ -328,25 +363,53 @@ router.delete('/:id', requireAnyPermission('users.delete', 'users.moderate'), as
   const prismaClient = getPrisma();
 
   try {
+    // Soft-delete only: deactivate and keep row so admins can reactivate.
+    // Hard delete is intentionally disabled to prevent mass account loss.
     if (prismaClient) {
-      try {
-        await prismaClient.user.delete({ where: { id: userId } });
-      } catch {
-        await prismaClient.user.update({
-          where: { id: userId },
-          data: { isActive: false }
-        });
-        deletedUserIds.add(userId);
+      const target = await prismaClient.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, isActive: true }
+      });
+      if (!target) {
+        return res.status(404).json({ success: false, error: 'User not found' });
       }
+      const role = String(target.role || '').toUpperCase();
+      if ((role === 'ADMIN' || role === 'SUPER_ADMIN') && target.isActive) {
+        const activeAdmins = await prismaClient.user.count({
+          where: {
+            isActive: true,
+            role: { in: ['ADMIN', 'SUPER_ADMIN'] as any }
+          }
+        });
+        if (activeAdmins <= 1) {
+          return res.status(400).json({
+            success: false,
+            error: 'Cannot deactivate the last active admin account'
+          });
+        }
+      }
+      await prismaClient.user.update({
+        where: { id: userId },
+        data: { isActive: false }
+      });
+      applyStatusOverride(userId, 'inactive');
     } else {
       ensureMemoryUser(req);
       const idx = memoryUsers.findIndex(u => u.id === userId);
       if (idx >= 0) {
-        memoryUsers.splice(idx, 1);
+        memoryUsers[idx] = {
+          ...memoryUsers[idx],
+          isActive: false,
+          updatedAt: new Date().toISOString()
+        };
       }
     }
 
-    res.json({ success: true, message: 'User deleted' });
+    res.json({
+      success: true,
+      message: 'User deactivated (soft-delete). Account remains listed as inactive.',
+      data: { userId, isActive: false, remainsListed: true }
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: 'Failed to delete user' });
   }
