@@ -47,10 +47,7 @@ import {
 } from '../utils/groupMessagingUx';
 import MessageDeliveryTicks from '../components/messaging/MessageDeliveryTicks';
 import MessagingPrivacySettingsPanel from '../components/messaging/MessagingPrivacySettingsPanel';
-import {
-  buildConversationMenuItems,
-  groupMenuItemsBySection
-} from '../components/messaging/conversationMenuPolicy';
+import ConversationActionsMenu from '../components/messaging/ConversationActionsMenu';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
@@ -4067,138 +4064,25 @@ const Messages = () => {
                                     >
                                         <MoreVertical className="w-5 h-5" />
                                     </button>
-                                    {showConversationMenu && (
-                                        <>
-                                            {/* Mobile/WebView: fixed sheet above conversation (z-80) so privacy menu is reachable */}
-                                            {isMobileViewport ? (
-                                                <div
-                                                    className="fixed inset-0 z-[160] flex items-end justify-center bg-black/40 p-2 sm:p-3"
-                                                    style={{
-                                                        paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))'
-                                                    }}
-                                                    role="presentation"
-                                                    data-testid="messages-conversation-menu-backdrop"
-                                                    onClick={() => setShowConversationMenu(false)}
-                                                >
-                                                    <div
-                                                        className="max-h-[min(78dvh,32rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white p-2 shadow-2xl"
-                                                        role="menu"
-                                                        aria-label="Conversation actions"
-                                                        data-testid="messages-conversation-menu"
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        <div className="mb-1 flex items-center justify-between px-2 py-1.5">
-                                                            <span className="text-sm font-semibold text-gray-900">Conversation</span>
-                                                            <button
-                                                                type="button"
-                                                                className="rounded-full p-2 text-gray-400 hover:bg-gray-100"
-                                                                aria-label="Close menu"
-                                                                onClick={() => setShowConversationMenu(false)}
-                                                            >
-                                                                <X className="h-4 w-4" />
-                                                            </button>
-                                                        </div>
-                                                        {groupMenuItemsBySection(
-                                                            buildConversationMenuItems({
-                                                                isStarred: activeConversationState.isStarred,
-                                                                isMuted: activeConversationState.isMuted,
-                                                                isArchived: activeConversationState.isArchived,
-                                                                label: activeConversationState.label as 'jobs' | 'other',
-                                                                isGroup: Boolean(isActiveGroupConversation),
-                                                                isDm: !isActiveGroupConversation
-                                                            }).filter((item) => {
-                                                                const key = item.controlKey as keyof typeof messagingControls | undefined;
-                                                                if (!key) return true;
-                                                                return messagingControls[key] !== false;
-                                                            })
-                                                        ).map((group, groupIndex) => (
-                                                            <div key={group.section} className={groupIndex > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}>
-                                                                {group.label ? (
-                                                                    <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                                        {group.label}
-                                                                    </div>
-                                                                ) : null}
-                                                                {group.items.map((item) => (
-                                                                    <button
-                                                                        key={item.id}
-                                                                        type="button"
-                                                                        role="menuitem"
-                                                                        data-testid={`messages-menu-${item.id}`}
-                                                                        disabled={actionBusy && item.id !== 'manage_settings'}
-                                                                        onClick={() => handleConversationAction(item.id)}
-                                                                        className={`min-h-11 w-full rounded-xl px-3 py-2.5 text-left text-sm disabled:opacity-60 ${
-                                                                            item.destructive
-                                                                                ? 'text-red-600 hover:bg-red-50'
-                                                                                : item.id === 'manage_settings' || item.id === 'group_settings'
-                                                                                  ? 'font-medium text-indigo-700 hover:bg-indigo-50'
-                                                                                  : 'text-gray-800 hover:bg-gray-100'
-                                                                        }`}
-                                                                    >
-                                                                        {item.label}
-                                                                    </button>
-                                                                ))}
-                                                            </div>
-                                                        ))}
-                                                        {actionBusy && (
-                                                            <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                <div
-                                                    className="absolute right-0 top-11 z-20 max-h-[min(70vh,28rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl"
-                                                    role="menu"
-                                                    aria-label="Conversation actions"
-                                                    data-testid="messages-conversation-menu"
-                                                >
-                                                    {groupMenuItemsBySection(
-                                                        buildConversationMenuItems({
-                                                            isStarred: activeConversationState.isStarred,
-                                                            isMuted: activeConversationState.isMuted,
-                                                            isArchived: activeConversationState.isArchived,
-                                                            label: activeConversationState.label as 'jobs' | 'other',
-                                                            isGroup: Boolean(isActiveGroupConversation),
-                                                            isDm: !isActiveGroupConversation
-                                                        }).filter((item) => {
-                                                            const key = item.controlKey as keyof typeof messagingControls | undefined;
-                                                            if (!key) return true;
-                                                            return messagingControls[key] !== false;
-                                                        })
-                                                    ).map((group, groupIndex) => (
-                                                        <div key={group.section} className={groupIndex > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}>
-                                                            {group.label ? (
-                                                                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                                    {group.label}
-                                                                </div>
-                                                            ) : null}
-                                                            {group.items.map((item) => (
-                                                                <button
-                                                                    key={item.id}
-                                                                    type="button"
-                                                                    role="menuitem"
-                                                                    data-testid={`messages-menu-${item.id}`}
-                                                                    disabled={actionBusy && item.id !== 'manage_settings'}
-                                                                    onClick={() => handleConversationAction(item.id)}
-                                                                    className={`w-full rounded-md px-3 py-2 text-left text-sm disabled:opacity-60 ${
-                                                                        item.destructive
-                                                                            ? 'text-red-600 hover:bg-red-50'
-                                                                            : item.id === 'group_settings' || item.id === 'manage_settings'
-                                                                              ? 'font-medium text-indigo-700 hover:bg-indigo-50'
-                                                                              : 'text-gray-800 hover:bg-gray-100'
-                                                                    }`}
-                                                                >
-                                                                    {item.label}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    ))}
-                                                    {actionBusy && (
-                                                        <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </>
-                                    )}
+                                    <ConversationActionsMenu
+                                        open={showConversationMenu}
+                                        onClose={() => setShowConversationMenu(false)}
+                                        onAction={(action) => {
+                                            void handleConversationAction(action);
+                                        }}
+                                        menuState={{
+                                            isStarred: activeConversationState.isStarred,
+                                            isMuted: activeConversationState.isMuted,
+                                            isArchived: activeConversationState.isArchived,
+                                            label: activeConversationState.label as 'jobs' | 'other',
+                                            isGroup: Boolean(isActiveGroupConversation),
+                                            isDm: !isActiveGroupConversation
+                                        }}
+                                        messagingControls={messagingControls as Record<string, boolean | undefined>}
+                                        actionBusy={actionBusy}
+                                        /* Mobile conversation shell clips absolute menus — always portal sheet */
+                                        useMobileSheet={Boolean(isMobileViewport || isMobileConversationMode)}
+                                    />
                                 </div>
                                 )}
                             </div>

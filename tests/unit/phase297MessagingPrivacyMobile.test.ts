@@ -17,16 +17,19 @@ describe('Phase 29.7 messaging privacy mobile fix', () => {
     assert.match(src, /zIndexClassName=["']z-\[200\]["']/);
     assert.match(src, /openMessagingPrivacySettings/);
     assert.match(src, /messages-inbox-privacy-btn/);
-    assert.match(src, /messages-conversation-menu-backdrop/);
+    assert.match(src, /ConversationActionsMenu/);
     // Privacy action must not require actionBusy gate
     assert.match(src, /action === 'manage_settings'/);
     assert.match(src, /openMessagingPrivacySettings\('privacy'\)/);
   });
 
-  test('mobile conversation menu uses fixed sheet above conversation', () => {
+  test('mobile conversation menu uses portaled sheet above conversation', () => {
     const src = read('src/messages/Messages.tsx');
-    assert.match(src, /z-\[160\]/);
-    assert.match(src, /isMobileViewport \? \(/);
+    assert.match(src, /ConversationActionsMenu/);
+    assert.match(src, /useMobileSheet/);
+    const menu = read('src/components/messaging/ConversationActionsMenu.tsx');
+    assert.match(menu, /createPortal/);
+    assert.match(menu, /z-\[400\]/);
   });
 
   test('privacy panel has touch-friendly controls', () => {
