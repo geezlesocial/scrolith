@@ -9,8 +9,34 @@ import { DEFAULT_AD_TARGET_COUNTRIES } from '../constants/defaultAudienceOptions
 import { buildCommunityAdActivationReadiness } from '../services/communityAdActivation.service';
 import { buildMarketplaceListingBoostPrefill } from '../services/marketplace.service';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from '../utils/mediaUrl';
+import { resolveEffectiveCurrencies } from '../services/fx.service';
 
 const ADS_CONFIG_SCOPE = 'community_ads_config';
+
+/**
+ * Phase 28D — convert major amount using rates map (quote per 1 base).
+ * Fail closed when rate missing (does not treat missing as 1 for non-base pairs).
+ */
+const convertMajorViaRates = (
+  amount: number,
+  fromCurrency: string,
+  toCurrency: string,
+  rates: Map<string, number>,
+  baseCurrency: string
+): { ok: true; amount: number; rate: number } | { ok: false; error: string } => {
+  const from = normalizeCurrencyCode(fromCurrency, baseCurrency);
+  const to = normalizeCurrencyCode(toCurrency, baseCurrency);
+  if (!Number.isFinite(amount)) return { ok: false, error: 'Invalid amount' };
+  if (from === to) return { ok: true, amount, rate: 1 };
+  const fromRate = rates.get(from);
+  const toRate = rates.get(to);
+  if (!(Number(fromRate) > 0) || !(Number(toRate) > 0)) {
+    return { ok: false, error: `FX rate unavailable for ${from}/${to}` };
+  }
+  const cross = Number(toRate) / Number(fromRate);
+  if (!Number.isFinite(cross) || cross <= 0) return { ok: false, error: `Invalid FX cross rate ${from}/${to}` };
+  return { ok: true, amount: amount * cross, rate: cross };
+};
 const PLATFORM_ORIGIN = process.env.PLATFORM_URL || 'https://scrolith.com';
 
 const AD_PLACEMENT_ALIASES: Record<string, string> = {
@@ -103,6 +129,8 @@ const parseOptionalDateInput = (value: any, fieldLabel: string) => {
 };
 
 const defaultAdsConfig = {
+  /** Phase 28D — canonical pricing currency for min/max budget and placement rates */
+  pricingCurrency: 'USD',
   cpmByPlacement: {
     homepage: 6,
     homepage_feed: 5,
@@ -128,6 +156,7 @@ const defaultAdsConfig = {
     chat: 0.2
   },
   regionalMultipliers: {},
+  /** Stored and validated in pricingCurrency (USD) */
   minBudget: 10,
   maxBudget: 10000,
   maxPlacementsPerAd: 8,
@@ -367,6 +396,7 @@ const mergeAdsConfig = (raw: any) => {
     maxPlacementsPerAd: Math.max(1, Math.min(8, Number(input.maxPlacementsPerAd ?? defaultAdsConfig.maxPlacementsPerAd))),
     maxImageAssets: Math.max(1, Math.min(12, Number(input.maxImageAssets ?? defaultAdsConfig.maxImageAssets))),
     maxVideoAssets: Math.max(1, Math.min(3, Number(input.maxVideoAssets ?? defaultAdsConfig.maxVideoAssets))),
+    pricingCurrency: normalizeCurrencyCode(input.pricingCurrency || defaultAdsConfig.pricingCurrency || 'USD', 'USD'),
     minBudget: Math.max(0, Number(input.minBudget ?? defaultAdsConfig.minBudget)),
     maxBudget: Math.max(0, Number(input.maxBudget ?? defaultAdsConfig.maxBudget)),
     approvalMode:
@@ -1218,19 +1248,56 @@ export const createAdDraft = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Destination URL is required for URL ads.' });
     }
 
+    // Phase 28D — min/max are canonical USD (pricingCurrency). Convert entered budget to base for validation.
     const budget = Number(payload.budget || 0);
-    const minBudget = Math.max(0, Number(adsConfig.minBudget ?? 10));
-    const maxBudget = Math.max(minBudget, Number(adsConfig.maxBudget ?? 10000));
-    if (!Number.isFinite(budget) || budget < minBudget) {
+    const campaignCurrency = normalizeCurrencyCode(payload.currency, 'USD');
+    const pricingCurrency = normalizeCurrencyCode(adsConfig.pricingCurrency || 'USD', 'USD');
+    const minBudgetBase = Math.max(0, Number(adsConfig.minBudget ?? 10));
+    const maxBudgetBase = Math.max(minBudgetBase, Number(adsConfig.maxBudget ?? 10000));
+    const { baseCurrency, rates } = await resolveEffectiveCurrencies();
+    const baseCode = normalizeCurrencyCode(baseCurrency || pricingCurrency, 'USD');
+    const toBase = convertMajorViaRates(budget, campaignCurrency, baseCode, rates, baseCode);
+    if (!toBase.ok) {
       return res.status(400).json({
         success: false,
-        error: `Minimum ad budget is ${minBudget} ${normalizeCurrencyCode(payload.currency, 'USD')}.`
+        error: toBase.error || 'Unable to convert campaign budget to platform base currency.'
       });
     }
-    if (budget > maxBudget) {
+    const budgetBase = toBase.amount;
+    if (!Number.isFinite(budget) || budgetBase < minBudgetBase - 1e-9) {
+      const minDisplay = convertMajorViaRates(minBudgetBase, baseCode, campaignCurrency, rates, baseCode);
+      const minLabel = minDisplay.ok
+        ? `${minDisplay.amount.toFixed(2)} ${campaignCurrency}`
+        : `${minBudgetBase.toFixed(2)} ${baseCode}`;
       return res.status(400).json({
         success: false,
-        error: `Maximum ad budget is ${maxBudget} ${normalizeCurrencyCode(payload.currency, 'USD')}.`
+        error: `Minimum ad budget is ${minLabel} (canonical ${minBudgetBase} ${baseCode}).`,
+        data: {
+          minBudgetBase,
+          maxBudgetBase,
+          pricingCurrency: baseCode,
+          campaignCurrency,
+          budgetEntered: budget,
+          budgetBase
+        }
+      });
+    }
+    if (budgetBase > maxBudgetBase + 1e-9) {
+      const maxDisplay = convertMajorViaRates(maxBudgetBase, baseCode, campaignCurrency, rates, baseCode);
+      const maxLabel = maxDisplay.ok
+        ? `${maxDisplay.amount.toFixed(2)} ${campaignCurrency}`
+        : `${maxBudgetBase.toFixed(2)} ${baseCode}`;
+      return res.status(400).json({
+        success: false,
+        error: `Maximum ad budget is ${maxLabel} (canonical ${maxBudgetBase} ${baseCode}).`,
+        data: {
+          minBudgetBase,
+          maxBudgetBase,
+          pricingCurrency: baseCode,
+          campaignCurrency,
+          budgetEntered: budget,
+          budgetBase
+        }
       });
     }
 
