@@ -1391,6 +1391,24 @@ class CommunityService {
     return Array.isArray(data) ? data : [];
   }
 
+  /** Active stories owned by the current user (from feed; owner always sees own stories). */
+  static async getMyStories(userId?: string): Promise<any[]> {
+    const feed = await this.getStoriesFeed();
+    const uid = String(userId || '').trim();
+    if (!uid) return Array.isArray(feed) ? feed : [];
+    return (Array.isArray(feed) ? feed : []).filter((story) => {
+      const owner = String(
+        story?.authorId ||
+          story?.userId ||
+          story?.user_id ||
+          story?.author?.id ||
+          story?.user?.id ||
+          ''
+      ).trim();
+      return owner === uid;
+    });
+  }
+
   static async createStory(payload: {
     type: string;
     content?: string;

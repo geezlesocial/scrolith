@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, MoreVertical, Send, Volume2, VolumeX, X } from 'lucide-react';
+import { Loader2, MoreVertical, Pencil, RefreshCw, Send, Trash2, Volume2, VolumeX, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 import FollowButton from '../../../community/components/FollowButton';
@@ -261,6 +261,7 @@ export default function StoryViewer({
   onNavigate,
   onEdit,
   onDelete,
+  onUpdate,
   canManage,
   autoplayEnabled
 }: {
@@ -271,6 +272,8 @@ export default function StoryViewer({
   onNavigate: (nextStory: any) => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  /** Replace media / full update flow for image & video stories */
+  onUpdate?: () => void;
   canManage?: boolean;
   autoplayEnabled?: boolean;
 }) {
@@ -279,6 +282,7 @@ export default function StoryViewer({
   const { profile } = usePerformanceProfile();
   const [muted, setMuted] = useState(true);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const [videoLoadFailed, setVideoLoadFailed] = useState(false);
   const [mediaReady, setMediaReady] = useState(false);
@@ -317,7 +321,27 @@ export default function StoryViewer({
   const mediaRequiresLoad = type !== 'text' && Boolean(media.url);
   const mediaLoading = mediaRequiresLoad && !mediaReady && !mediaLoadFailed;
   const hasMessageDraft = messageDraft.trim().length > 0;
-  const shouldPause = pointerPaused || inputFocused || interactionBusy || documentHidden || mediaLoading || hasMessageDraft;
+  const viewerOwnsStory = Boolean(
+    viewer?.id &&
+      ownerId &&
+      String(ownerId) === String(viewer.id)
+  );
+  const manageEnabled =
+    typeof canManage === 'boolean'
+      ? canManage
+      : viewerOwnsStory ||
+        String(viewer?.role || '')
+          .toLowerCase()
+          .includes('admin');
+  const showOwnerMenu = manageEnabled && Boolean(onEdit || onDelete || onUpdate);
+  const shouldPause =
+    pointerPaused ||
+    inputFocused ||
+    interactionBusy ||
+    documentHidden ||
+    mediaLoading ||
+    hasMessageDraft ||
+    actionsOpen;
   const effectiveAutoplayEnabled = autoplayEnabled ?? profile.autoplayEnabled;
 
   const resetStoryProgress = useCallback(() => {
@@ -350,9 +374,31 @@ export default function StoryViewer({
     setMessageDraft('');
     setInputFocused(false);
     setPointerPaused(false);
+    setActionsOpen(false);
     progressElapsedRef.current = 0;
     setProgressPercent(0);
   }, [media.url, story?.id, type]);
+
+  useEffect(() => {
+    if (!actionsOpen) return undefined;
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (actionsMenuRef.current && target && !actionsMenuRef.current.contains(target)) {
+        setActionsOpen(false);
+      }
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setActionsOpen(false);
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    document.addEventListener('touchstart', onPointerDown, { passive: true });
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+      document.removeEventListener('touchstart', onPointerDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [actionsOpen]);
 
   useEffect(() => {
     if (!preloadTargets.length) return undefined;
@@ -631,44 +677,76 @@ export default function StoryViewer({
                   {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                 </button>
               ) : null}
-              {canManage && (onEdit || onDelete) ? (
-                <div className="relative">
+              {showOwnerMenu ? (
+                <div className="relative" ref={actionsMenuRef} data-testid="story-owner-menu">
                   <button
                     type="button"
-                    onClick={() => setActionsOpen((prev) => !prev)}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setActionsOpen((prev) => !prev);
+                    }}
                     className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white backdrop-blur transition hover:bg-black/55"
                     aria-label="Story options"
+                    aria-expanded={actionsOpen}
+                    aria-haspopup="menu"
+                    data-testid="story-owner-menu-trigger"
                   >
                     <MoreVertical className="h-5 w-5" />
                   </button>
                   {actionsOpen ? (
                     <div
                       role="menu"
-                      className="absolute right-0 top-12 w-40 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1 text-sm shadow-2xl backdrop-blur"
+                      className="absolute right-0 top-12 z-20 min-w-[11.5rem] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-1 text-sm shadow-2xl backdrop-blur"
                     >
                       {onEdit ? (
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
                             setActionsOpen(false);
                             onEdit();
                           }}
-                          className="w-full rounded-xl px-3 py-2 text-left text-white hover:bg-white/10"
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white hover:bg-white/10"
+                          data-testid="story-menu-edit"
                         >
+                          <Pencil className="h-4 w-4 shrink-0 text-white/80" aria-hidden />
                           Edit story
+                        </button>
+                      ) : null}
+                      {onUpdate && type !== 'text' ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setActionsOpen(false);
+                            onUpdate();
+                          }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-white hover:bg-white/10"
+                          data-testid="story-menu-update"
+                        >
+                          <RefreshCw className="h-4 w-4 shrink-0 text-white/80" aria-hidden />
+                          Update media
                         </button>
                       ) : null}
                       {onDelete ? (
                         <button
                           type="button"
                           role="menuitem"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
                             setActionsOpen(false);
                             onDelete();
                           }}
-                          className="w-full rounded-xl px-3 py-2 text-left text-red-200 hover:bg-red-500/15"
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-red-200 hover:bg-red-500/15"
+                          data-testid="story-menu-delete"
                         >
+                          <Trash2 className="h-4 w-4 shrink-0" aria-hidden />
                           Delete story
                         </button>
                       ) : null}

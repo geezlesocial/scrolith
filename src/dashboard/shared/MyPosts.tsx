@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  BookOpen,
   Clapperboard,
   ExternalLink,
   FileText,
@@ -32,6 +33,8 @@ import {
   resolveStoredPostAiInsightPreference,
   type PostAiInsightPreference
 } from '../../utils/postAiControls';
+import { resolveInlineMedia } from '../../utils/inlineMedia';
+import { getStoryTextStyle } from '../../community/storyStyles';
 import OptimizedImage from '../../components/media/OptimizedImage';
 import InlineAutoplayVideo from '../../components/media/InlineAutoplayVideo';
 import ScrollCreateModal from '../../features/scroll/ScrollCreateModal';
@@ -103,50 +106,66 @@ const mapAttachments = (post: any): MediaDraft[] => {
     .filter(Boolean) as MediaDraft[];
 };
 
+const resolveStoryCaption = (story: any) =>
+  String(story?.content ?? story?.caption ?? story?.text ?? '').trim();
+
 const MyPosts: React.FC = () => {
   const { user } = useUser();
   const { showNotification } = useNotification();
   const [posts, setPosts] = useState<any[]>([]);
   const [scrolls, setScrolls] = useState<ScrollVideo[]>([]);
+  const [stories, setStories] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [kindFilter, setKindFilter] = useState<'all' | 'posts' | 'scrolls'>('all');
+  const [kindFilter, setKindFilter] = useState<'all' | 'posts' | 'scrolls' | 'stories'>('all');
   const [filter, setFilter] = useState<'all' | 'original' | 'reposts' | 'with-media' | 'highlighted'>('all');
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const HIGHLIGHT_LIMIT = 3;
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteScrollId, setDeleteScrollId] = useState<string | null>(null);
+  const [deleteStoryId, setDeleteStoryId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<EditDraft | null>(null);
   const [replaceLocalId, setReplaceLocalId] = useState<string | null>(null);
   const [editingScroll, setEditingScroll] = useState<ScrollVideo | null>(null);
   const [scrollModalOpen, setScrollModalOpen] = useState(false);
+  const [editingStory, setEditingStory] = useState<any | null>(null);
+  const [storyDraft, setStoryDraft] = useState<{ content: string; visibility: string }>({
+    content: '',
+    visibility: 'public'
+  });
+  const [storySaving, setStorySaving] = useState(false);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const storyMediaInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     if (!user?.id) {
       setPosts([]);
       setScrolls([]);
+      setStories([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const [postsData, scrollsData] = await Promise.all([
+      const [postsData, scrollsData, storiesData] = await Promise.all([
         CommunityService.getMyPosts({ limit: 100, status: 'active' }).catch((err) => {
           throw err;
         }),
-        ScrollService.getMine({ limit: 100 }).catch(() => ({ items: [] as ScrollVideo[] }))
+        ScrollService.getMine({ limit: 100 }).catch(() => ({ items: [] as ScrollVideo[] })),
+        CommunityService.getMyStories(user.id).catch(() => [] as any[])
       ]);
       setPosts(Array.isArray(postsData) ? postsData : []);
       const scrollItems = Array.isArray(scrollsData?.items) ? scrollsData.items : [];
       setScrolls(scrollItems);
+      setStories(Array.isArray(storiesData) ? storiesData : []);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || 'Failed to load your content');
       setPosts([]);
       setScrolls([]);
+      setStories([]);
     } finally {
       setLoading(false);
     }
@@ -164,6 +183,9 @@ const MyPosts: React.FC = () => {
       'community:post_created',
       'community:post_updated',
       'community:post_deleted',
+      'community:story_created',
+      'community:story_updated',
+      'community:story_deleted',
       'scroll:created',
       'scroll:updated',
       'scroll:removed'
@@ -180,7 +202,7 @@ const MyPosts: React.FC = () => {
   );
 
   const filteredPosts = useMemo(() => {
-    if (kindFilter === 'scrolls') return [];
+    if (kindFilter === 'scrolls' || kindFilter === 'stories') return [];
     const term = query.trim().toLowerCase();
     return posts.filter((post) => {
       const isRepost = Boolean(post.originalPostId || post.originalPost);
@@ -197,7 +219,7 @@ const MyPosts: React.FC = () => {
   }, [filter, kindFilter, posts, query]);
 
   const filteredScrolls = useMemo(() => {
-    if (kindFilter === 'posts') return [];
+    if (kindFilter === 'posts' || kindFilter === 'stories') return [];
     if (filter === 'reposts' || filter === 'highlighted') return [];
     const term = query.trim().toLowerCase();
     return scrolls.filter((scroll) => {
@@ -206,6 +228,20 @@ const MyPosts: React.FC = () => {
       return hay.includes(term);
     });
   }, [filter, kindFilter, query, scrolls]);
+
+  const filteredStories = useMemo(() => {
+    if (kindFilter === 'posts' || kindFilter === 'scrolls') return [];
+    if (filter === 'reposts' || filter === 'highlighted') return [];
+    const term = query.trim().toLowerCase();
+    return stories.filter((story) => {
+      const media = resolveInlineMedia(story, { typeHint: story?.type });
+      const hasMedia = media.kind === 'image' || media.kind === 'video';
+      if (filter === 'with-media' && !hasMedia) return false;
+      if (!term) return true;
+      const hay = `${resolveStoryCaption(story)} ${story?.type || ''} ${story?.visibility || ''}`.toLowerCase();
+      return hay.includes(term);
+    });
+  }, [filter, kindFilter, query, stories]);
 
   const beginEdit = (post: any) => {
     setEditingId(post.id);
@@ -390,6 +426,85 @@ const MyPosts: React.FC = () => {
     }
   };
 
+  const beginStoryEdit = (story: any) => {
+    setEditingStory(story);
+    setStoryDraft({
+      content: resolveStoryCaption(story),
+      visibility: String(story?.visibility || 'public')
+    });
+  };
+
+  const saveStoryEdit = async () => {
+    if (!editingStory?.id) return;
+    if (String(editingStory.type || '').toLowerCase() === 'text' && !storyDraft.content.trim()) {
+      showNotification('warning', 'Stories', 'Text stories need a caption.');
+      return;
+    }
+    setStorySaving(true);
+    setBusyId(editingStory.id);
+    try {
+      const updated = await CommunityService.updateStory(editingStory.id, {
+        content: storyDraft.content.trim() || undefined,
+        visibility: storyDraft.visibility
+      });
+      setStories((prev) => prev.map((item) => (item.id === editingStory.id ? { ...item, ...updated } : item)));
+      setEditingStory(null);
+      showNotification('success', 'Stories', 'Story updated.');
+      window.dispatchEvent(new CustomEvent('community:story_updated', { detail: { story: updated } }));
+    } catch (err: any) {
+      showNotification('error', 'Stories', err?.response?.data?.error || err?.message || 'Update failed');
+    } finally {
+      setStorySaving(false);
+      setBusyId(null);
+    }
+  };
+
+  const confirmDeleteStory = async () => {
+    if (!deleteStoryId) return;
+    setBusyId(deleteStoryId);
+    try {
+      await CommunityService.deleteStory(deleteStoryId);
+      setStories((prev) => prev.filter((item) => item.id !== deleteStoryId));
+      if (editingStory?.id === deleteStoryId) setEditingStory(null);
+      showNotification('success', 'Stories', 'Story deleted.');
+      window.dispatchEvent(new CustomEvent('community:story_deleted', { detail: { storyId: deleteStoryId } }));
+    } catch (err: any) {
+      showNotification('error', 'Stories', err?.response?.data?.error || err?.message || 'Delete failed');
+    } finally {
+      setBusyId(null);
+      setDeleteStoryId(null);
+    }
+  };
+
+  const replaceStoryMedia = async (file: File) => {
+    if (!editingStory?.id || !user?.id) return;
+    const storyType = String(editingStory.type || '').toLowerCase();
+    if (storyType !== 'image' && storyType !== 'video') return;
+    setStorySaving(true);
+    setBusyId(editingStory.id);
+    try {
+      const uploaded = await FileService.uploadFile(file, 'community', {
+        role: user.role,
+        visibility: 'public',
+        userId: user.id
+      });
+      const updated = await CommunityService.updateStory(editingStory.id, {
+        mediaFileId: uploaded.id,
+        content: storyDraft.content.trim() || undefined,
+        visibility: storyDraft.visibility
+      });
+      setStories((prev) => prev.map((item) => (item.id === editingStory.id ? { ...item, ...updated } : item)));
+      setEditingStory((prev: any) => (prev ? { ...prev, ...updated } : prev));
+      showNotification('success', 'Stories', 'Story media updated.');
+      window.dispatchEvent(new CustomEvent('community:story_updated', { detail: { story: updated } }));
+    } catch (err: any) {
+      showNotification('error', 'Stories', err?.response?.data?.error || err?.message || 'Media update failed');
+    } finally {
+      setStorySaving(false);
+      setBusyId(null);
+    }
+  };
+
   const openScrollEdit = (scroll: ScrollVideo) => {
     setEditingScroll(scroll);
     setScrollModalOpen(true);
@@ -507,13 +622,14 @@ const MyPosts: React.FC = () => {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Content inventory</p>
-            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">My Posts & Scrolls</h2>
+            <h2 className="text-lg font-bold text-slate-900 sm:text-xl">My Posts, Scrolls & Stories</h2>
             <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-600">
-              Manage community posts and Scroll videos in one place: edit, replace media, pin, highlight, delete.
+              Manage community posts, Scroll videos, and Stories in one place: edit, update media, pin, highlight, delete.
               Highlights (posts) appear on your profile (max {HIGHLIGHT_LIMIT}).
             </p>
             <p className="mt-2 text-[11px] font-medium text-slate-500">
-              Posts {posts.length} · Scrolls {scrolls.length} · Highlights {highlightedCount}/{HIGHLIGHT_LIMIT}
+              Posts {posts.length} · Scrolls {scrolls.length} · Stories {stories.length} · Highlights{' '}
+              {highlightedCount}/{HIGHLIGHT_LIMIT}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -534,6 +650,13 @@ const MyPosts: React.FC = () => {
             </Link>
             <Link
               to="/home"
+              className="inline-flex items-center gap-2 rounded-full border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100"
+            >
+              <BookOpen className="h-3.5 w-3.5" />
+              New Story
+            </Link>
+            <Link
+              to="/home"
               className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -546,9 +669,10 @@ const MyPosts: React.FC = () => {
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
             {(
               [
-                ['all', `All (${posts.length + scrolls.length})`],
+                ['all', `All (${posts.length + scrolls.length + stories.length})`],
                 ['posts', `Posts (${posts.length})`],
-                ['scrolls', `Scrolls (${scrolls.length})`]
+                ['scrolls', `Scrolls (${scrolls.length})`],
+                ['stories', `Stories (${stories.length})`]
               ] as const
             ).map(([id, label]) => (
               <button
@@ -579,7 +703,11 @@ const MyPosts: React.FC = () => {
                 key={id}
                 type="button"
                 onClick={() => setFilter(id)}
-                disabled={kindFilter === 'scrolls' && id !== 'all' && id !== 'with-media'}
+                disabled={
+                  (kindFilter === 'scrolls' || kindFilter === 'stories') &&
+                  id !== 'all' &&
+                  id !== 'with-media'
+                }
                 className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold sm:py-1.5 disabled:opacity-40 ${
                   filter === id
                     ? 'bg-slate-900 text-white'
@@ -606,13 +734,194 @@ const MyPosts: React.FC = () => {
         </div>
       ) : error ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">{error}</div>
-      ) : filteredPosts.length === 0 && filteredScrolls.length === 0 ? (
+      ) : filteredPosts.length === 0 && filteredScrolls.length === 0 && filteredStories.length === 0 ? (
         <EmptyState
           title="No content yet"
-          description="Publish a post on Member Home or create a Scroll video, then manage everything here."
+          description="Publish a post, Story, or Scroll on Member Home, then manage everything here."
         />
       ) : (
         <div className="space-y-4">
+          {filteredStories.map((story) => {
+            const busy = busyId === story.id;
+            const media = resolveInlineMedia(story, { typeHint: story?.type });
+            const caption = resolveStoryCaption(story);
+            const style = getStoryTextStyle(story);
+            const expiresAt = story?.expiresAt || story?.expires_at;
+            const isEditing = editingStory?.id === story.id;
+            return (
+              <article
+                key={`story-${story.id}`}
+                className="rounded-2xl border border-violet-100 bg-white p-3 shadow-sm ring-1 ring-violet-50 sm:p-4"
+                data-testid="my-posts-story-card"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-bold uppercase text-violet-800">
+                        <BookOpen className="h-3 w-3" />
+                        Story
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+                        {String(story.type || 'text')}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-600">
+                        {String(story.visibility || 'public')}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {story.createdAt ? new Date(story.createdAt).toLocaleString() : '—'}
+                      {expiresAt ? ` · expires ${new Date(expiresAt).toLocaleString()}` : ''}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                  {String(story.type || '').toLowerCase() === 'text' ? (
+                    <div
+                      className="flex min-h-[8rem] items-center justify-center px-4 py-6 text-center text-sm font-semibold"
+                      style={{
+                        background: style.background,
+                        color: style.color,
+                        fontFamily: style.fontFamily,
+                        textAlign: (style.textAlign as any) || 'center'
+                      }}
+                    >
+                      {caption || 'Text story'}
+                    </div>
+                  ) : media.kind === 'video' && media.src ? (
+                    <InlineAutoplayVideo
+                      src={media.src}
+                      poster={media.poster}
+                      className="h-40 w-full object-cover"
+                      containerClassName="h-40 w-full"
+                      controls
+                      mutedDefault
+                      showMuteToggle={false}
+                    />
+                  ) : media.src ? (
+                    <OptimizedImage
+                      src={media.src}
+                      alt={caption || 'Story media'}
+                      width={720}
+                      height={400}
+                      sizes="(max-width: 768px) 100vw, 480px"
+                      className="h-40 w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-40 items-center justify-center text-xs text-slate-500">No media</div>
+                  )}
+                </div>
+
+                {isEditing ? (
+                  <div className="mt-3 space-y-3">
+                    <textarea
+                      value={storyDraft.content}
+                      onChange={(event) =>
+                        setStoryDraft((prev) => ({ ...prev, content: event.target.value }))
+                      }
+                      rows={3}
+                      placeholder={
+                        String(story.type || '').toLowerCase() === 'text'
+                          ? 'Story text'
+                          : 'Caption (optional)'
+                      }
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    />
+                    <select
+                      value={storyDraft.visibility}
+                      onChange={(event) =>
+                        setStoryDraft((prev) => ({ ...prev, visibility: event.target.value }))
+                      }
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                    >
+                      <option value="public">Public</option>
+                      <option value="network">Network</option>
+                      <option value="friends">Friends</option>
+                      <option value="private">Private</option>
+                    </select>
+                    {(String(story.type || '').toLowerCase() === 'image' ||
+                      String(story.type || '').toLowerCase() === 'video') && (
+                      <button
+                        type="button"
+                        disabled={busy || storySaving}
+                        onClick={() => storyMediaInputRef.current?.click()}
+                        className={`${actionBtnClass} border-violet-200 text-violet-800 hover:bg-violet-50`}
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        Update media
+                      </button>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || storySaving}
+                        onClick={() => void saveStoryEdit()}
+                        className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                      >
+                        {storySaving ? 'Saving…' : 'Save changes'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={storySaving}
+                        onClick={() => setEditingStory(null)}
+                        className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {caption ? (
+                      <p className="mt-2 line-clamp-3 text-sm text-slate-700">{caption}</p>
+                    ) : null}
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => beginStoryEdit(story)}
+                        disabled={busy}
+                        className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
+                      >
+                        <Pencil className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        Edit
+                      </button>
+                      {(String(story.type || '').toLowerCase() === 'image' ||
+                        String(story.type || '').toLowerCase() === 'video') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            beginStoryEdit(story);
+                            window.setTimeout(() => storyMediaInputRef.current?.click(), 80);
+                          }}
+                          disabled={busy}
+                          className={`${actionBtnClass} border-violet-200 text-violet-800 hover:bg-violet-50`}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                          Update
+                        </button>
+                      )}
+                      <Link
+                        to={`/community?story=${encodeURIComponent(story.id)}`}
+                        className={`${actionBtnClass} border-slate-200 text-slate-700 hover:bg-slate-50`}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        Open
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteStoryId(story.id)}
+                        disabled={busy}
+                        className={`${actionBtnClass} border-rose-200 text-rose-600 hover:bg-rose-50`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
+              </article>
+            );
+          })}
           {filteredScrolls.map((scroll) => {
             const busy = busyId === scroll.id;
             const mediaUrl =
@@ -1079,6 +1388,19 @@ const MyPosts: React.FC = () => {
           event.target.value = '';
         }}
       />
+      <input
+        ref={storyMediaInputRef}
+        type="file"
+        accept={
+          String(editingStory?.type || '').toLowerCase() === 'video' ? 'video/*' : 'image/*,video/*'
+        }
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void replaceStoryMedia(file);
+          event.target.value = '';
+        }}
+      />
 
       <ConfirmModal
         open={Boolean(deleteId)}
@@ -1095,6 +1417,14 @@ const MyPosts: React.FC = () => {
         confirmLabel="Delete"
         onConfirm={() => void confirmDeleteScroll()}
         onCancel={() => setDeleteScrollId(null)}
+      />
+      <ConfirmModal
+        open={Boolean(deleteStoryId)}
+        title="Delete story?"
+        description="This permanently removes the Story from your rail and viewers. This cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={() => void confirmDeleteStory()}
+        onCancel={() => setDeleteStoryId(null)}
       />
       <ScrollCreateModal
         open={scrollModalOpen}

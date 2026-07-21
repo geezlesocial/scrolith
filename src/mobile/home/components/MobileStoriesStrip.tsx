@@ -1814,6 +1814,7 @@ export default function MobileStoriesStrip({
             CommunityService.viewStory(String(story.id)).catch(() => {});
           }}
           onEdit={() => openEdit(activeStory)}
+          onUpdate={() => openEdit(activeStory)}
           onDelete={() => void deleteStory(activeStory)}
           canManage={canManageStory(activeStory, user)}
           autoplayEnabled={profile.autoplayEnabled}

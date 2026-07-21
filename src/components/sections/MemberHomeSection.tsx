@@ -2283,7 +2283,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
-    const authorId = story?.authorId || story?.userId || story?.user_id;
+    const authorId =
+      story?.authorId ||
+      story?.userId ||
+      story?.user_id ||
+      story?.author?.id ||
+      story?.user?.id ||
+      story?.ownerId;
     if (authorId && String(authorId) === String(user.id)) return true;
     return isPrivilegedRole(user?.role);
   }, [user]);
@@ -5144,8 +5150,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setStoryMediaUploadProgress(0);
   }, []);
 
-  const openStoryEditor = useCallback((story: any) => {
+  const openStoryEditor = useCallback((story: any, options?: { replaceMedia?: boolean }) => {
     if (!story) return;
+    if (!canManageStory(story)) return;
     const style = getStoryTextStyle(story);
     setEditingStory(story);
     setStoryEditDraft({
@@ -5157,7 +5164,17 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       textAlign: (style.textAlign as StoryDraft['textAlign']) || 'center'
     });
     setStoryEditOpen(true);
-  }, []);
+    // Allow replace-media focus for image/video updates from the 3-dot menu.
+    if (options?.replaceMedia && (story.type === 'image' || story.type === 'video')) {
+      window.setTimeout(() => {
+        try {
+          document.getElementById('story-edit-media-input')?.click();
+        } catch {
+          // ignore
+        }
+      }, 120);
+    }
+  }, [canManageStory]);
 
   const saveStoryEdit = useCallback(async () => {
     if (!editingStory?.id) return;
@@ -5179,6 +5196,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setStoryEditOpen(false);
       setEditingStory(null);
       showNotification('success', 'Stories', 'Story updated.');
+      window.dispatchEvent(new CustomEvent('community:story_updated', { detail: { story: updated } }));
     } catch (error: any) {
       console.error('Failed to update story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to update story.');
@@ -5197,6 +5215,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setStories((prev) => prev.filter((item) => item.id !== story.id));
       setActiveStory((current) => (current?.id === story.id ? null : current));
       showNotification('success', 'Stories', 'Story deleted.');
+      window.dispatchEvent(new CustomEvent('community:story_deleted', { detail: { storyId: story.id } }));
     } catch (error: any) {
       console.error('Failed to delete story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to delete story.');
@@ -10773,7 +10792,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       )}
 
       {storyEditOpen && editingStory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-3 sm:p-6" data-testid="story-edit-modal">
           <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-4 sm:p-5 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-slate-900">Edit story</h3>
@@ -10847,6 +10866,53 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 placeholder={editingStory.type === 'text' ? 'Update your story...' : 'Add a caption (optional)'}
                 className="min-h-[140px] w-full rounded-2xl border border-slate-200 p-3 text-sm text-slate-700"
               />
+
+              {(editingStory.type === 'image' || editingStory.type === 'video') && (
+                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Update media</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Replace the {editingStory.type === 'video' ? 'video' : 'photo'} without creating a new story.
+                  </p>
+                  <input
+                    id="story-edit-media-input"
+                    type="file"
+                    accept={editingStory.type === 'video' ? 'video/*' : 'image/*'}
+                    className="mt-2 block w-full text-xs text-slate-600 file:mr-3 file:rounded-full file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+                    onChange={async (event) => {
+                      const file = event.target.files?.[0];
+                      event.target.value = '';
+                      if (!file || !editingStory?.id || !user?.id) return;
+                      setStoryEditSaving(true);
+                      try {
+                        const uploaded = await FileService.uploadFile(file, 'community', {
+                          role: user.role,
+                          visibility: 'public',
+                          userId: user.id
+                        });
+                        const updated = await CommunityService.updateStory(editingStory.id, {
+                          mediaFileId: uploaded.id,
+                          content: storyEditDraft.content?.trim() || undefined,
+                          visibility: storyEditDraft.visibility
+                        });
+                        applyStoryUpdate(updated);
+                        setEditingStory((prev) => (prev ? { ...prev, ...updated } : prev));
+                        showNotification('success', 'Stories', 'Story media updated.');
+                        window.dispatchEvent(
+                          new CustomEvent('community:story_updated', { detail: { story: updated } })
+                        );
+                      } catch (error: any) {
+                        showNotification(
+                          'error',
+                          'Stories',
+                          error?.response?.data?.error || error?.message || 'Unable to update media.'
+                        );
+                      } finally {
+                        setStoryEditSaving(false);
+                      }
+                    }}
+                  />
+                </div>
+              )}
 
               {editingStory.type === 'text' && (
                 <>
@@ -11016,6 +11082,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             void openStory(nextStory);
           }}
           onEdit={() => openStoryEditor(activeStory)}
+          onUpdate={() => openStoryEditor(activeStory, { replaceMedia: true })}
           onDelete={() => void handleStoryDelete(activeStory)}
           canManage={canManageStory(activeStory)}
           autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}

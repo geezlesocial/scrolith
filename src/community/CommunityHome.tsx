@@ -955,7 +955,13 @@ const CommunityHome = () => {
 
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
-    const authorId = story?.authorId || story?.userId || story?.user_id;
+    const authorId =
+      story?.authorId ||
+      story?.userId ||
+      story?.user_id ||
+      story?.author?.id ||
+      story?.user?.id ||
+      story?.ownerId;
     if (authorId && String(authorId) === String(user.id)) return true;
     return isPrivilegedRole(user?.role);
   }, [user]);
@@ -2231,6 +2237,7 @@ const CommunityHome = () => {
 
   const openStoryEditor = (story: any) => {
     if (!story) return;
+    if (!canManageStory(story)) return;
     const style = getStoryTextStyle(story);
     setEditingStory(story);
     setStoryEditDraft({
@@ -2264,6 +2271,7 @@ const CommunityHome = () => {
       setStoryEditOpen(false);
       setEditingStory(null);
       showNotification('success', 'Stories', 'Story updated.');
+      window.dispatchEvent(new CustomEvent('community:story_updated', { detail: { story: updated } }));
     } catch (error: any) {
       console.error('Failed to update story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to update story.');
@@ -2282,6 +2290,7 @@ const CommunityHome = () => {
       setStories((prev) => prev.filter((item) => item.id !== story.id));
       setActiveStory((current) => (current?.id === story.id ? null : current));
       showNotification('success', 'Stories', 'Story deleted.');
+      window.dispatchEvent(new CustomEvent('community:story_deleted', { detail: { storyId: story.id } }));
     } catch (error: any) {
       console.error('Failed to delete story', error);
       showNotification('error', 'Stories', error?.message || 'Unable to delete story.');
@@ -4207,7 +4216,7 @@ const CommunityHome = () => {
       )}
 
       {storyEditOpen && editingStory && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/70 p-6" data-testid="story-edit-modal">
           <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold text-gray-900">Edit story</h3>
@@ -4414,6 +4423,7 @@ const CommunityHome = () => {
             openStory(nextStory);
           }}
           onEdit={() => openStoryEditor(activeStory)}
+          onUpdate={() => openStoryEditor(activeStory)}
           onDelete={() => void handleStoryDelete(activeStory)}
           canManage={canManageStory(activeStory)}
           autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
