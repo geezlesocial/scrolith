@@ -40,7 +40,7 @@ const ToggleRow: React.FC<{
   disabled?: boolean;
   onChange: (next: boolean) => void;
 }> = ({ id, label, description, checked, disabled, onChange }) => (
-  <div className="flex items-start justify-between gap-3 py-2">
+  <div className="flex items-start justify-between gap-3 py-2.5">
     <div className="min-w-0 flex-1">
       <label htmlFor={id} className="text-sm font-medium text-gray-900">
         {label}
@@ -55,12 +55,12 @@ const ToggleRow: React.FC<{
       aria-label={label}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative mt-0.5 inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+      className={`relative mt-0.5 inline-flex h-7 w-12 shrink-0 cursor-pointer touch-manipulation rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
         checked ? 'bg-blue-600' : 'bg-gray-200'
       }`}
     >
       <span
-        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition ${
+        className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition ${
           checked ? 'translate-x-5' : 'translate-x-0'
         }`}
       />
@@ -84,7 +84,7 @@ const AudienceGroup: React.FC<{
       {options.map((opt) => (
         <label
           key={opt.value}
-          className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+          className={`flex min-h-11 cursor-pointer touch-manipulation items-start gap-2 rounded-lg border px-3 py-2.5 text-sm transition ${
             value === opt.value
               ? 'border-blue-300 bg-blue-50'
               : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
@@ -97,7 +97,7 @@ const AudienceGroup: React.FC<{
             checked={value === opt.value}
             disabled={disabled}
             onChange={() => onChange(opt.value as PrivacyAudience)}
-            className="mt-0.5"
+            className="mt-1 h-4 w-4"
           />
           <span>
             <span className="font-medium text-gray-900">{opt.label}</span>
@@ -270,7 +270,7 @@ const MessagingPrivacySettingsPanel: React.FC<Props> = ({ open, onSaved, onError
             {DM_OPTIONS.map((opt) => (
               <label
                 key={opt.value}
-                className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm transition ${
+                className={`flex min-h-11 cursor-pointer touch-manipulation items-start gap-2 rounded-lg border px-3 py-2.5 text-sm transition ${
                   settings.directMessageAudience === opt.value
                     ? 'border-blue-300 bg-blue-50'
                     : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
@@ -283,7 +283,7 @@ const MessagingPrivacySettingsPanel: React.FC<Props> = ({ open, onSaved, onError
                   checked={settings.directMessageAudience === opt.value}
                   disabled={saving}
                   onChange={() => void applyPatch({ directMessageAudience: opt.value })}
-                  className="mt-0.5"
+                  className="mt-1 h-4 w-4"
                 />
                 <span>
                   <span className="font-medium text-gray-900">{opt.label}</span>

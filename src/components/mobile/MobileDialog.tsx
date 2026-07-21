@@ -134,7 +134,11 @@ const MobileDialog: React.FC<MobileDialogProps> = ({
           </button>
         </header>
 
-        <div className={['min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6', bodyClassName].join(' ')}>
+        <div
+          className={['min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6', bodyClassName].join(' ')}
+          style={{ WebkitOverflowScrolling: 'touch' }}
+          data-scroll-skip-swipe="true"
+        >
           {children}
         </div>
 

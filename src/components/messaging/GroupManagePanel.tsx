@@ -279,7 +279,7 @@ const GroupManagePanel: React.FC<Props> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex justify-end bg-slate-900/40"
+      className="fixed inset-0 z-[180] flex justify-end bg-slate-900/40"
       role="dialog"
       aria-label="Group settings"
       data-testid="group-manage-panel"

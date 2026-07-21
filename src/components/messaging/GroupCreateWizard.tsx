@@ -159,7 +159,7 @@ const GroupCreateWizard: React.FC<Props> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4"
+      className="fixed inset-0 z-[190] flex items-end justify-center bg-slate-900/50 p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Create messaging group"

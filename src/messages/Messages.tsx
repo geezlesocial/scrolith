@@ -14,7 +14,7 @@ import {
 } from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search, Shield } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -3364,6 +3364,12 @@ const Messages = () => {
       }
   };
 
+  const openMessagingPrivacySettings = useCallback((tab: 'privacy' | 'inbox' | 'safety' = 'privacy') => {
+      setShowConversationMenu(false);
+      setMessageSettingsTab(tab);
+      setShowMessageSettings(true);
+  }, []);
+
   const handleConversationAction = async (
       action:
           | 'move_other'
@@ -3378,13 +3384,13 @@ const Messages = () => {
           | 'group_settings'
           | 'leave_group'
   ) => {
-      if (!activeConvoId || !activeConvo || actionBusy) return;
+      // Global privacy must open even when actionBusy or when conversation state is transient
+      // (mobile WebView / Capacitor). Does not require a selected conversation.
       if (action === 'manage_settings') {
-          setShowConversationMenu(false);
-          setMessageSettingsTab('privacy');
-          setShowMessageSettings(true);
+          openMessagingPrivacySettings('privacy');
           return;
       }
+      if (!activeConvoId || !activeConvo || actionBusy) return;
       if (action === 'group_settings') {
           setShowConversationMenu(false);
           setShowGroupManage(true);
@@ -3551,6 +3557,16 @@ const Messages = () => {
                             </button>
                         </div>
                         <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => openMessagingPrivacySettings('privacy')}
+                                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:text-indigo-700"
+                                data-testid="messages-inbox-privacy-btn"
+                                title="Messaging privacy"
+                                aria-label="Messaging privacy settings"
+                            >
+                                <Shield className="h-4 w-4" />
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => setShowCreateGroup(true)}
@@ -3977,13 +3993,17 @@ const Messages = () => {
                                         <span className="text-xs text-green-500 flex items-center" data-testid="messages-presence-online">
                                             Online
                                         </span>
-                                    ) : !isMobileViewport && otherLastSeen ? (
+                                    ) : otherLastSeen ? (
                                         <span className="text-xs text-gray-500 flex items-center" data-testid="messages-presence-last-seen">
-                                            Last seen {new Date(otherLastSeen).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            Last seen{' '}
+                                            {new Date(otherLastSeen).toLocaleTimeString([], {
+                                                hour: '2-digit',
+                                                minute: '2-digit'
+                                            })}
                                         </span>
                                     ) : (
-                                        <span className="text-xs text-gray-400 flex items-center">
-                                          {isMobileViewport ? (otherOnline ? 'Online' : 'Offline') : 'Offline'}
+                                        <span className="text-xs text-gray-400 flex items-center" data-testid="messages-presence-offline">
+                                            Offline
                                         </span>
                                     )}
                                 </div>
@@ -4041,61 +4061,143 @@ const Messages = () => {
                                         type="button"
                                         onClick={() => setShowConversationMenu((prev) => !prev)}
                                         className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                        aria-haspopup="menu"
+                                        aria-expanded={showConversationMenu}
+                                        data-testid="messages-conversation-menu-btn"
                                     >
                                         <MoreVertical className="w-5 h-5" />
                                     </button>
                                     {showConversationMenu && (
-                                        <div
-                                            className="absolute right-0 top-11 z-20 max-h-[min(70vh,28rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl"
-                                            role="menu"
-                                            aria-label="Conversation actions"
-                                            data-testid="messages-conversation-menu"
-                                        >
-                                            {groupMenuItemsBySection(
-                                                buildConversationMenuItems({
-                                                    isStarred: activeConversationState.isStarred,
-                                                    isMuted: activeConversationState.isMuted,
-                                                    isArchived: activeConversationState.isArchived,
-                                                    label: activeConversationState.label as 'jobs' | 'other',
-                                                    isGroup: Boolean(isActiveGroupConversation),
-                                                    isDm: !isActiveGroupConversation
-                                                }).filter((item) => {
-                                                    const key = item.controlKey as keyof typeof messagingControls | undefined;
-                                                    if (!key) return true;
-                                                    return messagingControls[key] !== false;
-                                                })
-                                            ).map((group, groupIndex) => (
-                                                <div key={group.section} className={groupIndex > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}>
-                                                    {group.label ? (
-                                                        <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-                                                            {group.label}
+                                        <>
+                                            {/* Mobile/WebView: fixed sheet above conversation (z-80) so privacy menu is reachable */}
+                                            {isMobileViewport ? (
+                                                <div
+                                                    className="fixed inset-0 z-[160] flex items-end justify-center bg-black/40 p-2 sm:p-3"
+                                                    style={{
+                                                        paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))'
+                                                    }}
+                                                    role="presentation"
+                                                    data-testid="messages-conversation-menu-backdrop"
+                                                    onClick={() => setShowConversationMenu(false)}
+                                                >
+                                                    <div
+                                                        className="max-h-[min(78dvh,32rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-gray-200 bg-white p-2 shadow-2xl"
+                                                        role="menu"
+                                                        aria-label="Conversation actions"
+                                                        data-testid="messages-conversation-menu"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        <div className="mb-1 flex items-center justify-between px-2 py-1.5">
+                                                            <span className="text-sm font-semibold text-gray-900">Conversation</span>
+                                                            <button
+                                                                type="button"
+                                                                className="rounded-full p-2 text-gray-400 hover:bg-gray-100"
+                                                                aria-label="Close menu"
+                                                                onClick={() => setShowConversationMenu(false)}
+                                                            >
+                                                                <X className="h-4 w-4" />
+                                                            </button>
                                                         </div>
-                                                    ) : null}
-                                                    {group.items.map((item) => (
-                                                        <button
-                                                            key={item.id}
-                                                            type="button"
-                                                            role="menuitem"
-                                                            data-testid={`messages-menu-${item.id}`}
-                                                            disabled={actionBusy}
-                                                            onClick={() => handleConversationAction(item.id)}
-                                                            className={`w-full rounded-md px-3 py-2 text-left text-sm disabled:opacity-60 ${
-                                                                item.destructive
-                                                                    ? 'text-red-600 hover:bg-red-50'
-                                                                    : item.id === 'group_settings'
-                                                                      ? 'font-medium text-indigo-700 hover:bg-indigo-50'
-                                                                      : 'text-gray-800 hover:bg-gray-100'
-                                                            }`}
-                                                        >
-                                                            {item.label}
-                                                        </button>
-                                                    ))}
+                                                        {groupMenuItemsBySection(
+                                                            buildConversationMenuItems({
+                                                                isStarred: activeConversationState.isStarred,
+                                                                isMuted: activeConversationState.isMuted,
+                                                                isArchived: activeConversationState.isArchived,
+                                                                label: activeConversationState.label as 'jobs' | 'other',
+                                                                isGroup: Boolean(isActiveGroupConversation),
+                                                                isDm: !isActiveGroupConversation
+                                                            }).filter((item) => {
+                                                                const key = item.controlKey as keyof typeof messagingControls | undefined;
+                                                                if (!key) return true;
+                                                                return messagingControls[key] !== false;
+                                                            })
+                                                        ).map((group, groupIndex) => (
+                                                            <div key={group.section} className={groupIndex > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}>
+                                                                {group.label ? (
+                                                                    <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                                                        {group.label}
+                                                                    </div>
+                                                                ) : null}
+                                                                {group.items.map((item) => (
+                                                                    <button
+                                                                        key={item.id}
+                                                                        type="button"
+                                                                        role="menuitem"
+                                                                        data-testid={`messages-menu-${item.id}`}
+                                                                        disabled={actionBusy && item.id !== 'manage_settings'}
+                                                                        onClick={() => handleConversationAction(item.id)}
+                                                                        className={`min-h-11 w-full rounded-xl px-3 py-2.5 text-left text-sm disabled:opacity-60 ${
+                                                                            item.destructive
+                                                                                ? 'text-red-600 hover:bg-red-50'
+                                                                                : item.id === 'manage_settings' || item.id === 'group_settings'
+                                                                                  ? 'font-medium text-indigo-700 hover:bg-indigo-50'
+                                                                                  : 'text-gray-800 hover:bg-gray-100'
+                                                                        }`}
+                                                                    >
+                                                                        {item.label}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        ))}
+                                                        {actionBusy && (
+                                                            <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            ))}
-                                            {actionBusy && (
-                                                <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
+                                            ) : (
+                                                <div
+                                                    className="absolute right-0 top-11 z-20 max-h-[min(70vh,28rem)] w-[min(18rem,calc(100vw-2rem))] overflow-y-auto rounded-xl border border-gray-200 bg-white p-1.5 shadow-xl"
+                                                    role="menu"
+                                                    aria-label="Conversation actions"
+                                                    data-testid="messages-conversation-menu"
+                                                >
+                                                    {groupMenuItemsBySection(
+                                                        buildConversationMenuItems({
+                                                            isStarred: activeConversationState.isStarred,
+                                                            isMuted: activeConversationState.isMuted,
+                                                            isArchived: activeConversationState.isArchived,
+                                                            label: activeConversationState.label as 'jobs' | 'other',
+                                                            isGroup: Boolean(isActiveGroupConversation),
+                                                            isDm: !isActiveGroupConversation
+                                                        }).filter((item) => {
+                                                            const key = item.controlKey as keyof typeof messagingControls | undefined;
+                                                            if (!key) return true;
+                                                            return messagingControls[key] !== false;
+                                                        })
+                                                    ).map((group, groupIndex) => (
+                                                        <div key={group.section} className={groupIndex > 0 ? 'mt-1 border-t border-gray-100 pt-1' : ''}>
+                                                            {group.label ? (
+                                                                <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+                                                                    {group.label}
+                                                                </div>
+                                                            ) : null}
+                                                            {group.items.map((item) => (
+                                                                <button
+                                                                    key={item.id}
+                                                                    type="button"
+                                                                    role="menuitem"
+                                                                    data-testid={`messages-menu-${item.id}`}
+                                                                    disabled={actionBusy && item.id !== 'manage_settings'}
+                                                                    onClick={() => handleConversationAction(item.id)}
+                                                                    className={`w-full rounded-md px-3 py-2 text-left text-sm disabled:opacity-60 ${
+                                                                        item.destructive
+                                                                            ? 'text-red-600 hover:bg-red-50'
+                                                                            : item.id === 'group_settings' || item.id === 'manage_settings'
+                                                                              ? 'font-medium text-indigo-700 hover:bg-indigo-50'
+                                                                              : 'text-gray-800 hover:bg-gray-100'
+                                                                    }`}
+                                                                >
+                                                                    {item.label}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    ))}
+                                                    {actionBusy && (
+                                                        <div className="px-3 py-2 text-xs text-gray-500">Updating...</div>
+                                                    )}
+                                                </div>
                                             )}
-                                        </div>
+                                        </>
                                     )}
                                 </div>
                                 )}
@@ -4930,9 +5032,11 @@ const Messages = () => {
         open={showMessageSettings}
         onClose={() => setShowMessageSettings(false)}
         size="lg"
-        title="Manage settings"
+        title="Messaging privacy & settings"
         closeDisabled={settingsBusy}
         bodyClassName="space-y-1"
+        /* Must sit above mobile conversation shell (z-[80]) and group panels */
+        zIndexClassName="z-[200]"
     >
                 <div data-testid="messages-manage-settings">
                 <p className="mb-3 text-xs text-gray-500">
