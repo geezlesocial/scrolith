@@ -52,6 +52,12 @@ export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'chat.records.export', label: 'Export message records', groupName: 'Messaging Moderation' },
   { key: 'chat.retention.manage', label: 'Manage message retention policy', groupName: 'Messaging Moderation' },
 
+  // Phase 29.4 — Enterprise Messaging Groups admin
+  { key: 'messaging.groups.read', label: 'View messaging groups admin', groupName: 'Messaging Groups' },
+  { key: 'messaging.groups.moderate', label: 'Moderate messaging groups', groupName: 'Messaging Groups' },
+  { key: 'messaging.groups.admin', label: 'Full messaging groups administration', groupName: 'Messaging Groups' },
+  { key: 'messaging.groups.export', label: 'Export messaging groups data', groupName: 'Messaging Groups' },
+
   { key: 'cms.pages.read', label: 'Read CMS pages', groupName: 'Content' },
   { key: 'cms.pages.create', label: 'Create CMS pages', groupName: 'Content' },
   { key: 'cms.pages.update', label: 'Update CMS pages', groupName: 'Content' },
@@ -195,6 +201,8 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'chat.audit.read',
       'chat.records.read',
       'chat.records.export',
+      'messaging.groups.read',
+      'messaging.groups.moderate',
       'moderation.policies.read',
       'moderation.appeals.manage',
       'trust.read'
@@ -211,7 +219,8 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
       'support.tickets.assign',
       'support.tickets.close',
       'chat.read_any',
-      'chat.records.read'
+      'chat.records.read',
+      'messaging.groups.read'
     ]
   },
   {
