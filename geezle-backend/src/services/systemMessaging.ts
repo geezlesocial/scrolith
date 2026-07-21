@@ -34,6 +34,9 @@ export type SendSystemMessageInput = {
   meta?: Record<string, any>;
   forceNotification?: boolean;
   forcePush?: boolean;
+  /** When false, skip email even if template enables it. */
+  forceEmail?: boolean;
+  skipEmail?: boolean;
 };
 
 type SendSystemMessageResult = {
@@ -191,14 +194,38 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
   const context = buildContext(input.context, user, actionUrl);
 
   const emailAllowed =
-    input.templateKey === 'password_reset' || settings?.emailNotifications !== false;
+    input.skipEmail === true
+      ? false
+      : input.templateKey === 'password_reset' ||
+        input.forceEmail === true ||
+        settings?.emailNotifications !== false;
   const inAppAllowed = settings?.inAppNotifications !== false;
 
   let emailSent = false;
   let notificationCreated = false;
   let pushSent = false;
+  let messageEmailSkipReason: string | null = null;
 
-  if (template.email?.enabled && emailAllowed) {
+  // Message alerts: email only when recipient is offline, and at most once per day.
+  // Push + in-app still fire for every eligible message.
+  let allowMessageAlertEmail = true;
+  if (isMessageNotification && input.skipEmail !== true && input.forceEmail !== true) {
+    try {
+      const { evaluateMessageAlertEmail } = await import('./messaging/messageEmailPolicy');
+      const decision = await evaluateMessageAlertEmail(targetUserId);
+      allowMessageAlertEmail = decision.allow;
+      if (!decision.allow) {
+        messageEmailSkipReason = decision.reason;
+      }
+    } catch (policyError) {
+      // Fail closed on email for message alerts to avoid spam storms.
+      allowMessageAlertEmail = false;
+      messageEmailSkipReason = 'policy_error';
+      console.warn('[system-messaging] message email policy failed; skipping email', policyError);
+    }
+  }
+
+  if (template.email?.enabled && emailAllowed && (!isMessageNotification || allowMessageAlertEmail)) {
     const to = input.email || user?.email;
     if (to) {
       const subject = interpolateTemplate(template.email.subject, context);
@@ -206,6 +233,22 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
       const text = absolutizeEmailTextLinks(interpolateTemplate(template.email.text, context));
       const result = await sendSystemEmail({ to, subject, html, text });
       emailSent = result.success;
+      if (emailSent && isMessageNotification && targetUserId) {
+        try {
+          const { markMessageAlertEmailSent } = await import('./messaging/messageEmailPolicy');
+          markMessageAlertEmailSent(targetUserId);
+        } catch {
+          /* optional */
+        }
+      }
+    }
+  } else if (isMessageNotification && messageEmailSkipReason) {
+    // Structured skip for ops debugging (no PII beyond reason codes).
+    if (process.env.NODE_ENV !== 'production' || process.env.LOG_MESSAGE_EMAIL_SKIPS === '1') {
+      console.info('[system-messaging] message alert email skipped', {
+        userId: targetUserId,
+        reason: messageEmailSkipReason
+      });
     }
   }
 
@@ -220,6 +263,16 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
           (isMessageReactionNotification ? 'Someone reacted to a message.' : 'You received a new message.')
         : interpolateTemplate(template.notification.message, context);
 
+    const persistMeta = {
+      ...notificationMeta,
+      ...(isMessageNotification
+        ? {
+            emailDispatched: emailSent,
+            emailSkipReason: emailSent ? null : messageEmailSkipReason
+          }
+        : {})
+    };
+
     const created = await prisma.notification.create({
       data: {
         userId: targetUserId,
@@ -227,7 +280,7 @@ export const sendSystemMessage = async (input: SendSystemMessageInput): Promise<
         type: input.typeOverride || input.templateKey,
         title,
         body: message,
-        meta: Object.keys(notificationMeta).length ? notificationMeta : undefined
+        meta: Object.keys(persistMeta).length ? persistMeta : undefined
       }
     });
     createdNotification = created;
