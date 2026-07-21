@@ -5,6 +5,7 @@ import {
   applyUserModerationActionController,
   getUserModerationSummaryController
 } from '../../controllers/accountModeration.controller';
+import { requireAnyPermission, requirePermission } from '../../middleware/rbac.middleware';
 
 const router = express.Router();
 const getPrisma = () => prisma;
@@ -109,7 +110,8 @@ const ensureMemoryUser = (req: express.Request) => {
   });
 };
 
-router.get('/', async (req, res) => {
+// Platform admins bypass requirePermission; staff need users.* keys.
+router.get('/', requireAnyPermission('users.read', 'users.update', 'users.moderate'), async (req, res) => {
   const prismaClient = getPrisma();
 
   try {
@@ -146,7 +148,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAnyPermission('users.update', 'users.update_status', 'users.moderate'), async (req, res) => {
   const userId = req.params.id;
   const { name, username, email, role, avatar, profilePhotoFileId, status, isActive, isVerified, kycStatus } = req.body || {};
   const prismaClient = getPrisma();
@@ -245,11 +247,19 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-router.get('/:id/moderation', getUserModerationSummaryController);
+router.get(
+  '/:id/moderation',
+  requireAnyPermission('users.read', 'users.moderate', 'community.accounts.moderate'),
+  getUserModerationSummaryController
+);
 
-router.post('/:id/moderation', applyUserModerationActionController);
+router.post(
+  '/:id/moderation',
+  requireAnyPermission('users.moderate', 'community.accounts.moderate'),
+  applyUserModerationActionController
+);
 
-router.post('/:id/password', async (req, res) => {
+router.post('/:id/password', requireAnyPermission('users.update', 'users.moderate'), async (req, res) => {
   const userId = req.params.id;
   const { password } = req.body || {};
   const prismaClient = getPrisma();
@@ -283,7 +293,7 @@ router.post('/:id/password', async (req, res) => {
   }
 });
 
-router.post('/:id/status', async (req, res) => {
+router.post('/:id/status', requireAnyPermission('users.update_status', 'users.moderate', 'users.update'), async (req, res) => {
   const userId = req.params.id;
   const { status } = req.body || {};
   const prismaClient = getPrisma();
@@ -313,7 +323,7 @@ router.post('/:id/status', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAnyPermission('users.delete', 'users.moderate'), async (req, res) => {
   const userId = req.params.id;
   const prismaClient = getPrisma();
 

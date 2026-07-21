@@ -11,6 +11,7 @@ import {
   saveAffiliateProgramSettings,
   updateAffiliatePartnerStatus
 } from '../../services/affiliateProgram.service';
+import { requireAnyPermission, requirePermission } from '../../middleware/rbac.middleware';
 
 const router = express.Router();
 
@@ -261,12 +262,18 @@ const sendCampaignToInbox = async (
   return { success: true, sent: sentCount };
 };
 
-router.get('/subscribers', async (_req, res) => {
+router.get(
+  '/subscribers',
+  requireAnyPermission('marketing.subscribers.read', 'marketing.subscribers.manage', 'users.read'),
+  async (_req, res) => {
   const subscribers = await getSubscribers();
   res.json({ success: true, data: subscribers });
 });
 
-router.get('/subscribers/analytics', async (_req, res) => {
+router.get(
+  '/subscribers/analytics',
+  requireAnyPermission('marketing.analytics.read', 'marketing.subscribers.read', 'users.read'),
+  async (_req, res) => {
   const subscribers = await getSubscribers();
   const total = subscribers.length;
   const verified = subscribers.filter(s => s.status === 'verified' || s.status === 'active').length;
@@ -314,7 +321,10 @@ router.get('/subscribers/analytics', async (_req, res) => {
   });
 });
 
-router.delete('/subscribers/:id', async (req, res) => {
+router.delete(
+  '/subscribers/:id',
+  requirePermission('marketing.subscribers.manage'),
+  async (req, res) => {
   const id = req.params.id;
   const subscribers = await getSubscribers();
   const index = subscribers.findIndex(s => s.id === id);

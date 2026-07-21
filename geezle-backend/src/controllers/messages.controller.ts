@@ -191,6 +191,8 @@ const participantUserSelect: any = {
   name: true,
   email: true,
   avatar: true,
+  // Canonical photo id — many accounts only store this (avatar URL may be empty/stale).
+  profilePhotoFileId: true,
   role: true,
   isOnline: true,
   lastSeenAt: true,
@@ -276,12 +278,21 @@ const formatParticipant = (participant: any) => {
   const profileUrl = participant.user?.username
     ? `/u/${participant.user.username}`
     : `/profile/${participant.user.id}`;
+  const profilePhotoFileId = String(participant.user?.profilePhotoFileId || '').trim() || null;
+  const avatarRaw = String(participant.user?.avatar || '').trim();
+  // Prefer content URL from profilePhotoFileId when avatar string is empty.
+  const avatarResolved = isScrolitha
+    ? withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL)
+    : avatarRaw ||
+      (profilePhotoFileId ? `/api/files/content/${encodeURIComponent(profilePhotoFileId)}` : '');
+
   return {
     id: participant.user.id,
     name: isScrolitha ? 'Scrolitha' : participant.user.name || participant.user.email || 'User',
-    avatar: isScrolitha
-      ? withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL)
-      : participant.user.avatar || '',
+    avatar: avatarResolved,
+    avatarUrl: avatarResolved,
+    profilePhotoFileId: isScrolitha ? null : profilePhotoFileId,
+    profile_photo_file_id: isScrolitha ? null : profilePhotoFileId,
     username: participant.user.username || '',
     gender: normalizeGender(participant.user?.profile?.gender),
     profile_url: isScrolitha ? '/u/scrolitha' : profileUrl,

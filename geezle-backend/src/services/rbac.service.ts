@@ -24,7 +24,14 @@ type RoleSeed = {
 
 export const DEFAULT_PERMISSION_SEEDS: PermissionSeed[] = [
   { key: 'users.read', label: 'View users', groupName: 'Users & Support' },
+  { key: 'users.update', label: 'Update user profiles', groupName: 'Users & Support' },
   { key: 'users.update_status', label: 'Update user status', groupName: 'Users & Support' },
+  { key: 'users.delete', label: 'Delete users', groupName: 'Users & Support' },
+  { key: 'users.moderate', label: 'Moderate user accounts', groupName: 'Users & Support' },
+  { key: 'users.wallets.manage', label: 'Manage user wallets and Gcoin', groupName: 'Users & Support' },
+  { key: 'marketing.subscribers.read', label: 'View subscribers', groupName: 'Users & Support' },
+  { key: 'marketing.subscribers.manage', label: 'Manage subscribers', groupName: 'Users & Support' },
+  { key: 'marketing.analytics.read', label: 'View subscriber analytics', groupName: 'Users & Support' },
   { key: 'support.tickets.read', label: 'View support tickets', groupName: 'Users & Support' },
   { key: 'support.tickets.reply', label: 'Reply to support tickets', groupName: 'Users & Support' },
   { key: 'support.tickets.assign', label: 'Assign support tickets', groupName: 'Users & Support' },
@@ -381,8 +388,17 @@ const DEFAULT_ROLE_SEEDS: RoleSeed[] = [
 let seeded = false;
 
 export const isAdminRole = (role?: string | null) => {
-  const normalized = String(role || '').toLowerCase();
-  return normalized.includes('admin');
+  const normalized = String(role || '')
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  // admin, superadmin, super_admin, platform_admin, site_admin, etc.
+  return (
+    normalized === 'admin' ||
+    normalized === 'superadmin' ||
+    normalized === 'super_admin' ||
+    normalized === 'owner' ||
+    normalized.includes('admin')
+  );
 };
 
 const normalizeUsernameBase = (email?: string | null, userId?: string | null) => {
