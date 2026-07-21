@@ -894,17 +894,33 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
         </div>
       )}
 
-      {/* Phase 23 — Facebook/Instagram Reels-style Scroll brand label (top-center, avoids author chrome) */}
+      {/* Mute / Unmute — top-center (where Scroll brand sat). Visible on mobile + desktop with label. */}
       <div
-        className={`pointer-events-none absolute left-1/2 top-3 z-40 -translate-x-1/2 transition-opacity duration-300 ${
-          overlayControlsVisible || isActive ? 'opacity-100' : 'opacity-60'
+        className={`pointer-events-auto absolute left-1/2 top-3 z-40 -translate-x-1/2 transition-opacity duration-300 ${
+          overlayControlsVisible || isActive ? 'opacity-100' : 'opacity-90'
         }`}
-        data-testid="scroll-brand-label"
+        data-testid="scroll-mute-control"
       >
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/50 px-3 py-1 text-[11px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
-          <Clapperboard className="h-3.5 w-3.5 text-cyan-200" aria-hidden />
-          <span>Scroll</span>
-        </div>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            revealControls();
+            onToggleMute();
+          }}
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/55 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur-md transition hover:bg-black/75 active:scale-[0.98]"
+          aria-label={muted ? 'Unmute Scroll audio' : 'Mute Scroll audio'}
+          aria-pressed={muted}
+          title={muted ? 'Unmute' : 'Mute'}
+        >
+          {muted ? (
+            <VolumeX className="h-3.5 w-3.5 text-white" aria-hidden />
+          ) : (
+            <Volume2 className="h-3.5 w-3.5 text-cyan-200" aria-hidden />
+          )}
+          <span>{muted ? 'Unmute' : 'Mute'}</span>
+        </button>
       </div>
 
       {/* Phase 23 — adaptive buffer health (active only, non-intrusive) */}
@@ -1023,6 +1039,16 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                   className="h-7 border-white/15 bg-white/10 px-2.5 text-[11px] text-white shadow-sm backdrop-blur-sm hover:bg-white/20 hover:text-white"
                 />
               </div>
+              {/* Scroll brand — directly under Follow (enterprise product label) */}
+              <div
+                className="mt-1.5"
+                data-testid="scroll-brand-label"
+              >
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-black/50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur-md">
+                  <Clapperboard className="h-3 w-3 text-cyan-200" aria-hidden />
+                  <span>Scroll</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1033,17 +1059,6 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               : '-translate-y-2 opacity-0 pointer-events-none'
           }`}
         >
-          <button
-            type="button"
-            onClick={() => {
-              revealControls();
-              onToggleMute();
-            }}
-            className="hidden h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
-            aria-label={muted ? 'Unmute' : 'Mute'}
-          >
-            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-          </button>
           <button
             type="button"
             onClick={() => {

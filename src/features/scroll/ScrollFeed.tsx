@@ -1929,10 +1929,14 @@ const ScrollFeed: React.FC<ScrollFeedProps> = ({
           <button
             type="button"
             onClick={() => setMuted((prev) => !prev)}
-            className="hidden h-11 w-11 items-center justify-center rounded-full bg-black/45 text-white transition hover:bg-black/65 lg:inline-flex"
-            aria-label={muted ? 'Unmute all' : 'Mute all'}
+            className="inline-flex h-10 items-center gap-1.5 rounded-full bg-black/45 px-3 text-xs font-semibold text-white transition hover:bg-black/65"
+            aria-label={muted ? 'Unmute all Scrolls' : 'Mute all Scrolls'}
+            aria-pressed={muted}
+            data-testid="scroll-feed-mute-control"
+            title={muted ? 'Unmute' : 'Mute'}
           >
-            {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
+            {muted ? <VolumeX className="h-4 w-4" aria-hidden /> : <Volume2 className="h-4 w-4" aria-hidden />}
+            <span className="hidden sm:inline">{muted ? 'Unmute' : 'Mute'}</span>
           </button>
           <button
             type="button"
