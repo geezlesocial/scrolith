@@ -6,8 +6,12 @@ import { getMinorUnits } from '../services/money.service';
 
 export const getActiveCurrencies = async (_req: Request, res: Response) => {
   try {
-    // Phase 28D — ensure USD base + full platform catalog (idempotent)
-    await ensurePlatformCurrencyCatalog();
+    // Phase 28D/E — ensure USD base + catalog (write only when needed; fail-soft)
+    try {
+      await ensurePlatformCurrencyCatalog();
+    } catch (ensureError: any) {
+      console.warn('[currency] catalog ensure skipped', ensureError?.message || ensureError);
+    }
     const resolved = await resolveEffectiveCurrencies();
     const currencies = resolved.currencies
       .filter((c) => c.isActive !== false)
@@ -15,7 +19,9 @@ export const getActiveCurrencies = async (_req: Request, res: Response) => {
         ...c,
         minorUnit: getMinorUnits(c.code),
         frankfurterSupported: !FRANKFURTER_UNSUPPORTED_CODES.includes(c.code),
-        rateUnavailable: c.code !== resolved.baseCurrency && !(Number(c.rate) > 0)
+        rateUnavailable: c.code !== resolved.baseCurrency && !(Number(c.rate) > 0 && Number(c.rate) !== 1)
+          ? c.code !== resolved.baseCurrency
+          : false
       }));
     return res.json({
       success: true,

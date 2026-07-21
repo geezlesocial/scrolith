@@ -1,7 +1,7 @@
 /**
- * Phase 28D — idempotent ensure of USD base + 23-currency catalog in AppSetting system.
- * Does not overwrite admin-set rates when present and positive.
- * Does not disable currencies the admin already configured beyond the catalog (merges in).
+ * Phase 28D/E — idempotent ensure of USD base + 23-currency catalog in AppSetting system.
+ * Writes only when catalog is incomplete or base/rate metadata needs correction.
+ * Safe to call from public catalog endpoints (no write storm when already healthy).
  */
 
 import prisma from '../utils/prismaClient';
@@ -16,12 +16,29 @@ const normalizeCode = (value: unknown) =>
     .trim()
     .toUpperCase();
 
+let lastEnsureAt = 0;
+const ENSURE_COOLDOWN_MS = 60_000;
+
 export const ensurePlatformCurrencyCatalog = async (): Promise<{
   baseCurrency: string;
   catalogCount: number;
   merged: number;
   created: boolean;
+  wrote: boolean;
+  skipped: boolean;
 }> => {
+  // Cooldown: avoid concurrent public GETs all writing system settings
+  if (Date.now() - lastEnsureAt < ENSURE_COOLDOWN_MS) {
+    return {
+      baseCurrency: PLATFORM_BASE_CURRENCY,
+      catalogCount: PLATFORM_CURRENCY_CATALOG.length,
+      merged: 0,
+      created: false,
+      wrote: false,
+      skipped: true
+    };
+  }
+
   const record = await prisma.appSetting.findUnique({ where: { scope: 'system' } });
   const existing = ((record?.data as Record<string, any>) || {}) as Record<string, any>;
   const baseCurrency = PLATFORM_BASE_CURRENCY;
@@ -33,6 +50,43 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
   });
 
   let merged = 0;
+  let needsWrite = false;
+
+  // Missing catalog codes
+  for (const catalog of PLATFORM_CURRENCY_CATALOG) {
+    if (!byCode.has(catalog.code)) {
+      needsWrite = true;
+      break;
+    }
+  }
+  // Base must be USD
+  if (normalizeCode(existing?.currency?.baseCurrency) !== baseCurrency) needsWrite = true;
+  const usd = byCode.get(baseCurrency);
+  if (!usd || Number(usd.rate) !== 1 || usd.isActive === false || !usd.isDefault) needsWrite = true;
+  // False 1:1 rates on non-base catalog currencies
+  for (const catalog of PLATFORM_CURRENCY_CATALOG) {
+    if (catalog.code === baseCurrency) continue;
+    const prev = byCode.get(catalog.code);
+    if (!prev) continue;
+    const rateNum = Number(prev.rate);
+    if (rateNum === 1) {
+      needsWrite = true;
+      break;
+    }
+  }
+
+  if (!needsWrite && record) {
+    lastEnsureAt = Date.now();
+    return {
+      baseCurrency,
+      catalogCount: PLATFORM_CURRENCY_CATALOG.length,
+      merged: 0,
+      created: false,
+      wrote: false,
+      skipped: true
+    };
+  }
+
   for (const catalog of PLATFORM_CURRENCY_CATALOG) {
     const prev = byCode.get(catalog.code);
     if (!prev) {
@@ -49,10 +103,9 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
       merged += 1;
       continue;
     }
-    // Fill missing metadata; preserve admin rate if positive and not a false 1:1 placeholder
-    // Phase 28E: non-base rate===1 is treated as unset (symbol-only trap) → use seed catalog rate
     const rateNum = Number(prev.rate);
-    const hasRealRate = Number.isFinite(rateNum) && rateNum > 0 && !(rateNum === 1 && catalog.code !== baseCurrency);
+    const hasRealRate =
+      Number.isFinite(rateNum) && rateNum > 0 && !(rateNum === 1 && catalog.code !== baseCurrency);
     const next = {
       ...prev,
       code: catalog.code,
@@ -60,7 +113,7 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
       symbol: prev.symbol || catalog.symbol,
       rate: catalog.code === baseCurrency ? 1 : hasRealRate ? rateNum : catalog.seedRateVsUsd,
       isActive: prev.isActive !== false,
-      isDefault: catalog.code === baseCurrency ? true : Boolean(prev.isDefault) && catalog.code === baseCurrency,
+      isDefault: catalog.code === baseCurrency,
       minorUnit: prev.minorUnit ?? catalog.minorUnit,
       frankfurterSupported: catalog.frankfurterSupported
     };
@@ -72,7 +125,6 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
     byCode.set(catalog.code, next);
   }
 
-  // Force single base
   for (const [code, entry] of byCode.entries()) {
     if (code === baseCurrency) {
       byCode.set(code, { ...entry, isDefault: true, isActive: true, rate: 1 });
@@ -81,7 +133,6 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
     }
   }
 
-  // Order: catalog order first, then any extras
   const ordered: any[] = [];
   for (const c of PLATFORM_CURRENCY_CATALOG) {
     const e = byCode.get(c.code);
@@ -106,11 +157,14 @@ export const ensurePlatformCurrencyCatalog = async (): Promise<{
     update: { data: nextData }
   });
 
+  lastEnsureAt = Date.now();
   return {
     baseCurrency,
     catalogCount: PLATFORM_CURRENCY_CATALOG.length,
     merged,
-    created: !record
+    created: !record,
+    wrote: true,
+    skipped: false
   };
 };
 
