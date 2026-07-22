@@ -57,6 +57,12 @@ export interface QuietHourRule {
   updatedAt: string;
 }
 
+export type NotificationSummary = {
+  unread: number;
+  total: number;
+  archived: number;
+};
+
 export const notificationsApi = {
   getNotifications: async (): Promise<Notification[]> => {
     const response = await api.get<ApiResponse<Notification[]>>('/notifications');
@@ -75,20 +81,35 @@ export const notificationsApi = {
   },
 
   getUnreadCount: async (): Promise<{ count: number }> => {
-    const response = await api.get<ApiResponse<any>>('/notifications');
-    const data: any = handleApiResponse(response);
-    return {
-      count: Array.isArray(data) ? data.filter((n: Notification) => !n.isRead).length : 0
-    };
+    try {
+      const response = await api.get<ApiResponse<NotificationSummary>>('/notifications/summary');
+      const data = handleApiResponse(response) as NotificationSummary;
+      return { count: Number(data?.unread || 0) };
+    } catch {
+      const response = await api.get<ApiResponse<any>>('/notifications');
+      const data: any = handleApiResponse(response);
+      return {
+        count: Array.isArray(data) ? data.filter((n: Notification) => !n.isRead).length : 0
+      };
+    }
   }
 };
 
 export const NotificationService = {
-  getAll: async (options?: { limit?: number; cursor?: string }) => {
+  getAll: async (options?: {
+    limit?: number;
+    cursor?: string;
+    category?: string;
+    unreadOnly?: boolean;
+    includeArchived?: boolean;
+  }) => {
     const res = await api.get('/notifications', {
       params: {
         limit: Math.max(20, Math.min(100, Number(options?.limit || 80))),
-        ...(options?.cursor ? { cursor: options.cursor } : {})
+        ...(options?.cursor ? { cursor: options.cursor } : {}),
+        ...(options?.category ? { category: options.category } : {}),
+        ...(options?.unreadOnly ? { unreadOnly: 'true' } : {}),
+        ...(options?.includeArchived ? { includeArchived: 'true' } : {})
       }
     });
     const payload = res.data?.data;
@@ -96,8 +117,12 @@ export const NotificationService = {
     if (payload && Array.isArray(payload.items)) return payload.items;
     return [];
   },
+  getSummary: async (): Promise<NotificationSummary> => {
+    const res = await api.get('/notifications/summary');
+    return res.data?.data || { unread: 0, total: 0, archived: 0 };
+  },
   getUnread: async () => {
-    const res = await api.get('/notifications');
+    const res = await api.get('/notifications', { params: { unreadOnly: 'true' } });
     const data = res.data?.data || [];
     return Array.isArray(data) ? data.filter((n: any) => !(n.isRead ?? n.is_read)) : [];
   },
@@ -109,8 +134,36 @@ export const NotificationService = {
     const payload = { ids: Array.isArray(ids) ? ids : [ids] };
     await api.post('/notifications/mark-read', payload);
   },
+  markAsUnread: async (ids: string[] | string) => {
+    const payload = { ids: Array.isArray(ids) ? ids : [ids] };
+    await api.post('/notifications/mark-unread', payload);
+  },
   markAllAsRead: async () => {
     await api.post('/notifications/mark-all-read');
+  },
+  bulkUpdate: async (
+    action: 'read' | 'unread' | 'archive' | 'unarchive' | 'delete' | 'restore',
+    ids: string[]
+  ) => {
+    const res = await api.post('/notifications/bulk', { action, ids });
+    return res.data?.data;
+  },
+  archive: async (ids: string[]) => NotificationService.bulkUpdate('archive', ids),
+  delete: async (ids: string[]) => NotificationService.bulkUpdate('delete', ids),
+  emit: async (payload: {
+    type: string;
+    recipientId?: string;
+    recipientIds?: string[];
+    title?: string;
+    body?: string;
+    category?: string;
+    priority?: string;
+    deepLink?: string;
+    metadata?: Record<string, unknown>;
+    idempotencyKey?: string;
+  }) => {
+    const res = await api.post('/notifications/emit', payload);
+    return res.data?.data;
   },
   getQuietHours: async (): Promise<QuietHourRule[]> => {
     const res = await api.get('/notifications/quiet-hours');
