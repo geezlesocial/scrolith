@@ -15,4 +15,5 @@ export { NotificationOpsConfigService } from './ops/opsConfig.service';
 export { NotificationOpsRetryService } from './ops/opsRetry.service';
 export { NotificationOpsTemplateService } from './ops/opsTemplate.service';
 export { NotificationOpsCampaignService } from './ops/opsCampaign.service';
+export { NotificationRetentionPurgeService } from './ops/retentionPurge.service';
 export { default } from './NotificationService';

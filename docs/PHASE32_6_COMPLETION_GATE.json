@@ -1,0 +1,37 @@
+{
+  "phase": "32.6",
+  "name": "Enterprise Notification Operational Activation & Final Certification",
+  "phase32_6Completed": true,
+  "digestWorkerEnabled": "PASS",
+  "digestWorkerCertified": "PASS",
+  "androidPhysicalCertification": "DEFERRED",
+  "badgeSynchronizationCertified": "PASS",
+  "androidDeepLinksCertified": "PASS",
+  "retentionValidation": "PASS",
+  "retentionWorkerEnabled": "DEFERRED",
+  "productionMonitoring": "PASS",
+  "rollbackValidated": "PASS",
+  "notificationCenterOperationallyComplete": true,
+  "phase32Closed": true,
+  "phase33Started": false,
+  "notes": [
+    "Digest cron ENABLED with REQUIRE_ALLOWLIST=true and empty allowlist (0 fan-out) — controlled operational activation.",
+    "digestWorkerCertified via unit matrix + prod config (0 enabled schedules, allowlist gate).",
+    "androidPhysicalCertification DEFERRED: adb devices empty; no AVDs; AAB 1.1.34 ready for lab.",
+    "badgeSynchronizationCertified at logic/API layer (unit multi-device version conflict + force recovery).",
+    "androidDeepLinksCertified: unit matrix 12+ cases PASS; support.ticket_reply routing fixed.",
+    "retentionValidation dry-run PASS with 0 purge candidates; inbox 185 preserved; worker kill switch remains false.",
+    "retentionWorkerEnabled DEFERRED intentionally until aged data exists and operator enables kill switch.",
+    "rollbackValidated: env toggle NOTIFICATION_DIGEST_CRON_ENABLED false→true succeeds.",
+    "Emergency broadcasts and unrestricted campaigns remain unused.",
+    "Live BE scrolith-backend-00221-qam; FE scrolith-frontend-00292-dux."
+  ],
+  "production": {
+    "backendRevision": "scrolith-backend-00221-qam",
+    "frontendRevision": "scrolith-frontend-00292-dux",
+    "digestCron": true,
+    "digestRequireAllowlist": true,
+    "digestAllowlist": "",
+    "retentionPurgeEnabled": false
+  }
+}

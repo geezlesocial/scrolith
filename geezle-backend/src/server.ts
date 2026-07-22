@@ -4062,6 +4062,7 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
     }
 
     // Phase 32.2 — digest worker + focus session cleanup (node-cron, 15-minute ticks)
+    // Phase 32.6 — allowlist gate via NOTIFICATION_DIGEST_ALLOWLIST / REQUIRE_ALLOWLIST
     try {
       const digestEnabled = String(process.env.NOTIFICATION_DIGEST_CRON_ENABLED || 'true').toLowerCase() !== 'false';
       if (digestEnabled) {
@@ -4073,7 +4074,9 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
               const { NotificationDigestEngine } = await import('./services/notificationCenter/digestEngine.service');
               const result = await NotificationDigestEngine.processDueDigests(50);
               if (result?.processed) {
-                console.log(`[cron] processDueDigests processed=${result.processed}`);
+                console.log(
+                  `[cron] processDueDigests processed=${result.processed} allowlistMode=${(result as any).allowlistMode || 'n/a'}`
+                );
               }
             } catch (err) {
               console.error('[cron] processDueDigests error:', err);
@@ -4091,6 +4094,41 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
       }
     } catch (err) {
       console.error('Failed to initialize digest worker cron:', err);
+    }
+
+    // Phase 32.6 — retention purge worker (conservative daily). Kill switch env required.
+    try {
+      const purgeEnabled =
+        String(process.env.NOTIFICATION_RETENTION_PURGE_ENABLED || '').toLowerCase() === 'true';
+      if (purgeEnabled) {
+        const purgeTask = cron.schedule(
+          String(process.env.NOTIFICATION_RETENTION_CRON || '15 3 * * *'),
+          async () => {
+            console.log(`[cron] retentionPurge at ${new Date().toISOString()}`);
+            try {
+              const { NotificationRetentionPurgeService } = await import(
+                './services/notificationCenter/ops/retentionPurge.service'
+              );
+              const result = await NotificationRetentionPurgeService.execute({ maxBatches: 3 });
+              console.log(
+                `[cron] retentionPurge executed=${result.executed} deleted=${JSON.stringify(result.deleted || {})}`
+              );
+            } catch (err) {
+              console.error('[cron] retentionPurge error:', err);
+            }
+          },
+          {
+            scheduled: true,
+            timezone: process.env.SCHEDULE_TIMEZONE || 'UTC'
+          }
+        );
+        purgeTask.start();
+        console.log('[cron] Phase 32.6 retention purge scheduled');
+      } else {
+        console.log('[cron] NOTIFICATION_RETENTION_PURGE_ENABLED not true; purge worker not started.');
+      }
+    } catch (err) {
+      console.error('Failed to initialize retention purge cron:', err);
     }
   });
 } else {

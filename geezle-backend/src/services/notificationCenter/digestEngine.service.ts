@@ -434,11 +434,43 @@ export class NotificationDigestEngine {
    * Worker tick: process users due for morning/evening/daily/weekly digests.
    * Safe to call from node-cron; bounded concurrency.
    */
+  /**
+   * Controlled rollout (Phase 32.6):
+   * - NOTIFICATION_DIGEST_ALLOWLIST=userId1,userId2  → only those users
+   * - NOTIFICATION_DIGEST_REQUIRE_ALLOWLIST=true     → if allowlist empty, process 0 (safe default when set)
+   */
+  static resolveDigestAllowlist(): { mode: 'all' | 'allowlist' | 'none'; ids: Set<string> } {
+    const raw = String(process.env.NOTIFICATION_DIGEST_ALLOWLIST || '').trim();
+    const requireAllowlist =
+      String(process.env.NOTIFICATION_DIGEST_REQUIRE_ALLOWLIST || '').toLowerCase() === 'true';
+    if (!raw) {
+      return requireAllowlist ? { mode: 'none', ids: new Set() } : { mode: 'all', ids: new Set() };
+    }
+    if (raw === '*' || raw.toLowerCase() === 'all') {
+      return { mode: 'all', ids: new Set() };
+    }
+    const ids = new Set(
+      raw
+        .split(/[,\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean)
+    );
+    return ids.size ? { mode: 'allowlist', ids } : { mode: 'none', ids: new Set() };
+  }
+
   static async processDueDigests(limitUsers = 50) {
     await import('./focusMode.service').then((m) => m.NotificationFocusModeService.cleanupExpired());
     try {
+      const allow = this.resolveDigestAllowlist();
+      if (allow.mode === 'none') {
+        return { processed: 0, results: [], note: 'allowlist_empty_or_required' };
+      }
+      const where: any = { enabled: true, mode: { not: 'off' } };
+      if (allow.mode === 'allowlist') {
+        where.userId = { in: Array.from(allow.ids) };
+      }
       const schedules = await (prisma as any).notificationDigestSchedule.findMany({
-        where: { enabled: true, mode: { not: 'off' } },
+        where,
         take: limitUsers
       });
       const results: any[] = [];
@@ -457,7 +489,12 @@ export class NotificationDigestEngine {
         );
         results.push({ userId: schedule.userId, mode: schedule.mode, ...result });
       }
-      return { processed: results.length, results };
+      return {
+        processed: results.length,
+        results,
+        allowlistMode: allow.mode,
+        allowlistSize: allow.ids.size
+      };
     } catch (err) {
       if (isMissing(err)) return { processed: 0, results: [], note: 'migration_required' };
       throw err;
