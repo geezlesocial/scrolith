@@ -324,6 +324,16 @@ export interface MessageSearchResult {
   searchScope?: 'user' | 'admin' | string;
 }
 
+export type GroupMemberIdentifierMatch = {
+  userId: string;
+  username?: string;
+  displayName: string;
+  avatarUrl?: string;
+  profilePhotoFileId?: string | null;
+  membershipStatus: 'NOT_MEMBER' | 'MEMBER' | 'INVITATION_PENDING' | 'BLOCKED_OR_UNAVAILABLE' | 'GROUP_LIMIT_REACHED' | string;
+  matchedBy?: 'USERNAME' | 'EMAIL' | 'USER_ID' | string;
+};
+
 const normalizeSearchResult = (raw: any): MessageSearchResult => {
   const conversation = normalizeConversation(raw?.conversation ?? raw);
   const participant = raw?.participant ? normalizeParticipant(raw.participant) : undefined;
@@ -803,10 +813,36 @@ export const MessagingService = {
     return safeArray<any>(extractData<any>(response));
   },
 
-  addGroupMembers: async (conversationId: string, userIds: string[], role?: string) => {
+  resolveGroupMember: async (
+    conversationId: string,
+    identifier: string
+  ): Promise<{ match: GroupMemberIdentifierMatch; matchedBy: string }> => {
+    const response = await api.post(`/messages/conversations/${conversationId}/members/resolve`, {
+      identifier
+    });
+    const data = extractData<any>(response) || {};
+    return {
+      match: data.match || null,
+      matchedBy: safeString(data.matchedBy || data.match?.matchedBy)
+    };
+  },
+
+  listGroupMemberCandidates: async (
+    conversationId: string,
+    query: string
+  ): Promise<GroupMemberIdentifierMatch[]> => {
+    const response = await api.get(`/messages/conversations/${conversationId}/member-candidates`, {
+      params: { q: query }
+    });
+    const data = extractData<any>(response) || {};
+    return safeArray<GroupMemberIdentifierMatch>(data.results || data);
+  },
+
+  addGroupMembers: async (conversationId: string, userIds: string[], role?: string, matchedBy?: string) => {
     const response = await api.post(`/messages/conversations/${conversationId}/members`, {
       userIds,
-      role
+      role,
+      matchedBy
     });
     return extractData<any>(response);
   },

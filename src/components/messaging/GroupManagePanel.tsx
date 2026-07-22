@@ -83,7 +83,11 @@ const GroupManagePanel: React.FC<Props> = ({
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteMeta, setInviteMeta] = useState<any>(null);
-  const [addUserId, setAddUserId] = useState('');
+  const [addIdentifier, setAddIdentifier] = useState('');
+  const [resolvedMember, setResolvedMember] = useState<any>(null);
+  const [memberSuggestions, setMemberSuggestions] = useState<any[]>([]);
+  const [memberResolveBusy, setMemberResolveBusy] = useState(false);
+  const [memberAddResult, setMemberAddResult] = useState<string | null>(null);
   const [myNotifications, setMyNotifications] = useState('ALL');
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [pins, setPins] = useState<any[]>([]);
@@ -144,6 +148,23 @@ const GroupManagePanel: React.FC<Props> = ({
     setTitle(String(initialTitle || ''));
   }, [initialTitle]);
 
+  useEffect(() => {
+    if (!open || tab !== 'members' || !canManage) return;
+    const query = addIdentifier.trim();
+    setResolvedMember(null);
+    setMemberAddResult(null);
+    if (query.length < 2) {
+      setMemberSuggestions([]);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void MessagingService.listGroupMemberCandidates(conversationId, query)
+        .then((results) => setMemberSuggestions(Array.isArray(results) ? results : []))
+        .catch(() => setMemberSuggestions([]));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [addIdentifier, canManage, conversationId, open, tab]);
+
   if (!open || !isGroup) return null;
 
   const saveMeta = async () => {
@@ -194,18 +215,52 @@ const GroupManagePanel: React.FC<Props> = ({
     }
   };
 
+  const resolveMemberIdentifier = async () => {
+    const identifier = addIdentifier.trim();
+    if (!identifier) return null;
+    setMemberResolveBusy(true);
+    setError(null);
+    setMemberAddResult(null);
+    try {
+      const result = await MessagingService.resolveGroupMember(conversationId, identifier);
+      const match = result?.match || null;
+      setResolvedMember(match);
+      return match;
+    } catch (e: any) {
+      setResolvedMember(null);
+      setError(e?.response?.data?.error || e?.message || 'No matching user found');
+      return null;
+    } finally {
+      setMemberResolveBusy(false);
+    }
+  };
+
   const addMember = async () => {
-    const id = addUserId.trim();
+    const match = resolvedMember || (await resolveMemberIdentifier());
+    const id = String(match?.userId || '').trim();
     if (!id) return;
+    if (String(match?.membershipStatus || '').toUpperCase() !== 'NOT_MEMBER') {
+      setError('This user cannot be added in the current state.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
-      await MessagingService.addGroupMembers(conversationId, [id], 'MEMBER');
-      setAddUserId('');
+      const result = await MessagingService.addGroupMembers(
+        conversationId,
+        [id],
+        'MEMBER',
+        match?.matchedBy
+      );
+      const outcome = String(result?.outcome || 'MEMBER_ADDED').replace(/_/g, ' ').toLowerCase();
+      setMemberAddResult(outcome.charAt(0).toUpperCase() + outcome.slice(1));
+      setAddIdentifier('');
+      setResolvedMember(null);
+      setMemberSuggestions([]);
       await load();
       onUpdated?.();
     } catch (e: any) {
-      setError(e?.message || 'Failed to add member');
+      setError(e?.response?.data?.error || e?.message || 'Failed to add member');
     } finally {
       setSaving(false);
     }
@@ -504,22 +559,110 @@ const GroupManagePanel: React.FC<Props> = ({
                     <UserPlus className="h-4 w-4" /> Add member
                   </h3>
                   <div className="flex gap-2">
+                    <label className="sr-only" htmlFor="group-add-member-identifier">
+                      Username, email, or user ID
+                    </label>
                     <input
-                      value={addUserId}
-                      onChange={(e) => setAddUserId(e.target.value)}
+                      id="group-add-member-identifier"
+                      value={addIdentifier}
+                      onChange={(e) => setAddIdentifier(e.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault();
+                          void resolveMemberIdentifier();
+                        }
+                      }}
                       className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                      placeholder="User id"
+                      placeholder="Search by username, email, or user ID"
                       data-testid="group-add-member-input"
+                      aria-describedby="group-add-member-status"
                     />
                     <button
                       type="button"
-                      onClick={() => void addMember()}
-                      disabled={saving || !addUserId.trim()}
+                      onClick={() => void (resolvedMember ? addMember() : resolveMemberIdentifier())}
+                      disabled={saving || memberResolveBusy || !addIdentifier.trim()}
                       className="rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      Add
+                      {resolvedMember ? 'Add' : memberResolveBusy ? 'Search' : 'Find'}
                     </button>
                   </div>
+                  <div id="group-add-member-status" className="sr-only" aria-live="polite">
+                    {memberResolveBusy ? 'Searching for member' : memberAddResult || ''}
+                  </div>
+                  {memberSuggestions.length > 0 && !resolvedMember ? (
+                    <div className="rounded-xl border border-slate-100 bg-slate-50 p-2" role="listbox">
+                      {memberSuggestions.slice(0, 5).map((candidate) => (
+                        <button
+                          key={candidate.userId}
+                          type="button"
+                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm hover:bg-white"
+                          onClick={() => {
+                            setAddIdentifier(candidate.username ? `@${candidate.username}` : candidate.userId);
+                            setResolvedMember(candidate);
+                          }}
+                        >
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+                            {String(candidate.displayName || candidate.username || 'S').slice(0, 2).toUpperCase()}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium text-slate-900">{candidate.displayName}</span>
+                            {candidate.username ? (
+                              <span className="block truncate text-xs text-slate-500">@{candidate.username}</span>
+                            ) : null}
+                          </span>
+                          <span className="text-[10px] font-semibold uppercase text-slate-400">
+                            {String(candidate.membershipStatus || 'NOT_MEMBER').replace(/_/g, ' ')}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                  {resolvedMember ? (
+                    <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
+                          {String(resolvedMember.displayName || resolvedMember.username || 'S').slice(0, 2).toUpperCase()}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-semibold text-slate-900">
+                            {resolvedMember.displayName || 'Scrolith member'}
+                          </div>
+                          {resolvedMember.username ? (
+                            <div className="truncate text-xs text-slate-600">@{resolvedMember.username}</div>
+                          ) : null}
+                          <div className="mt-1 text-[11px] text-slate-500">
+                            Matched by: {String(resolvedMember.matchedBy || 'identifier').replace(/_/g, ' ')}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Status: {String(resolvedMember.membershipStatus || 'NOT_MEMBER').replace(/_/g, ' ').toLowerCase()}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+                          onClick={() => setResolvedMember(null)}
+                          disabled={saving}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                          onClick={() => void addMember()}
+                          disabled={saving || String(resolvedMember.membershipStatus || '').toUpperCase() !== 'NOT_MEMBER'}
+                        >
+                          Add member
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {memberAddResult ? (
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                      {memberAddResult}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </section>

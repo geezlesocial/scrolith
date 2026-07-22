@@ -40,6 +40,7 @@ import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversa
 import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
+import SafeMessageText from '../components/messaging/SafeMessageText';
 import {
   formatMultiRecorderLabel,
   formatMultiTyperLabel,
@@ -83,7 +84,6 @@ import { dedupeMessagesById, reconcileOptimisticMessage } from '../services/mess
 import { setMessagingMediaConversationAffinity } from '../services/messagingMedia';
 import { generateImageBlurPreview, generateVideoPoster } from '../services/messagingEngine/mediaProgressive';
 import { uploadMessagingFileWithEngine } from '../services/messagingEngine/mediaUploadEngine';
-import { MENTION_TOKEN_HINT, splitTextWithMentions } from '../utils/messageMentions';
 
 
 const QUICK_REACTIONS = ['\u{1F44D}', '\u2764\uFE0F', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}'];
@@ -4295,26 +4295,20 @@ const Messages = () => {
                                                     'max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] [word-break:break-word]'
                                                 ].join(' ')}
                                             >
-                                                {isScrolithaAuthoredMessage(msg)
-                                                    ? normalizeScrolithaDisplayText(String(msg.text || ''))
-                                                    : splitTextWithMentions(String(msg.text || '')).map((segment, idx) =>
-                                                          segment.type === 'mention' ? (
-                                                              <span
-                                                                  key={`${msg.id}-m-${idx}`}
-                                                                  className={
-                                                                      msg.senderId === user?.id
-                                                                          ? 'font-semibold text-blue-100 underline decoration-blue-200/80'
-                                                                          : 'font-semibold text-indigo-600'
-                                                                  }
-                                                              >
-                                                                  {segment.value}
-                                                              </span>
-                                                          ) : (
-                                                              <React.Fragment key={`${msg.id}-t-${idx}`}>
-                                                                  {segment.value}
-                                                              </React.Fragment>
-                                                          )
-                                                      )}
+                                                <SafeMessageText
+                                                    text={
+                                                        isScrolithaAuthoredMessage(msg)
+                                                            ? normalizeScrolithaDisplayText(String(msg.text || ''))
+                                                            : String(msg.text || '')
+                                                    }
+                                                    outgoing={msg.senderId === user?.id}
+                                                    navigate={navigate}
+                                                    mentionClassName={
+                                                        msg.senderId === user?.id
+                                                            ? 'font-semibold text-blue-100 underline decoration-blue-200/80'
+                                                            : 'font-semibold text-indigo-600'
+                                                    }
+                                                />
                                             </p>
                                         )}
                                         {!isDeleted && msg.senderId !== user?.id && Array.isArray((msg as any)?.metadata?.cards) && (msg as any).metadata.cards.length > 0 ? (

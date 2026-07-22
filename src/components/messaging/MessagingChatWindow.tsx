@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ExternalLink,
   Minus,
@@ -35,6 +35,7 @@ import {
 } from '../../services/messagingComposer';
 import InlineMessageComposer from './InlineMessageComposer';
 import { MessageAttachmentsList } from './MessageAttachmentRenderer';
+import SafeMessageText from './SafeMessageText';
 import { extractMessageAttachments } from '../../services/messagingMedia';
 import { getRecoverableActionMessage } from '../../mobile/runtime/requestRecovery';
 import { AIService } from '../../services/ai/ai.service';
@@ -56,6 +57,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
   onRestore,
   style
 }) => {
+  const navigate = useNavigate();
   const { user } = useUser();
   const {
     conversations,
@@ -416,10 +418,21 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                     ) : (
                       <>
                         {(!deleted && String(message.text || '').trim()) || deleted ? (
-                          <div className="whitespace-pre-wrap break-words">
-                            {deleted
-                              ? '[Message deleted]'
-                              : getMessagePreviewText(message) || message.text}
+                          <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                            {deleted ? (
+                              '[Message deleted]'
+                            ) : (
+                              <SafeMessageText
+                                text={getMessagePreviewText(message) || message.text}
+                                outgoing={mine && !failed}
+                                navigate={navigate}
+                                mentionClassName={
+                                  mine && !failed
+                                    ? 'font-semibold text-blue-100 underline decoration-blue-200/80'
+                                    : 'font-semibold text-indigo-600'
+                                }
+                              />
+                            )}
                           </div>
                         ) : null}
                         {!deleted && mediaAttachments.length > 0 ? (
