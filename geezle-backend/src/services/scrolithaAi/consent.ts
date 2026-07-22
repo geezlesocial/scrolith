@@ -146,17 +146,27 @@ export async function assertConsentForRequest(input: {
   if (!consent.aiFeaturesEnabled) {
     return { allowed: false, reason: 'CONSENT_AI_FEATURES_DISABLED', consent };
   }
-  if (
-    (input.capability === 'NOTIFICATION_SUMMARIZATION' ||
-      input.capability === 'NOTIFICATION_PRIORITIZATION') &&
-    !consent.aiSuggestionsAllowed
-  ) {
+  const suggestionCaps = new Set([
+    'NOTIFICATION_SUMMARIZATION',
+    'NOTIFICATION_PRIORITIZATION',
+    'ASSISTANT_CHAT',
+    'DRAFT_COMPOSITION',
+    'COMPOSER_ASSIST',
+    'SEARCH_QUERY_SUGGESTION',
+    'TEXT_TRANSLATION',
+    'TEXT_REWRITING',
+    'TEXT_SUMMARIZATION'
+  ]);
+  if (suggestionCaps.has(input.capability) && !consent.aiSuggestionsAllowed) {
     return { allowed: false, reason: 'CONSENT_SUGGESTIONS_DISABLED', consent };
   }
-  if (input.privacyLevel === 'SENSITIVE' || input.privacyLevel === 'HIGHLY_SENSITIVE') {
-    // Private content analysis needs explicit consent for message-like data
-    if (!consent.privateMessageAnalysisAllowed && /SENSITIVE/.test(input.privacyLevel)) {
-      // HIGHLY_SENSITIVE blocked at privacy layer anyway for external; still need features on
+  if (
+    (input.privacyLevel === 'SENSITIVE' || input.privacyLevel === 'HIGHLY_SENSITIVE') &&
+    !consent.privateMessageAnalysisAllowed
+  ) {
+    // Private/sensitive analysis requires explicit private-content consent
+    if (input.capability === 'ASSISTANT_CHAT' || input.capability === 'COMPOSER_ASSIST') {
+      return { allowed: false, reason: 'CONSENT_PRIVATE_CONTENT_DENIED', consent };
     }
   }
   if (input.requiresExternal && !consent.externalProviderProcessingAllowed) {

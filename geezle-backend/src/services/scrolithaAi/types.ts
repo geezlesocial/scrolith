@@ -13,7 +13,13 @@ export type AICapabilityId =
   | 'NOTIFICATION_SUMMARIZATION'
   | 'NOTIFICATION_PRIORITIZATION'
   | 'CONTENT_SAFETY_ANALYSIS'
-  | 'SEMANTIC_SEARCH_PREPARATION';
+  | 'SEMANTIC_SEARCH_PREPARATION'
+  // Phase 33.1 — assistant & productivity
+  | 'ASSISTANT_CHAT'
+  | 'TEXT_TRANSLATION'
+  | 'DRAFT_COMPOSITION'
+  | 'COMPOSER_ASSIST'
+  | 'SEARCH_QUERY_SUGGESTION';
 
 export type PrivacyLevel =
   | 'PUBLIC'
@@ -207,6 +213,23 @@ export type AIFeatureFlags = {
   CONTENT_SAFETY_ANALYSIS: boolean;
   SEMANTIC_SEARCH_PREPARATION: boolean;
   notificationAiHooks: boolean;
+  // Phase 33.1 surface flags (all default OFF)
+  ASSISTANT_CHAT: boolean;
+  TEXT_TRANSLATION: boolean;
+  DRAFT_COMPOSITION: boolean;
+  COMPOSER_ASSIST: boolean;
+  SEARCH_QUERY_SUGGESTION: boolean;
+  assistantEnabled: boolean;
+  composerEnabled: boolean;
+  rewriteEnabled: boolean;
+  translationEnabled: boolean;
+  promptLibraryEnabled: boolean;
+  conversationHistoryEnabled: boolean;
+  feedbackEnabled: boolean;
+  searchSuggestionsEnabled: boolean;
+  jobsDraftingEnabled: boolean;
+  marketplaceDraftingEnabled: boolean;
+  businessPageDraftingEnabled: boolean;
 };
 
 /** Privacy-preserving defaults — all AI features off */
@@ -222,7 +245,23 @@ export const DEFAULT_AI_FEATURE_FLAGS: AIFeatureFlags = {
   NOTIFICATION_PRIORITIZATION: false,
   CONTENT_SAFETY_ANALYSIS: false,
   SEMANTIC_SEARCH_PREPARATION: false,
-  notificationAiHooks: false
+  notificationAiHooks: false,
+  ASSISTANT_CHAT: false,
+  TEXT_TRANSLATION: false,
+  DRAFT_COMPOSITION: false,
+  COMPOSER_ASSIST: false,
+  SEARCH_QUERY_SUGGESTION: false,
+  assistantEnabled: false,
+  composerEnabled: false,
+  rewriteEnabled: false,
+  translationEnabled: false,
+  promptLibraryEnabled: false,
+  conversationHistoryEnabled: false,
+  feedbackEnabled: false,
+  searchSuggestionsEnabled: false,
+  jobsDraftingEnabled: false,
+  marketplaceDraftingEnabled: false,
+  businessPageDraftingEnabled: false
 };
 
 export const FOUNDATION_CAPABILITIES: AICapabilityId[] = [
@@ -236,6 +275,61 @@ export const FOUNDATION_CAPABILITIES: AICapabilityId[] = [
   'SEMANTIC_SEARCH_PREPARATION'
 ];
 
+/** Phase 33.0 + 33.1 capabilities accepted by ScrolithaAI.execute */
+export const ALL_AI_CAPABILITIES: AICapabilityId[] = [
+  ...FOUNDATION_CAPABILITIES,
+  'ASSISTANT_CHAT',
+  'TEXT_TRANSLATION',
+  'DRAFT_COMPOSITION',
+  'COMPOSER_ASSIST',
+  'SEARCH_QUERY_SUGGESTION'
+];
+
 export const CONSENT_VERSION = '33.0.0';
 export const SAFETY_POLICY_VERSION = '33.0.0';
-export const AI_PLATFORM_SCHEMA_VERSION = '33.0';
+export const AI_PLATFORM_SCHEMA_VERSION = '33.1';
+
+/** Phase 33.1 rewrite / composer modes (drafts only) */
+export type ComposerMode =
+  | 'improve'
+  | 'expand'
+  | 'shorten'
+  | 'professional'
+  | 'friendly'
+  | 'formal'
+  | 'casual'
+  | 'grammar'
+  | 'spelling'
+  | 'hashtags'
+  | 'emoji';
+
+export type RewriteMode =
+  | 'rewrite'
+  | 'summarize'
+  | 'bullet_points'
+  | 'simplify'
+  | 'professional'
+  | 'executive_summary'
+  | 'social'
+  | 'seo';
+
+export type DraftKind =
+  | 'post'
+  | 'comment'
+  | 'message'
+  | 'bio'
+  | 'job_description'
+  | 'marketplace_listing'
+  | 'community_announcement'
+  | 'cover_letter'
+  | 'resume_summary'
+  | 'job_response'
+  | 'product_title'
+  | 'product_description'
+  | 'seo_keywords'
+  | 'business_announcement'
+  | 'marketing_post'
+  | 'promotion'
+  | 'ideas';
+
+export type SearchDomain = 'jobs' | 'marketplace' | 'communities' | 'people' | 'posts';

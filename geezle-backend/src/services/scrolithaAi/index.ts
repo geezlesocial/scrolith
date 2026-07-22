@@ -6,6 +6,7 @@ export { ScrolithaAI } from './execute';
 export { default as ScrolithaAIDefault } from './execute';
 export {
   FOUNDATION_CAPABILITIES,
+  ALL_AI_CAPABILITIES,
   DEFAULT_AI_CONSENT,
   DEFAULT_AI_FEATURE_FLAGS,
   CONSENT_VERSION,
@@ -22,8 +23,21 @@ export type {
   ScrolithaAIExecuteResult,
   ModelRouteDecision,
   SafetyDecision,
-  AIProvider
+  AIProvider,
+  ComposerMode,
+  RewriteMode,
+  DraftKind,
+  SearchDomain
 } from './types';
+export { ScrolithaAssistant } from './assistant';
+export {
+  listConversations,
+  createConversation,
+  deleteConversation,
+  exportConversations
+} from './conversations';
+export { listPromptLibrary, promptLibraryCategories } from './promptLibrary';
+export { submitFeedback, feedbackSummary } from './feedback';
 export { classifyPrivacy, redactText, minimizeContext } from './privacy';
 export { evaluateSafetyPre, evaluateSafetyPost, wrapUntrustedContent } from './safety';
 export { routeModel } from './router';

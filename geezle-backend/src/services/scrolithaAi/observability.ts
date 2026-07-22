@@ -18,6 +18,18 @@ export type AIMetricCounters = {
   totalProviderLatencyMs: number;
   totalTokens: number;
   estimatedCostUsd: number;
+  // Phase 33.1
+  assistantSessions: number;
+  assistantMessages: number;
+  draftsGenerated: number;
+  rewriteRequests: number;
+  translationRequests: number;
+  summariesGenerated: number;
+  feedbackHelpful: number;
+  feedbackNotHelpful: number;
+  promptLibraryUses: number;
+  searchSuggestions: number;
+  composerAssists: number;
 };
 
 const counters: AIMetricCounters = {
@@ -36,7 +48,18 @@ const counters: AIMetricCounters = {
   totalLatencyMs: 0,
   totalProviderLatencyMs: 0,
   totalTokens: 0,
-  estimatedCostUsd: 0
+  estimatedCostUsd: 0,
+  assistantSessions: 0,
+  assistantMessages: 0,
+  draftsGenerated: 0,
+  rewriteRequests: 0,
+  translationRequests: 0,
+  summariesGenerated: 0,
+  feedbackHelpful: 0,
+  feedbackNotHelpful: 0,
+  promptLibraryUses: 0,
+  searchSuggestions: 0,
+  composerAssists: 0
 };
 
 export function inc(metric: keyof AIMetricCounters, by = 1) {

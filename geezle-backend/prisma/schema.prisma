@@ -7739,3 +7739,51 @@ model AIProviderHealthSnapshot {
 
   @@index([provider, checkedAt])
 }
+
+// ===== Phase 33.1 — Scrolitha AI Assistant (additive) =====
+model AIConversation {
+  id            String    @id @default(cuid())
+  userId        String
+  title         String    @default("New chat")
+  pinned        Boolean   @default(false)
+  archived      Boolean   @default(false)
+  messageCount  Int       @default(0)
+  lastMessageAt DateTime?
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId, updatedAt])
+  @@index([userId, pinned])
+}
+
+model AIConversationMessage {
+  id             String   @id @default(cuid())
+  conversationId String
+  role           String
+  contentPreview String   @default("")
+  contentHash    String   @default("")
+  content        String?
+  disclosure     Json?
+  capability     String?
+  correlationId  String?
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([correlationId])
+}
+
+model AIFeedback {
+  id             String   @id @default(cuid())
+  userId         String
+  rating         String
+  comment        String?
+  capability     String?
+  correlationId  String?
+  conversationId String?
+  messageId      String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([rating, createdAt])
+}

@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'crypto';
 import {
-  FOUNDATION_CAPABILITIES,
+  ALL_AI_CAPABILITIES,
   SAFETY_POLICY_VERSION,
   type AIProviderId,
   type AIRequestLifecycle,
@@ -90,7 +90,7 @@ export class ScrolithaAI {
     try {
       // --- VALIDATE ---
       lifecycle = 'VALIDATED';
-      if (!input.capability || !FOUNDATION_CAPABILITIES.includes(input.capability)) {
+      if (!input.capability || !ALL_AI_CAPABILITIES.includes(input.capability)) {
         inc('blocks');
         return blocked({
           reason: 'UNKNOWN_CAPABILITY',
