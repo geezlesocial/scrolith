@@ -36,6 +36,7 @@ const ScrolithaManagedCenterTab = React.lazy(() => import('./admin/ScrolithaMana
 const FeatureControlCenterTab = React.lazy(() => import('./admin/FeatureControlCenter'));
 const DiscoveryStudioTab = React.lazy(() => import('./admin/DiscoveryStudio'));
 const NotificationJourneyCenterTab = React.lazy(() => import('./admin/NotificationJourneyCenter'));
+const NotificationOperationsCenterTab = React.lazy(() => import('./admin/NotificationOperationsCenter'));
 const ModerationTrustCenterTab = React.lazy(() => import('./admin/ModerationTrustCenter'));
 const ConfigRollbackTab = React.lazy(() => import('./admin/ConfigRollback'));
 const RealtimeOpsCenterTab = React.lazy(() => import('./admin/RealtimeOpsCenter'));
@@ -360,6 +361,7 @@ const AdminDashboard: React.FC = () => {
                 { id: 'config-rollback', label: 'Config & Rollback', icon: RotateCcw },
                 { id: 'realtime-ops', label: 'Realtime Ops', icon: Activity },
                 { id: 'journey-center', label: 'Journeys', icon: Bell },
+                { id: 'notification-ops', label: 'Notification Ops', icon: Activity },
                 { id: 'moderator-console', label: 'Moderator Console', icon: MessageSquare },
                 { id: 'message-records', label: 'Message Records', icon: FileText },
                 { id: 'messaging-groups', label: 'Messaging Groups Admin', icon: Users }
@@ -442,6 +444,7 @@ const AdminDashboard: React.FC = () => {
             case 'feature-control': return <FeatureControlCenterTab />;
             case 'discovery-studio': return <DiscoveryStudioTab />;
             case 'journey-center': return <NotificationJourneyCenterTab />;
+            case 'notification-ops': return <NotificationOperationsCenterTab />;
             case 'moderation-trust': return <ModerationTrustCenterTab />;
             case 'config-rollback': return <ConfigRollbackTab />;
             case 'realtime-ops': return <RealtimeOpsCenterTab />;
@@ -475,6 +478,7 @@ const AdminDashboard: React.FC = () => {
         if (tab === 'feature-control') return 'Feature Control';
         if (tab === 'discovery-studio') return 'Discovery Studio';
         if (tab === 'journey-center') return 'Notification & Journey Center';
+        if (tab === 'notification-ops') return 'Notification Operations';
         if (tab === 'moderation-trust') return 'Moderation & Trust';
         if (tab === 'config-rollback') return 'Config & Rollback';
         if (tab === 'realtime-ops') return 'Realtime Ops';

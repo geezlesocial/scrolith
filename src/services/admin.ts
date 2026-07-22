@@ -74,6 +74,11 @@ const adminPut = async <T>(endpoint: string, data?: any): Promise<T> => {
   return extractData<T>(response);
 };
 
+const adminPatch = async <T>(endpoint: string, data?: any): Promise<T> => {
+  const response = await api.patch(`${ADMIN_BASE}${endpoint}`, data, { headers: await getAuthHeaders() });
+  return extractData<T>(response);
+};
+
 const adminDelete = async <T>(endpoint: string): Promise<T> => {
   const response = await api.delete(`${ADMIN_BASE}${endpoint}`, { headers: await getAuthHeaders() });
   return extractData<T>(response);
@@ -874,6 +879,64 @@ export const AdminService = {
   getJourneySummary: async (): Promise<any> => {
     return adminGet<any>('/journeys/summary');
   },
+
+  // Phase 32.4 — Notification Operations
+  getNotificationOpsOverview: async (params?: { range?: string; from?: string; to?: string }) =>
+    adminGet<any>('/notifications/ops/overview', params || {}),
+  getNotificationOpsDelivery: async (params?: { range?: string }) =>
+    adminGet<any>('/notifications/ops/delivery', params || {}),
+  getNotificationOpsLive: async (limit = 40) =>
+    adminGet<any>('/notifications/ops/live', { limit }),
+  getNotificationOpsAudit: async (params?: { limit?: number; action?: string }) =>
+    adminGet<any>('/notifications/ops/audit', params || {}),
+  getNotificationOpsDevices: async () => adminGet<any>('/notifications/ops/devices'),
+  getNotificationOpsQueue: async () => adminGet<any>('/notifications/ops/queue'),
+  getNotificationOpsRetries: async (params?: { status?: string; limit?: number }) =>
+    adminGet<any[]>('/notifications/ops/retries', params || {}),
+  enqueueNotificationRetries: async (limit = 50) =>
+    adminPost<any>('/notifications/ops/retries/enqueue', { limit }),
+  retryNotificationJob: async (id: string) =>
+    adminPost<any>(`/notifications/ops/retries/${encodeURIComponent(id)}/retry`, {}),
+  retryNotificationBatch: async (ids: string[]) =>
+    adminPost<any>('/notifications/ops/retries/batch', { ids }),
+  cancelNotificationRetry: async (id: string) =>
+    adminPost<any>(`/notifications/ops/retries/${encodeURIComponent(id)}/cancel`, {}),
+  getNotificationOpsFailures: async (limit = 50) =>
+    adminGet<any[]>('/notifications/ops/failures', { limit }),
+  getNotificationOpsTemplates: async (params?: { channel?: string; status?: string }) =>
+    adminGet<any[]>('/notifications/ops/templates', params || {}),
+  createNotificationOpsTemplate: async (payload: Record<string, unknown>) =>
+    adminPost<any>('/notifications/ops/templates', payload),
+  updateNotificationOpsTemplate: async (id: string, payload: Record<string, unknown>) =>
+    adminPatch<any>(`/notifications/ops/templates/${encodeURIComponent(id)}`, payload),
+  publishNotificationOpsTemplate: async (id: string) =>
+    adminPost<any>(`/notifications/ops/templates/${encodeURIComponent(id)}/publish`, {}),
+  rollbackNotificationOpsTemplate: async (id: string) =>
+    adminPost<any>(`/notifications/ops/templates/${encodeURIComponent(id)}/rollback`, {}),
+  previewNotificationOpsTemplate: async (id: string, variables?: Record<string, string>) =>
+    adminPost<any>(`/notifications/ops/templates/${encodeURIComponent(id)}/preview`, { variables }),
+  getNotificationOpsCampaigns: async (params?: { status?: string; type?: string }) =>
+    adminGet<any[]>('/notifications/ops/campaigns', params || {}),
+  createNotificationOpsCampaign: async (payload: Record<string, unknown>) =>
+    adminPost<any>('/notifications/ops/campaigns', payload),
+  sendNotificationOpsCampaign: async (id: string, payload?: { confirm?: boolean; reason?: string }) =>
+    adminPost<any>(`/notifications/ops/campaigns/${encodeURIComponent(id)}/send`, payload || {}),
+  confirmNotificationEmergency: async (id: string, reason: string) =>
+    adminPost<any>(`/notifications/ops/campaigns/${encodeURIComponent(id)}/confirm`, { reason }),
+  cancelNotificationOpsCampaign: async (id: string) =>
+    adminPost<any>(`/notifications/ops/campaigns/${encodeURIComponent(id)}/cancel`, {}),
+  previewNotificationOpsCampaign: async (id: string) =>
+    adminGet<any>(`/notifications/ops/campaigns/${encodeURIComponent(id)}/preview`),
+  getNotificationOpsFeatureFlags: async () => adminGet<any>('/notifications/ops/feature-flags'),
+  putNotificationOpsFeatureFlags: async (payload: Record<string, unknown>) =>
+    adminPut<any>('/notifications/ops/feature-flags', payload),
+  getNotificationOpsRetention: async () => adminGet<any>('/notifications/ops/retention'),
+  putNotificationOpsRetention: async (payload: Record<string, unknown>) =>
+    adminPut<any>('/notifications/ops/retention', payload),
+  getNotificationOpsSettings: async () => adminGet<any>('/notifications/ops/settings'),
+  putNotificationOpsSettings: async (payload: Record<string, unknown>) =>
+    adminPut<any>('/notifications/ops/settings', payload),
+
 
   getNotificationTemplates: async (params?: {
     query?: string;
