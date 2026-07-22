@@ -35,6 +35,20 @@ import {
   usePrompt,
   postFeedback
 } from '../controllers/scrolithaAssistant.controller';
+import {
+  discoveryStatus,
+  postFeedScores,
+  getRecos,
+  getDashboardRecos,
+  postRecoFeedback,
+  postSearchAssist,
+  getMemory,
+  patchMemory,
+  deleteMemory,
+  exportMemory,
+  postLearningSignal,
+  postNotificationReco
+} from '../controllers/scrolithaDiscovery.controller';
 
 const router = express.Router();
 
@@ -73,5 +87,19 @@ router.get('/assistant/prompts', authMiddleware, listPrompts);
 router.post('/assistant/prompts/:id/use', authMiddleware, usePrompt);
 
 router.post('/assistant/feedback', authMiddleware, postFeedback);
+
+// Phase 33.2 — Intelligent feed, recommendations, memory, search assist
+router.get('/discovery/status', authMiddleware, discoveryStatus);
+router.post('/discovery/feed-scores', authMiddleware, postFeedScores);
+router.get('/discovery/recommendations', authMiddleware, getRecos);
+router.get('/discovery/dashboard', authMiddleware, getDashboardRecos);
+router.post('/discovery/feedback', authMiddleware, postRecoFeedback);
+router.post('/discovery/search-assist', authMiddleware, postSearchAssist);
+router.get('/discovery/memory', authMiddleware, getMemory);
+router.patch('/discovery/memory', authMiddleware, patchMemory);
+router.delete('/discovery/memory', authMiddleware, deleteMemory);
+router.get('/discovery/memory/export', authMiddleware, exportMemory);
+router.post('/discovery/signals', authMiddleware, postLearningSignal);
+router.post('/discovery/notifications', authMiddleware, postNotificationReco);
 
 export default router;

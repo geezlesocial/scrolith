@@ -7787,3 +7787,49 @@ model AIFeedback {
   @@index([userId, createdAt])
   @@index([rating, createdAt])
 }
+
+// ===== Phase 33.2 — Intelligent discovery (additive) =====
+model AIUserMemory {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  preferredTopics      String[] @default([])
+  preferredIndustries  String[] @default([])
+  mutedTopics          String[] @default([])
+  preferredLanguages   String[] @default([])
+  favoriteCommunities  String[] @default([])
+  mutedEntityIds       String[] @default([])
+  signalWeights        Json?
+  version              Int      @default(1)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model AIRecommendationFeedback {
+  id               String   @id @default(cuid())
+  userId           String
+  entityType       String
+  entityId         String
+  action           String
+  topic            String?
+  recommendationId String?
+  comment          String?
+  createdAt        DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+}
+
+model AILearningSignal {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  topic      String?
+  entityId   String?
+  entityType String?
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}

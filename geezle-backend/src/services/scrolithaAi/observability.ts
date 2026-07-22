@@ -30,6 +30,16 @@ export type AIMetricCounters = {
   promptLibraryUses: number;
   searchSuggestions: number;
   composerAssists: number;
+  // Phase 33.2
+  feedScoresIssued: number;
+  recommendationsIssued: number;
+  recoFeedbackUseful: number;
+  recoFeedbackNotInterested: number;
+  recoFeedbackHideSimilar: number;
+  learningSignals: number;
+  semanticExpansions: number;
+  memoryUpdates: number;
+  dashboardSectionsBuilt: number;
 };
 
 const counters: AIMetricCounters = {
@@ -59,7 +69,16 @@ const counters: AIMetricCounters = {
   feedbackNotHelpful: 0,
   promptLibraryUses: 0,
   searchSuggestions: 0,
-  composerAssists: 0
+  composerAssists: 0,
+  feedScoresIssued: 0,
+  recommendationsIssued: 0,
+  recoFeedbackUseful: 0,
+  recoFeedbackNotInterested: 0,
+  recoFeedbackHideSimilar: 0,
+  learningSignals: 0,
+  semanticExpansions: 0,
+  memoryUpdates: 0,
+  dashboardSectionsBuilt: 0
 };
 
 export function inc(metric: keyof AIMetricCounters, by = 1) {

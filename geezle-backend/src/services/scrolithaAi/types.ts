@@ -19,7 +19,12 @@ export type AICapabilityId =
   | 'TEXT_TRANSLATION'
   | 'DRAFT_COMPOSITION'
   | 'COMPOSER_ASSIST'
-  | 'SEARCH_QUERY_SUGGESTION';
+  | 'SEARCH_QUERY_SUGGESTION'
+  // Phase 33.2 — intelligent discovery
+  | 'FEED_RELEVANCE_SCORING'
+  | 'RECOMMENDATION_REASONING'
+  | 'SEMANTIC_QUERY_EXPANSION'
+  | 'INTEREST_INFERENCE';
 
 export type PrivacyLevel =
   | 'PUBLIC'
@@ -230,6 +235,19 @@ export type AIFeatureFlags = {
   jobsDraftingEnabled: boolean;
   marketplaceDraftingEnabled: boolean;
   businessPageDraftingEnabled: boolean;
+  // Phase 33.2 discovery (all default OFF)
+  FEED_RELEVANCE_SCORING: boolean;
+  RECOMMENDATION_REASONING: boolean;
+  SEMANTIC_QUERY_EXPANSION: boolean;
+  INTEREST_INFERENCE: boolean;
+  feedScoringEnabled: boolean;
+  recommendationsEnabled: boolean;
+  semanticSearchEnabled: boolean;
+  aiMemoryEnabled: boolean;
+  learningSignalsEnabled: boolean;
+  dashboardRecommendationsEnabled: boolean;
+  recommendationFeedbackEnabled: boolean;
+  discoveryAnalyticsEnabled: boolean;
 };
 
 /** Privacy-preserving defaults — all AI features off */
@@ -261,7 +279,19 @@ export const DEFAULT_AI_FEATURE_FLAGS: AIFeatureFlags = {
   searchSuggestionsEnabled: false,
   jobsDraftingEnabled: false,
   marketplaceDraftingEnabled: false,
-  businessPageDraftingEnabled: false
+  businessPageDraftingEnabled: false,
+  FEED_RELEVANCE_SCORING: false,
+  RECOMMENDATION_REASONING: false,
+  SEMANTIC_QUERY_EXPANSION: false,
+  INTEREST_INFERENCE: false,
+  feedScoringEnabled: false,
+  recommendationsEnabled: false,
+  semanticSearchEnabled: false,
+  aiMemoryEnabled: false,
+  learningSignalsEnabled: false,
+  dashboardRecommendationsEnabled: false,
+  recommendationFeedbackEnabled: false,
+  discoveryAnalyticsEnabled: false
 };
 
 export const FOUNDATION_CAPABILITIES: AICapabilityId[] = [
@@ -282,12 +312,50 @@ export const ALL_AI_CAPABILITIES: AICapabilityId[] = [
   'TEXT_TRANSLATION',
   'DRAFT_COMPOSITION',
   'COMPOSER_ASSIST',
-  'SEARCH_QUERY_SUGGESTION'
+  'SEARCH_QUERY_SUGGESTION',
+  'FEED_RELEVANCE_SCORING',
+  'RECOMMENDATION_REASONING',
+  'SEMANTIC_QUERY_EXPANSION',
+  'INTEREST_INFERENCE'
 ];
 
 export const CONSENT_VERSION = '33.0.0';
 export const SAFETY_POLICY_VERSION = '33.0.0';
-export const AI_PLATFORM_SCHEMA_VERSION = '33.1';
+export const AI_PLATFORM_SCHEMA_VERSION = '33.2';
+
+/** Phase 33.2 recommendation entity types */
+export type RecoEntityType =
+  | 'person'
+  | 'community'
+  | 'group'
+  | 'job'
+  | 'freelancer'
+  | 'marketplace_product'
+  | 'company'
+  | 'event'
+  | 'post'
+  | 'learning';
+
+export type RecoFeedbackAction = 'useful' | 'not_interested' | 'hide_similar';
+
+export type LearningSignalType =
+  | 'like'
+  | 'dismiss'
+  | 'follow'
+  | 'join'
+  | 'search'
+  | 'click'
+  | 'share'
+  | 'view';
+
+export type DashboardSectionId =
+  | 'continue_reading'
+  | 'recommended_connections'
+  | 'jobs_you_may_like'
+  | 'trending_in_communities'
+  | 'opportunities_near_you'
+  | 'suggested_events'
+  | 'learning_recommendations';
 
 /** Phase 33.1 rewrite / composer modes (drafts only) */
 export type ComposerMode =

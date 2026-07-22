@@ -21,6 +21,7 @@ import {
   adminAIAudit,
   adminAIFeatureFlags
 } from '../../controllers/scrolithaAi.admin.controller';
+import { adminDiscoveryAnalytics } from '../../controllers/scrolithaDiscovery.controller';
 
 const router = express.Router();
 const read = requirePermission('journeys.read');
@@ -43,6 +44,8 @@ router.post('/prompts/:promptId/rollback', manage, adminAIRollbackPrompt);
 router.get('/usage', read, adminAIUsage);
 router.get('/health', read, adminAIHealth);
 router.get('/audit', read, adminAIAudit);
+// Phase 33.2 discovery analytics
+router.get('/discovery/analytics', read, adminDiscoveryAnalytics);
 router.get('/feature-flags', read, adminAIFeatureFlags);
 router.put('/feature-flags', manage, adminAIFeatureFlags);
 router.put('/feature-flags/:flag', manage, adminAIFeatureFlags);

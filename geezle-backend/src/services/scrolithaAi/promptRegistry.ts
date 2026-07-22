@@ -226,6 +226,71 @@ const seed: PromptRecord[] = [
     safetyPolicy: '33.1.0',
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString()
+  },
+  // Phase 33.2
+  {
+    id: 'seed-feed-score-1',
+    promptKey: 'discovery.feed_relevance_scoring',
+    capability: 'FEED_RELEVANCE_SCORING',
+    version: 1,
+    status: 'published',
+    systemInstructions:
+      'Score feed candidates for relevance only. Return brief JSON scores. Never reorder authoritatively — scores are advisory. No autonomous actions.',
+    inputTemplate: 'Score candidates (advisory only):\n\n{{content}}',
+    outputSchemaName: null,
+    locale: 'en',
+    maxContextChars: 6000,
+    safetyPolicy: '33.2.0',
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
+  },
+  {
+    id: 'seed-reco-reason-1',
+    promptKey: 'discovery.recommendation_reasoning',
+    capability: 'RECOMMENDATION_REASONING',
+    version: 1,
+    status: 'published',
+    systemInstructions:
+      'Write a short, user-facing explanation for why an item may be recommended. Base reasons on disclosed preferences only. No sensitive profiling.',
+    inputTemplate: 'Explain recommendation:\n\n{{content}}',
+    outputSchemaName: null,
+    locale: 'en',
+    maxContextChars: 3000,
+    safetyPolicy: '33.2.0',
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
+  },
+  {
+    id: 'seed-query-expand-1',
+    promptKey: 'discovery.semantic_query_expansion',
+    capability: 'SEMANTIC_QUERY_EXPANSION',
+    version: 1,
+    status: 'published',
+    systemInstructions:
+      'Expand or correct a search query for intent. Return suggestions only. Deterministic search remains the execution engine.',
+    inputTemplate: 'Expand query:\n\n{{content}}',
+    outputSchemaName: null,
+    locale: 'en',
+    maxContextChars: 2000,
+    safetyPolicy: '33.2.0',
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
+  },
+  {
+    id: 'seed-interest-1',
+    promptKey: 'discovery.interest_inference',
+    capability: 'INTEREST_INFERENCE',
+    version: 1,
+    status: 'published',
+    systemInstructions:
+      'Infer high-level topics of interest from non-sensitive activity summaries. Never invent private attributes (health, politics, religion).',
+    inputTemplate: 'Infer topics from:\n\n{{content}}',
+    outputSchemaName: null,
+    locale: 'en',
+    maxContextChars: 4000,
+    safetyPolicy: '33.2.0',
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString()
   }
 ];
 

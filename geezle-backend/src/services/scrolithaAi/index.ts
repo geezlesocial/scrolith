@@ -27,7 +27,11 @@ export type {
   ComposerMode,
   RewriteMode,
   DraftKind,
-  SearchDomain
+  SearchDomain,
+  RecoEntityType,
+  RecoFeedbackAction,
+  LearningSignalType,
+  DashboardSectionId
 } from './types';
 export { ScrolithaAssistant } from './assistant';
 export {
@@ -38,6 +42,22 @@ export {
 } from './conversations';
 export { listPromptLibrary, promptLibraryCategories } from './promptLibrary';
 export { submitFeedback, feedbackSummary } from './feedback';
+export {
+  getAIMemory,
+  updateAIMemory,
+  deleteAIMemory,
+  exportAIMemory,
+  applyLearningSignal
+} from './memory';
+export { scoreFeedCandidates, computeHeuristicScore } from './feedScoring';
+export {
+  getRecommendations,
+  getDashboardRecommendations,
+  submitRecoFeedback
+} from './recommendations';
+export { assistSearchQuery } from './semanticSearch';
+export { recordLearningSignal } from './learning';
+export { getDiscoveryAnalytics } from './discoveryAnalytics';
 export { classifyPrivacy, redactText, minimizeContext } from './privacy';
 export { evaluateSafetyPre, evaluateSafetyPost, wrapUntrustedContent } from './safety';
 export { routeModel } from './router';
