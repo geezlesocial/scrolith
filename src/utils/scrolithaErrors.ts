@@ -9,6 +9,9 @@ export type ScrolithaClientErrorKind =
   | 'rollout_disabled'
   | 'unauthorized'
   | 'forbidden'
+  | 'consent_required'
+  | 'allowlist_required'
+  | 'feature_disabled'
   | 'rate_limited'
   | 'provider_unavailable'
   | 'empty_result'
@@ -47,6 +50,33 @@ export const classifyScrolithaClientError = (
   const raw = readRawMessage(err);
   const lower = raw.toLowerCase();
   const code = asText(err?.code || err?.response?.data?.code).toUpperCase();
+
+  if (code === 'USER_NOT_IN_BETA_ALLOWLIST') {
+    return {
+      kind: 'allowlist_required',
+      message: 'Scrolitha is available to an approved beta cohort only.',
+      retryable: false,
+      statusCode: status
+    };
+  }
+
+  if (code === 'AI_CONSENT_REQUIRED' || code === 'CONSENT_PRIVATE_CONTENT_DENIED') {
+    return {
+      kind: 'consent_required',
+      message: 'Enable Scrolitha AI suggestions in AI settings before continuing.',
+      retryable: false,
+      statusCode: status
+    };
+  }
+
+  if (code === 'COPILOT_FEATURE_DISABLED') {
+    return {
+      kind: 'feature_disabled',
+      message: 'Scrolitha is disabled for this surface.',
+      retryable: false,
+      statusCode: status
+    };
+  }
 
   if (
     lower.includes('timeout') ||

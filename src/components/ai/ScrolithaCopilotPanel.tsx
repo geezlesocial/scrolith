@@ -8,6 +8,7 @@ import {
   ScrolithaCopilotService,
   type CopilotSurface
 } from '../../services/scrolithaCopilot';
+import { classifyScrolithaClientError } from '../../utils/scrolithaErrors';
 
 export type ScrolithaCopilotPanelProps = {
   surface: CopilotSurface;
@@ -34,13 +35,17 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [live, setLive] = useState('');
+  const [statusLoading, setStatusLoading] = useState(false);
 
   const loadStatus = useCallback(async () => {
     try {
+      setStatusLoading(true);
       const s = await ScrolithaCopilotService.getStatus();
       setStatus(s);
     } catch {
       setStatus(null);
+    } finally {
+      setStatusLoading(false);
     }
   }, []);
 
@@ -50,7 +55,19 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
 
   const send = async () => {
     const message = input.trim();
-    if (!message || loading) return;
+    if (!message || loading || statusLoading || !status) return;
+    if (!status.platformCopilotEnabled || !status.nativeIntelligenceEnabled) {
+      setError('Scrolitha is disabled for this surface.');
+      return;
+    }
+    if (status.betaAllowlistOnly && !status.betaAllowed) {
+      setError('This Scrolitha cohort is limited to approved users.');
+      return;
+    }
+    if (!status.consentOk) {
+      setError('Enable Scrolitha AI suggestions in AI settings before continuing.');
+      return;
+    }
     setLoading(true);
     setError('');
     setLive('Scrolitha is thinking…');
@@ -75,7 +92,7 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
       setLive('Copilot suggestion ready — review before acting');
       setInput('');
     } catch (err: any) {
-      setError(err?.message || 'Request failed (flags or beta allowlist may block access)');
+      setError(classifyScrolithaClientError(err).message);
       setLive('Copilot request failed');
     } finally {
       setLoading(false);
@@ -111,7 +128,7 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
           <div>
             <h2 className="text-sm font-semibold text-slate-900">Scrolitha Copilot</h2>
             <p className="text-[11px] text-slate-500">
-              {surface} · suggestions only · native-first
+              {surface} · suggestions only · Ollama qwen3:14b
             </p>
           </div>
         </div>
@@ -127,7 +144,7 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
 
       <div className="space-y-2 p-3 text-xs text-amber-950 bg-amber-50 border-b border-amber-100" role="note">
         {status?.disclosure ||
-          'Drafts and tips only. Scrolitha never posts, messages, or takes irreversible actions for you.'}
+            'Drafts and tips only. Scrolitha never posts, messages, or takes irreversible actions for you.'}
         {status && !status.betaAllowed ? (
           <p className="mt-1 font-medium">Beta allowlist only — ask an admin for access.</p>
         ) : null}
@@ -172,12 +189,12 @@ const ScrolithaCopilotPanel: React.FC<ScrolithaCopilotPanelProps> = ({
             }}
             placeholder="Ask Scrolitha…"
             className="min-h-[40px] flex-1 rounded-xl border border-slate-300 px-3 text-sm focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-            disabled={loading}
+            disabled={statusLoading || loading || !status || !status.platformCopilotEnabled || !status.betaAllowed || !status.consentOk}
           />
           <button
             type="button"
             onClick={send}
-            disabled={loading || !input.trim()}
+            disabled={statusLoading || loading || !input.trim() || !status || !status.platformCopilotEnabled || !status.betaAllowed || !status.consentOk}
             className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white hover:bg-violet-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:opacity-50"
             aria-label="Send"
           >
