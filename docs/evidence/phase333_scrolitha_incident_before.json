@@ -1,0 +1,91 @@
+{
+  "incident": "Phase 33.3 Scrolitha production hotfix",
+  "capturedAt": "2026-07-22T07:22:34Z",
+  "redaction": "Tokens, cookies, credentials, user identifiers, IP addresses, and private response content omitted.",
+  "production": {
+    "project": "scrolith-500821",
+    "region": "asia-southeast1",
+    "backend": {
+      "service": "scrolith-backend",
+      "revision": "scrolith-backend-00235-mib",
+      "imageDigest": "sha256:f05f5f1a41566ed640b71ee7b4d1014c8d167bec1fd0ec13ab9d1e03c46f3516",
+      "trafficPercent": 100,
+      "ready": true
+    },
+    "frontend": {
+      "service": "scrolith-frontend",
+      "revision": "scrolith-frontend-00299-zah",
+      "imageDigest": "sha256:80f36d08ae0ef961cf74beda8c197a6e4a01d32d0ad990fb30907bc0376b937a",
+      "trafficPercent": 100,
+      "ready": true
+    }
+  },
+  "backendEnvironmentSafeSnapshot": {
+    "NODE_ENV": "production",
+    "SCROLITHA_CORE_ENDPOINT": "https://scrolitha-core-25ysnpjdda-as.a.run.app",
+    "SCROLITHA_PROVIDER": "core",
+    "SCROLITHA_CORE_MODEL": "qwen3:14b",
+    "SCROLITHA_ROLLOUT_MASTER": "true",
+    "SCROLITHA_AI_ENABLE_PROVIDER_CALLS": "false",
+    "SCROLITHA_AI_FORCE_NO_PROVIDER": "1",
+    "SCROLITHA_AI_KILL_SWITCH": "false",
+    "secretBackedValues": "present but redacted"
+  },
+  "featureFlagsBefore": {
+    "sourceDefaults": "all AI flags false; betaAllowlistOnly true",
+    "persistedDatabaseFlags": "not independently readable from the local environment",
+    "environmentProviderOverride": "enableProviderCalls forced false in production"
+  },
+  "betaAllowlistBefore": {
+    "environmentAllowlist": "empty/not configured",
+    "persistedAllowlist": "not independently readable from the local environment"
+  },
+  "consentBefore": "Authenticated user consent could not be independently read because no valid production credential was available in the local process.",
+  "observedResponses": {
+    "copilotUnauthenticatedCurrent": {
+      "status": 500,
+      "body": {
+        "success": false,
+        "error": "Internal Server Error",
+        "code": "ERR_INTERNAL"
+      }
+    },
+    "copilotHistoricalProductionSymptom": {
+      "status": 403,
+      "body": "not present in available request evidence; response size was 1499-1501 bytes"
+    },
+    "appsTrackCurrentUnauthenticated": {
+      "status": 500,
+      "body": {
+        "success": false,
+        "error": "Internal Server Error",
+        "code": "ERR_INTERNAL"
+      }
+    },
+    "appsTrackHistoricalFailingEvent": {
+      "event": "push_token_project_reset",
+      "status": "historical 400 symptom; current production probe reached the runtime 500 path"
+    }
+  },
+  "healthBefore": {
+    "backendHealth": "200 / database ready",
+    "aiHealth": "200 / phase33 true",
+    "ollamaTags": "200 / exactly qwen3:14b available",
+    "ollamaHealthPath": "base /api/health returned 404; Ollama-compatible /api/tags returned 200",
+    "localPrismaMigrationStatus": "not available: DATABASE_URL is not present in the local environment"
+  },
+  "relevantLogsBefore": [
+    {
+      "revision": "scrolith-backend-00235-mib",
+      "path": "/api/ai/copilot",
+      "status": 403,
+      "timestamp": "2026-07-22T06:52:19Z"
+    },
+    {
+      "revision": "scrolith-backend-00235-mib",
+      "path": "/api/ai/copilot",
+      "status": 500,
+      "timestamp": "2026-07-22T07:18:27Z"
+    }
+  ]
+}

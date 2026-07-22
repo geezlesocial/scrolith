@@ -185,7 +185,7 @@ describe('Phase 33.3 copilot', () => {
       surface: 'feed'
     });
     expect(r.ok).toBe(false);
-    expect(r.reason).toBe('BETA_ALLOWLIST_ONLY');
+    expect(r.reason).toBe('USER_NOT_IN_BETA_ALLOWLIST');
     expect(r.disclosure.autonomous).toBe(false);
   });
 

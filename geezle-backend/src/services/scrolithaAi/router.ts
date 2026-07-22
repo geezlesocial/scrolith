@@ -18,6 +18,8 @@ export type RouteInput = {
   timeoutMs?: number;
   /** When true, never use Gemini/OpenAI even if consent present */
   localFirst?: boolean;
+  /** User-facing generation route. No native, external, or mock fallback. */
+  requireOllama?: boolean;
 };
 
 const DEFAULT_MODELS: Record<AIProviderId, string> = {
@@ -63,6 +65,17 @@ export function routeModel(input: RouteInput): ModelRouteDecision {
       provider: 'DISABLED',
       model: 'disabled',
       reason: 'privacy_prohibited',
+      fallbackChain: [],
+      maximumTokens: maxTokens,
+      timeoutMs
+    };
+  }
+
+  if (input.requireOllama) {
+    return {
+      provider: 'OLLAMA',
+      model: 'qwen3:14b',
+      reason: 'production_ollama_only',
       fallbackChain: [],
       maximumTokens: maxTokens,
       timeoutMs

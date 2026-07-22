@@ -46,8 +46,13 @@ export async function postCopilot(req: Request, res: Response) {
       includeTools: Boolean(req.body?.includeTools),
       correlationId: String(req.headers['x-correlation-id'] || '') || undefined
     });
-    const status = result.ok ? 200 : result.blocked ? 403 : 503;
-    return res.status(status).json({ success: result.ok, data: result, error: result.reason });
+    const status = result.ok ? 200 : result.blocked ? 403 : result.reason === 'EMPTY_MESSAGE' ? 400 : 503;
+    return res.status(status).json({
+      success: result.ok,
+      data: result.ok ? result : undefined,
+      error: result.reason,
+      code: result.reason
+    });
   } catch (err: any) {
     return res.status(500).json({ success: false, error: err?.message || 'copilot_failed' });
   }

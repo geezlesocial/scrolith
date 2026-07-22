@@ -24,6 +24,7 @@ export type ProviderConfigState = {
   GEMINI: { enabled: boolean; model?: string; timeoutMs?: number };
   OPENAI: { enabled: boolean; model?: string; timeoutMs?: number };
   MOCK: { enabled: boolean };
+  allowedProviders?: AIProviderId[];
   /** Emergency: no real provider calls */
   emergencyShutdown: boolean;
 };
@@ -33,7 +34,8 @@ const DEFAULT_PROVIDER_CONFIG: ProviderConfigState = {
   OLLAMA: { enabled: true, model: process.env.SCROLITHA_OLLAMA_MODEL || 'qwen3:14b', timeoutMs: 30_000 },
   GEMINI: { enabled: false, model: process.env.SCROLITHA_GEMINI_MODEL || 'gemini-pro', timeoutMs: 30_000 },
   OPENAI: { enabled: false, model: process.env.OPENAI_MODEL || 'gpt-4o-mini', timeoutMs: 30_000 },
-  MOCK: { enabled: true },
+  MOCK: { enabled: process.env.NODE_ENV !== 'production' },
+  allowedProviders: ['OLLAMA'],
   emergencyShutdown: false
 };
 
@@ -77,6 +79,29 @@ export async function loadAIFeatureFlags(force = false): Promise<AIFeatureFlags>
     if (process.env.NODE_ENV === 'production' || process.env.SCROLITHA_AI_FORCE_NO_PROVIDER === '1') {
       flagsCache = { ...flagsCache, enableProviderCalls: false };
     }
+  }
+  const envFlag = (name: string) =>
+    ['1', 'true', 'yes', 'on'].includes(String(process.env[name] || '').trim().toLowerCase());
+  const envFlagSet = (name: string) => process.env[name] !== undefined;
+  if (envFlagSet('SCROLITHA_AI_ENABLED')) flagsCache.masterEnabled = envFlag('SCROLITHA_AI_ENABLED');
+  if (envFlagSet('SCROLITHA_AI_PLATFORM_COPILOT_ENABLED')) {
+    flagsCache.platformCopilotEnabled = envFlag('SCROLITHA_AI_PLATFORM_COPILOT_ENABLED');
+  }
+  if (envFlagSet('SCROLITHA_AI_NATIVE_INTELLIGENCE_ENABLED')) {
+    flagsCache.nativeIntelligenceEnabled = envFlag('SCROLITHA_AI_NATIVE_INTELLIGENCE_ENABLED');
+  }
+  if (envFlagSet('SCROLITHA_AI_SKILLS_ENABLED')) flagsCache.skillsFrameworkEnabled = envFlag('SCROLITHA_AI_SKILLS_ENABLED');
+  if (envFlagSet('SCROLITHA_AI_TOOL_ORCHESTRATION_ENABLED')) {
+    flagsCache.toolOrchestrationEnabled = envFlag('SCROLITHA_AI_TOOL_ORCHESTRATION_ENABLED');
+  }
+  if (envFlagSet('SCROLITHA_AI_BETA_ALLOWLIST_ONLY')) {
+    flagsCache.betaAllowlistOnly = envFlag('SCROLITHA_AI_BETA_ALLOWLIST_ONLY');
+  }
+  if (flagsCache.platformCopilotEnabled) flagsCache.COPILOT_CONTEXT = true;
+  if (flagsCache.nativeIntelligenceEnabled) {
+    flagsCache.INTENT_DETECTION = true;
+    flagsCache.TASK_PLANNING = true;
+    flagsCache.SKILL_INVOCATION = true;
   }
   flagsLoadedAt = Date.now();
   return flagsCache;
@@ -160,6 +185,16 @@ export async function setProviderConfig(
 }
 
 export function isProviderEnabled(id: AIProviderId, cfg: ProviderConfigState): boolean {
+  if (process.env.NODE_ENV === 'production') {
+    const allowed = String(process.env.SCROLITHA_AI_ALLOWED_PROVIDERS || 'OLLAMA')
+      .split(',')
+      .map((value) => value.trim().toUpperCase())
+      .filter(Boolean);
+    if (id !== 'OLLAMA') return false;
+    if (!allowed.includes('OLLAMA')) return false;
+    if (String(process.env.SCROLITHA_AI_OLLAMA_ENABLED || 'true').toLowerCase() === 'false') return false;
+    return cfg.OLLAMA?.enabled !== false;
+  }
   if (cfg.emergencyShutdown && id !== 'MOCK' && id !== 'NATIVE') return false;
   if (id === 'DISABLED') return false;
   if (id === 'NATIVE') return cfg.NATIVE?.enabled !== false;

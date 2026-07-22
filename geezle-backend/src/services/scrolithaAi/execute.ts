@@ -170,7 +170,7 @@ export class ScrolithaAI {
         inc('consentRejections');
         inc('blocks');
         return blocked({
-          reason: consentCheck.reason,
+          reason: 'reason' in consentCheck ? consentCheck.reason : 'CONSENT_REQUIRED',
           lifecycle: 'BLOCKED',
           correlationId,
           requestId,
@@ -246,6 +246,22 @@ export class ScrolithaAI {
       // --- ROUTE ---
       lifecycle = 'ROUTED';
       const providerCfg = await loadProviderConfig();
+      const deterministicCapability = new Set([
+        'INTENT_DETECTION',
+        'TASK_PLANNING',
+        'SKILL_INVOCATION',
+        'PLATFORM_TOOL_PLAN',
+        'TEXT_CLASSIFICATION',
+        'SEMANTIC_SEARCH_PREPARATION',
+        'SEMANTIC_QUERY_EXPANSION',
+        'SEARCH_QUERY_SUGGESTION',
+        'FEED_RELEVANCE_SCORING',
+        'RECOMMENDATION_REASONING',
+        'INTEREST_INFERENCE',
+        'NOTIFICATION_PRIORITIZATION'
+      ]);
+      const deterministicOnly =
+        input.policy?.deterministicOnly === true || deterministicCapability.has(input.capability);
       const externalOk =
         consent.externalProviderProcessingAllowed &&
         externalProviderAllowedForPrivacy(privacyLevel, true);
@@ -267,9 +283,10 @@ export class ScrolithaAI {
           OLLAMA: isProviderEnabled('OLLAMA', providerCfg) ? 'operational' : 'disabled',
           GEMINI: isProviderEnabled('GEMINI', providerCfg) && externalOk ? 'operational' : 'disabled',
           OPENAI: isProviderEnabled('OPENAI', providerCfg) && externalOk ? 'operational' : 'disabled',
-          MOCK: 'operational',
+          MOCK: process.env.NODE_ENV === 'production' ? 'disabled' : 'operational',
           DISABLED: 'disabled'
-        }
+        },
+        requireOllama: Boolean(input.policy?.requireOllama)
       });
 
       // --- CACHE ---
@@ -323,10 +340,14 @@ export class ScrolithaAI {
       // --- PROVIDER CALL (NATIVE / local / external / MOCK) ---
       lifecycle = 'PROCESSING';
       // Network providers (Ollama remote / Gemini / OpenAI) gated; NATIVE always allowed offline
+      const ollamaEnabled = isProviderEnabled('OLLAMA', providerCfg);
+      const forceNoAllProviders =
+        process.env.SCROLITHA_AI_FORCE_NO_PROVIDER === '1' &&
+        !String(process.env.SCROLITHA_AI_ALLOWED_PROVIDERS || '').toUpperCase().split(',').includes('OLLAMA');
       const useNetworkProviders =
         flags.enableProviderCalls &&
         !input.dryRun &&
-        process.env.SCROLITHA_AI_FORCE_NO_PROVIDER !== '1' &&
+        !forceNoAllProviders &&
         !providerCfg.emergencyShutdown;
 
       let chain: Array<{ provider: AIProviderId; model: string }> = [
@@ -335,7 +356,10 @@ export class ScrolithaAI {
       ];
 
       if (!useNetworkProviders) {
-        // Phase 33.3: Native intelligence remains available without network provider calls
+        if (input.policy?.requireOllama) {
+          chain = ollamaEnabled ? [{ provider: 'OLLAMA', model: 'qwen3:14b' }] : [];
+        } else {
+          // Deterministic native intelligence remains available without network provider calls.
         chain = chain.filter((c) => c.provider === 'NATIVE' || c.provider === 'MOCK');
         if (!chain.some((c) => c.provider === 'NATIVE') && isProviderEnabled('NATIVE', providerCfg)) {
           chain.unshift({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
@@ -345,6 +369,7 @@ export class ScrolithaAI {
         }
         if (!chain.length) {
           chain.push({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
+        }
         }
       }
 
@@ -361,6 +386,10 @@ export class ScrolithaAI {
         for (let i = 0; i < chain.length; i++) {
           const step = chain[i];
           if (step.provider === 'DISABLED') continue;
+          if (process.env.NODE_ENV === 'production' && !deterministicOnly && step.provider !== 'OLLAMA') {
+            lastError = 'PRODUCTION_PROVIDER_NOT_ALLOWED';
+            continue;
+          }
           if (
             isCircuitOpen(step.provider) &&
             step.provider !== 'MOCK' &&
@@ -372,7 +401,7 @@ export class ScrolithaAI {
           // External providers require consent + privacy
           if (
             (step.provider === 'GEMINI' || step.provider === 'OPENAI') &&
-            (!externalOk || privacyLevel === 'HIGHLY_SENSITIVE' || privacyLevel === 'PROHIBITED')
+            (!externalOk || privacyLevel === 'HIGHLY_SENSITIVE')
           ) {
             continue;
           }
@@ -473,7 +502,7 @@ export class ScrolithaAI {
               correlationId,
               error: lastError
             });
-            if (i === chain.length - 1 && step.provider !== 'MOCK') {
+            if (i === chain.length - 1 && step.provider !== 'MOCK' && !input.policy?.requireOllama && process.env.NODE_ENV !== 'production') {
               // final fallback to mock
               try {
                 const mock = getProvider('MOCK')!;
@@ -514,6 +543,21 @@ export class ScrolithaAI {
         return {
           ok: false,
           reason: lastError,
+          lifecycle: 'FAILED',
+          route,
+          privacyLevel,
+          correlationId,
+          requestId,
+          latencyMs: Date.now() - started
+        };
+      }
+
+      if (!text && input.policy?.requireOllama) {
+        lifecycle = 'FAILED';
+        inc('failures');
+        return {
+          ok: false,
+          reason: lastError || 'OLLAMA_UNAVAILABLE',
           lifecycle: 'FAILED',
           route,
           privacyLevel,

@@ -59,18 +59,18 @@ export type CopilotResponse = {
 
 async function assertCopilotAccess(userId: string, isAdmin?: boolean) {
   const flags = await loadAIFeatureFlags();
-  if (flags.killSwitch) return { ok: false as const, reason: 'AI_KILL_SWITCH' };
-  if (!flags.masterEnabled) return { ok: false as const, reason: 'AI_MASTER_DISABLED' };
+  if (flags.killSwitch) return { ok: false as const, reason: 'COPILOT_FEATURE_DISABLED' };
+  if (!flags.masterEnabled) return { ok: false as const, reason: 'COPILOT_FEATURE_DISABLED' };
   if (!flags.platformCopilotEnabled && !flags.nativeIntelligenceEnabled) {
-    return { ok: false as const, reason: 'SURFACE_FLAG_DISABLED:platformCopilotEnabled' };
+    return { ok: false as const, reason: 'COPILOT_FEATURE_DISABLED' };
   }
   if (flags.betaAllowlistOnly) {
     const allowed = await isBetaAllowed(userId, isAdmin);
-    if (!allowed) return { ok: false as const, reason: 'BETA_ALLOWLIST_ONLY' };
+    if (!allowed) return { ok: false as const, reason: 'USER_NOT_IN_BETA_ALLOWLIST' };
   }
   const consent = await getAIConsent(userId);
   if (!consent.aiFeaturesEnabled || !consent.aiSuggestionsAllowed) {
-    return { ok: false as const, reason: 'CONSENT_REQUIRED' };
+    return { ok: false as const, reason: 'AI_CONSENT_REQUIRED' };
   }
   return { ok: true as const, flags, consent };
 }
@@ -154,6 +154,7 @@ export async function runCopilot(input: CopilotRequest): Promise<CopilotResponse
     policy: {
       privacyLevel: 'PERSONAL',
       preferInternalProvider: true,
+      requireOllama: process.env.NODE_ENV === 'production',
       allowCache: false,
       maxTokens: 600
     },
@@ -161,21 +162,29 @@ export async function runCopilot(input: CopilotRequest): Promise<CopilotResponse
     metadata: { surface: 'platform_copilot', primarySkill, intent: intentInfo.intent }
   });
 
-  // Fallback if capability flag off for COPILOT_CONTEXT
+  // Deterministic skills may prepare context, but generative responses never fall back to native or MOCK.
   let text = exec.ok ? exec.text || '' : '';
-  if (!exec.ok && exec.reason?.includes('CAPABILITY_FLAG')) {
-    const retry = await ScrolithaAI.execute({
-      capability: 'INTENT_DETECTION',
-      userId: input.userId,
-      input: message,
-      policy: { privacyLevel: 'PERSONAL', preferInternalProvider: true },
-      metadata: { surface: 'platform_copilot_fallback' }
-    });
-    text = retry.ok
-      ? `[Scrolitha Copilot] Detected intent. Skills: ${primarySkill}. ${suggestions[0]?.body || 'How can I help on this page?'}`
-      : `Scrolitha Copilot is limited right now (${exec.reason}). Enable COPILOT_CONTEXT / ASSISTANT_CHAT flags for full replies.`;
-  } else if (!exec.ok) {
-    text = `Unable to complete: ${exec.reason || 'error'}`;
+  if (!exec.ok) {
+    return {
+      ok: false,
+      blocked: false,
+      reason: exec.reason || 'OLLAMA_UNAVAILABLE',
+      surface,
+      intent: intentInfo.intent,
+      primarySkill,
+      text: '',
+      suggestions: [],
+      disclosure: {
+        generatedByAI: true,
+        provider: 'OLLAMA',
+        model: 'qwen3:14b',
+        nativeFirst: true,
+        autonomous: false,
+        generatedAt: new Date().toISOString()
+      },
+      latencyMs: Date.now() - started,
+      correlationId: exec.correlationId
+    };
   }
 
   let toolResults: unknown[] | undefined;
@@ -239,7 +248,14 @@ export async function copilotStatus(userId: string, isAdmin?: boolean) {
     betaAllowed: beta,
     consentOk: Boolean(consent.aiFeaturesEnabled && consent.aiSuggestionsAllowed),
     skills: listSkills(),
-    routingPriority: ['NATIVE', 'OLLAMA', 'GEMINI', 'OPENAI', 'MOCK'],
+    routingPriority:
+      process.env.NODE_ENV === 'production'
+        ? ['OLLAMA']
+        : ['NATIVE', 'OLLAMA', 'GEMINI', 'OPENAI', 'MOCK'],
+    productionProvider: 'OLLAMA',
+    productionModel: 'qwen3:14b',
+    externalProvidersEnabled: false,
+    mockEnabledForProduction: false,
     autonomous: false,
     disclosure:
       'Scrolitha Copilot provides contextual suggestions and drafts only. It never posts, messages, moderates, hires, or moves money for you.'

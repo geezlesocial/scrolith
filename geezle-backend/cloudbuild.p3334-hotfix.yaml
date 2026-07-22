@@ -1,0 +1,22 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        build,
+        -f,
+        Dockerfile.storyfix.runtime,
+        --no-cache,
+        -t,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p333-scrolitha-hotfix2,
+        --label,
+        phase=33.4,
+        --label,
+        feature=scrolitha-ollama-only-hotfix,
+        .
+      ]
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p333-scrolitha-hotfix2
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 2400s
