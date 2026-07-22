@@ -5646,6 +5646,118 @@ model NotificationAnalyticsCounter {
   @@index([date])
 }
 
+// Phase 32.4 — ops templates (versioned)
+model NotificationOpsTemplate {
+  id                String    @id @default(cuid())
+  key               String
+  name              String
+  channel           String
+  locale            String    @default("en")
+  subject           String?
+  title             String?
+  body              String    @default("")
+  htmlBody          String?
+  variables         Json?
+  version           Int       @default(1)
+  status            String    @default("draft")
+  publishedAt       DateTime?
+  previousVersionId String?
+  metadata          Json?
+  createdBy         String?
+  updatedBy         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([key, channel, locale, version])
+  @@index([status, channel])
+  @@index([key])
+}
+
+// Phase 32.4 — announcement / emergency campaigns
+model NotificationCampaign {
+  id              String    @id @default(cuid())
+  name            String
+  type            String    @default("platform_announcement")
+  status          String    @default("draft")
+  priority        String    @default("normal")
+  title           String
+  body            String
+  deepLink        String?
+  channels        String[]  @default([])
+  targeting       Json?
+  templateId      String?
+  scheduleType    String    @default("immediate")
+  scheduledAt     DateTime?
+  recurrence      Json?
+  reason          String?
+  requiresConfirm Boolean   @default(false)
+  confirmedAt     DateTime?
+  confirmedBy     String?
+  sentAt          DateTime?
+  cancelledAt     DateTime?
+  stats           Json?
+  metadata        Json?
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([type, createdAt])
+}
+
+model NotificationCampaignDelivery {
+  id             String    @id @default(cuid())
+  campaignId     String
+  userId         String?
+  channel        String
+  status         String    @default("pending")
+  notificationId String?
+  errorMessage   String?
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([campaignId, status])
+  @@index([userId])
+}
+
+// Phase 32.4 — delivery retry queue
+model NotificationRetryJob {
+  id             String    @id @default(cuid())
+  notificationId String?
+  deliveryId     String?
+  userId         String?
+  channel        String
+  status         String    @default("pending")
+  attemptCount   Int       @default(0)
+  maxAttempts    Int       @default(5)
+  nextAttemptAt  DateTime?
+  lastError      String?
+  errorCode      String?
+  payload        Json?
+  history        Json?
+  cancelledAt    DateTime?
+  completedAt    DateTime?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([channel, status])
+  @@index([notificationId])
+}
+
+// Phase 32.4 — ops config (feature flags, retention, settings)
+model NotificationOpsConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  version   Int      @default(1)
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model MonetizationApplication {
   id                  String                        @id @default(cuid())
   userId              String

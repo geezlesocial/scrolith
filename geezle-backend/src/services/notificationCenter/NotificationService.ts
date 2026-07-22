@@ -397,8 +397,14 @@ export class NotificationService {
               priority,
               actorId,
               conversationId: (meta.conversationId || meta.entityId || null) as any,
-              isMandatorySecurity: category === 'security',
-              isEmergencySystem: false
+              isMandatorySecurity:
+                Boolean(input.isMandatorySecurity) ||
+                category === 'security' ||
+                Boolean(meta.isMandatorySecurity),
+              isEmergencySystem:
+                Boolean(input.isEmergencySystem) ||
+                Boolean(meta.isEmergencySystem) ||
+                String(eventType || type).includes('emergency')
             });
             if (!policy.allowed || policy.action !== 'DELIVER_NOW') {
               allowPush = false;

@@ -26,9 +26,10 @@ Module producer
           → rich actions / groupKey / badge [Phase 32.3]
       → Digest worker (scheduled) [Phase 32.2]
       → Cross-device sync broadcast [Phase 32.3]
+      → Ops dashboard / campaigns / retries [Phase 32.4]
 ```
 
-See also: `PHASE32_2_PREFERENCES_AND_DIGESTS.md`, `PHASE32_2_DELIVERY_POLICY.md`, `PHASE32_2_DIGEST_ENGINE.md`, `PHASE32_3_ANDROID_EXCELLENCE.md`, `PHASE32_3_CROSS_DEVICE_SYNC.md`.
+See also: `PHASE32_2_*`, `PHASE32_3_*`, `PHASE32_4_NOTIFICATION_OPERATIONS.md`.
 
 ## Taxonomy categories
 

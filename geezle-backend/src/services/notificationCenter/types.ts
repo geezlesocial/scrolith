@@ -33,6 +33,9 @@ export type NotificationEmitInput = {
   /** Skip realtime/push fanout */
   skipRealtime?: boolean;
   skipPush?: boolean;
+  /** Phase 32.4 — force policy paths for ops campaigns */
+  isEmergencySystem?: boolean;
+  isMandatorySecurity?: boolean;
   /** Soft preference evaluation via NI when available */
   respectPreferences?: boolean;
   /** Time-window dedupe seconds (in addition to idempotency key) */
