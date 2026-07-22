@@ -494,11 +494,13 @@ const buildLlmReply = async (input: {
   userMessage: string;
   pageContext?: string | null;
   accountContext?: string | null;
+  messagingFastPath?: boolean;
   config: Awaited<ReturnType<typeof ensureScrolithaConfig>>;
   actionPlans: Array<{ summary: string; toolKey: string; requiresConfirmation: boolean }>;
 }) => {
   const runtime = await resolveScrolithaLlmRuntime(input.actor.scope);
   if (!runtime.enabled || runtime.provider === 'disabled' || !runtime.runtimeConfigured) return null;
+  const messagingFastPath = Boolean(input.messagingFastPath);
 
   const knowledgeContext = buildScrolithaKnowledgeContext({
     actor: input.actor,
@@ -510,7 +512,7 @@ const buildLlmReply = async (input: {
     conversationId: input.conversationId
   });
 
-  const history = await loadRecentConversationMessages(input.conversationId, 14);
+  const history = await loadRecentConversationMessages(input.conversationId, messagingFastPath ? 6 : 14);
   const messages = [
     {
       role: 'system' as const,
@@ -526,7 +528,7 @@ const buildLlmReply = async (input: {
     },
     ...history.map((msg) => ({
       role: msg.sender === 'assistant' ? ('assistant' as const) : ('user' as const),
-      content: truncate(String(msg.content || ''))
+      content: truncate(String(msg.content || ''), messagingFastPath ? 700 : 1800)
     }))
   ];
 
@@ -535,10 +537,10 @@ const buildLlmReply = async (input: {
       host: runtime.host,
       model: runtime.model,
       messages,
-      maxTokens: runtime.maxTokens,
+      maxTokens: messagingFastPath ? Math.min(runtime.maxTokens, 512) : runtime.maxTokens,
       temperature: runtime.temperature,
       topP: runtime.topP,
-      timeoutMs: runtime.timeoutMs
+      timeoutMs: messagingFastPath ? Math.min(runtime.timeoutMs, 45_000) : runtime.timeoutMs
     });
     const out = String(result.text || '').trim();
     return out || null;
@@ -965,6 +967,8 @@ export const scrolithaChat = async (input: ScrolithaChatInput, actor: ScrolithaA
       userMessage: message,
       pageContext,
       accountContext,
+      messagingFastPath:
+        input.context?.surface === 'messaging' || input.context?.source === 'messaging_bridge',
       config,
       actionPlans: plannedForPrompt
     });
