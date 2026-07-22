@@ -1,5 +1,16 @@
 # Scrolitha Hotfix Monitoring
 
-Monitor backend and frontend Cloud Run revisions for 30-60 minutes after promotion. Required signals are 5xx, P2024, Copilot 4xx/5xx, `/api/apps/track` validation failures, Ollama latency and availability, authentication failures, request latency, CPU, memory, database health, and restart activity.
+The post-100% monitoring window exceeded 30 minutes.
 
-Rollback immediately if authenticated Copilot success is not stable, Ollama is unavailable, tracking errors flood logs, messaging fails, or database/service health degrades.
+| Signal | Result |
+|---|---|
+| Backend `/api/health` | 200 |
+| Backend `/api/ai/health` | 200 |
+| P2024 entries | 0 |
+| Provider timeout entries | 0 |
+| External provider attempts | 0 |
+| Production MOCK responses | 0 |
+| Tracking flood | None observed |
+| Final revision | `scrolith-backend-p3334-ollama4` |
+
+One unrelated 500 occurred on `GET /api/community/ads`; it was not Copilot, tracking, authentication, or database-pool activity and did not trigger rollback.

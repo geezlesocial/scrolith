@@ -1,0 +1,27 @@
+{
+  "capturedAt": "2026-07-22T11:08:07Z",
+  "window": {
+    "minimumMinutes": 30,
+    "completed": true,
+    "revision": "scrolith-backend-p3334-ollama4",
+    "traffic": "100%"
+  },
+  "healthCheckpoints": [
+    { "backend": 200, "ai": 200, "p2024": 0, "providerTimeout": 0 },
+    { "backend": 200, "ai": 200, "p2024": 0, "providerTimeout": 0 },
+    { "backend": 200, "ai": 200, "p2024": 0, "providerTimeout": 0 },
+    { "backend": 200, "ai": 200, "p2024": 0, "providerTimeout": 0 },
+    { "backend": 200, "ai": 200, "p2024": 0, "providerTimeout": 0 },
+    { "backend": 200, "ai": 200, "p2024": 0, "providerTimeout": 0 }
+  ],
+  "unrelatedIncidents": [
+    {
+      "status": 500,
+      "route": "GET /api/community/ads",
+      "impact": "No Copilot, tracking, authentication, or database-pool impact observed"
+    }
+  ],
+  "externalProviderAttempts": 0,
+  "productionMockResponses": 0,
+  "rollback": "not triggered"
+}

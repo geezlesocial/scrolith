@@ -35,10 +35,21 @@ export class OllamaAIProvider implements AIProvider {
       temperature: request.temperature
     });
     const text = String((result as any)?.text || '');
+    // Prefer configured runtime model (qwen3:14b) over transport alias "scrolitha-core".
+    const configuredModel =
+      process.env.SCROLITHA_CORE_MODEL ||
+      process.env.SCROLITHA_OLLAMA_MODEL ||
+      process.env.SCROLITHA_AI_DEFAULT_MODEL ||
+      'qwen3:14b';
+    const reported = String((result as any)?.model || '').trim();
+    const model =
+      !reported || reported === 'scrolitha-core' || reported === 'core'
+        ? configuredModel
+        : reported;
     return {
       text,
       provider: 'OLLAMA',
-      model: String((result as any)?.model || request.model || 'qwen3:14b'),
+      model,
       usage: undefined,
       latencyMs: Date.now() - started,
       finishReason: 'stop'

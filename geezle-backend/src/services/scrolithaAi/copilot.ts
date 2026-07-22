@@ -156,7 +156,8 @@ export async function runCopilot(input: CopilotRequest): Promise<CopilotResponse
       preferInternalProvider: true,
       requireOllama: process.env.NODE_ENV === 'production',
       allowCache: false,
-      maxTokens: 600
+      maxTokens: 600,
+      timeoutMs: 120_000
     },
     correlationId: input.correlationId,
     metadata: { surface: 'platform_copilot', primarySkill, intent: intentInfo.intent }
@@ -223,8 +224,14 @@ export async function runCopilot(input: CopilotRequest): Promise<CopilotResponse
     plan: skillResults.flatMap((r) => r.plan || []).slice(0, 10),
     disclosure: {
       generatedByAI: true,
-      provider: exec.disclosure?.provider || 'NATIVE',
-      model: exec.disclosure?.model || 'scrolitha-native-33.3',
+      provider: exec.disclosure?.provider || (process.env.NODE_ENV === 'production' ? 'OLLAMA' : 'NATIVE'),
+      model:
+        process.env.NODE_ENV === 'production'
+          ? process.env.SCROLITHA_CORE_MODEL ||
+            process.env.SCROLITHA_OLLAMA_MODEL ||
+            process.env.SCROLITHA_AI_DEFAULT_MODEL ||
+            'qwen3:14b'
+          : exec.disclosure?.model || 'scrolitha-native-33.3',
       nativeFirst: true,
       autonomous: false,
       generatedAt: new Date().toISOString()

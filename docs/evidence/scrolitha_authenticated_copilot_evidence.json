@@ -1,0 +1,234 @@
+{
+  "capturedAt": "2026-07-22T11:05:59.976Z",
+  "redaction": "Tokens, cookies, credentials, emails, full user IDs, and private content omitted.",
+  "candidate": "https://api.scrolith.com",
+  "findJobs": {
+    "status": 200,
+    "success": true,
+    "provider": "OLLAMA",
+    "model": "qwen3:14b",
+    "intent": "jobs",
+    "primarySkill": "JobSkill",
+    "textLen": 173,
+    "suggestionsCount": 3,
+    "latencyMs": 10301,
+    "correlationId": "ollama-cert-1784718364279",
+    "autonomous": false,
+    "generatedByAI": true,
+    "externalProviderUsed": false,
+    "mockUsed": false
+  },
+  "promptMatrix": [
+    {
+      "prompt": "Improve my resume",
+      "surface": "assistant",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "JobSkill",
+      "textLen": 107,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Review my profile",
+      "surface": "assistant",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "ResumeSkill",
+      "textLen": 164,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Find freelancers",
+      "surface": "assistant",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "SearchSkill",
+      "textLen": 147,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Create a proposal draft",
+      "surface": "composer",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "SearchSkill",
+      "textLen": 1353,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Write a post",
+      "surface": "composer",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "SearchSkill",
+      "textLen": 150,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    }
+  ],
+  "authProbes": {
+    "copilotStatus": {
+      "status": 200,
+      "success": true,
+      "dataKeys": [
+        "phase",
+        "platformCopilotEnabled",
+        "nativeIntelligenceEnabled",
+        "skillsFrameworkEnabled",
+        "toolOrchestrationEnabled",
+        "betaAllowlistOnly",
+        "betaAllowed",
+        "consentOk",
+        "skills",
+        "routingPriority",
+        "productionProvider",
+        "productionModel",
+        "externalProvidersEnabled",
+        "mockEnabledForProduction",
+        "autonomous",
+        "disclosure"
+      ],
+      "summary": {
+        "consentOk": true,
+        "betaAllowed": true
+      }
+    },
+    "overview": {
+      "status": 200,
+      "success": true,
+      "flags": {
+        "masterEnabled": true,
+        "killSwitch": false,
+        "enableProviderCalls": true,
+        "platformCopilotEnabled": true,
+        "betaAllowlistOnly": true
+      },
+      "health": [
+        {
+          "provider": "NATIVE",
+          "status": "operational",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.345Z",
+          "message": "Scrolitha native intelligence (local, no network)"
+        },
+        {
+          "provider": "MOCK",
+          "status": "operational",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.345Z",
+          "message": "Deterministic mock provider"
+        },
+        {
+          "provider": "OLLAMA",
+          "status": "operational",
+          "latencyMs": 82,
+          "checkedAt": "2026-07-22T11:06:03.427Z",
+          "message": "qwen3:14b"
+        },
+        {
+          "provider": "GEMINI",
+          "status": "disabled",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.346Z",
+          "message": "No Gemini API key"
+        },
+        {
+          "provider": "OPENAI",
+          "status": "disabled",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.346Z",
+          "message": "No OpenAI API key"
+        }
+      ]
+    },
+    "flags": {
+      "status": 200,
+      "success": true
+    }
+  },
+  "recentAudits": [
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-compose…",
+      "createdAt": "2026-07-22T03:07:50.387Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-compose…",
+      "createdAt": "2026-07-22T03:07:40.739Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-assista…",
+      "createdAt": "2026-07-22T03:06:38.747Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-assista…",
+      "createdAt": "2026-07-22T03:06:30.313Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-assista…",
+      "createdAt": "2026-07-22T03:06:21.203Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "NATIVE",
+      "model": "scrolitha-native-33.3",
+      "reason": null,
+      "correlationPrefix": "bbf74a6e-669…",
+      "createdAt": "2026-07-22T03:06:14.017Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "NATIVE",
+      "model": "scrolitha-native-33.3",
+      "reason": null,
+      "correlationPrefix": "57effba5-a7c…",
+      "createdAt": "2026-07-22T03:06:13.991Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "ollama-cert-…",
+      "createdAt": "2026-07-22T03:06:13.963Z"
+    }
+  ]
+}

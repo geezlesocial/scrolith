@@ -1,0 +1,371 @@
+{
+  "capturedAt": "2026-07-22T11:05:59.976Z",
+  "redaction": "Tokens, cookies, credentials, emails, full user IDs, and private content omitted.",
+  "phase": "authenticated_preflight_and_activation",
+  "db": {
+    "connected": true,
+    "via": "cloud-sql-proxy:5433"
+  },
+  "flagsBefore": {
+    "masterEnabled": true,
+    "killSwitch": false,
+    "enableProviderCalls": true,
+    "platformCopilotEnabled": true,
+    "nativeIntelligenceEnabled": true,
+    "betaAllowlistOnly": true,
+    "version": 113
+  },
+  "allowlistBefore": {
+    "count": 3,
+    "present": true
+  },
+  "providerConfigBefore": {
+    "enabled": true,
+    "allowedProviders": [
+      "OLLAMA"
+    ],
+    "OLLAMA": {
+      "model": "qwen3:14b",
+      "enabled": true,
+      "timeoutMs": 60000
+    },
+    "GEMINI": {
+      "enabled": false
+    },
+    "OPENAI": {
+      "enabled": false
+    },
+    "MOCK": {
+      "enabled": false
+    },
+    "emergencyShutdown": false
+  },
+  "adminCandidates": [
+    {
+      "idPrefix": "cmqynd…",
+      "idLen": 25,
+      "role": "ADMIN",
+      "hasEmail": true,
+      "isActive": true
+    },
+    {
+      "idPrefix": "cmrogk…",
+      "idLen": 25,
+      "role": "ADMIN",
+      "hasEmail": true,
+      "isActive": true
+    },
+    {
+      "idPrefix": "cmrou9…",
+      "idLen": 25,
+      "role": "ADMIN",
+      "hasEmail": true,
+      "isActive": true
+    }
+  ],
+  "selectedAdmin": {
+    "idPrefix": "cmqynd…",
+    "idLen": 25,
+    "role": "ADMIN",
+    "hasEmail": true,
+    "isActive": true
+  },
+  "consentBefore": {
+    "aiFeaturesEnabled": true,
+    "aiSuggestionsAllowed": true,
+    "privateMessageAnalysisAllowed": true,
+    "personalizationAllowed": true,
+    "externalProviderProcessingAllowed": false
+  },
+  "providerUpsert": "ok",
+  "flagsAfter": {
+    "masterEnabled": true,
+    "killSwitch": false,
+    "enableProviderCalls": true,
+    "platformCopilotEnabled": true,
+    "nativeIntelligenceEnabled": true,
+    "assistantEnabled": true,
+    "composerEnabled": true,
+    "rewriteEnabled": true,
+    "searchSuggestionsEnabled": true,
+    "betaAllowlistOnly": true,
+    "ASSISTANT_CHAT": true,
+    "TEXT_REWRITING": true,
+    "TEXT_SUMMARIZATION": true,
+    "DRAFT_COMPOSITION": true,
+    "COMPOSER_ASSIST": true,
+    "SEARCH_QUERY_SUGGESTION": true,
+    "SEMANTIC_SEARCH_PREPARATION": true,
+    "version": 114
+  },
+  "allowlistAfter": {
+    "count": 3,
+    "adminIncluded": true,
+    "betaAllowlistOnly": true
+  },
+  "consentAfter": {
+    "aiFeaturesEnabled": true,
+    "aiSuggestionsAllowed": true,
+    "privateMessageAnalysisAllowed": true,
+    "externalProviderProcessingAllowed": false
+  },
+  "providerPolicy": {
+    "allowedProviders": [
+      "OLLAMA"
+    ],
+    "defaultProvider": "OLLAMA",
+    "defaultModel": "qwen3:14b",
+    "externalProvidersAllowed": false,
+    "mockAllowedForProductionUserRequests": false
+  },
+  "tokenMinted": {
+    "present": true,
+    "expMinutes": 45
+  },
+  "candidateAuthProbes": {
+    "copilotStatus": {
+      "status": 200,
+      "success": true,
+      "dataKeys": [
+        "phase",
+        "platformCopilotEnabled",
+        "nativeIntelligenceEnabled",
+        "skillsFrameworkEnabled",
+        "toolOrchestrationEnabled",
+        "betaAllowlistOnly",
+        "betaAllowed",
+        "consentOk",
+        "skills",
+        "routingPriority",
+        "productionProvider",
+        "productionModel",
+        "externalProvidersEnabled",
+        "mockEnabledForProduction",
+        "autonomous",
+        "disclosure"
+      ],
+      "summary": {
+        "consentOk": true,
+        "betaAllowed": true
+      }
+    },
+    "overview": {
+      "status": 200,
+      "success": true,
+      "flags": {
+        "masterEnabled": true,
+        "killSwitch": false,
+        "enableProviderCalls": true,
+        "platformCopilotEnabled": true,
+        "betaAllowlistOnly": true
+      },
+      "health": [
+        {
+          "provider": "NATIVE",
+          "status": "operational",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.345Z",
+          "message": "Scrolitha native intelligence (local, no network)"
+        },
+        {
+          "provider": "MOCK",
+          "status": "operational",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.345Z",
+          "message": "Deterministic mock provider"
+        },
+        {
+          "provider": "OLLAMA",
+          "status": "operational",
+          "latencyMs": 82,
+          "checkedAt": "2026-07-22T11:06:03.427Z",
+          "message": "qwen3:14b"
+        },
+        {
+          "provider": "GEMINI",
+          "status": "disabled",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.346Z",
+          "message": "No Gemini API key"
+        },
+        {
+          "provider": "OPENAI",
+          "status": "disabled",
+          "latencyMs": 0,
+          "checkedAt": "2026-07-22T11:06:03.346Z",
+          "message": "No OpenAI API key"
+        }
+      ]
+    },
+    "flags": {
+      "status": 200,
+      "success": true
+    }
+  },
+  "candidateCopilotFindJobs": {
+    "status": 200,
+    "success": true,
+    "provider": "OLLAMA",
+    "model": "qwen3:14b",
+    "intent": "jobs",
+    "primarySkill": "JobSkill",
+    "textLen": 173,
+    "suggestionsCount": 3,
+    "latencyMs": 10301,
+    "correlationId": "ollama-cert-1784718364279",
+    "autonomous": false,
+    "generatedByAI": true,
+    "externalProviderUsed": false,
+    "mockUsed": false
+  },
+  "candidatePromptMatrix": [
+    {
+      "prompt": "Improve my resume",
+      "surface": "assistant",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "JobSkill",
+      "textLen": 107,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Review my profile",
+      "surface": "assistant",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "ResumeSkill",
+      "textLen": 164,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Find freelancers",
+      "surface": "assistant",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "SearchSkill",
+      "textLen": 147,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Create a proposal draft",
+      "surface": "composer",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "SearchSkill",
+      "textLen": 1353,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    },
+    {
+      "prompt": "Write a post",
+      "surface": "composer",
+      "status": 200,
+      "success": true,
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "skill": "SearchSkill",
+      "textLen": 150,
+      "error": null,
+      "mockUsed": false,
+      "external": false
+    }
+  ],
+  "tracking": {
+    "push_token_project_reset": {
+      "status": 200,
+      "success": true
+    },
+    "malformed": {
+      "status": 400,
+      "success": false,
+      "error": "Unsupported app tracking event"
+    }
+  },
+  "ollama": {
+    "tagsStatus": 200,
+    "models": [
+      "qwen3:14b"
+    ]
+  },
+  "recentAudits": [
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-compose…",
+      "createdAt": "2026-07-22T03:07:50.387Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-compose…",
+      "createdAt": "2026-07-22T03:07:40.739Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-assista…",
+      "createdAt": "2026-07-22T03:06:38.747Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-assista…",
+      "createdAt": "2026-07-22T03:06:30.313Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "cert-assista…",
+      "createdAt": "2026-07-22T03:06:21.203Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "NATIVE",
+      "model": "scrolitha-native-33.3",
+      "reason": null,
+      "correlationPrefix": "bbf74a6e-669…",
+      "createdAt": "2026-07-22T03:06:14.017Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "NATIVE",
+      "model": "scrolitha-native-33.3",
+      "reason": null,
+      "correlationPrefix": "57effba5-a7c…",
+      "createdAt": "2026-07-22T03:06:13.991Z"
+    },
+    {
+      "action": "request.completed",
+      "provider": "OLLAMA",
+      "model": "qwen3:14b",
+      "reason": null,
+      "correlationPrefix": "ollama-cert-…",
+      "createdAt": "2026-07-22T03:06:13.963Z"
+    }
+  ]
+}

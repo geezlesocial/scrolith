@@ -1,0 +1,14 @@
+{
+  "capturedAt": "2026-07-22T11:05:59.976Z",
+  "tracking": {
+    "push_token_project_reset": {
+      "status": 200,
+      "success": true
+    },
+    "malformed": {
+      "status": 400,
+      "success": false,
+      "error": "Unsupported app tracking event"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "capturedAt": "2026-07-22T11:06:04Z",
+  "endpoint": "https://api.scrolith.com",
+  "status": {
+    "status": 200,
+    "productionProvider": "OLLAMA",
+    "productionModel": "qwen3:14b",
+    "consentOk": true,
+    "betaAllowed": true,
+    "externalProvidersEnabled": false,
+    "mockEnabledForProduction": false
+  },
+  "promptResults": [
+    { "prompt": "Find jobs for me", "status": 200, "provider": "OLLAMA", "model": "qwen3:14b", "skill": "JobSkill", "mockUsed": false, "external": false },
+    { "prompt": "Improve my resume", "status": 200, "provider": "OLLAMA", "model": "qwen3:14b", "skill": "JobSkill", "mockUsed": false, "external": false },
+    { "prompt": "Review my profile", "status": 200, "provider": "OLLAMA", "model": "qwen3:14b", "skill": "ResumeSkill", "mockUsed": false, "external": false },
+    { "prompt": "Find freelancers", "status": 200, "provider": "OLLAMA", "model": "qwen3:14b", "skill": "SearchSkill", "mockUsed": false, "external": false },
+    { "prompt": "Create a proposal draft", "status": 200, "provider": "OLLAMA", "model": "qwen3:14b", "skill": "SearchSkill", "mockUsed": false, "external": false },
+    { "prompt": "Write a post", "status": 200, "provider": "OLLAMA", "model": "qwen3:14b", "skill": "SearchSkill", "mockUsed": false, "external": false }
+  ],
+  "tracking": {
+    "push_token_project_reset": { "status": 200, "success": true },
+    "malformed": { "status": 400, "success": false, "error": "Unsupported app tracking event" }
+  },
+  "externalAICalls": 0,
+  "productionMockResponses": 0,
+  "autonomousActions": false
+}

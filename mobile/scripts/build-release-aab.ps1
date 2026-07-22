@@ -6,9 +6,9 @@ $ErrorActionPreference = 'Stop'
 $MobileRoot = Split-Path -Parent $PSScriptRoot
 $GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.33'
-$VersionCode = 43
-$VersionName = '1.1.33'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.37'
+$VersionCode = 47
+$VersionName = '1.1.37'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
