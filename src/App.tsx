@@ -407,6 +407,7 @@ const NotificationSettings = React.lazy(() => import('./pages/settings/Notificat
 const AISettings = React.lazy(() => import('./pages/settings/AISettings'));
 const ScrolithaAssistantPage = React.lazy(() => import('./pages/assistant/ScrolithaAssistantPage'));
 const PersonalizedDiscovery = React.lazy(() => import('./pages/discovery/PersonalizedDiscovery'));
+const ScrolithaCopilotPanel = React.lazy(() => import('./components/ai/ScrolithaCopilotPanel'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
 const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
@@ -1988,6 +1989,33 @@ const AppContent = () => {
         <Suspense fallback={null}>
           <SupportWidget />
         </Suspense>
+      )}
+      {/* Phase 33.3 — Platform Copilot (feature-flagged + beta allowlist server-side) */}
+      {isAuthenticated && nonCriticalUiReady && !isAdminRoute && !isMobileShellRoute && (
+        <div className="fixed bottom-20 right-4 z-[90] sm:bottom-6 sm:right-6">
+          <Suspense fallback={null}>
+            <ScrolithaCopilotPanel
+              surface={
+                location.pathname.startsWith('/jobs')
+                  ? 'jobs'
+                  : location.pathname.startsWith('/marketplace')
+                    ? 'marketplace'
+                    : location.pathname.startsWith('/community')
+                      ? 'communities'
+                      : location.pathname.startsWith('/messages')
+                        ? 'messaging'
+                        : location.pathname.startsWith('/notifications')
+                          ? 'notifications'
+                          : location.pathname.startsWith('/discovery')
+                            ? 'search'
+                            : location.pathname.startsWith('/scroll') || location.pathname === '/'
+                              ? 'feed'
+                              : 'generic'
+              }
+              pagePath={location.pathname}
+            />
+          </Suspense>
+        </div>
       )}
       {!isAdminRoute && !isMobileShellRoute && !isMobileStandaloneRoute && nonCriticalUiReady && (
         <Suspense fallback={null}>
