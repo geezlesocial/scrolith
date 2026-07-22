@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  postgres-test:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: scrolith_test
+      POSTGRES_PASSWORD: local_test_password
+      POSTGRES_DB: scrolith_test
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scrolith_test -d scrolith_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data

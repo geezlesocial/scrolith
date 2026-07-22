@@ -1,7 +1,7 @@
 {
   "createdAt": "2026-07-23T04:30:00+08:00",
   "status": "NOT_PERFORMED",
-  "reason": "No backend/frontend candidates were deployed. Authenticated candidate certification cannot run before deployment candidates exist.",
+  "reason": "Backend full-suite gate is blocked because isolated PostgreSQL is unavailable; no backend/frontend candidates were deployed, so authenticated candidate certification cannot run.",
   "clickableUrls": "NOT_RUN",
   "internalScrolithLinks": "NOT_RUN",
   "externalLinks": "NOT_RUN",
@@ -11,5 +11,7 @@
   "memberLookupByUserId": "LOCAL_TEST_PASS",
   "emailPrivacy": "LOCAL_TEST_PASS",
   "groupAuthorization": "LOCAL_TEST_PASS",
-  "duplicatePrevention": "LOCAL_TEST_PASS"
+  "duplicatePrevention": "LOCAL_TEST_PASS",
+  "productionDatabaseUsedForTests": false,
+  "deploymentPerformed": false
 }

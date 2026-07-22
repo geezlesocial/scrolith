@@ -13,6 +13,7 @@ import jwt from 'jsonwebtoken'; // Ensure jwt import exists
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import validateEnv from './utils/validateEnv';
 import { resolveDirectMediaUrl, resolveFileBaseUrl } from './utils/mediaUrl';
+import { runtimePolicy } from './config/runtimePolicy';
 
 // Import routes
 import cmsRoutes from './routes/cms';
@@ -2732,9 +2733,13 @@ communityNs.on('connection', (socket) => {
   });
 });
 
-setInterval(() => {
-  void markExpiredRingingCallsAsMissed();
-}, VOICE_CALL_RING_SWEEP_MS);
+let voiceCallSweepInterval: NodeJS.Timeout | null = null;
+if (runtimePolicy.backgroundWorkersEnabled) {
+  voiceCallSweepInterval = setInterval(() => {
+    void markExpiredRingingCallsAsMissed();
+  }, VOICE_CALL_RING_SWEEP_MS);
+  voiceCallSweepInterval.unref?.();
+}
 
 // Socket auth: verify JWT if provided, attach user to socket.data.user
 io.use(async (socket, next) => {
@@ -3981,7 +3986,7 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 
 // Start server (skip auto-listen during test runs to avoid port conflicts)
 const PORT = parseInt(process.env.PORT!) || 5000;
-if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
+if (runtimePolicy.backgroundWorkersEnabled) {
   registerInsightsJobs(app);
   registerFxJobs(app).catch((error) => {
     console.error('[fx] Failed to register FX jobs:', error);
@@ -4132,8 +4137,8 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
     }
   });
 } else {
-  console.log('Server auto-start skipped (test environment detected).');
+  console.log('Server auto-start skipped (test/runtime policy disabled background workers).');
 }
 
 export default app;
-export { server, io, communityNs };
+export { server, io, communityNs, voiceCallSweepInterval };

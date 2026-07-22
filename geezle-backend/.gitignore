@@ -1,6 +1,7 @@
 # Ignore environment files with secrets
 .env
 .env.local
+.env.test
 .env.*.local
 
 # Node
@@ -24,4 +25,3 @@ npx
 .tmp-p202s-creds/
 .tmp-p202s-fixtures/
 .tmp-p202s-results/
-

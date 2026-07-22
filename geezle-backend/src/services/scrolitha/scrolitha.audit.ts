@@ -2,15 +2,24 @@ import type { Request } from 'express';
 import prisma from '../../utils/prismaClient';
 import type { ScrolithaActor } from './scrolitha.types';
 
+type AuthenticatedRequest = Request & {
+  user?: {
+    id?: string | null;
+    role?: string | null;
+    email?: string | null;
+  } | null;
+};
+
 export const resolveActorFromRequest = (req: Request): ScrolithaActor => {
-  const role = String(req.user?.role || '').trim().toLowerCase();
+  const user = (req as AuthenticatedRequest).user;
+  const role = String(user?.role || '').trim().toLowerCase();
   const isAdmin = role.includes('admin') || role.includes('moderator');
   return {
-    id: String(req.user?.id || ''),
+    id: String(user?.id || ''),
     role: role || 'user',
     scope: isAdmin ? 'admin' : 'user',
     isAdmin,
-    email: req.user?.email ? String(req.user.email).trim().toLowerCase() : null,
+    email: user?.email ? String(user.email).trim().toLowerCase() : null,
     ipAddress: (req.headers['x-forwarded-for'] as string)?.split(',')?.[0]?.trim() || req.ip || null,
     userAgent: req.headers['user-agent']?.toString() || null
   };

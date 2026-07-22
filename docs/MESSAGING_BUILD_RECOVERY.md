@@ -37,13 +37,14 @@ Passing:
 
 - `npx jest src/__tests__/groupMessaging.memberResolver.controller.test.ts src/__tests__/oauth.exchange.service.spec.ts src/__tests__/auth.login.controller.test.ts --runInBand`
 - `npm run build:prod`
+- `npm run test:node` (Node built-in test lane: 78 tests)
 - Frontend `npm run build`
 - Frontend focused URL/mention tests
 
 Not completed locally:
 
-- Full backend Jest suite. The suite imports `server.ts` in some tests, starts background Prisma sweeps, requires `DATABASE_URL`, and eventually hit Node heap limit in this environment. No production database was used for local tests.
+- Full backend Jest suite. Runtime side effects were reduced and tests are guarded to the isolated local PostgreSQL URL, but Docker is not installed in this shell, so `postgres-test` cannot be started. Database-backed Jest tests fail or time out against `127.0.0.1:55432/scrolith_test`. No production database was used for local tests.
 
 ## Deployment Status
 
-Deployment was not performed in this pass because full backend test completion, production backup, authenticated candidate certification, staged rollout, and Android rebuild remain outstanding.
+Deployment was not performed because the full backend test matrix has not passed in an isolated environment. Production backup, candidate deployment, authenticated certification, staged rollout, monitoring, and Android rebuild remain blocked by that gate.

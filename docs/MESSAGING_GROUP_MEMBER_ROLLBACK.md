@@ -7,6 +7,12 @@ Rollback targets:
 - Database: no schema rollback required.
 - Android: do not publish a new Android build until production web/backend certification completes.
 
+Current status:
+
+- No deployment was performed in this phase.
+- No rollback action is required.
+- Existing production revisions were not changed.
+
 Rollback triggers:
 
 - Message rendering fails.
@@ -17,4 +23,3 @@ Rollback triggers:
 - Email information is exposed through suggestions.
 - Duplicate memberships are created.
 - Messaging or group API error rates materially increase.
-

@@ -8,6 +8,12 @@ const createNotFoundError = (message: string) => {
   return error;
 };
 
+const toPrismaBytes = (buffer: Buffer): Uint8Array<ArrayBuffer> => {
+  const bytes = new Uint8Array(buffer.length);
+  bytes.set(buffer);
+  return bytes;
+};
+
 export const isDatabaseStorageConfigured = () => true;
 
 export const uploadBufferToDatabaseStorage = async (params: {
@@ -16,18 +22,19 @@ export const uploadBufferToDatabaseStorage = async (params: {
   fileName: string;
 }) => {
   const objectKey = normalizeObjectKey(params.fileName);
+  const data = toPrismaBytes(params.buffer);
   await prisma.managedUploadObject.upsert({
     where: { objectKey },
     create: {
       objectKey,
       contentType: params.contentType || 'application/octet-stream',
       sizeBytes: BigInt(params.buffer.length || 0),
-      data: params.buffer
+      data
     },
     update: {
       contentType: params.contentType || 'application/octet-stream',
       sizeBytes: BigInt(params.buffer.length || 0),
-      data: params.buffer
+      data
     }
   });
   return { objectKey };

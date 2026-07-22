@@ -4,7 +4,8 @@ Deployment status: not performed.
 
 Reason:
 
-- Backend production TypeScript build is currently blocked by existing unrelated errors outside this change set.
+- Backend production TypeScript build passes.
+- Full backend regression remains blocked because Docker is not installed and the isolated PostgreSQL service cannot be started locally.
 - No production deployment was attempted after that gate failed.
 
 Recommended deployment sequence after backend build baseline is restored:
@@ -19,3 +20,4 @@ Recommended deployment sequence after backend build baseline is restored:
 
 Migration status: no migration required.
 
+Production database status: not touched by tests or deployment commands in this phase.

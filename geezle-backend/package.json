@@ -6,6 +6,13 @@
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "test": "jest --config jest.config.cjs --passWithNoTests --runInBand",
+    "test:db:up": "docker compose -f docker-compose.test.yml up -d postgres-test",
+    "test:db:wait": "node scripts/wait-test-db.mjs",
+    "test:db:guard": "node scripts/run-test-db-command.mjs --guard-only",
+    "test:db:prepare": "node scripts/run-test-db-command.mjs migrate deploy && node scripts/run-test-db-command.mjs generate",
+    "test:db:reset": "node scripts/run-test-db-command.mjs migrate reset --force --skip-seed",
+    "test:node": "node scripts/run-node-test-files.mjs",
+    "test:full": "node scripts/run-jest-full.mjs",
     "build": "tsc",
     "build:prod": "tsc -p tsconfig.production.json",
     "start": "node dist/server.js",

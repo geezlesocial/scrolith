@@ -5,12 +5,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const pushSrc = readFileSync(join(here, '../services/pushNotifications.ts'), 'utf8');
-const appsCtrl = readFileSync(join(here, '../controllers/apps.controller.ts'), 'utf8');
+const backendRoot = process.cwd();
+const pushSrc = readFileSync(join(backendRoot, 'src/services/pushNotifications.ts'), 'utf8');
+const appsCtrl = readFileSync(join(backendRoot, 'src/controllers/apps.controller.ts'), 'utf8');
 
 test('push does not use admin.apps.length + admin.app() bare default trap', () => {
   // The buggy pattern that 500'd analytics when only scrolith-storage existed.
@@ -33,8 +32,8 @@ test('admin analytics isolates push runtime failures', () => {
   assert.match(appsCtrl, /pushRuntime\s*=\s*getPushRuntimeStatus/);
 });
 
-test('Cloud Run uses application default credentials without GOOGLE_APPLICATION_CREDENTIALS alone', () => {
-  assert.match(pushSrc, /shouldUseApplicationDefault/);
-  assert.match(pushSrc, /K_SERVICE/);
-  assert.match(pushSrc, /applicationDefault/);
+test('Cloud Run FCM refuses ambient application-default credentials', () => {
+  assert.match(pushSrc, /Do NOT fall back to Cloud Run ADC/);
+  assert.match(pushSrc, /Missing FCM_SERVICE_ACCOUNT_JSON/);
+  assert.match(pushSrc, /mismatched-credential/);
 });

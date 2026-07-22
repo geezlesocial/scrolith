@@ -1,0 +1,32 @@
+﻿# Full Suite Startup Before Finalization
+
+Date: 2026-07-23T04:43:26.1002126+08:00
+
+Docker check:
+Startup side-effect audit:
+src\mediaWorker.server.ts:24:server.listen(port, () => {
+src\mediaWorker.server.ts:42:process.on('SIGTERM', () => shutdown('SIGTERM'));
+src\mediaWorker.server.ts:43:process.on('SIGINT', () => shutdown('SIGINT'));
+src\modules\insights\jobs\insights.jobs.ts:12:  cron.schedule('*/15 * * * *', async () => {
+src\modules\insights\jobs\insights.jobs.ts:24:  cron.schedule('10 0 * * 1', async () => {
+src\__tests__\integration\socket.integration.test.ts:4:import app, { server } from '../../server';
+src\__tests__\integration\socket.integration.test.ts:17:    await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+src\__tests__\gcoin.rewards.integration.test.ts:2:import app from '../server';
+src\__tests__\gcoin.integration.test.ts:2:import app from '../../src/server';
+src\__tests__\gcoin.conversion.note.test.ts:2:import app from '../server';
+src\__tests__\metrics.endpoint.test.ts:2:import app from '../server';
+src\__tests__\metrics.endpoint.edgecases.test.ts:2:import app from '../server';
+src\__tests__\metrics.endpoint.authEdgecases.test.ts:2:import app from '../server';
+src\controllers\admin2fa.controller.ts:97:        // Frontend can render QR from otpauthUrl (e.g. https://api.qrserver.com or local lib)
+src\server.ts:2738:  voiceCallSweepInterval = setInterval(() => {
+src\server.ts:3709:    const heartbeatInterval = setInterval(() => {
+src\server.ts:3995:  server.listen(PORT, async () => {
+src\server.ts:4034:        const reconcileTask = cron.schedule('*/5 * * * *', async () => {
+src\server.ts:4057:        setInterval(() => {
+src\server.ts:4074:        const digestTask = cron.schedule(
+src\server.ts:4109:        const purgeTask = cron.schedule(
+src\services\journey.service.ts:1026:  const timer = setInterval(() => {
+src\services\systemDemoAccounts.service.ts:507:  schedulerHandle = setInterval(async () => {
+src\services\systemBackup.service.ts:2303:    heartbeat = setInterval(() => {
+src\services\fx.service.ts:858:  fxCronTask = cron.schedule(
+src\services\scrolitha\scrolitha.cache.ts:76:  ? setInterval(() => {

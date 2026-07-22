@@ -1,0 +1,26 @@
+﻿# Full Suite After Runtime Isolation
+
+Date: 2026-07-23
+
+## Commands
+
+- `npm run build:prod`: PASS
+- `npm run test:node`: PASS, 78 Node built-in tests
+- `npx jest src/__tests__/groupMessaging.memberResolver.controller.test.ts src/__tests__/auth.login.controller.test.ts --runInBand`: PASS, 16 tests
+- `npx jest src/__tests__/integration/socket.integration.test.ts --runInBand --detectOpenHandles`: FAIL due isolated test DB unavailable; server auto-start was skipped by runtime policy
+- `npx jest src/services/scrolithaAi/__tests__/scrolithaAi.foundation.spec.ts --runInBand --detectOpenHandles`: FAIL due isolated test DB unavailable
+- `docker --version`: FAIL, Docker command not found
+- `docker compose version`: FAIL, Docker command not found
+- `npm run test:db:guard`: PASS
+- `npm run test:db:up`: FAIL, Docker command not found
+- `NODE_ENV=test APP_RUNTIME=test DATABASE_URL=postgresql://scrolith_test:local_test_password@127.0.0.1:55432/scrolith_test node scripts/test-db-guard.mjs`: PASS
+
+## Result
+
+Runtime isolation work reduced import-time startup side effects and made Node-test specs executable outside Jest. The full backend Jest matrix remains blocked because the disposable PostgreSQL test service cannot be started in this environment.
+
+The failed database-backed tests targeted only:
+
+`127.0.0.1:55432/scrolith_test`
+
+No production database URL was used.

@@ -1,3 +1,5 @@
+import { runtimePolicy } from '../../config/runtimePolicy';
+
 type CacheEntry<T> = {
   value: T;
   expiresAt: number;
@@ -70,12 +72,16 @@ export const clearMinuteCounter = (keyPrefix: string) => {
   }
 };
 
-setInterval(() => {
-  scrolithaCache.cleanup();
-  const ts = now();
-  for (const [key, value] of minuteCounters.entries()) {
-    if (ts - value.windowStart > 2 * 60_000) {
-      minuteCounters.delete(key);
-    }
-  }
-}, 45_000).unref?.();
+export const scrolithaCacheCleanupInterval = runtimePolicy.backgroundWorkersEnabled
+  ? setInterval(() => {
+      scrolithaCache.cleanup();
+      const ts = now();
+      for (const [key, value] of minuteCounters.entries()) {
+        if (ts - value.windowStart > 2 * 60_000) {
+          minuteCounters.delete(key);
+        }
+      }
+    }, 45_000)
+  : null;
+
+scrolithaCacheCleanupInterval?.unref?.();
