@@ -19,6 +19,7 @@ const isMissing = (err: any) =>
   err?.code === 'P2021' || err instanceof TypeError || /does not exist/i.test(String(err?.message || ''));
 
 export type ProviderConfigState = {
+  NATIVE: { enabled: boolean; model?: string };
   OLLAMA: { enabled: boolean; model?: string; timeoutMs?: number };
   GEMINI: { enabled: boolean; model?: string; timeoutMs?: number };
   OPENAI: { enabled: boolean; model?: string; timeoutMs?: number };
@@ -28,6 +29,7 @@ export type ProviderConfigState = {
 };
 
 const DEFAULT_PROVIDER_CONFIG: ProviderConfigState = {
+  NATIVE: { enabled: true, model: 'scrolitha-native-33.3' },
   OLLAMA: { enabled: true, model: process.env.SCROLITHA_OLLAMA_MODEL || 'qwen3:14b', timeoutMs: 30_000 },
   GEMINI: { enabled: false, model: process.env.SCROLITHA_GEMINI_MODEL || 'gemini-pro', timeoutMs: 30_000 },
   OPENAI: { enabled: false, model: process.env.OPENAI_MODEL || 'gpt-4o-mini', timeoutMs: 30_000 },
@@ -158,8 +160,9 @@ export async function setProviderConfig(
 }
 
 export function isProviderEnabled(id: AIProviderId, cfg: ProviderConfigState): boolean {
-  if (cfg.emergencyShutdown && id !== 'MOCK') return false;
+  if (cfg.emergencyShutdown && id !== 'MOCK' && id !== 'NATIVE') return false;
   if (id === 'DISABLED') return false;
+  if (id === 'NATIVE') return cfg.NATIVE?.enabled !== false;
   if (id === 'MOCK') return cfg.MOCK?.enabled !== false;
   if (id === 'OLLAMA') return cfg.OLLAMA?.enabled !== false;
   if (id === 'GEMINI') return Boolean(cfg.GEMINI?.enabled);

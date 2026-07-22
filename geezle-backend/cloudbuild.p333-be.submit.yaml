@@ -1,0 +1,23 @@
+# Phase 33.3 — Production backend (Scrolitha Core Intelligence)
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        build,
+        -f,
+        Dockerfile.storyfix.runtime,
+        --no-cache,
+        -t,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p333,
+        --label,
+        phase=33.3,
+        --label,
+        feature=phase333-core-intelligence,
+        .
+      ]
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p333
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 2400s

@@ -6,8 +6,10 @@ import { mockProvider } from './mockProvider';
 import { ollamaProvider } from './ollamaProvider';
 import { geminiProvider } from './geminiProvider';
 import { openaiProvider } from './openaiProvider';
+import { nativeProvider } from './nativeProvider';
 
 const registry: Record<Exclude<AIProviderId, 'DISABLED'>, AIProvider> = {
+  NATIVE: nativeProvider,
   MOCK: mockProvider,
   OLLAMA: ollamaProvider,
   GEMINI: geminiProvider,
@@ -38,5 +40,5 @@ export async function healthAllProviders() {
   return results;
 }
 
-export { mockProvider, ollamaProvider, geminiProvider, openaiProvider };
+export { mockProvider, ollamaProvider, geminiProvider, openaiProvider, nativeProvider };
 export default getProvider;

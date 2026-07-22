@@ -49,6 +49,16 @@ import {
   postLearningSignal,
   postNotificationReco
 } from '../controllers/scrolithaDiscovery.controller';
+import {
+  getCopilotStatus,
+  postCopilot,
+  getSkills,
+  postSkillRun,
+  postIntent,
+  postOrchestrate,
+  getAllowlist,
+  putAllowlist
+} from '../controllers/scrolithaCopilot.controller';
 
 const router = express.Router();
 
@@ -101,5 +111,15 @@ router.delete('/discovery/memory', authMiddleware, deleteMemory);
 router.get('/discovery/memory/export', authMiddleware, exportMemory);
 router.post('/discovery/signals', authMiddleware, postLearningSignal);
 router.post('/discovery/notifications', authMiddleware, postNotificationReco);
+
+// Phase 33.3 — Platform Copilot, skills, native intent, tool orchestration
+router.get('/copilot/status', authMiddleware, getCopilotStatus);
+router.post('/copilot', authMiddleware, postCopilot);
+router.get('/skills', authMiddleware, getSkills);
+router.post('/skills/run', authMiddleware, postSkillRun);
+router.post('/intent', authMiddleware, postIntent);
+router.post('/orchestrate', authMiddleware, postOrchestrate);
+router.get('/beta-allowlist', authMiddleware, getAllowlist);
+router.put('/beta-allowlist', authMiddleware, putAllowlist);
 
 export default router;

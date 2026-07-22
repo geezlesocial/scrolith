@@ -255,12 +255,15 @@ export class ScrolithaAI {
         privacyLevel,
         externalConsent: externalOk,
         preferInternal: input.policy?.preferInternalProvider || privacyLevel === 'HIGHLY_SENSITIVE',
+        preferNative: true,
+        localFirst: true,
         structured: Boolean(input.structured),
         contextChars: redacted.text.length,
         locale: input.locale || 'en',
         maxTokens: input.policy?.maxTokens,
         timeoutMs: input.policy?.timeoutMs,
         providerHealth: {
+          NATIVE: isProviderEnabled('NATIVE', providerCfg) ? 'operational' : 'disabled',
           OLLAMA: isProviderEnabled('OLLAMA', providerCfg) ? 'operational' : 'disabled',
           GEMINI: isProviderEnabled('GEMINI', providerCfg) && externalOk ? 'operational' : 'disabled',
           OPENAI: isProviderEnabled('OPENAI', providerCfg) && externalOk ? 'operational' : 'disabled',
@@ -317,31 +320,40 @@ export class ScrolithaAI {
         inc('cacheMisses');
       }
 
-      // --- PROVIDER CALL (or MOCK) ---
+      // --- PROVIDER CALL (NATIVE / local / external / MOCK) ---
       lifecycle = 'PROCESSING';
-      const useRealProviders =
+      // Network providers (Ollama remote / Gemini / OpenAI) gated; NATIVE always allowed offline
+      const useNetworkProviders =
         flags.enableProviderCalls &&
         !input.dryRun &&
         process.env.SCROLITHA_AI_FORCE_NO_PROVIDER !== '1' &&
         !providerCfg.emergencyShutdown;
 
-      const chain: Array<{ provider: AIProviderId; model: string }> = [
+      let chain: Array<{ provider: AIProviderId; model: string }> = [
         { provider: route.provider, model: route.model },
         ...route.fallbackChain
       ];
 
-      // When real calls disabled, force MOCK as primary
-      if (!useRealProviders) {
-        chain.length = 0;
-        chain.push({ provider: 'MOCK', model: 'mock-foundation' });
+      if (!useNetworkProviders) {
+        // Phase 33.3: Native intelligence remains available without network provider calls
+        chain = chain.filter((c) => c.provider === 'NATIVE' || c.provider === 'MOCK');
+        if (!chain.some((c) => c.provider === 'NATIVE') && isProviderEnabled('NATIVE', providerCfg)) {
+          chain.unshift({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
+        }
+        if (!chain.some((c) => c.provider === 'MOCK')) {
+          chain.push({ provider: 'MOCK', model: 'mock-foundation' });
+        }
+        if (!chain.length) {
+          chain.push({ provider: 'NATIVE', model: 'scrolitha-native-33.3' });
+        }
       }
 
       beginRequest(input.userId);
       let lastError: string | null = null;
       let text = '';
       let data: T | undefined;
-      let usedProvider: AIProviderId = 'MOCK';
-      let usedModel = 'mock-foundation';
+      let usedProvider: AIProviderId = 'NATIVE';
+      let usedModel = 'scrolitha-native-33.3';
       let usage: ScrolithaAIExecuteResult['usage'];
       let parseAttempts = 0;
 
@@ -349,7 +361,11 @@ export class ScrolithaAI {
         for (let i = 0; i < chain.length; i++) {
           const step = chain[i];
           if (step.provider === 'DISABLED') continue;
-          if (isCircuitOpen(step.provider) && step.provider !== 'MOCK') {
+          if (
+            isCircuitOpen(step.provider) &&
+            step.provider !== 'MOCK' &&
+            step.provider !== 'NATIVE'
+          ) {
             lastError = `circuit_open:${step.provider}`;
             continue;
           }
@@ -360,7 +376,11 @@ export class ScrolithaAI {
           ) {
             continue;
           }
-          if (!isProviderEnabled(step.provider, providerCfg) && step.provider !== 'MOCK') {
+          if (
+            !isProviderEnabled(step.provider, providerCfg) &&
+            step.provider !== 'MOCK' &&
+            step.provider !== 'NATIVE'
+          ) {
             continue;
           }
 

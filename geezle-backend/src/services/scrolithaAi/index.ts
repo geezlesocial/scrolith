@@ -31,7 +31,10 @@ export type {
   RecoEntityType,
   RecoFeedbackAction,
   LearningSignalType,
-  DashboardSectionId
+  DashboardSectionId,
+  CopilotSurface,
+  ScrolithaSkillId,
+  PlatformToolId
 } from './types';
 export { ScrolithaAssistant } from './assistant';
 export {
@@ -58,6 +61,11 @@ export {
 export { assistSearchQuery } from './semanticSearch';
 export { recordLearningSignal } from './learning';
 export { getDiscoveryAnalytics } from './discoveryAnalytics';
+export { runCopilot, copilotStatus } from './copilot';
+export { listSkills, runSkills, pickPrimarySkill } from './skills';
+export { planToolsFromIntent, invokePlatformTools } from './orchestration';
+export { getBetaAllowlist, setBetaAllowlist, isBetaAllowed } from './allowlist';
+export { nativeProvider, detectIntentLocal } from './providers/nativeProvider';
 export { classifyPrivacy, redactText, minimizeContext } from './privacy';
 export { evaluateSafetyPre, evaluateSafetyPost, wrapUntrustedContent } from './safety';
 export { routeModel } from './router';

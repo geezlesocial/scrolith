@@ -3,7 +3,7 @@
  * Provider-neutral contracts. Feature modules must not import provider SDKs.
  */
 
-export type AIProviderId = 'OLLAMA' | 'GEMINI' | 'OPENAI' | 'MOCK' | 'DISABLED';
+export type AIProviderId = 'NATIVE' | 'OLLAMA' | 'GEMINI' | 'OPENAI' | 'MOCK' | 'DISABLED';
 
 export type AICapabilityId =
   | 'TEXT_SUMMARIZATION'
@@ -24,7 +24,14 @@ export type AICapabilityId =
   | 'FEED_RELEVANCE_SCORING'
   | 'RECOMMENDATION_REASONING'
   | 'SEMANTIC_QUERY_EXPANSION'
-  | 'INTEREST_INFERENCE';
+  | 'INTEREST_INFERENCE'
+  // Phase 33.3 — core intelligence & copilot
+  | 'INTENT_DETECTION'
+  | 'TASK_PLANNING'
+  | 'WORKFLOW_ORCHESTRATION'
+  | 'COPILOT_CONTEXT'
+  | 'SKILL_INVOCATION'
+  | 'PLATFORM_TOOL_PLAN';
 
 export type PrivacyLevel =
   | 'PUBLIC'
@@ -248,6 +255,19 @@ export type AIFeatureFlags = {
   dashboardRecommendationsEnabled: boolean;
   recommendationFeedbackEnabled: boolean;
   discoveryAnalyticsEnabled: boolean;
+  // Phase 33.3 core intelligence (default OFF)
+  INTENT_DETECTION: boolean;
+  TASK_PLANNING: boolean;
+  WORKFLOW_ORCHESTRATION: boolean;
+  COPILOT_CONTEXT: boolean;
+  SKILL_INVOCATION: boolean;
+  PLATFORM_TOOL_PLAN: boolean;
+  nativeIntelligenceEnabled: boolean;
+  platformCopilotEnabled: boolean;
+  skillsFrameworkEnabled: boolean;
+  toolOrchestrationEnabled: boolean;
+  streamingResponsesEnabled: boolean;
+  betaAllowlistOnly: boolean;
 };
 
 /** Privacy-preserving defaults — all AI features off */
@@ -291,7 +311,20 @@ export const DEFAULT_AI_FEATURE_FLAGS: AIFeatureFlags = {
   learningSignalsEnabled: false,
   dashboardRecommendationsEnabled: false,
   recommendationFeedbackEnabled: false,
-  discoveryAnalyticsEnabled: false
+  discoveryAnalyticsEnabled: false,
+  INTENT_DETECTION: false,
+  TASK_PLANNING: false,
+  WORKFLOW_ORCHESTRATION: false,
+  COPILOT_CONTEXT: false,
+  SKILL_INVOCATION: false,
+  PLATFORM_TOOL_PLAN: false,
+  nativeIntelligenceEnabled: false,
+  platformCopilotEnabled: false,
+  skillsFrameworkEnabled: false,
+  toolOrchestrationEnabled: false,
+  streamingResponsesEnabled: false,
+  /** When true, only allowlisted user/admin IDs may use 33.3 surfaces */
+  betaAllowlistOnly: true
 };
 
 export const FOUNDATION_CAPABILITIES: AICapabilityId[] = [
@@ -316,12 +349,56 @@ export const ALL_AI_CAPABILITIES: AICapabilityId[] = [
   'FEED_RELEVANCE_SCORING',
   'RECOMMENDATION_REASONING',
   'SEMANTIC_QUERY_EXPANSION',
-  'INTEREST_INFERENCE'
+  'INTEREST_INFERENCE',
+  'INTENT_DETECTION',
+  'TASK_PLANNING',
+  'WORKFLOW_ORCHESTRATION',
+  'COPILOT_CONTEXT',
+  'SKILL_INVOCATION',
+  'PLATFORM_TOOL_PLAN'
 ];
 
 export const CONSENT_VERSION = '33.0.0';
 export const SAFETY_POLICY_VERSION = '33.0.0';
-export const AI_PLATFORM_SCHEMA_VERSION = '33.2';
+export const AI_PLATFORM_SCHEMA_VERSION = '33.3';
+
+/** Phase 33.3 platform surfaces for contextual copilot */
+export type CopilotSurface =
+  | 'feed'
+  | 'jobs'
+  | 'marketplace'
+  | 'communities'
+  | 'messaging'
+  | 'profiles'
+  | 'business_pages'
+  | 'recruiting'
+  | 'freelancing'
+  | 'administration'
+  | 'notifications'
+  | 'search'
+  | 'generic';
+
+export type ScrolithaSkillId =
+  | 'FeedSkill'
+  | 'JobSkill'
+  | 'MarketplaceSkill'
+  | 'CommunitySkill'
+  | 'MessagingSkill'
+  | 'NotificationSkill'
+  | 'SearchSkill'
+  | 'ResumeSkill'
+  | 'RecruiterSkill'
+  | 'BusinessSkill'
+  | 'AnalyticsSkill';
+
+/** Internal tools only — never external arbitrary URL fetch */
+export type PlatformToolId =
+  | 'search_suggest'
+  | 'recommend'
+  | 'notification_priority_suggest'
+  | 'feed_score_suggest'
+  | 'memory_read'
+  | 'analytics_snapshot';
 
 /** Phase 33.2 recommendation entity types */
 export type RecoEntityType =

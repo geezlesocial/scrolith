@@ -278,7 +278,8 @@ describe('Phase 33.0 ScrolithaAI.execute', () => {
     expect(r.ok).toBe(true);
     expect(r.lifecycle).toBe('COMPLETED');
     expect(r.disclosure?.generatedByAI).toBe(true);
-    expect(r.disclosure?.provider).toBe('MOCK');
+    // Phase 33.3: offline path prefers NATIVE (then MOCK)
+    expect(['NATIVE', 'MOCK']).toContain(r.disclosure?.provider);
     expect(r.text).toBeTruthy();
   });
 
