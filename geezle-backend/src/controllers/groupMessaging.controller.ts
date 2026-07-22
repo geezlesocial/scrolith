@@ -26,6 +26,63 @@ const isAdminRole = (role: string) =>
     .toLowerCase()
     .match(/admin|moderator|superadmin/);
 
+type GroupMemberMatchedBy = 'USERNAME' | 'EMAIL' | 'USER_ID';
+type GroupMemberStatus =
+  | 'NOT_MEMBER'
+  | 'MEMBER'
+  | 'INVITATION_PENDING'
+  | 'BLOCKED_OR_UNAVAILABLE'
+  | 'GROUP_LIMIT_REACHED';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_RE = /^[a-zA-Z0-9._-]{2,40}$/;
+const USER_ID_RE = /^[a-z][a-z0-9_-]{8,}$/i;
+const MEMBER_CANDIDATE_LIMIT = 10;
+const RESOLVE_RATE_WINDOW_MS = 60_000;
+const RESOLVE_RATE_LIMIT = 60;
+const memberResolverRate = new Map<string, { count: number; resetAt: number }>();
+
+const normalizeIdentifier = (value: unknown) => String(value || '').trim();
+
+const checkResolverRateLimit = (actorId: string) => {
+  const key = String(actorId || '').trim();
+  if (!key) return true;
+  const now = Date.now();
+  const current = memberResolverRate.get(key);
+  if (!current || current.resetAt <= now) {
+    memberResolverRate.set(key, { count: 1, resetAt: now + RESOLVE_RATE_WINDOW_MS });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= RESOLVE_RATE_LIMIT;
+};
+
+const publicMemberUserSelect = {
+  id: true,
+  name: true,
+  username: true,
+  avatar: true,
+  profilePhotoFileId: true,
+  isActive: true
+} as const;
+
+const serializeCandidate = (
+  user: any,
+  membershipStatus: GroupMemberStatus,
+  matchedBy?: GroupMemberMatchedBy
+) => ({
+  userId: String(user?.id || ''),
+  username: user?.username || '',
+  displayName: user?.name || user?.username || 'Scrolith member',
+  avatarUrl: user?.avatar || '',
+  profilePhotoFileId: user?.profilePhotoFileId || null,
+  membershipStatus,
+  ...(matchedBy ? { matchedBy } : {})
+});
+
+const groupError = (res: Response, status: number, code: string, message: string, extra?: Record<string, unknown>) =>
+  res.status(status).json({ success: false, error: message, code, ...(extra || {}) });
+
 const getMembership = async (conversationId: string, userId: string) => {
   return prisma.conversationParticipant.findFirst({
     where: { conversationId, userId, deletedAt: null }
@@ -42,6 +99,210 @@ const requireGroupConversation = async (conversationId: string) => {
     return { error: { status: 400, message: 'Not a group conversation' } };
   }
   return { conversation };
+};
+
+const requireGroupMemberManager = async (req: Request, conversationId: string) => {
+  const userId = resolveUserId(req);
+  if (!userId) return { error: { status: 401, code: 'AUTH_REQUIRED', message: 'Unauthorized' } };
+  const { conversation, error } = await requireGroupConversation(conversationId);
+  if (error) {
+    return {
+      error: {
+        status: error.status,
+        code: error.status === 404 ? 'GROUP_NOT_FOUND' : 'IDENTIFIER_INVALID',
+        message: error.message
+      }
+    };
+  }
+  const membership = await getMembership(conversationId, userId);
+  const actorRole = normalizeMemberRole((membership as any)?.role);
+  if (!membership || !canManageMembers(actorRole)) {
+    if (!isAdminRole(String(req.user?.role || ''))) {
+      return {
+        error: { status: 403, code: 'GROUP_ACCESS_DENIED', message: 'Insufficient role' },
+        conversation,
+        membership
+      };
+    }
+  }
+  return { userId, conversation, membership, actorRole };
+};
+
+const hasBlockingRelationship = async (actorId: string, targetId: string) => {
+  try {
+    const block = await prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: actorId, blockedId: targetId },
+          { blockerId: targetId, blockedId: actorId }
+        ]
+      },
+      select: { id: true }
+    });
+    return Boolean(block);
+  } catch {
+    return false;
+  }
+};
+
+const resolveMembershipStatus = async (
+  conversation: any,
+  actorId: string,
+  targetUser: any
+): Promise<GroupMemberStatus> => {
+  if (!targetUser?.isActive) return 'BLOCKED_OR_UNAVAILABLE';
+  const conversationId = String(conversation?.id || '');
+  const targetId = String(targetUser?.id || '');
+  if (await hasBlockingRelationship(actorId, targetId)) return 'BLOCKED_OR_UNAVAILABLE';
+
+  const existing = await prisma.conversationParticipant.findUnique({
+    where: { conversationId_userId: { conversationId, userId: targetId } }
+  } as any);
+  if (existing && !(existing as any).deletedAt) return 'MEMBER';
+
+  try {
+    const pendingInvite = await (prisma as any).conversationInvite.findFirst({
+      where: { conversationId, inviteeUserId: targetId, status: 'PENDING' },
+      select: { id: true }
+    });
+    if (pendingInvite) return 'INVITATION_PENDING';
+  } catch {
+    /* optional */
+  }
+
+  if (conversation?.maxMembers != null) {
+    const count = await prisma.conversationParticipant.count({
+      where: { conversationId, deletedAt: null } as any
+    });
+    if (count >= Number(conversation.maxMembers)) return 'GROUP_LIMIT_REACHED';
+  }
+
+  return 'NOT_MEMBER';
+};
+
+const resolveGroupMemberIdentifier = async (
+  conversation: any,
+  actorId: string,
+  rawIdentifier: string
+): Promise<{ user: any; matchedBy: GroupMemberMatchedBy; membershipStatus: GroupMemberStatus } | null> => {
+  const identifier = normalizeIdentifier(rawIdentifier);
+  if (!identifier) return null;
+  if (identifier.length > 254 || /[\u0000-\u001f\u007f]/.test(identifier)) {
+    const err = new Error('Identifier invalid') as Error & { code?: string; status?: number };
+    err.code = 'IDENTIFIER_INVALID';
+    err.status = 400;
+    throw err;
+  }
+
+  let user: any = null;
+  let matchedBy: GroupMemberMatchedBy = 'USERNAME';
+  if (EMAIL_RE.test(identifier)) {
+    matchedBy = 'EMAIL';
+    user = await prisma.user.findUnique({
+      where: { email: identifier.toLowerCase() },
+      select: publicMemberUserSelect
+    } as any);
+  } else {
+    const username = identifier.replace(/^@+/, '');
+    if (!USERNAME_RE.test(username)) {
+      const err = new Error('Identifier invalid') as Error & { code?: string; status?: number };
+      err.code = 'IDENTIFIER_INVALID';
+      err.status = 400;
+      throw err;
+    }
+    if (USER_ID_RE.test(identifier)) {
+      matchedBy = 'USER_ID';
+      user = await prisma.user.findUnique({
+        where: { id: identifier },
+        select: publicMemberUserSelect
+      } as any);
+    }
+    if (!user) {
+      matchedBy = 'USERNAME';
+      user = await prisma.user.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' as any } },
+        select: publicMemberUserSelect
+      } as any);
+    }
+  }
+
+  if (!user) return null;
+  const membershipStatus = await resolveMembershipStatus(conversation, actorId, user);
+  return { user, matchedBy, membershipStatus };
+};
+
+export const resolveGroupMember = async (req: Request, res: Response) => {
+  try {
+    const conversationId = String(req.params.id || '').trim();
+    const auth = await requireGroupMemberManager(req, conversationId);
+    if (auth.error) return groupError(res, auth.error.status, auth.error.code, auth.error.message);
+    if (!checkResolverRateLimit(auth.userId!)) {
+      return groupError(res, 429, 'RATE_LIMITED', 'Too many member lookup requests.');
+    }
+
+    const identifier = normalizeIdentifier(req.body?.identifier);
+    if (!identifier) return groupError(res, 400, 'IDENTIFIER_REQUIRED', 'Identifier required');
+
+    const resolved = await resolveGroupMemberIdentifier(auth.conversation, auth.userId!, identifier);
+    if (!resolved) return groupError(res, 404, 'USER_NOT_FOUND', 'User not found');
+
+    return res.json({
+      success: true,
+      data: {
+        match: serializeCandidate(resolved.user, resolved.membershipStatus, resolved.matchedBy),
+        matchedBy: resolved.matchedBy
+      }
+    });
+  } catch (e: any) {
+    const code = e?.code || 'IDENTIFIER_INVALID';
+    const status = Number(e?.status || 500);
+    return groupError(res, status, code, e?.message || 'Failed to resolve member');
+  }
+};
+
+export const listGroupMemberCandidates = async (req: Request, res: Response) => {
+  try {
+    const conversationId = String(req.params.id || '').trim();
+    const auth = await requireGroupMemberManager(req, conversationId);
+    if (auth.error) return groupError(res, auth.error.status, auth.error.code, auth.error.message);
+    if (!checkResolverRateLimit(auth.userId!)) {
+      return groupError(res, 429, 'RATE_LIMITED', 'Too many member lookup requests.');
+    }
+
+    const q = normalizeIdentifier(req.query?.q);
+    const usernameQuery = q.replace(/^@+/, '');
+    if (q.length < 2 || usernameQuery.length < 2) return res.json({ success: true, data: { results: [] } });
+    if (q.includes('@') && !q.startsWith('@') && !EMAIL_RE.test(q)) {
+      return res.json({ success: true, data: { results: [] } });
+    }
+
+    const users = EMAIL_RE.test(q)
+      ? await prisma.user.findMany({
+          where: { email: q.toLowerCase(), isActive: true },
+          select: publicMemberUserSelect,
+          take: 1
+        } as any)
+      : await prisma.user.findMany({
+          where: {
+            isActive: true,
+            username: { startsWith: usernameQuery, mode: 'insensitive' as any }
+          },
+          select: publicMemberUserSelect,
+          orderBy: [{ username: 'asc' }],
+          take: MEMBER_CANDIDATE_LIMIT
+        } as any);
+
+    const results: any[] = [];
+    for (const user of users) {
+      const status = await resolveMembershipStatus(auth.conversation, auth.userId!, user);
+      if (status === 'BLOCKED_OR_UNAVAILABLE') continue;
+      results.push(serializeCandidate(user, status));
+    }
+
+    return res.json({ success: true, data: { results } });
+  } catch (e: any) {
+    return groupError(res, 500, 'IDENTIFIER_INVALID', e?.message || 'Failed to list member candidates');
+  }
 };
 
 /** PATCH /conversations/:id — group metadata */
@@ -151,33 +412,74 @@ export const addGroupMembers = async (req: Request, res: Response) => {
       }
     }
 
-    const userIds = Array.from(
-      new Set(
-        (Array.isArray(req.body?.userIds) ? req.body.userIds : [])
+    const singleUserId = req.body?.userId ? [req.body.userId] : [];
+    const userIds: string[] = Array.from(
+      new Set<string>(
+        (Array.isArray(req.body?.userIds) ? req.body.userIds : singleUserId)
           .map((id: any) => String(id || '').trim())
           .filter(Boolean)
       )
     );
-    if (!userIds.length) return res.status(400).json({ success: false, error: 'userIds required' });
+    if (!userIds.length) return groupError(res, 400, 'IDENTIFIER_REQUIRED', 'userIds required');
     const role = normalizeMemberRole(req.body?.role || 'MEMBER');
-    if (role === 'OWNER') return res.status(400).json({ success: false, error: 'Cannot add OWNER via this endpoint' });
+    if (role === 'OWNER') return groupError(res, 400, 'IDENTIFIER_INVALID', 'Cannot add OWNER via this endpoint');
 
-    const users = await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true } });
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds }, isActive: true },
+      select: { id: true, name: true, username: true, avatar: true }
+    });
     if (users.length !== userIds.length) {
-      return res.status(400).json({ success: false, error: 'One or more users not found' });
+      return groupError(res, 404, 'USER_NOT_FOUND', 'One or more users not found');
+    }
+
+    const activeExisting = await prisma.conversationParticipant.findMany({
+      where: { conversationId, userId: { in: userIds }, deletedAt: null } as any,
+      select: { userId: true }
+    });
+    if (activeExisting.length) {
+      return groupError(res, 409, 'USER_ALREADY_MEMBER', 'One or more users are already members', {
+        memberUserIds: activeExisting.map((entry) => entry.userId)
+      });
+    }
+
+    try {
+      const pending = await (prisma as any).conversationInvite.findFirst({
+        where: { conversationId, inviteeUserId: { in: userIds }, status: 'PENDING' },
+        select: { inviteeUserId: true }
+      });
+      if (pending?.inviteeUserId) {
+        return groupError(res, 409, 'INVITATION_ALREADY_PENDING', 'A pending invitation already exists', {
+          userId: pending.inviteeUserId
+        });
+      }
+    } catch {
+      /* optional */
+    }
+
+    if ((conversation as any)?.maxMembers != null) {
+      const count = await prisma.conversationParticipant.count({
+        where: { conversationId, deletedAt: null } as any
+      });
+      if (count + userIds.length > Number((conversation as any).maxMembers)) {
+        return groupError(res, 403, 'GROUP_MEMBER_LIMIT_REACHED', 'Group member limit reached');
+      }
     }
 
     // Phase 22.3B — group invite audience privacy
     try {
       const { canInviteToGroup } = await import('../services/messaging/messagingPrivacyPolicy');
       for (const id of userIds) {
+        if (await hasBlockingRelationship(userId, id)) {
+          return groupError(res, 403, 'USER_BLOCKED', 'This member cannot be added.');
+        }
         const gate = await canInviteToGroup(userId, id, conversationId);
         if (!gate.allowed) {
-          return res.status(403).json({
-            success: false,
-            error: gate.reason || 'This member cannot be added due to their messaging preferences.',
-            code: 'MESSAGING_PRIVACY_GROUP_INVITE_DENIED'
-          });
+          return groupError(
+            res,
+            403,
+            'DIRECT_ADD_NOT_ALLOWED',
+            gate.reason || 'This member cannot be added due to their messaging preferences.'
+          );
         }
       }
     } catch {
@@ -202,7 +504,82 @@ export const addGroupMembers = async (req: Request, res: Response) => {
       });
     }
 
-    return res.json({ success: true, data: { added: userIds.length, role } });
+    const memberById = new Map(users.map((entry) => [entry.id, entry]));
+    for (const id of userIds) {
+      try {
+        const { recordGroupAudit } = await import('../services/messaging/groupAudit');
+        await recordGroupAudit({
+          conversationId,
+          actorId: userId,
+          action: 'member.added',
+          targetUserId: id,
+          reason: 'direct_add',
+          metadata: {
+            source: 'group_member_identifier_resolution',
+            role,
+            matchedBy: req.body?.matchedBy || null
+          }
+        });
+      } catch {
+        /* optional */
+      }
+      try {
+        await prisma.notification.create({
+          data: {
+            userId: id,
+            actorId: userId,
+            type: 'group_member_added',
+            category: 'messages',
+            title: 'You were added to a group',
+            body: `You were added to the group "${(conversation as any)?.title || 'Scrolith group'}".`,
+            deepLink: `/messages/${encodeURIComponent(conversationId)}`,
+            entityType: 'conversation',
+            entityId: conversationId,
+            meta: {
+              conversationId,
+              role,
+              actorId: userId
+            }
+          } as any
+        });
+      } catch {
+        /* optional */
+      }
+    }
+
+    try {
+      const count = await prisma.conversationParticipant.count({
+        where: { conversationId, deletedAt: null } as any
+      });
+      await prisma.conversation.update({
+        where: { id: conversationId },
+        data: { memberCount: count } as any
+      });
+    } catch {
+      /* optional */
+    }
+
+    const addedMembers = userIds.map((id) => {
+      const target = memberById.get(id) || {};
+      return {
+        userId: id,
+        username: (target as any).username || '',
+        displayName: (target as any).name || (target as any).username || 'Scrolith member',
+        role
+      };
+    });
+
+    return res.json({
+      success: true,
+      data: {
+        success: true,
+        outcome: 'MEMBER_ADDED',
+        added: userIds.length,
+        role,
+        member: addedMembers[0] || null,
+        members: addedMembers
+      }
+    });
   } catch (e: any) {
     console.error('addGroupMembers', e);
     return res.status(500).json({ success: false, error: e?.message || 'Failed to add members' });

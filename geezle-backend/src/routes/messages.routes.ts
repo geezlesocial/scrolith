@@ -24,6 +24,8 @@ import {
 import {
   updateGroupMeta,
   listGroupMembers,
+  resolveGroupMember,
+  listGroupMemberCandidates,
   addGroupMembers,
   removeGroupMember,
   updateGroupMember,
@@ -131,6 +133,8 @@ router.get('/conversations/:id/security', authMiddleware, getConversationSecurit
 // Phase 22.2 — group management
 router.patch('/conversations/:id/group', authMiddleware, updateGroupMeta);
 router.get('/conversations/:id/members', authMiddleware, listGroupMembers);
+router.post('/conversations/:id/members/resolve', authMiddleware, resolveGroupMember);
+router.get('/conversations/:id/member-candidates', authMiddleware, listGroupMemberCandidates);
 router.post('/conversations/:id/members', authMiddleware, addGroupMembers);
 router.patch('/conversations/:id/members/:memberUserId', authMiddleware, updateGroupMember);
 router.delete('/conversations/:id/members/:memberUserId', authMiddleware, removeGroupMember);
