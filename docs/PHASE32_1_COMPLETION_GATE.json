@@ -31,6 +31,6 @@
     "Full inbox at /notifications with search, filters, bulk, pin, archive, counters, realtime.",
     "Navbar and mobile shell link into the center without replacing existing dropdown/shell.",
     "Additive migration 20260722150000_phase321_notification_inbox not applied.",
-    "Phase 32.2 Preferences & Digests not started."
+    "Phase 32.2 Preferences & Digests implemented in a follow-on commit (see PHASE32_2_*)."
   ]
 }

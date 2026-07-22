@@ -18,10 +18,15 @@ Module producer
       → idempotency / time-window dedupe
       → NotificationEvent (log)
       → Notification (inbox row)
+      → NotificationDeliveryPolicy.evaluate()   [Phase 32.2]
+          → DELIVER_NOW | QUEUE_FOR_DIGEST | DEFER | SUPPRESS
       → NotificationDelivery (in_app / push attempts)
       → NotificationAudit + analytics counters
       → notifyUser (socket + FCM) [existing]
+      → Digest worker (scheduled) [Phase 32.2]
 ```
+
+See also: `PHASE32_2_PREFERENCES_AND_DIGESTS.md`, `PHASE32_2_DELIVERY_POLICY.md`, `PHASE32_2_DIGEST_ENGINE.md`.
 
 ## Taxonomy categories
 

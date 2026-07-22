@@ -4060,6 +4060,38 @@ if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
     } catch (error) {
       console.error('[webhooks] Failed to initialize webhook dispatcher', error);
     }
+
+    // Phase 32.2 — digest worker + focus session cleanup (node-cron, 15-minute ticks)
+    try {
+      const digestEnabled = String(process.env.NOTIFICATION_DIGEST_CRON_ENABLED || 'true').toLowerCase() !== 'false';
+      if (digestEnabled) {
+        const digestTask = cron.schedule(
+          '*/15 * * * *',
+          async () => {
+            console.log(`[cron] processDueDigests at ${new Date().toISOString()}`);
+            try {
+              const { NotificationDigestEngine } = await import('./services/notificationCenter/digestEngine.service');
+              const result = await NotificationDigestEngine.processDueDigests(50);
+              if (result?.processed) {
+                console.log(`[cron] processDueDigests processed=${result.processed}`);
+              }
+            } catch (err) {
+              console.error('[cron] processDueDigests error:', err);
+            }
+          },
+          {
+            scheduled: true,
+            timezone: process.env.SCHEDULE_TIMEZONE || 'UTC'
+          }
+        );
+        digestTask.start();
+        console.log('[cron] Phase 32.2 digest worker scheduled (*/15)');
+      } else {
+        console.log('[cron] NOTIFICATION_DIGEST_CRON_ENABLED=false; digest worker not started.');
+      }
+    } catch (err) {
+      console.error('Failed to initialize digest worker cron:', err);
+    }
   });
 } else {
   console.log('Server auto-start skipped (test environment detected).');

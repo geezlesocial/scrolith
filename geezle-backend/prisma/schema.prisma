@@ -5428,6 +5428,7 @@ model NotificationDelivery {
 }
 
 // Phase 32.0 — per-user category preference overrides (extends UserSettings)
+// Phase 32.2 — deliveryMode, minPriority, sound/vibration/preview, version
 model NotificationPreference {
   id                String    @id @default(cuid())
   userId            String
@@ -5440,12 +5441,177 @@ model NotificationPreference {
   quietHoursEnabled Boolean   @default(false)
   focusMode         Boolean   @default(false)
   mutedUntil        DateTime?
+  deliveryMode      String    @default("immediate")
+  minPriority       String    @default("normal")
+  soundEnabled      Boolean   @default(true)
+  vibrationEnabled  Boolean   @default(true)
+  previewEnabled    Boolean   @default(true)
+  version           Int       @default(1)
   metadata          Json?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
   @@unique([userId, category])
   @@index([userId])
+}
+
+// Phase 32.2 — per-event preference overrides
+model NotificationEventPreference {
+  id            String   @id @default(cuid())
+  userId        String
+  eventType     String
+  category      String?
+  inAppEnabled  Boolean?
+  pushEnabled   Boolean?
+  emailEnabled  Boolean?
+  deliveryMode  String?
+  minPriority   String?
+  muted         Boolean  @default(false)
+  metadata      Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, eventType])
+  @@index([userId])
+}
+
+// Phase 32.2 — global user notification settings (one row per user)
+model NotificationGlobalPreference {
+  id                     String   @id @default(cuid())
+  userId                 String   @unique
+  pauseOptional          Boolean  @default(false)
+  allowMandatorySecurity Boolean  @default(true)
+  allowEmergencySystem   Boolean  @default(true)
+  showPreviews           Boolean  @default(true)
+  playSounds             Boolean  @default(true)
+  enableVibration        Boolean  @default(true)
+  syncReadState          Boolean  @default(true)
+  groupSimilar           Boolean  @default(true)
+  badgeEnabled           Boolean  @default(true)
+  marketingEnabled       Boolean  @default(false)
+  productUpdatesEnabled  Boolean  @default(true)
+  timezone               String?
+  version                Int      @default(1)
+  metadata               Json?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+// Phase 32.2 — temporary focus mode sessions
+model NotificationFocusSession {
+  id                     String    @id @default(cuid())
+  userId                 String
+  startsAt               DateTime  @default(now())
+  endsAt                 DateTime?
+  indefinite             Boolean   @default(false)
+  silencePush            Boolean   @default(true)
+  silenceEmail           Boolean   @default(false)
+  allowCritical          Boolean   @default(true)
+  allowSecurity          Boolean   @default(true)
+  allowedCategories      String[]  @default([])
+  allowedUserIds         String[]  @default([])
+  allowedConversationIds String[]  @default([])
+  active                 Boolean   @default(true)
+  metadata               Json?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([userId, active])
+  @@index([endsAt])
+}
+
+// Phase 32.2 — digest schedule (one row per user)
+model NotificationDigestSchedule {
+  id              String    @id @default(cuid())
+  userId          String    @unique
+  mode            String    @default("off")
+  enabled         Boolean   @default(false)
+  timezone        String    @default("UTC")
+  morningHour     Int       @default(8)
+  morningMinute   Int       @default(0)
+  eveningHour     Int       @default(19)
+  eveningMinute   Int       @default(0)
+  dailyHour       Int       @default(9)
+  dailyMinute     Int       @default(0)
+  weeklyDay       Int       @default(1)
+  weeklyHour      Int       @default(9)
+  weeklyMinute    Int       @default(0)
+  emailEnabled    Boolean   @default(true)
+  inAppEnabled    Boolean   @default(true)
+  pushReadyAlert  Boolean   @default(false)
+  includeRead     Boolean   @default(false)
+  lastRunKey      String?
+  lastRunAt       DateTime?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([enabled, mode])
+}
+
+// Phase 32.2 — generated digests
+model NotificationDigest {
+  id                  String    @id @default(cuid())
+  userId              String
+  scheduleId          String?
+  mode                String
+  periodStart         DateTime
+  periodEnd           DateTime
+  timezone            String    @default("UTC")
+  idempotencyKey      String    @unique
+  status              String    @default("pending")
+  itemCount           Int       @default(0)
+  unreadCount         Int       @default(0)
+  criticalCount       Int       @default(0)
+  highCount           Int       @default(0)
+  summaryJson         Json?
+  emailStatus         String?
+  inAppNotificationId String?
+  errorMessage        String?
+  readAt              DateTime?
+  sentAt              DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model NotificationDigestItem {
+  id             String   @id @default(cuid())
+  digestId       String
+  notificationId String?
+  eventId        String?
+  category       String?
+  priority       String?
+  title          String?
+  body           String?
+  deepLink       String?
+  groupKey       String?
+  sortOrder      Int      @default(0)
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([digestId])
+  @@index([notificationId])
+}
+
+// Phase 32.2 — quiet hours / focus deferred suppressions
+model NotificationSuppression {
+  id             String    @id @default(cuid())
+  userId         String
+  notificationId String?
+  eventId        String?
+  channel        String
+  reason         String
+  action         String
+  nextEligibleAt DateTime?
+  releasedAt     DateTime?
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([nextEligibleAt])
 }
 
 // Phase 32.0 — audit trail

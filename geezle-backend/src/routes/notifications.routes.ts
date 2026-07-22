@@ -14,7 +14,28 @@ import {
   markAsUnread
 } from '../controllers/notifications.controller';
 import { registerDevice, unregisterDevice } from '../controllers/notificationDevices.controller';
-import { createMyQuietHourRule, deactivateMyQuietHourRule, getMyQuietHours } from '../services/journey.service';
+import {
+  createMyQuietHourRule,
+  deactivateMyQuietHourRule,
+  getMyQuietHours
+} from '../services/journey.service';
+import {
+  getPreferencesBundle,
+  patchPreferencesGlobal,
+  patchPreferenceCategory,
+  patchPreferenceEvent,
+  resetPreferences,
+  putQuietHours,
+  getFocusMode,
+  startFocusMode,
+  stopFocusMode,
+  getDigestSettings,
+  putDigestSettings,
+  listDigests,
+  getDigest,
+  markDigestRead,
+  evaluateDeliveryPolicy
+} from '../controllers/notificationPreferences.controller';
 
 const router = express.Router();
 
@@ -28,6 +49,16 @@ router.post('/bulk', authMiddleware, bulkUpdateNotifications);
 router.post('/create', authMiddleware, createNotification);
 router.post('/emit', authMiddleware, emitNotification);
 router.get('/user/:userId', authMiddleware, adminMiddleware, listNotificationsForUser);
+
+// Phase 32.2 — Preferences
+router.get('/preferences', authMiddleware, getPreferencesBundle);
+router.patch('/preferences', authMiddleware, patchPreferencesGlobal);
+router.patch('/preferences/categories/:category', authMiddleware, patchPreferenceCategory);
+router.patch('/preferences/events/:eventType', authMiddleware, patchPreferenceEvent);
+router.post('/preferences/reset', authMiddleware, resetPreferences);
+router.post('/preferences/evaluate', authMiddleware, evaluateDeliveryPolicy);
+
+// Quiet hours
 router.get('/quiet-hours', authMiddleware, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -50,6 +81,7 @@ router.post('/quiet-hours', authMiddleware, async (req, res) => {
     return res.status(code).json({ success: false, error: message });
   }
 });
+router.put('/quiet-hours', authMiddleware, putQuietHours);
 router.delete('/quiet-hours/:id', authMiddleware, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -62,6 +94,19 @@ router.delete('/quiet-hours/:id', authMiddleware, async (req, res) => {
     return res.status(status).json({ success: false, error: message });
   }
 });
+
+// Focus mode
+router.get('/focus-mode', authMiddleware, getFocusMode);
+router.post('/focus-mode', authMiddleware, startFocusMode);
+router.delete('/focus-mode', authMiddleware, stopFocusMode);
+
+// Digests
+router.get('/digest-settings', authMiddleware, getDigestSettings);
+router.put('/digest-settings', authMiddleware, putDigestSettings);
+router.get('/digests', authMiddleware, listDigests);
+router.get('/digests/:digestId', authMiddleware, getDigest);
+router.post('/digests/:digestId/mark-read', authMiddleware, markDigestRead);
+
 router.post('/device/register', authMiddleware, registerDevice);
 router.post('/device/unregister', authMiddleware, unregisterDevice);
 router.post('/test/push', authMiddleware, adminMiddleware, testPushNotification);

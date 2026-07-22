@@ -384,7 +384,44 @@ export class NotificationService {
           details: { channel: 'in_app', latencyMs }
         });
 
-        if (!input.skipRealtime && !input.skipPush && priority !== 'silent') {
+        // Phase 32.2 — delivery policy for push (in-app already written)
+        let allowPush = !input.skipPush && priority !== 'silent';
+        if (allowPush) {
+          try {
+            const { NotificationDeliveryPolicy } = await import('./delivery/NotificationDeliveryPolicy');
+            const policy = await NotificationDeliveryPolicy.evaluate({
+              userId,
+              eventType: eventType || type,
+              category,
+              channel: 'PUSH',
+              priority,
+              actorId,
+              conversationId: (meta.conversationId || meta.entityId || null) as any,
+              isMandatorySecurity: category === 'security',
+              isEmergencySystem: false
+            });
+            if (!policy.allowed || policy.action !== 'DELIVER_NOW') {
+              allowPush = false;
+              await recordDelivery({
+                notificationId: created.id,
+                eventId,
+                userId,
+                channel: 'push',
+                status: policy.action === 'QUEUE_FOR_DIGEST' ? 'queued_digest' : 'suppressed',
+                errorCode: policy.reason
+              });
+              await bumpNotificationMetric(
+                policy.action === 'QUEUE_FOR_DIGEST' ? 'push_digest' : 'push_suppressed',
+                category,
+                1
+              );
+            }
+          } catch {
+            // policy optional if tables missing
+          }
+        }
+
+        if (!input.skipRealtime && allowPush) {
           try {
             notifyUser(userId, {
               id: created.id,
@@ -414,6 +451,22 @@ export class NotificationService {
               errorMessage: pushErr?.message || 'push_failed'
             });
             await bumpNotificationMetric('push_failed', category, 1);
+          }
+        } else if (!input.skipRealtime && !allowPush) {
+          // Still emit in-app realtime so inbox updates without push
+          try {
+            const { default: realtime } = await import('../../utils/realtime');
+            realtime.emitToUser(userId, 'notifications:new', {
+              id: created.id,
+              type,
+              title,
+              body,
+              actionUrl: deepLink,
+              createdAt: created.createdAt?.toISOString?.() || new Date().toISOString(),
+              meta
+            });
+          } catch {
+            // optional
           }
         }
 
