@@ -64,6 +64,7 @@ const GoogleSettings = React.lazy(() => import('./admin/GoogleSettings'));
 const MonetizationManagement = React.lazy(() => import('./admin/MonetizationManagement'));
 const RecommendationManagement = React.lazy(() => import('./admin/RecommendationManagement'));
 const ScrolithaManagement = React.lazy(() => import('./admin/ScrolithaManagement'));
+const ScrolithaAIFoundation = React.lazy(() => import('./admin/ScrolithaAIFoundation'));
 const AppManagement = React.lazy(() => import('./admin/AppManagement'));
 const MobileHomepage = React.lazy(() => import('./admin/MobileHomepage'));
 const SystemBackup = React.lazy(() => import('./admin/SystemBackup'));
@@ -72,7 +73,7 @@ const AdminLivePlatform = React.lazy(() => import('../pages/AdminLivePlatform'))
 const ScrollAdminPanel = React.lazy(() => import('../features/scroll/ScrollAdminPanel'));
 
 // Define valid tab types
-type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'apps' | 'developer-platform' | 'system-backup';
+type Tab = 'overview' | 'analytics' | 'market-intelligence' | 'insights-growth' | 'listings' | 'marketplace' | 'engagement' | 'finance' | 'gateways' | 'cms' | 'homepage' | 'mobile-homepage' | 'blog' | 'scroll' | 'live' | 'marketing' | 'users' | 'monetization' | 'files' | 'staff' | 'access-control' | 'role-management' | 'policy-center' | 'approval-policies' | 'audit-logs' | 'security-alerts' | 'procurement' | 'compliance' | 'private-talent-cloud' | 'integrations' | 'scrolitha-controls' | 'managed-delivery' | 'feature-control' | 'discovery-studio' | 'journey-center' | 'notification-ops' | 'moderation-trust' | 'config-rollback' | 'realtime-ops' | 'moderator-console' | 'message-records' | 'messaging-groups' | 'kyc' | 'support' | 'system' | 'profile' | 'messages' | 'ai' | 'atm' | 'community' | 'groups' | 'recommendations' | 'navigation' | 'reviews' | 'languages' | 'forms' | 'google-settings' | 'scrolitha' | 'scrolitha-ai' | 'apps' | 'developer-platform' | 'system-backup';
 
 // Define navigation item interface
 interface NavItem {
@@ -278,6 +279,7 @@ const AdminDashboard: React.FC = () => {
                 { id: 'ai', label: t('dashboard.admin.nav.ai_intelligence', 'AI Intelligence'), icon: Brain },
                 { id: 'atm', label: t('dashboard.admin.nav.atm', 'ATM Time Tracker'), icon: Clock },
                 { id: 'scrolitha', label: t('dashboard.admin.nav.scrolitha', 'Scrolitha'), icon: Bot },
+                { id: 'scrolitha-ai', label: 'Scrolitha AI', icon: Bot },
                 { id: 'insights-growth', label: 'Insights & Growth', icon: BarChart2 }
                 , { id: 'market-intelligence', label: t('dashboard.admin.nav.market_intelligence', 'Market Intelligence'), icon: BarChart2 }
             ]
@@ -407,6 +409,7 @@ const AdminDashboard: React.FC = () => {
             case 'ai': return <AIIntelligence />;
             case 'atm': return <ATMTrackerModule />;
             case 'scrolitha': return <ScrolithaManagement />;
+            case 'scrolitha-ai': return <ScrolithaAIFoundation />;
             case 'insights-growth': return <InsightsGrowth />;
             case 'market-intelligence': return <MarketIntelligence />;
             case 'listings': return <ListingsManagementTab />;
@@ -479,6 +482,7 @@ const AdminDashboard: React.FC = () => {
         if (tab === 'discovery-studio') return 'Discovery Studio';
         if (tab === 'journey-center') return 'Notification & Journey Center';
         if (tab === 'notification-ops') return 'Notification Operations';
+        if (tab === 'scrolitha-ai') return 'Scrolitha AI';
         if (tab === 'moderation-trust') return 'Moderation & Trust';
         if (tab === 'config-rollback') return 'Config & Rollback';
         if (tab === 'realtime-ops') return 'Realtime Ops';
