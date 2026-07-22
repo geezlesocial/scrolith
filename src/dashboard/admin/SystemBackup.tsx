@@ -43,6 +43,9 @@ type BackupRecord = {
 type BackupRuntimeMeta = {
   storageDriver?: string;
   durable?: boolean;
+  portable?: boolean;
+  packageExtension?: string;
+  hostHint?: string;
   importLimitBytes?: number;
   maxSingleFileBytes?: number;
   maxTotalFileSnapshotBytes?: number;
@@ -242,9 +245,9 @@ const SystemBackup: React.FC = () => {
 
   const storageLabel = useMemo(() => {
     const driver = String(runtimeMeta?.storageDriver || 'local').trim().toLowerCase();
-    if (driver === 'database') return 'IBM Postgres durable';
-    if (driver === 'azure_blob') return 'External blob';
-    return 'Local instance';
+    if (driver === 'database') return 'Postgres durable catalog';
+    if (driver === 'azure_blob') return 'Azure Blob durable';
+    return 'Local instance (dev only)';
   }, [runtimeMeta?.storageDriver]);
 
   const activeCreateJob = useMemo(
@@ -352,23 +355,39 @@ const SystemBackup: React.FC = () => {
         includeFiles: createIncludeFiles,
         notes: createNotes.trim()
       });
-      const jobId = String(result?.job?.id || '');
-      if (jobId) {
+      const job = result?.job || result;
+      const jobId = String(job?.id || result?.job?.id || '');
+      const license = String(result?.scrolithLicense || job?.scrolithLicense || '');
+      const backupId = String(result?.backup?.id || job?.backupId || '');
+      const asyncJob = result?.async === true || job?.status === 'queued' || job?.status === 'running';
+
+      if (backupId && license) {
+        setLatestLicense({ backupId, license });
+      }
+
+      if (asyncJob && job?.status !== 'completed') {
         showNotification(
           'success',
           'System Backup',
-          'Backup generation started. It will continue in the background and appear in the catalog when ready.'
+          'Backup generation started. Catalog refreshes automatically when the package is ready.'
         );
+      } else if (job?.status === 'failed') {
+        showNotification('error', 'System Backup', job?.message || 'Backup generation failed.');
       } else {
-        const backupId = String(result?.backup?.id || '');
-        const license = String(result?.scrolithLicense || '');
-        if (backupId && license) {
-          setLatestLicense({ backupId, license });
-        }
-        showNotification('success', 'System Backup', 'Backup created successfully.');
+        showNotification(
+          'success',
+          'System Backup',
+          license
+            ? 'Backup created. Copy and store the Scrolith restore license securely.'
+            : 'Backup created successfully and added to the catalog.'
+        );
       }
       setCreateNotes('');
       await loadData(true);
+      if (jobId) {
+        // Extra refresh for eventual consistency across multi-instance catalog reads
+        window.setTimeout(() => void loadData(true), 1500);
+      }
     } catch (error: any) {
       showNotification('error', 'System Backup', getApiErrorMessage(error, 'Failed to create backup.'));
     } finally {
@@ -539,7 +558,8 @@ const SystemBackup: React.FC = () => {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">System Backup Module</h2>
             <p className="text-sm text-gray-600">
-              Full and partial backup, migration export/import, license-verified restore, and backup catalog management.
+              Enterprise portable backups: create, export/download, upload/import, verify, and license-gated restore on
+              any Scrolith host without changing existing platform settings.
             </p>
           </div>
           <button
@@ -574,11 +594,31 @@ const SystemBackup: React.FC = () => {
             <p className="text-xs uppercase tracking-wide text-gray-500">Storage Backend</p>
             <p className="mt-2 text-sm font-bold text-gray-900">{storageLabel}</p>
             <p className="mt-1 text-xs text-gray-600">
-              {runtimeMeta?.durable
-                ? 'Durable across IBM Code Engine revisions.'
-                : 'Instance-local; configure durable storage before production restores.'}
+              {runtimeMeta?.hostHint ||
+                (runtimeMeta?.durable
+                  ? 'Durable across Cloud Run revisions and multi-instance hosts.'
+                  : 'Instance-local disk only — not safe for production restores.')}
             </p>
           </div>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+          <p className="font-semibold text-slate-900">Portable package format</p>
+          <p className="mt-1">
+            Export downloads a{' '}
+            <code className="rounded bg-white px-1">
+              {runtimeMeta?.packageExtension || '.scrolith-backup.json.gz'}
+            </code>{' '}
+            archive. Upload that file on any Scrolith deployment (Cloud Run, VPS, Docker) via Import, then restore with
+            the Scrolith license + backup admin credentials. Live settings are unchanged until you explicitly restore.
+          </p>
+          {typeof runtimeMeta?.importLimitBytes === 'number' ? (
+            <p className="mt-1 text-slate-500">
+              Import size limit: {formatBytes(runtimeMeta.importLimitBytes)}. File snapshot caps:{' '}
+              {formatBytes(Number(runtimeMeta.maxSingleFileBytes || 0))} per file /{' '}
+              {formatBytes(Number(runtimeMeta.maxTotalFileSnapshotBytes || 0))} total.
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -697,13 +737,19 @@ const SystemBackup: React.FC = () => {
               </div>
             ) : null}
 
-            <label className="flex items-center gap-2 text-sm text-gray-700">
+            <label className="flex items-start gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"
+                className="mt-1"
                 checked={createIncludeFiles}
                 onChange={(event) => setCreateIncludeFiles(event.target.checked)}
               />
-              Include file snapshots (`data` / `uploads`)
+              <span>
+                Include file snapshots (`data` / `uploads`)
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Uncheck for a faster database/settings-only package (recommended for migration between hosts).
+                </span>
+              </span>
             </label>
 
             <label className="block text-sm">
@@ -724,8 +770,13 @@ const SystemBackup: React.FC = () => {
               className="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
               {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Database className="mr-2 h-4 w-4" />}
-              {activeCreateJob ? 'Backup Running...' : 'Generate Backup'}
+              {creating || activeCreateJob ? 'Generating Backup…' : 'Generate Backup'}
             </button>
+            {creating || activeCreateJob ? (
+              <p className="text-xs text-blue-700">
+                {activeCreateJob?.message || 'Packaging database tables and optional file snapshots. Please wait…'}
+              </p>
+            ) : null}
           </div>
         </section>
 
@@ -741,7 +792,7 @@ const SystemBackup: React.FC = () => {
               <input
                 ref={importInputRef}
                 type="file"
-                accept=".gz,.json,.scrolith-backup"
+                accept=".gz,.json,.scrolith-backup,application/gzip,application/json"
                 className="w-full rounded-lg border border-gray-300 px-3 py-2"
                 onChange={(event) => {
                   const file = event.target.files?.[0] || null;
@@ -763,20 +814,23 @@ const SystemBackup: React.FC = () => {
             </label>
 
             <p className="text-xs text-gray-500">
-              Imported backups receive a newly generated Scrolith restore license for this server environment.
+              Use this to move a backup from another Scrolith host. Import only catalogs the package — it does not
+              overwrite live data until you run Restore. A new restore license is issued for this environment.
             </p>
 
-            {importing ? (
-              <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+            <button
+              type="button"
+              disabled={importing}
+              onClick={() => importInputRef.current?.click()}
+              className="inline-flex items-center rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+            >
+              {importing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Importing backup file...
-              </div>
-            ) : (
-              <div className="inline-flex items-center rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-600">
+              ) : (
                 <FileUp className="mr-2 h-4 w-4" />
-                Choose file to import
-              </div>
-            )}
+              )}
+              {importing ? 'Importing…' : 'Choose file to import'}
+            </button>
           </div>
         </section>
       </div>
@@ -966,8 +1020,13 @@ const SystemBackup: React.FC = () => {
               })}
               {!backups.length ? (
                 <tr>
-                  <td colSpan={7} className="px-2 py-6 text-center text-sm text-gray-500">
-                    No backup files generated yet.
+                  <td colSpan={7} className="px-2 py-8 text-center text-sm text-gray-500">
+                    <p className="font-medium text-gray-700">No backup files in the catalog yet.</p>
+                    <p className="mt-1">
+                      Generate a full or partial backup above, or import a portable{' '}
+                      <code className="rounded bg-gray-100 px-1">.scrolith-backup.json.gz</code> package from another
+                      host.
+                    </p>
                   </td>
                 </tr>
               ) : null}

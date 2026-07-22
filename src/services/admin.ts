@@ -2158,6 +2158,9 @@ export const AdminService = {
     runtime?: {
       storageDriver?: string;
       durable?: boolean;
+      portable?: boolean;
+      packageExtension?: string;
+      hostHint?: string;
       importLimitBytes?: number;
       maxSingleFileBytes?: number;
       maxTotalFileSnapshotBytes?: number;
@@ -2169,6 +2172,9 @@ export const AdminService = {
       runtime?: {
         storageDriver?: string;
         durable?: boolean;
+        portable?: boolean;
+        packageExtension?: string;
+        hostHint?: string;
         importLimitBytes?: number;
         maxSingleFileBytes?: number;
         maxTotalFileSnapshotBytes?: number;
