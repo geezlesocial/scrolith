@@ -231,6 +231,19 @@ const ensureBackupDir = () => {
   fs.mkdirSync(BACKUP_ROOT_DIR, { recursive: true });
 };
 
+/**
+ * Resolve durable backup storage.
+ *
+ * Production (Cloud Run / GCS media) MUST NOT use instance-local disk:
+ * /tmp is ephemeral and not shared across revisions, so the catalog appears empty
+ * and create/import/restore cannot survive redeploys.
+ *
+ * Default order:
+ * 1) Explicit SYSTEM_BACKUP_STORAGE_DRIVER / BACKUP_STORAGE_DRIVER
+ * 2) Azure blob when configured and requested by managed azure driver
+ * 3) Database (Postgres AppSetting chunks) for Cloud Run / GCS / production
+ * 4) Local disk only for explicit local or pure local dev
+ */
 function resolveBackupStorageProvider() {
   const explicitDriver = String(
     process.env.SYSTEM_BACKUP_STORAGE_DRIVER || process.env.BACKUP_STORAGE_DRIVER || ''
@@ -239,7 +252,7 @@ function resolveBackupStorageProvider() {
     .toLowerCase();
 
   if (['azure_blob', 'azure', 'blob'].includes(explicitDriver)) {
-    return isAzureBlobConfigured() ? AZURE_BLOB_STORAGE_PROVIDER : DEFAULT_STORAGE_PROVIDER;
+    return isAzureBlobConfigured() ? AZURE_BLOB_STORAGE_PROVIDER : DATABASE_STORAGE_PROVIDER;
   }
   if (['database', 'db', 'postgres', 'postgresql', 'appsetting'].includes(explicitDriver)) {
     return DATABASE_STORAGE_PROVIDER;
@@ -248,7 +261,29 @@ function resolveBackupStorageProvider() {
     return DEFAULT_STORAGE_PROVIDER;
   }
 
-  return resolveManagedStorageProvider();
+  const managed = resolveManagedStorageProvider();
+  if (managed === AZURE_BLOB_STORAGE_PROVIDER && isAzureBlobConfigured()) {
+    return AZURE_BLOB_STORAGE_PROVIDER;
+  }
+  if (managed === MANAGED_DATABASE_STORAGE_PROVIDER) {
+    return DATABASE_STORAGE_PROVIDER;
+  }
+
+  // Cloud Run, GCE, or any non-local media driver → durable Postgres catalog/binaries.
+  const uploadDriver = String(process.env.UPLOAD_DRIVER || process.env.STORAGE_DRIVER || '')
+    .trim()
+    .toLowerCase();
+  const ephemeralFs =
+    Boolean(process.env.K_SERVICE) ||
+    Boolean(process.env.GOOGLE_CLOUD_PROJECT) ||
+    process.env.NODE_ENV === 'production' ||
+    ['gcs', 'google_cloud_storage', 's3', 'azure', 'azure_blob', 'blob'].includes(uploadDriver);
+
+  if (ephemeralFs) {
+    return DATABASE_STORAGE_PROVIDER;
+  }
+
+  return DEFAULT_STORAGE_PROVIDER;
 }
 
 const shouldUseAzureBackupStorage = () => resolveBackupStorageProvider() === AZURE_BLOB_STORAGE_PROVIDER;
@@ -2005,9 +2040,12 @@ export const getSystemBackupSections = (): BackupSection[] => [
 
 export const getSystemBackupRuntimeMeta = () => {
   const storageDriver = resolveBackupStorageProvider();
+  const durable = storageDriver !== DEFAULT_STORAGE_PROVIDER;
   return {
     storageDriver,
-    durable: storageDriver !== DEFAULT_STORAGE_PROVIDER,
+    durable,
+    portable: true,
+    packageExtension: '.scrolith-backup.json.gz',
     catalogScope: shouldUseDatabaseBackupStorage() ? DATABASE_BACKUP_CATALOG_SCOPE : null,
     blobPrefix: shouldUseAzureBackupStorage() ? BACKUP_BLOB_PREFIX : null,
     importLimitBytes: BACKUP_IMPORT_LIMIT_BYTES,
@@ -2015,7 +2053,10 @@ export const getSystemBackupRuntimeMeta = () => {
     maxTotalFileSnapshotBytes: BACKUP_MAX_TOTAL_FILE_BYTES,
     databaseChunkBytes: shouldUseDatabaseBackupStorage() ? DATABASE_BACKUP_CHUNK_BYTES : null,
     jobHeartbeatMs: BACKUP_JOB_HEARTBEAT_MS,
-    staleJobTimeoutMs: BACKUP_JOB_STALE_MS
+    staleJobTimeoutMs: BACKUP_JOB_STALE_MS,
+    hostHint: durable
+      ? 'Backups are stored durably and can be exported/imported on any Scrolith host.'
+      : 'Local disk storage is development-only. Production uses durable Postgres by default.'
   };
 };
 

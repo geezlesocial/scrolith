@@ -106,6 +106,8 @@ export const createAdminSystemBackup = async (req: Request, res: Response) => {
       mode,
       sections: parseCsvOrArray(req.body?.sections) as any,
       customTables: parseCsvOrArray(req.body?.customTables),
+      // Full backups with every media file can be huge; default includeFiles stays true
+      // but callers can set includeFiles=false for a lighter portable config backup.
       includeFiles: req.body?.includeFiles !== false,
       notes: req.body?.notes
     };
@@ -118,16 +120,63 @@ export const createAdminSystemBackup = async (req: Request, res: Response) => {
       requestedAt: job.createdAt
     });
 
-    void runSystemBackupCreationJob(job.id, input, {
+    /**
+     * Cloud Run freezes CPU after the HTTP response returns (unless always-on CPU).
+     * Fire-and-forget backup jobs never finish in production.
+     * Default: run the job to completion in-request on Cloud Run / production.
+     * Set SYSTEM_BACKUP_ASYNC=1 only when a real worker/queue is available.
+     */
+    const forceAsync = ['1', 'true', 'yes', 'on'].includes(
+      String(process.env.SYSTEM_BACKUP_ASYNC || '').toLowerCase()
+    );
+    const mustRunInline =
+      !forceAsync &&
+      (Boolean(process.env.K_SERVICE) ||
+        process.env.NODE_ENV === 'production' ||
+        process.env.SYSTEM_BACKUP_SYNC === '1');
+
+    if (!mustRunInline) {
+      void runSystemBackupCreationJob(job.id, input, {
+        onUpdate: async (payload) => {
+          emitAdminSystemBackupUpdate(req, payload);
+        }
+      });
+      return res.status(202).json({
+        success: true,
+        data: {
+          job,
+          async: true
+        }
+      });
+    }
+
+    const completedJob = await runSystemBackupCreationJob(job.id, input, {
       onUpdate: async (payload) => {
         emitAdminSystemBackupUpdate(req, payload);
       }
     });
 
-    return res.status(202).json({
+    if (completedJob.status === 'failed') {
+      return res.status(500).json({
+        success: false,
+        code: completedJob.errorCode || 'SYSTEM_BACKUP_ERROR',
+        error: completedJob.message || 'System backup generation failed.',
+        data: { job: completedJob }
+      });
+    }
+
+    return res.status(201).json({
       success: true,
       data: {
-        job
+        job: completedJob,
+        backup: completedJob.backupId
+          ? {
+              id: completedJob.backupId,
+              fileName: completedJob.fileName
+            }
+          : null,
+        scrolithLicense: completedJob.scrolithLicense,
+        async: false
       }
     });
   } catch (error: any) {
