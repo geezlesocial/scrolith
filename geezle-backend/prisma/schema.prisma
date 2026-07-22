@@ -8,74 +8,74 @@ datasource db {
 }
 
 model User {
-  id                          String    @id @default(cuid())
-  email                       String    @unique
-  username                    String?   @unique
-  passwordHash                String?
-  name                        String?
-  role                        Role      @default(USER)
-  avatar                      String?
-  profilePhotoFileId          String?
-  phone                       String?
-  country                     String?
-  timezone                    String?
-  kycStatus                   KYCStatus @default(PENDING)
-  isVerified                  Boolean   @default(false)
-  isActive                    Boolean   @default(true)
-  isOnline                    Boolean   @default(false)
-  lastLoginAt                 DateTime?
-  lastSeenAt                  DateTime?
+  id                                String    @id @default(cuid())
+  email                             String    @unique
+  username                          String?   @unique
+  passwordHash                      String?
+  name                              String?
+  role                              Role      @default(USER)
+  avatar                            String?
+  profilePhotoFileId                String?
+  phone                             String?
+  country                           String?
+  timezone                          String?
+  kycStatus                         KYCStatus @default(PENDING)
+  isVerified                        Boolean   @default(false)
+  isActive                          Boolean   @default(true)
+  isOnline                          Boolean   @default(false)
+  lastLoginAt                       DateTime?
+  lastSeenAt                        DateTime?
   /// Phase 22.3 — presence privacy (EVERYONE | CONTACTS | NOBODY); maps to onlineStatusVisibility
-  presenceVisibility          String    @default("EVERYONE")
+  presenceVisibility                String    @default("EVERYONE")
   /// Phase 22.3B — messaging privacy controls (additive; defaults preserve current behavior)
-  lastSeenVisibility                 String    @default("EVERYONE")
-  readReceiptsEnabled                Boolean   @default(true)
-  typingIndicatorsEnabled            Boolean   @default(true)
-  recordingIndicatorsEnabled         Boolean   @default(true)
-  directMessageAudience              String    @default("EVERYONE")
-  groupInviteAudience                String    @default("EVERYONE")
-  notificationMessagePreviewEnabled  Boolean   @default(true)
-  messagingPrivacyUpdatedAt          DateTime?
-  freelancerPlanId            String?
-  freelancerPlanName          String?
-  freelancerPlanInterval      String?
-  freelancerPlanPrice         Float?
-  freelancerPlanCurrency      String?
-  freelancerPlanActive        Boolean   @default(false)
-  freelancerPlanPurchasedAt   DateTime?
-  freelancerPlanExpiresAt     DateTime?
-  employerPlanId              String?
-  employerPlanName            String?
-  employerPlanInterval        String?
-  employerPlanPrice           Float?
-  employerPlanCurrency        String?
-  employerPlanActive          Boolean   @default(false)
-  employerPlanPurchasedAt     DateTime?
-  employerPlanExpiresAt       DateTime?
-  stripeAccountId             String?
-  refreshToken                String?
-  followOnboardingRequired    Boolean   @default(false)
-  followOnboardingCompletedAt DateTime?
+  lastSeenVisibility                String    @default("EVERYONE")
+  readReceiptsEnabled               Boolean   @default(true)
+  typingIndicatorsEnabled           Boolean   @default(true)
+  recordingIndicatorsEnabled        Boolean   @default(true)
+  directMessageAudience             String    @default("EVERYONE")
+  groupInviteAudience               String    @default("EVERYONE")
+  notificationMessagePreviewEnabled Boolean   @default(true)
+  messagingPrivacyUpdatedAt         DateTime?
+  freelancerPlanId                  String?
+  freelancerPlanName                String?
+  freelancerPlanInterval            String?
+  freelancerPlanPrice               Float?
+  freelancerPlanCurrency            String?
+  freelancerPlanActive              Boolean   @default(false)
+  freelancerPlanPurchasedAt         DateTime?
+  freelancerPlanExpiresAt           DateTime?
+  employerPlanId                    String?
+  employerPlanName                  String?
+  employerPlanInterval              String?
+  employerPlanPrice                 Float?
+  employerPlanCurrency              String?
+  employerPlanActive                Boolean   @default(false)
+  employerPlanPurchasedAt           DateTime?
+  employerPlanExpiresAt             DateTime?
+  stripeAccountId                   String?
+  refreshToken                      String?
+  followOnboardingRequired          Boolean   @default(false)
+  followOnboardingCompletedAt       DateTime?
   /// Phase 26 — languages the user understands (not nationality/locale)
-  understoodLanguages            String[]  @default([])
-  preferredTranslationLanguage   String?
-  languageSuggestionsEnabled     Boolean   @default(true)
-  autoTranslateEnabled           Boolean   @default(false)
-  languagePreferencesUpdatedAt   DateTime?
-  languagePreferencesConfirmed   Boolean   @default(false)
+  understoodLanguages               String[]  @default([])
+  preferredTranslationLanguage      String?
+  languageSuggestionsEnabled        Boolean   @default(true)
+  autoTranslateEnabled              Boolean   @default(false)
+  languagePreferencesUpdatedAt      DateTime?
+  languagePreferencesConfirmed      Boolean   @default(false)
   /// Phase 28 — preferred display currency (ISO 4217). Null = use platform default.
-  preferredCurrency              String?   @map("preferred_currency")
-  currencyPreferenceUpdatedAt    DateTime? @map("currency_preference_updated_at")
+  preferredCurrency                 String?   @map("preferred_currency")
+  currencyPreferenceUpdatedAt       DateTime? @map("currency_preference_updated_at")
   /// Admin / platform Google Authenticator (TOTP) 2FA
-  twoFactorSecret                String?
-  twoFactorEnabled               Boolean   @default(false)
-  twoFactorBackupCodes           String[]  @default([])
-  twoFactorEnrolledAt            DateTime?
-  twoFactorWaivedUntil           DateTime?
-  twoFactorWaivedById            String?
-  twoFactorWaivedReason          String?
-  createdAt                   DateTime  @default(now())
-  updatedAt                   DateTime  @updatedAt
+  twoFactorSecret                   String?
+  twoFactorEnabled                  Boolean   @default(false)
+  twoFactorBackupCodes              String[]  @default([])
+  twoFactorEnrolledAt               DateTime?
+  twoFactorWaivedUntil              DateTime?
+  twoFactorWaivedById               String?
+  twoFactorWaivedReason             String?
+  createdAt                         DateTime  @default(now())
+  updatedAt                         DateTime  @updatedAt
 
   // Relationships
   profile              Profile?
@@ -153,7 +153,7 @@ model User {
   kycSubmissions        KYCSubmission[]
   kycDocuments          KYCDocument[]
   kycConsents           KYCConsent[]
-  kycAuditEvents        KYCAuditEvent[] @relation("KYCAuditActorUser")
+  kycAuditEvents        KYCAuditEvent[]     @relation("KYCAuditActorUser")
 
   // Direct messaging
   conversations         ConversationParticipant[]
@@ -739,9 +739,9 @@ model KYCSubmission {
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
 
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  documents KYCDocument[]
-  consents  KYCConsent[]
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents   KYCDocument[]
+  consents    KYCConsent[]
   auditEvents KYCAuditEvent[]
 
   @@index([userId])
@@ -3944,18 +3944,18 @@ model CommunityMessage {
 
 // Direct messaging (1:1 and group)
 model Conversation {
-  id                  String                  @id @default(cuid())
-  type                ConversationType        @default(DIRECT)
+  id                  String                    @id @default(cuid())
+  type                ConversationType          @default(DIRECT)
   lastMessageText     String?
   lastMessageAt       DateTime?
   lastMessageSenderId String?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
   /// Phase 22.2 — group display metadata
   title               String?
-  description         String?                 @db.Text
+  description         String?                   @db.Text
   avatarFileId        String?
-  visibility          ConversationVisibility  @default(PRIVATE)
+  visibility          ConversationVisibility    @default(PRIVATE)
   source              String?
   sourceId            String?
   /// Phase 29.1 — Enterprise Messaging Groups identity + policy
@@ -3967,12 +3967,12 @@ model Conversation {
   bannerFileId        String?
   emoji               String?
   accentColor         String?
-  joinPolicy          ConversationJoinPolicy  @default(INVITE_ONLY)
+  joinPolicy          ConversationJoinPolicy    @default(INVITE_ONLY)
   messagingMode       ConversationMessagingMode @default(EVERYONE)
-  slowModeSeconds     Int                     @default(0)
+  slowModeSeconds     Int                       @default(0)
   maxMembers          Int?
-  memberCount         Int                     @default(0)
-  settingsVersion     Int                     @default(1)
+  memberCount         Int                       @default(0)
+  settingsVersion     Int                       @default(1)
   lockedAt            DateTime?
   lockedReason        String?
   lockedById          String?
@@ -3981,19 +3981,19 @@ model Conversation {
   lastActivityAt      DateTime?
   /// Sparse permission overrides: { "MEMBER": { "canInvite": true }, ... }
   permissionOverrides Json?
-  orgVerified         Boolean                 @default(false)
+  orgVerified         Boolean                   @default(false)
 
-  participants   ConversationParticipant[]
-  messages       DirectMessage[]
-  messageRecords DirectMessageRecord[]
-  voiceCalls     VoiceCall[]
-  voiceNotes     VoiceNote[]
-  invites        ConversationInvite[]
-  groupSettings  ConversationSettings?
-  joinRequests   ConversationJoinRequest[]
+  participants       ConversationParticipant[]
+  messages           DirectMessage[]
+  messageRecords     DirectMessageRecord[]
+  voiceCalls         VoiceCall[]
+  voiceNotes         VoiceNote[]
+  invites            ConversationInvite[]
+  groupSettings      ConversationSettings?
+  joinRequests       ConversationJoinRequest[]
   memberRestrictions ConversationMemberRestriction[]
-  moderationActions GroupModerationAction[]
-  pinnedMessages ConversationPinnedMessage[]
+  moderationActions  GroupModerationAction[]
+  pinnedMessages     ConversationPinnedMessage[]
 
   @@index([updatedAt])
   @@index([updatedAt, id])
@@ -4007,25 +4007,25 @@ model Conversation {
 }
 
 model ConversationParticipant {
-  id             String                        @id @default(cuid())
-  conversationId String
-  userId         String
-  joinedAt       DateTime                      @default(now())
-  lastReadAt     DateTime?
+  id                  String                        @id @default(cuid())
+  conversationId      String
+  userId              String
+  joinedAt            DateTime                      @default(now())
+  lastReadAt          DateTime?
   /// Phase 22.3 — delivery watermark (receiver acknowledged receive)
-  lastDeliveredAt DateTime?
-  label          String                        @default("other")
-  isStarred      Boolean                       @default(false)
-  isMuted        Boolean                       @default(false)
-  isArchived     Boolean                       @default(false)
-  deletedAt      DateTime?
+  lastDeliveredAt     DateTime?
+  label               String                        @default("other")
+  isStarred           Boolean                       @default(false)
+  isMuted             Boolean                       @default(false)
+  isArchived          Boolean                       @default(false)
+  deletedAt           DateTime?
   /// Phase 22.2
-  role           ConversationMemberRole        @default(MEMBER)
-  notifications  ConversationNotificationLevel @default(ALL)
+  role                ConversationMemberRole        @default(MEMBER)
+  notifications       ConversationNotificationLevel @default(ALL)
   /// Phase 29.1 — profile overlay: guest | readOnly | bot | coOwner (null = default for role)
-  profileKey     String?
+  profileKey          String?
   /// Phase 29.1 — last successful send (slow mode)
-  lastMessageAt  DateTime?
+  lastMessageAt       DateTime?
   /// Phase 29.1 — sparse per-member permission overrides
   permissionOverrides Json?
 
@@ -4042,24 +4042,24 @@ model ConversationParticipant {
 /// Phase 22.2 — group invitations
 /// Phase 29.1 — maxUses, oneTime, requireApproval, previewDisabled, label, useCount
 model ConversationInvite {
-  id             String                   @id @default(cuid())
-  conversationId String
-  code           String                   @unique
-  inviteeUserId  String?
-  invitedById    String
-  role           ConversationMemberRole   @default(MEMBER)
-  status         ConversationInviteStatus @default(PENDING)
-  expiresAt      DateTime?
-  createdAt      DateTime                 @default(now())
-  acceptedAt     DateTime?
+  id              String                   @id @default(cuid())
+  conversationId  String
+  code            String                   @unique
+  inviteeUserId   String?
+  invitedById     String
+  role            ConversationMemberRole   @default(MEMBER)
+  status          ConversationInviteStatus @default(PENDING)
+  expiresAt       DateTime?
+  createdAt       DateTime                 @default(now())
+  acceptedAt      DateTime?
   /// Phase 29.1
-  maxUses        Int?
-  useCount       Int                      @default(0)
-  oneTime        Boolean                  @default(false)
-  requireApproval Boolean                 @default(false)
-  previewDisabled Boolean                 @default(false)
-  label          String?
-  qrTokenHash    String?
+  maxUses         Int?
+  useCount        Int                      @default(0)
+  oneTime         Boolean                  @default(false)
+  requireApproval Boolean                  @default(false)
+  previewDisabled Boolean                  @default(false)
+  label           String?
+  qrTokenHash     String?
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
@@ -4071,32 +4071,32 @@ model ConversationInvite {
 
 /// Phase 29.1 — content toggles and content policy flags (1:1 with group Conversation)
 model ConversationSettings {
-  id                    String   @id @default(cuid())
-  conversationId        String   @unique
-  allowImages           Boolean  @default(true)
-  allowVideos           Boolean  @default(true)
-  allowFiles            Boolean  @default(true)
-  allowAudio            Boolean  @default(true)
-  allowVoice            Boolean  @default(true)
-  allowGifs             Boolean  @default(true)
-  allowStickers         Boolean  @default(true)
-  allowPolls            Boolean  @default(true)
-  allowEvents           Boolean  @default(true)
-  allowLocation         Boolean  @default(false)
-  allowContacts         Boolean  @default(false)
-  allowReactions        Boolean  @default(true)
-  allowEditing          Boolean  @default(true)
-  allowDelete           Boolean  @default(true)
-  allowForward          Boolean  @default(true)
-  allowCopy             Boolean  @default(true)
-  allowExternalLinks    Boolean  @default(true)
-  maxMentionsPerMessage Int      @default(20)
-  messageApprovalRequired Boolean @default(false)
-  mediaApprovalRequired Boolean  @default(false)
+  id                      String   @id @default(cuid())
+  conversationId          String   @unique
+  allowImages             Boolean  @default(true)
+  allowVideos             Boolean  @default(true)
+  allowFiles              Boolean  @default(true)
+  allowAudio              Boolean  @default(true)
+  allowVoice              Boolean  @default(true)
+  allowGifs               Boolean  @default(true)
+  allowStickers           Boolean  @default(true)
+  allowPolls              Boolean  @default(true)
+  allowEvents             Boolean  @default(true)
+  allowLocation           Boolean  @default(false)
+  allowContacts           Boolean  @default(false)
+  allowReactions          Boolean  @default(true)
+  allowEditing            Boolean  @default(true)
+  allowDelete             Boolean  @default(true)
+  allowForward            Boolean  @default(true)
+  allowCopy               Boolean  @default(true)
+  allowExternalLinks      Boolean  @default(true)
+  maxMentionsPerMessage   Int      @default(20)
+  messageApprovalRequired Boolean  @default(false)
+  mediaApprovalRequired   Boolean  @default(false)
   /// Advanced filters / keyword lists / AI hooks (opaque JSON)
-  policyJson            Json?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  policyJson              Json?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 }
@@ -4115,9 +4115,9 @@ model ConversationJoinRequest {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
+  @@unique([conversationId, userId, status])
   @@index([conversationId, status])
   @@index([userId, status])
-  @@unique([conversationId, userId, status])
 }
 
 /// Phase 29.1 — mute / shadow mute / ban
@@ -4357,55 +4357,55 @@ model ReactionSummary {
 
 // Community Post model for feed-style posts (separate from ForumThread)
 model CommunityPost {
-  id                             String   @id @default(cuid())
+  id                             String    @id @default(cuid())
   authorId                       String
   title                          String?
-  content                        String   @db.Text
+  content                        String    @db.Text
   sourceLanguage                 String?
   sourceLanguageConfidence       Float?
   /// Phase 26 — detection status: detected | low_confidence | mixed | no_linguistic_content | unsupported | detection_failed | not_processed
   languageDetectionStatus        String?
-  isMixedLanguage                Boolean  @default(false)
-  detectedLanguageCodes          String[] @default([])
-  languageManuallySet            Boolean  @default(false)
+  isMixedLanguage                Boolean   @default(false)
+  detectedLanguageCodes          String[]  @default([])
+  languageManuallySet            Boolean   @default(false)
   languageDetectedAt             DateTime?
   contentHash                    String?
   translationVersion             String?
-  attachments                    String[] @default([])
+  attachments                    String[]  @default([])
   attachmentCaptions             Json?
   offerTags                      Json?
-  tags                           String[] @default([])
-  mentions                       String[] @default([])
+  tags                           String[]  @default([])
+  mentions                       String[]  @default([])
   topic                          String?
   location                       String?
-  visibility                     String   @default("public") // public, friends, network, private, custom
-  graphicWarning                 Boolean  @default(false) // content warning flag (UI-only)
-  commentPolicy                  String   @default("everyone") // everyone, followers, following, mutuals, none
-  repostsEnabled                 Boolean  @default(true)
+  visibility                     String    @default("public") // public, friends, network, private, custom
+  graphicWarning                 Boolean   @default(false) // content warning flag (UI-only)
+  commentPolicy                  String    @default("everyone") // everyone, followers, following, mutuals, none
+  repostsEnabled                 Boolean   @default(true)
   originalPostId                 String?
   businessPageId                 String?
   clubId                         String?
-  viewsCount                     Int      @default(0)
-  likesCount                     Int      @default(0)
-  sharesCount                    Int      @default(0)
-  repostsCount                   Int      @default(0)
-  status                         String   @default("active") // active, draft, deleted
-  isPinned                       Boolean  @default(false)
-  isHighlighted                  Boolean  @default(false)
-  isAIEnhanced                   Boolean  @default(false)
-  aiInsightEnabled               Boolean  @default(false)
-  aiInsightGenerated             Boolean  @default(false)
-  aiInsightText                  String?  @db.Text
+  viewsCount                     Int       @default(0)
+  likesCount                     Int       @default(0)
+  sharesCount                    Int       @default(0)
+  repostsCount                   Int       @default(0)
+  status                         String    @default("active") // active, draft, deleted
+  isPinned                       Boolean   @default(false)
+  isHighlighted                  Boolean   @default(false)
+  isAIEnhanced                   Boolean   @default(false)
+  aiInsightEnabled               Boolean   @default(false)
+  aiInsightGenerated             Boolean   @default(false)
+  aiInsightText                  String?   @db.Text
   aiScore                        Float?
   videoFingerprint               String?
-  videoIntegrityStatus           String   @default("clear")
+  videoIntegrityStatus           String    @default("clear")
   videoIntegrityMatchMethod      String?
   videoIntegrityMatchScore       Float?
-  videoMonetizationBlocked       Boolean  @default(false)
+  videoMonetizationBlocked       Boolean   @default(false)
   videoIntegrityMatchedContentId String?
   videoIntegrityMatchedOwnerId   String?
-  createdAt                      DateTime @default(now())
-  updatedAt                      DateTime @updatedAt
+  createdAt                      DateTime  @default(now())
+  updatedAt                      DateTime  @updatedAt
 
   author       User                   @relation(fields: [authorId], references: [id], onDelete: Cascade)
   businessPage CommunityBusinessPage? @relation(fields: [businessPageId], references: [id], onDelete: SetNull)
@@ -6980,7 +6980,7 @@ enum AdStatus {
   REJECTED
 }
 
-// ============ Phase 30 � Scrolith Human Verification ============
+// ============ Phase 30 - Scrolith Human Verification ============
 
 model HumanVerificationSettings {
   id        String   @id @default(cuid())

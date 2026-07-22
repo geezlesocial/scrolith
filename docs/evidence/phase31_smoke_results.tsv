@@ -1,0 +1,13 @@
+﻿health	PASS	200
+auth_health	PASS	200
+hv_master_disabled	PASS	required=False master=False
+hv_create_disabled	PASS	required=False reason=master_disabled
+login_validation	PASS	status=400
+support_categories	PASS	200
+messages_privacy_auth	PASS	status=401
+admin_hv_auth	PASS	status=401
+https://scrolith.com/	PASS	200
+https://scrolith.com/support	PASS	200
+https://scrolith.com/auth/login	PASS	200
+https://scrolith.com/auth/signup	PASS	200
+fe_p31_login	PASS	200

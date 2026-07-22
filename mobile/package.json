@@ -1,7 +1,7 @@
 {
   "name": "Scrolith-mobile",
   "private": true,
-  "version": "1.1.32",
+  "version": "1.1.33",
   "type": "module",
   "scripts": {
     "web:build": "npm --prefix ../geezle run build",

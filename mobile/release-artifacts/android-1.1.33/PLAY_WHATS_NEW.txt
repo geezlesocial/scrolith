@@ -1,0 +1,4 @@
+﻿Scrolith 1.1.33
+• Production update: messaging groups and security readiness
+• Human verification framework ready (admin-controlled)
+• Stability and production API alignment
