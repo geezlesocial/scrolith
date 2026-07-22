@@ -1,5 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { describe, expect, test } from 'vitest';
 
 describe('NotificationCenter UI contract', () => {
   const source = readFileSync(join(__dirname, '..', 'NotificationCenter.tsx'), 'utf8');

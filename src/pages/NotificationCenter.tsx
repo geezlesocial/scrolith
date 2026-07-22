@@ -6,11 +6,13 @@ import {
   Check,
   CheckCheck,
   Filter,
+  Focus,
   Loader2,
   Pin,
   PinOff,
   RefreshCw,
   Search,
+  Settings,
   Trash2,
   X
 } from 'lucide-react';
@@ -105,6 +107,8 @@ const NotificationCenter: React.FC = () => {
   const [busy, setBusy] = useState(false);
   const [searchInput, setSearchInput] = useState(searchParams.get('q') || '');
   const [searchQuery, setSearchQuery] = useState(searchParams.get('q') || '');
+  const [focusSession, setFocusSession] = useState<any>(null);
+  const [focusMenuOpen, setFocusMenuOpen] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const searchTimer = useRef<number | null>(null);
 
@@ -140,6 +144,19 @@ const NotificationCenter: React.FC = () => {
       // ignore
     }
   }, []);
+
+  const loadFocus = useCallback(async () => {
+    try {
+      const session = await NotificationService.getFocusMode();
+      setFocusSession(session || null);
+    } catch {
+      setFocusSession(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthenticated) void loadFocus();
+  }, [isAuthenticated, loadFocus]);
 
   const loadFirstPage = useCallback(async () => {
     if (!isAuthenticated) {
@@ -335,6 +352,108 @@ const NotificationCenter: React.FC = () => {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setFocusMenuOpen((v) => !v)}
+                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium ${
+                  focusSession
+                    ? 'border-violet-300 bg-violet-50 text-violet-800'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                aria-expanded={focusMenuOpen}
+                aria-haspopup="menu"
+                aria-label={focusSession ? 'Focus mode active' : 'Focus mode'}
+              >
+                <Focus className="h-4 w-4" />
+                {focusSession
+                  ? focusSession.indefinite
+                    ? 'Focus on'
+                    : focusSession.endsAt
+                      ? `Focus · ${Math.max(1, Math.round((new Date(focusSession.endsAt).getTime() - Date.now()) / 60000))}m`
+                      : 'Focus on'
+                  : 'Focus'}
+              </button>
+              {focusMenuOpen ? (
+                <div
+                  role="menu"
+                  className="absolute right-0 z-20 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+                >
+                  {focusSession ? (
+                    <>
+                      <p className="px-2 py-1 text-xs text-slate-500">
+                        Critical & security allowed by default
+                      </p>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="w-full rounded-md px-2 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                        onClick={async () => {
+                          await NotificationService.stopFocusMode();
+                          setFocusSession(null);
+                          setFocusMenuOpen(false);
+                          showNotification('success', 'Focus mode', 'Disabled.');
+                        }}
+                      >
+                        Turn off Focus Mode
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {[30, 60, 120, 240].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          role="menuitem"
+                          className="w-full rounded-md px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                          onClick={async () => {
+                            const session = await NotificationService.startFocusMode({
+                              durationMinutes: m,
+                              silencePush: true,
+                              allowCritical: true,
+                              allowSecurity: true
+                            });
+                            setFocusSession(session);
+                            setFocusMenuOpen(false);
+                            showNotification('success', 'Focus mode', `On for ${m} minutes.`);
+                          }}
+                        >
+                          {m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? 's' : ''}`}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="w-full rounded-md px-2 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                        onClick={async () => {
+                          const session = await NotificationService.startFocusMode({ indefinite: true });
+                          setFocusSession(session);
+                          setFocusMenuOpen(false);
+                        }}
+                      >
+                        Until I turn it off
+                      </button>
+                      <Link
+                        to="/settings/notifications"
+                        role="menuitem"
+                        className="block w-full rounded-md px-2 py-2 text-left text-sm text-blue-600 hover:bg-blue-50"
+                        onClick={() => setFocusMenuOpen(false)}
+                      >
+                        More options…
+                      </Link>
+                    </>
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <Link
+              to="/settings/notifications"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              aria-label="Notification settings"
+            >
+              <Settings className="h-4 w-4" />
+              Settings
+            </Link>
             <button
               type="button"
               onClick={() => void loadFirstPage()}
@@ -367,6 +486,33 @@ const NotificationCenter: React.FC = () => {
             </button>
           </div>
         </header>
+        {focusSession ? (
+          <div
+            className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-900"
+            role="status"
+            aria-live="polite"
+          >
+            <span>
+              Focus Mode is on
+              {focusSession.endsAt && !focusSession.indefinite
+                ? ` · ends ${new Date(focusSession.endsAt).toLocaleTimeString()}`
+                : focusSession.indefinite
+                  ? ' · until you disable it'
+                  : ''}
+              . Critical and security alerts still deliver.
+            </span>
+            <button
+              type="button"
+              className="font-medium underline"
+              onClick={async () => {
+                await NotificationService.stopFocusMode();
+                setFocusSession(null);
+              }}
+            >
+              Disable
+            </button>
+          </div>
+        ) : null}
 
         {/* Counters */}
         <section

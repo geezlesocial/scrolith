@@ -248,7 +248,90 @@ export const NotificationService = {
     const res = await api.post('/notifications/quiet-hours', payload);
     return handleApiResponse<QuietHourRule>(res);
   },
+  putQuietHours: async (payload: {
+    label?: string | null;
+    channel?: 'ALL' | 'IN_APP' | 'PUSH' | 'EMAIL';
+    timezone?: string | null;
+    daysOfWeek?: string[];
+    startTime?: string;
+    endTime?: string;
+  }): Promise<QuietHourRule> => {
+    const res = await api.put('/notifications/quiet-hours', payload);
+    return handleApiResponse<QuietHourRule>(res);
+  },
   deleteQuietHour: async (id: string): Promise<void> => {
     await api.delete(`/notifications/quiet-hours/${encodeURIComponent(id)}`);
+  },
+
+  // Phase 32.2 — preferences, focus, digests
+  getPreferences: async () => {
+    const res = await api.get('/notifications/preferences');
+    return res.data?.data;
+  },
+  patchPreferences: async (payload: Record<string, unknown>) => {
+    const res = await api.patch('/notifications/preferences', payload);
+    return res.data?.data;
+  },
+  patchCategoryPreference: async (category: string, payload: Record<string, unknown>) => {
+    const res = await api.patch(
+      `/notifications/preferences/categories/${encodeURIComponent(category)}`,
+      payload
+    );
+    return res.data?.data;
+  },
+  patchEventPreference: async (eventType: string, payload: Record<string, unknown>) => {
+    const res = await api.patch(
+      `/notifications/preferences/events/${encodeURIComponent(eventType)}`,
+      payload
+    );
+    return res.data?.data;
+  },
+  resetPreferences: async () => {
+    const res = await api.post('/notifications/preferences/reset');
+    return res.data?.data;
+  },
+  getFocusMode: async () => {
+    const res = await api.get('/notifications/focus-mode');
+    return res.data?.data ?? null;
+  },
+  startFocusMode: async (payload: {
+    durationMinutes?: number;
+    endsAt?: string | null;
+    indefinite?: boolean;
+    silencePush?: boolean;
+    silenceEmail?: boolean;
+    allowCritical?: boolean;
+    allowSecurity?: boolean;
+    untilTomorrowMorning?: boolean;
+    timezone?: string | null;
+    allowedCategories?: string[];
+  }) => {
+    const res = await api.post('/notifications/focus-mode', payload);
+    return res.data?.data;
+  },
+  stopFocusMode: async () => {
+    const res = await api.delete('/notifications/focus-mode');
+    return res.data?.data;
+  },
+  getDigestSettings: async () => {
+    const res = await api.get('/notifications/digest-settings');
+    return res.data?.data;
+  },
+  putDigestSettings: async (payload: Record<string, unknown>) => {
+    const res = await api.put('/notifications/digest-settings', payload);
+    return res.data?.data;
+  },
+  listDigests: async (limit = 20) => {
+    const res = await api.get('/notifications/digests', { params: { limit } });
+    const rows = res.data?.data;
+    return Array.isArray(rows) ? rows : [];
+  },
+  getDigest: async (digestId: string) => {
+    const res = await api.get(`/notifications/digests/${encodeURIComponent(digestId)}`);
+    return res.data?.data;
+  },
+  markDigestRead: async (digestId: string) => {
+    const res = await api.post(`/notifications/digests/${encodeURIComponent(digestId)}/mark-read`);
+    return res.data?.data;
   }
 };

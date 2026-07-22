@@ -403,6 +403,7 @@ const MobileNetworkScreen = React.lazy(() => import('./mobile/home/screens/Mobil
 const MobilePostScreen = React.lazy(() => import('./mobile/home/screens/MobilePostScreen'));
 const MobileNotificationsScreen = React.lazy(() => import('./mobile/home/screens/MobileNotificationsScreen'));
 const NotificationCenter = React.lazy(() => import('./pages/NotificationCenter'));
+const NotificationSettings = React.lazy(() => import('./pages/settings/NotificationSettings'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
 const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
@@ -1598,6 +1599,14 @@ const AppContent = () => {
                  element={
                    <ProtectedRoute>
                      <NotificationCenter />
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/settings/notifications"
+                 element={
+                   <ProtectedRoute>
+                     <NotificationSettings />
                    </ProtectedRoute>
                  }
                />
