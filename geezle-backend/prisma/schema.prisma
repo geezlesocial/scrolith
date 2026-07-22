@@ -5328,17 +5328,30 @@ model UserBlock {
   @@index([blockedId])
 }
 
-// Notifications for in-app alerts
+// Notifications for in-app alerts (+ Phase 32.0 foundation fields, additive)
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  actorId   String?
-  type      String
-  title     String?
-  body      String?
-  meta      Json?
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id             String    @id @default(cuid())
+  userId         String
+  actorId        String?
+  type           String
+  title          String?
+  body           String?
+  meta           Json?
+  isRead         Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  /// Phase 32.0 — taxonomy category
+  category       String?
+  /// Phase 32.0 — critical|high|normal|low|silent
+  priority       String    @default("normal")
+  deepLink       String?
+  eventId        String?
+  idempotencyKey String?
+  entityType     String?
+  entityId       String?
+  schemaVersion  String    @default("32.0")
+  archivedAt     DateTime?
+  deletedAt      DateTime?
+  readAt         DateTime?
 
   user  User  @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
   actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
@@ -5348,8 +5361,119 @@ model Notification {
   @@index([userId, isRead, createdAt])
   @@index([userId, createdAt, id])
   @@index([userId, isRead, createdAt, id])
+  @@index([userId, category, createdAt])
+  @@index([userId, archivedAt, createdAt])
+  @@index([userId, deletedAt, createdAt])
+  @@index([eventId])
+  @@index([entityType, entityId])
   @@index([actorId])
   @@index([isRead])
+}
+
+// Phase 32.0 — canonical emit event log
+model NotificationEvent {
+  id             String   @id @default(cuid())
+  eventId        String   @unique
+  eventType      String
+  category       String
+  actorId        String?
+  actorType      String?
+  recipientIds   String[] @default([])
+  entityType     String?
+  entityId       String?
+  title          String?
+  body           String?
+  deepLink       String?
+  priority       String   @default("normal")
+  metadata       Json?
+  idempotencyKey String?
+  schemaVersion  String   @default("32.0")
+  source         String?
+  correlationId  String?
+  status         String   @default("emitted")
+  createdAt      DateTime @default(now())
+
+  @@index([eventType, createdAt])
+  @@index([category, createdAt])
+  @@index([idempotencyKey])
+  @@index([createdAt])
+}
+
+// Phase 32.0 — multi-channel delivery attempts
+model NotificationDelivery {
+  id             String    @id @default(cuid())
+  notificationId String?
+  eventId        String?
+  userId         String
+  channel        String
+  status         String    @default("pending")
+  attemptCount   Int       @default(0)
+  errorCode      String?
+  errorMessage   String?
+  latencyMs      Int?
+  providerMeta   Json?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deliveredAt    DateTime?
+
+  @@index([userId, createdAt])
+  @@index([notificationId])
+  @@index([eventId])
+  @@index([status, createdAt])
+  @@index([channel, status])
+}
+
+// Phase 32.0 — per-user category preference overrides (extends UserSettings)
+model NotificationPreference {
+  id                String    @id @default(cuid())
+  userId            String
+  category          String
+  inAppEnabled      Boolean   @default(true)
+  pushEnabled       Boolean   @default(true)
+  emailEnabled      Boolean   @default(true)
+  smsEnabled        Boolean   @default(false)
+  digestEnabled     Boolean   @default(false)
+  quietHoursEnabled Boolean   @default(false)
+  focusMode         Boolean   @default(false)
+  mutedUntil        DateTime?
+  metadata          Json?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([userId, category])
+  @@index([userId])
+}
+
+// Phase 32.0 — audit trail
+model NotificationAudit {
+  id             String   @id @default(cuid())
+  action         String
+  notificationId String?
+  eventId        String?
+  userId         String?
+  actorId        String?
+  details        Json?
+  createdAt      DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([userId, createdAt])
+  @@index([notificationId])
+  @@index([eventId])
+  @@index([createdAt])
+}
+
+// Phase 32.0 — analytics counters (dashboard later)
+model NotificationAnalyticsCounter {
+  id        String   @id @default(cuid())
+  date      DateTime @db.Date
+  category  String?
+  metric    String
+  value     Float    @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([date, category, metric])
+  @@index([date])
 }
 
 model MonetizationApplication {

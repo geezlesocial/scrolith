@@ -1,16 +1,32 @@
 import express from 'express';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { adminMiddleware } from '../middleware/admin.middleware';
-import { listNotifications, markAsRead, markAllRead, createNotification, listNotificationsForUser, testPushNotification } from '../controllers/notifications.controller';
+import {
+  listNotifications,
+  markAsRead,
+  markAllRead,
+  createNotification,
+  listNotificationsForUser,
+  testPushNotification,
+  emitNotification,
+  getNotificationSummary,
+  bulkUpdateNotifications,
+  markAsUnread
+} from '../controllers/notifications.controller';
 import { registerDevice, unregisterDevice } from '../controllers/notificationDevices.controller';
 import { createMyQuietHourRule, deactivateMyQuietHourRule, getMyQuietHours } from '../services/journey.service';
 
 const router = express.Router();
 
 router.get('/', authMiddleware, listNotifications);
+router.get('/summary', authMiddleware, getNotificationSummary);
+router.get('/counters', authMiddleware, getNotificationSummary);
 router.post('/mark-read', authMiddleware, markAsRead);
+router.post('/mark-unread', authMiddleware, markAsUnread);
 router.post('/mark-all-read', authMiddleware, markAllRead);
+router.post('/bulk', authMiddleware, bulkUpdateNotifications);
 router.post('/create', authMiddleware, createNotification);
+router.post('/emit', authMiddleware, emitNotification);
 router.get('/user/:userId', authMiddleware, adminMiddleware, listNotificationsForUser);
 router.get('/quiet-hours', authMiddleware, async (req, res) => {
   try {

@@ -3,6 +3,7 @@ import path from 'path';
 import prisma from '../utils/prismaClient';
 import { notifyUser } from '../utils/notify';
 import { buildNotificationActionUrl, resolveNotificationEntity } from './notificationActionUrl.service';
+import { NotificationService } from './notificationCenter';
 
 export type EngagementNotificationType =
   | 'mention_post'
@@ -301,6 +302,51 @@ export const createEngagementNotification = async (input: CreateEngagementNotifi
   metadata.action_url = resolvedActionUrl || null;
   metadata.actionUrl = resolvedActionUrl || null;
 
+  // Phase 32.0 — route through unified NotificationService.emit (legacy-compatible row + taxonomy)
+  try {
+    const emitResult = await NotificationService.emit({
+      recipientId,
+      actorId: input.actorId || null,
+      type: input.type,
+      title: input.title || '',
+      body: input.message || '',
+      deepLink: resolvedActionUrl || null,
+      metadata,
+      entityType: metadata.entityType || null,
+      entityId: metadata.entityId || null,
+      source: 'engagementNotifications',
+      dedupeWindowSeconds: Number(input.dedupeWindowMinutes || 0) * 60 || undefined,
+      // Preferences already applied above — avoid double-filter inside emit
+      skipPush: false,
+      skipRealtime: false
+    });
+    const item = emitResult.items[0];
+    if (!item || item.status === 'suppressed' || item.status === 'failed') {
+      return null;
+    }
+    if (item.status === 'duplicate' && item.notificationId) {
+      return { id: item.notificationId } as any;
+    }
+    if (item.notificationId) {
+      return {
+        id: item.notificationId,
+        userId: recipientId,
+        actorId: input.actorId || null,
+        type: input.type,
+        title: input.title || '',
+        body: input.message || '',
+        meta: metadata,
+        isRead: false
+      } as any;
+    }
+  } catch (facadeError) {
+    console.warn(
+      '[engagement-notifications] NotificationService.emit failed, using legacy create',
+      (facadeError as any)?.message
+    );
+  }
+
+  // Legacy fallback (pre-foundation or unexpected emit failure)
   const created = await prisma.notification.create({
     data: {
       userId: recipientId,
