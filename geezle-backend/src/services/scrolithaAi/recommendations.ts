@@ -212,7 +212,7 @@ export async function getDashboardRecommendations(input: {
 
   const byType = (t: RecoEntityType[]) => base.items.filter((i) => t.includes(i.entityType)).slice(0, 4);
 
-  const sections: DashboardSection[] = [
+  const allSections: DashboardSection[] = [
     {
       id: 'continue_reading',
       title: 'Continue Reading',
@@ -255,7 +255,8 @@ export async function getDashboardRecommendations(input: {
       items: byType(['learning']),
       explanation: 'Learning paths from topics you explore.'
     }
-  ].filter((s) => s.items.length > 0);
+  ];
+  const sections = allSections.filter((s) => s.items.length > 0);
 
   inc('dashboardSectionsBuilt', sections.length);
   return {

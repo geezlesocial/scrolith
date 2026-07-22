@@ -184,13 +184,10 @@ export const createEnterpriseGroup = async (req: Request, res: Response) => {
     const visibility = normalizeGroupVisibility(req.body?.visibility || 'PRIVATE');
     const joinPolicy = resolveJoinPolicyForVisibility(visibility, req.body?.joinPolicy);
     const messagingMode = normalizeMessagingMode(req.body?.messagingMode || 'EVERYONE');
-    const memberUserIds = Array.from(
-      new Set(
-        (Array.isArray(req.body?.memberUserIds) ? req.body.memberUserIds : [])
-          .map((id: any) => String(id || '').trim())
-          .filter((id: string) => id && id !== userId)
-      )
-    ).slice(0, 200);
+    const requestedMemberUserIds = (Array.isArray(req.body?.memberUserIds) ? req.body.memberUserIds : [])
+      .map((id: unknown) => String(id || '').trim())
+      .filter((id: string) => id && id !== userId);
+    const memberUserIds = Array.from(new Set<string>(requestedMemberUserIds)).slice(0, 200);
 
     const content = defaultContent(req.body);
     const slowModeSeconds = Math.max(0, Math.min(3600, Number(req.body?.slowModeSeconds || 0) || 0));

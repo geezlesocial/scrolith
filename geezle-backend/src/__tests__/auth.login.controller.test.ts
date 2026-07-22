@@ -4,6 +4,10 @@ import { login, getCurrentUser } from '../controllers/auth.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import prisma from '../utils/prismaClient';
 
+jest.mock('../utils/humanVerificationGate', () => ({
+  enforceHumanVerification: jest.fn().mockResolvedValue(true)
+}));
+
 jest.mock('../utils/prismaClient', () => {
   const mockPrisma = {
     user: {

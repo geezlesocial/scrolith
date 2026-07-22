@@ -342,7 +342,7 @@ router.post('/:id/status', requireAnyPermission('users.update_status', 'users.mo
       }
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'User status updated',
       data: {
@@ -354,7 +354,7 @@ router.post('/:id/status', requireAnyPermission('users.update_status', 'users.mo
       }
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to update status' });
+    return res.status(500).json({ success: false, error: 'Failed to update status' });
   }
 });
 
@@ -405,13 +405,13 @@ router.delete('/:id', requireAnyPermission('users.delete', 'users.moderate'), as
       }
     }
 
-    res.json({
+    return res.json({
       success: true,
       message: 'User deactivated (soft-delete). Account remains listed as inactive.',
       data: { userId, isActive: false, remainsListed: true }
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: 'Failed to delete user' });
+    return res.status(500).json({ success: false, error: 'Failed to delete user' });
   }
 });
 

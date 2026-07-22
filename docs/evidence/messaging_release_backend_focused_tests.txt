@@ -1,0 +1,26 @@
+﻿# Backend Focused Tests
+
+Date: 2026-07-23
+
+Command:
+npx jest src/__tests__/groupMessaging.memberResolver.controller.test.ts src/__tests__/oauth.exchange.service.spec.ts src/__tests__/auth.login.controller.test.ts --runInBand
+
+Result: PASS
+
+Suites:
+- groupMessaging.memberResolver.controller.test.ts: PASS, 9 tests
+- oauth.exchange.service.spec.ts: PASS
+- auth.login.controller.test.ts: PASS
+
+Coverage focus:
+- Username lookup with leading @
+- Exact email lookup without returning email
+- User ID lookup
+- Unauthorized resolver denial
+- Existing member duplicate state
+- Partial email autocomplete denial
+- Blocked candidate exclusion
+- Duplicate direct add prevention
+- Resolver rate limiting
+- OAuth exchange regression
+- Login/auth regression with human-verification gate mocked in unit test harness

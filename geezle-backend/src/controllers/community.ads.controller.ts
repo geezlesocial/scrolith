@@ -1258,7 +1258,7 @@ export const createAdDraft = async (req: Request, res: Response) => {
     const { baseCurrency, rates } = await resolveEffectiveCurrencies();
     const baseCode = normalizeCurrencyCode(baseCurrency || pricingCurrency, 'USD');
     const toBase = convertMajorViaRates(budget, campaignCurrency, baseCode, rates, baseCode);
-    if (!toBase.ok) {
+    if (toBase.ok === false) {
       return res.status(400).json({
         success: false,
         error: toBase.error || 'Unable to convert campaign budget to platform base currency.'
@@ -1276,7 +1276,7 @@ export const createAdDraft = async (req: Request, res: Response) => {
         rates,
         baseCode
       );
-      if (!dailyBase.ok) {
+      if (dailyBase.ok === false) {
         return res.status(400).json({
           success: false,
           error: dailyBase.error || 'Unable to convert daily spend to platform base currency.'

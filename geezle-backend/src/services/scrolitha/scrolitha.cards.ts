@@ -145,9 +145,11 @@ export const normalizeScrolithaCard = (raw: unknown): ScrolithaEntityCard | null
   const metadata: Record<string, string | number | boolean | null> = {};
   if (o.metadata && typeof o.metadata === 'object' && !Array.isArray(o.metadata)) {
     for (const [k, v] of Object.entries(o.metadata).slice(0, 20)) {
-      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v === null) {
-        metadata[safe(k, 40)] = typeof v === 'string' ? safe(v, 200) : v;
-      }
+      const key = safe(k, 40);
+      if (typeof v === 'string') metadata[key] = safe(v, 200);
+      else if (typeof v === 'number') metadata[key] = v;
+      else if (typeof v === 'boolean') metadata[key] = v;
+      else if (v === null) metadata[key] = null;
     }
   }
 

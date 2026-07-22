@@ -432,7 +432,7 @@ export const createTicket = async (req: Request, res: Response) => {
     }
 
     // Phase 30 — Scrolith Human Verification (support)
-    if (!(await enforceHumanVerification(req, res, 'support'))) return;
+    if ((await enforceHumanVerification(req, res, 'support')) === false) return undefined;
 
     const fullName = cleanString(payload.full_name ?? payload.fullName);
     const email = cleanString(payload.email);

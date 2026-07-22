@@ -1,0 +1,12 @@
+{
+  "createdAt": "2026-07-23T04:30:00+08:00",
+  "status": "NOT_PERFORMED",
+  "reason": "Deployment was stopped before production backup because full backend test completion and authenticated candidate validation are not available in this local environment.",
+  "productionBackup": "NOT_PERFORMED",
+  "currentBackendRevision": "NOT_QUERIED",
+  "currentFrontendRevision": "NOT_QUERIED",
+  "trafficSplit": "NOT_QUERIED",
+  "migrationsRequired": false,
+  "rollbackCommandsVerified": false,
+  "apiHealthVerified": false
+}

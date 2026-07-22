@@ -61,12 +61,15 @@ export const postConversationReceipts = async (req: Request, res: Response) => {
         where: { id: { in: ids }, conversationId },
         select: { id: true, createdAt: true }
       });
-      const byId = new Map(messages.map((m) => [m.id, m.createdAt]));
-      if (deliveredMsgId && byId.has(deliveredMsgId)) {
-        deliveredCandidate = byId.get(deliveredMsgId) || deliveredCandidate;
+      const byId = new Map<string, Date>();
+      for (const message of messages) {
+        byId.set(message.id, message.createdAt);
       }
-      if (readMsgId && byId.has(readMsgId)) {
-        readCandidate = byId.get(readMsgId) || readCandidate;
+      if (deliveredMsgId) {
+        deliveredCandidate = byId.get(deliveredMsgId) ?? deliveredCandidate;
+      }
+      if (readMsgId) {
+        readCandidate = byId.get(readMsgId) ?? readCandidate;
       }
     }
 

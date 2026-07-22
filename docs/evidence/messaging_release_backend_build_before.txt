@@ -1,0 +1,40 @@
+﻿# Backend Build Before
+
+Date: 2026-07-23
+
+Command sequence:
+- git status
+- git branch --show-current
+- git log -1 --oneline
+- node --version
+- npm --version
+- npm ci
+- npm run build:prod
+
+Result: FAIL before repair.
+
+Branch: release/backend-production
+Head before repair: 82cd223b feat(messages): resolve group members by identifier
+Node: v22.20.0
+npm: 10.9.3
+Prisma Client generated version: 6.19.1
+
+TypeScript failures were reproduced in these clusters:
+- src/controllers/auth.controller.ts: TS7030 noImplicitReturns on human-verification early returns.
+- src/controllers/community.ads.controller.ts: TS2339 union failure branch not narrowed for currency conversion errors.
+- src/controllers/groupEnterprise.controller.ts: TS2322 unknown[] inferred for normalized member IDs.
+- src/controllers/groupRealtime.controller.ts: TS2339 union failure branch not narrowed for pin service errors.
+- src/controllers/messageReceipts.controller.ts: TS2740 Map#get fallback inferred as non-Date.
+- src/controllers/messages.controller.ts: TS7030 SSE handler return paths; TS2345 privacy helper input inferred wider than string.
+- src/controllers/oauth.controller.ts: TS2339 OAuth exchange failure branch not narrowed.
+- src/controllers/orderPayments.controller.ts: TS2339 charge conversion failure branch not narrowed.
+- src/controllers/support.controller.ts: TS7030 human-verification early return.
+- src/controllers/userController.ts: TS2551 settings response missing camelCase twoFactorEnabled field.
+- src/routes/admin/users.routes.ts: TS7030 missing explicit returns in async Express handlers.
+- src/services/notificationCenter/preferencesUser.service.ts: TS2698 unguarded spread of stored preference row.
+- src/services/scrolitha/scrolitha.cards.ts: TS2322 primitive metadata narrowing.
+- src/services/scrolitha/scrolitha.orchestrator.ts: TS2339 confirmation-token failure branch not narrowed.
+- src/services/scrolithaAi/assistant.ts: TS2339 AI surface gate failure branch not narrowed.
+- src/services/scrolithaAi/recommendations.ts: TS2322 section ID literals widened through chained filter expression.
+
+Generated Prisma drift was not the cause. `npx prisma generate` succeeded. `npx prisma validate` was blocked locally because DATABASE_URL is not set in this shell.

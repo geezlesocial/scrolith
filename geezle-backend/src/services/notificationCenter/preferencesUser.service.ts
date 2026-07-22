@@ -77,10 +77,13 @@ export class NotificationPreferencesUserService {
       const rows = await (prisma as any).notificationPreference.findMany({ where: { userId } });
       if (rows?.length) {
         const byCat = new Map(rows.map((r: any) => [r.category, r]));
-        categories = ALL_NOTIFICATION_CATEGORIES.map((c) => ({
-          ...defaultCategory(c),
-          ...(byCat.get(c) || {})
-        }));
+        categories = ALL_NOTIFICATION_CATEGORIES.map((c) => {
+          const stored = byCat.get(c);
+          return {
+            ...defaultCategory(c),
+            ...(stored && typeof stored === 'object' ? stored : {})
+          };
+        });
       }
     } catch {
       /* pre-migration */

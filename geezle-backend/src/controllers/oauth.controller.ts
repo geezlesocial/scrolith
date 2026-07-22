@@ -608,7 +608,7 @@ export const handleOAuthCallback = async (req: Request, res: Response) => {
 export const exchangeOAuthCode = async (req: Request, res: Response) => {
   try {
     const result = await consumeOAuthExchangeCode(req.body?.code ?? req.query?.code);
-    if (!result.ok) {
+    if (result.ok === false) {
       safeOAuthLog('warn', 'oauth_exchange_failed', { error: result.error });
       return res.status(result.status).json({ success: false, error: result.error });
     }

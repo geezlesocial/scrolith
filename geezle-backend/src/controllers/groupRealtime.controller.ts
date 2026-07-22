@@ -19,7 +19,7 @@ export const postGroupPin = async (req: Request, res: Response) => {
     const conversationId = String(req.params.id || '').trim();
     const messageId = String(req.body?.messageId || req.body?.message_id || '').trim();
     const result = await pinMessage({ conversationId, messageId, actorId: userId });
-    if (!result.ok) {
+    if (result.ok === false) {
       const status = result.code === 'GROUP_NOT_MEMBER' ? 403 : result.code === 'GROUP_PERMISSION_DENIED' ? 403 : 400;
       return res.status(status).json({ success: false, error: result.error, code: result.code });
     }
@@ -38,7 +38,7 @@ export const deleteGroupPin = async (req: Request, res: Response) => {
     const conversationId = String(req.params.id || '').trim();
     const messageId = String(req.params.messageId || '').trim();
     const result = await unpinMessage({ conversationId, messageId, actorId: userId });
-    if (!result.ok) {
+    if (result.ok === false) {
       const status = result.code === 'GROUP_NOT_MEMBER' ? 403 : result.code === 'GROUP_PERMISSION_DENIED' ? 403 : 400;
       return res.status(status).json({ success: false, error: result.error, code: result.code });
     }

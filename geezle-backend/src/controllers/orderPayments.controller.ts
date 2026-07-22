@@ -303,7 +303,7 @@ export const purchaseGig = async (req: Request, res: Response) => {
       sourceCurrency,
       chargeCurrency: currency
     });
-    if (!chargeResolved.ok) {
+    if (chargeResolved.ok === false) {
       return fail(
         res,
         400,
@@ -1154,4 +1154,3 @@ export const purchaseGig = async (req: Request, res: Response) => {
     return fail(res, 500, error?.message || 'Failed to initiate payment', 'ERR_INTERNAL');
   }
 };
-

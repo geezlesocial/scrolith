@@ -713,7 +713,7 @@ const mergeConversationPayloads = (payloads: any[]) => {
     const key = getConversationInboxMergeKey(payload);
     if (!key) {
       passthrough.push(payload);
-      return;
+      return undefined;
     }
     if (!directBuckets.has(key)) directBuckets.set(key, []);
     directBuckets.get(key)!.push(payload);
@@ -1113,7 +1113,7 @@ export const postScrolithaUnifiedTurnStream = async (req: Request, res: Response
         code: 'SCROLITHA_MESSAGING_DISABLED'
       });
       res.end();
-      return;
+      return undefined;
     }
 
     writeEvent('final', {
@@ -1129,6 +1129,7 @@ export const postScrolithaUnifiedTurnStream = async (req: Request, res: Response
     });
     writeEvent('done', { requestId: clientRequestId });
     res.end();
+    return undefined;
   } catch (error: any) {
     console.error('Scrolitha unified stream error:', error);
     if (!res.headersSent) {
@@ -1143,6 +1144,7 @@ export const postScrolithaUnifiedTurnStream = async (req: Request, res: Response
     } catch {
       // ignore
     }
+    return undefined;
   }
 };
 
@@ -1464,7 +1466,7 @@ export const createConversation = async (req: Request, res: Response) => {
           const { canInitiateDirectMessage } = await import(
             '../services/messaging/messagingPrivacyPolicy'
           );
-          const gate = await canInitiateDirectMessage(userId, otherId);
+          const gate = await canInitiateDirectMessage(String(userId), String(otherId));
           if (!gate.allowed) {
             // Allow if conversation already exists (checked below); for brand-new, deny
             // Defer deny until after existing lookup

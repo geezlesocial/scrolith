@@ -280,7 +280,7 @@ export const register = async (req: Request, res: Response) => {
     }
 
     // Phase 30 — Scrolith Human Verification (signup)
-    if (!(await enforceHumanVerification(req, res, 'signup'))) return;
+    if ((await enforceHumanVerification(req, res, 'signup')) === false) return undefined;
 
     // General Settings → Allow Registrations
     try {
@@ -382,7 +382,7 @@ export const login = async (req: Request, res: Response) => {
     }
 
     // Phase 30 — Scrolith Human Verification (login)
-    if (!(await enforceHumanVerification(req, res, 'login'))) return;
+    if ((await enforceHumanVerification(req, res, 'login')) === false) return undefined;
 
     // Find user by normalized email (safe select with fallback for older schemas)
     const user = await safeFindUserByEmail(email);
@@ -640,7 +640,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
     }
 
     // Phase 30 — Scrolith Human Verification (forgot password)
-    if (!(await enforceHumanVerification(req, res, 'forgot_password'))) return;
+    if ((await enforceHumanVerification(req, res, 'forgot_password')) === false) return undefined;
 
     const user = await prisma.user.findUnique({
       where: { email },
@@ -702,7 +702,7 @@ export const resetPassword = async (req: Request, res: Response) => {
     }
 
     // Phase 30 — Scrolith Human Verification (password reset)
-    if (!(await enforceHumanVerification(req, res, 'password_reset'))) return;
+    if ((await enforceHumanVerification(req, res, 'password_reset')) === false) return undefined;
 
     if (!isStrongPassword(password)) {
       return res.status(400).json({
@@ -748,5 +748,3 @@ export const resetPassword = async (req: Request, res: Response) => {
     return res.status(500).json({ success: false, error: 'Failed to reset password' });
   }
 };
-
-

@@ -22,12 +22,13 @@
   "auditLogging": "IMPLEMENTED",
   "notifications": "IMPLEMENTED",
   "accessibility": "IMPLEMENTED",
-  "backendTests": "BLOCKED_BY_EXISTING_BACKEND_BUILD_ERRORS",
+  "existingBackendErrorsResolved": "PASS",
+  "backendTests": "FOCUSED_PASS_FULL_SUITE_BLOCKED_LOCAL_DATABASE",
   "frontendTests": "PASS",
   "authenticatedIntegrationTests": "NOT_RUN",
-  "regressionTests": "PARTIAL_LOCAL",
+  "regressionTests": "PARTIAL_LOCAL_PASS",
   "productionBackup": "NOT_PERFORMED",
-  "backendBuild": "BLOCKED_EXISTING_ERRORS",
+  "backendBuild": "PASS",
   "frontendBuild": "PASS",
   "backendDeployment": "NOT_PERFORMED",
   "frontendDeployment": "NOT_PERFORMED",
@@ -36,5 +37,6 @@
   "rollbackValidated": "DOCUMENTED",
   "androidBuild": "NOT_PERFORMED",
   "googlePlayUploadPerformed": false,
+  "scrolithaProviderConfigurationChanged": false,
   "phase33_4Started": false
 }

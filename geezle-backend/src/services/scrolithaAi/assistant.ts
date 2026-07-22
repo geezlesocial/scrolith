@@ -147,7 +147,7 @@ export class ScrolithaAssistant {
     correlationId?: string;
   }): Promise<AssistantSurfaceResult> {
     const gate = await assertSurface(input.userId, 'assistantEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
 
     const flags = await loadAIFeatureFlags();
     if (!flags.ASSISTANT_CHAT) return fail('CAPABILITY_FLAG_DISABLED:ASSISTANT_CHAT');
@@ -220,7 +220,7 @@ export class ScrolithaAssistant {
     locale?: string;
   }): Promise<AssistantSurfaceResult> {
     const gate = await assertSurface(input.userId, 'rewriteEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
     const flags = await loadAIFeatureFlags();
     if (!flags.TEXT_REWRITING) return fail('CAPABILITY_FLAG_DISABLED:TEXT_REWRITING');
 
@@ -269,7 +269,7 @@ export class ScrolithaAssistant {
     locale?: string;
   }): Promise<AssistantSurfaceResult> {
     const gate = await assertSurface(input.userId, 'composerEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
     const flags = await loadAIFeatureFlags();
     if (!flags.COMPOSER_ASSIST) return fail('CAPABILITY_FLAG_DISABLED:COMPOSER_ASSIST');
 
@@ -311,7 +311,7 @@ export class ScrolithaAssistant {
     sourceLocale?: string | null;
   }): Promise<AssistantSurfaceResult> {
     const gate = await assertSurface(input.userId, 'translationEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
     const flags = await loadAIFeatureFlags();
     if (!flags.TEXT_TRANSLATION) return fail('CAPABILITY_FLAG_DISABLED:TEXT_TRANSLATION');
 
@@ -342,7 +342,7 @@ export class ScrolithaAssistant {
     locale?: string;
   }): Promise<AssistantSurfaceResult> {
     const gate = await assertSurface(input.userId, 'assistantEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
     const flags = await loadAIFeatureFlags();
     if (!flags.DRAFT_COMPOSITION) return fail('CAPABILITY_FLAG_DISABLED:DRAFT_COMPOSITION');
 
@@ -382,7 +382,7 @@ export class ScrolithaAssistant {
     locale?: string;
   }): Promise<AssistantSurfaceResult> {
     const gate = await assertSurface(input.userId, 'searchSuggestionsEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
     const flags = await loadAIFeatureFlags();
     if (!flags.SEARCH_QUERY_SUGGESTION) return fail('CAPABILITY_FLAG_DISABLED:SEARCH_QUERY_SUGGESTION');
 
@@ -446,7 +446,7 @@ export class ScrolithaAssistant {
     locale?: string;
   }): Promise<AssistantSurfaceResult & { suggestion?: unknown }> {
     const gate = await assertSurface(input.userId, 'assistantEnabled');
-    if (!gate.ok) return fail(gate.reason);
+    if (gate.ok === false) return fail(gate.reason);
 
     if (input.action === 'summarize') {
       const r = await suggestNotificationDigestSummary({

@@ -168,6 +168,7 @@ const toSettingsResponse = (settings: any) => ({
   notify_application_updates: Boolean(settings.notifyApplicationUpdates ?? true),
   marketing_emails: Boolean(settings.marketingEmails),
   two_factor_enabled: Boolean(settings.twoFactorEnabled),
+  twoFactorEnabled: Boolean(settings.twoFactorEnabled),
   login_alerts: Boolean(settings.loginAlerts),
   jobApplicationNotifications: Boolean(settings.notifyJobApplications ?? true),
   applicationUpdateNotifications: Boolean(settings.notifyApplicationUpdates ?? true),

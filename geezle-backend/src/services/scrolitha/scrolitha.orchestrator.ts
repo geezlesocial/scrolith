@@ -1204,7 +1204,7 @@ export const scrolithaExecute = async (input: ScrolithaExecuteInput, actor: Scro
           toolKey: actionPlan.toolKey,
           actionId: actionPlan.id
         });
-        if (!consumed.ok) {
+        if (consumed.ok === false) {
           throw Object.assign(new Error(consumed.message), {
             statusCode: 403,
             code: consumed.code
