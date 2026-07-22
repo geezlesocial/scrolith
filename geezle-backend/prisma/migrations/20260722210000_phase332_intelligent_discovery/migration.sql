@@ -1,4 +1,4 @@
-﻿-- Phase 33.2 — Intelligent Feed, Recommendations & Personalized Discovery (additive)
+-- Phase 33.2 — Intelligent Feed, Recommendations & Personalized Discovery (additive)
 -- Do NOT apply to production without explicit approval.
 
 CREATE TABLE IF NOT EXISTS "AIUserMemory" (

@@ -1,4 +1,4 @@
-﻿-- Phase 33.1 — Scrolitha AI Assistant (additive only)
+-- Phase 33.1 — Scrolitha AI Assistant (additive only)
 -- Do NOT apply to production without explicit approval.
 
 CREATE TABLE IF NOT EXISTS "AIConversation" (
