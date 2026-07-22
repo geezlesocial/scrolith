@@ -406,11 +406,13 @@ const AISettings: React.FC = () => {
           </section>
 
           <p className="text-center text-xs text-slate-400">
+            <Link to="/assistant" className="text-blue-600 underline">
+              Open Scrolitha AI Assistant
+            </Link>
+            {' · '}
             <Link to="/settings/notifications" className="text-blue-600 underline">
               Notification settings
             </Link>
-            {' · '}
-            Related privacy controls may also appear under Scrolitha assistant settings.
           </p>
         </div>
       )}
