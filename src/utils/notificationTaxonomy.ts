@@ -575,6 +575,14 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
   if (type.includes('event') && (eventId || entityId)) {
     return `/community/events?event=${encodeURIComponent(eventId || entityId)}`;
   }
+  // Phase 32.6 — support/security before generic reply/post heuristics
+  // (e.g. support.ticket_reply must not route as a post comment)
+  if (type.includes('support') || type.includes('ticket')) {
+    return entityId ? `/support?ticket=${encodeURIComponent(entityId)}` : '/support';
+  }
+  if (type.includes('security')) {
+    return '/settings/notifications?tab=privacy';
+  }
   if (
     (type.includes('comment') || type.includes('mention') || type.includes('reaction') || type.includes('reply') || type.includes('post')) &&
     (postId || entityId)
@@ -618,13 +626,7 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
   if (type === 'app_campaign' || type === 'campaign') {
     return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
   }
-  // Phase 32.3 — expanded destinations
-  if (type.includes('security')) {
-    return '/settings/notifications?tab=privacy';
-  }
-  if (type.includes('support') || type.includes('ticket')) {
-    return entityId ? `/support?ticket=${encodeURIComponent(entityId)}` : '/support';
-  }
+  // Phase 32.3 — expanded destinations (security/support already handled above)
   if (type.includes('digest')) {
     const digestId = String(data.digestId || data.digest_id || entityId || '').trim();
     return digestId ? `/notifications?digest=${encodeURIComponent(digestId)}` : '/notifications';
