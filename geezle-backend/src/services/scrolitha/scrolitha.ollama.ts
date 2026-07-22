@@ -915,6 +915,7 @@ export const ollamaChat = async (input: {
   topP?: number;
   timeoutMs?: number;
   autoPullModel?: boolean;
+  allowNodeFallback?: boolean;
 }): Promise<{ text: string; raw?: any }> => {
   const host = normalizeHost(input.host);
   if (!host) throw new Error('Ollama host is missing');
@@ -926,6 +927,7 @@ export const ollamaChat = async (input: {
   const topP = asNumber(input.topP, 0.9);
   const maxTokens = Math.max(32, Math.min(8192, Math.floor(asNumber(input.maxTokens, 1024))));
   const autoPullModel = input.autoPullModel !== false;
+  const allowNodeFallback = input.allowNodeFallback !== false;
   const keepAlive = String(process.env.SCROLITHA_OLLAMA_KEEP_ALIVE || '24h').trim() || '24h';
 
   const url = `${host}/api/chat`;
@@ -957,6 +959,7 @@ export const ollamaChat = async (input: {
         });
       }, timeoutMs);
     } catch (error) {
+      if (!allowNodeFallback) throw error;
       const fallback = await requestViaNodeHttp({
         url,
         method: 'POST',

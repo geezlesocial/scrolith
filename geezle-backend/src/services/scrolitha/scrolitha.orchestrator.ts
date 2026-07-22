@@ -540,7 +540,8 @@ const buildLlmReply = async (input: {
       maxTokens: messagingFastPath ? Math.min(runtime.maxTokens, 512) : runtime.maxTokens,
       temperature: runtime.temperature,
       topP: runtime.topP,
-      timeoutMs: messagingFastPath ? Math.min(runtime.timeoutMs, 45_000) : runtime.timeoutMs
+      timeoutMs: messagingFastPath ? Math.min(runtime.timeoutMs, 45_000) : runtime.timeoutMs,
+      allowNodeFallback: !messagingFastPath
     });
     const out = String(result.text || '').trim();
     return out || null;
