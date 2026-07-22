@@ -5,7 +5,7 @@ steps:
         build,
         --no-cache,
         -t,
-        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p333-scrolitha-hotfix1,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p333-scrolitha-canonical1,
         --build-arg,
         VITE_API_URL=https://api.scrolith.com/api,
         --build-arg,
@@ -21,7 +21,7 @@ steps:
         .
       ]
 images:
-  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p333-scrolitha-hotfix1
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p333-scrolitha-canonical1
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: E2_HIGHCPU_8

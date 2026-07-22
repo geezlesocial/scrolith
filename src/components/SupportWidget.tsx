@@ -1,6 +1,6 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Send, Headphones, Sparkles, RefreshCw, Paperclip, FileText, ChevronRight, Mic, MicOff, Loader2 } from 'lucide-react';
+import { X, Send, Sparkles, RefreshCw, Paperclip, FileText, ChevronRight, Mic, MicOff, Loader2 } from 'lucide-react';
 import { getSupportResponse, loadChatFlow, ChatOption, ChatFlow } from '../services/ai';
 import ScrolithaService, { ScrolithaSuggestedAction, ScrolithaWidgetConfig } from '../services/scrolitha';
 import { Attachment } from '../types';
@@ -14,6 +14,7 @@ import { classifyScrolithaClientError } from '../utils/scrolithaErrors';
 import { plainTextToHtml } from '../utils/staticPageContent';
 import { normalizeScrolithaResponseText } from './scrolitha/scrolithaResponseFormat';
 import { normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
+import { getScrolithaProfilePhotoUrl } from '../utils/scrolithaIdentity';
 import type { ScrolithaChatContext } from '../services/scrolitha';
 
 type Sender = 'user' | 'agent' | 'system';
@@ -918,7 +919,8 @@ const SupportWidget: React.FC = () => {
             clientRequestId,
             attachmentFileIds,
             source: 'support_widget',
-            stream: false
+            stream: false,
+            timeoutMs: 95_000
           });
           unifiedOk = true;
           if (data?.conversationId) {
@@ -1022,7 +1024,12 @@ const SupportWidget: React.FC = () => {
   const allowVoiceInput = widgetConfig.allowVoiceInput !== false;
   const allowFileUpload = widgetConfig.allowFileUpload !== false;
   const showStatusBadge = widgetConfig.showStatusBadge !== false;
-  const logoUrl = widgetConfig.logoUrl || '';
+  const logoUrl = getScrolithaProfilePhotoUrl(widgetConfig.logoUrl || undefined);
+  const handleLogoError = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const image = event.currentTarget;
+    image.onerror = null;
+    image.src = getScrolithaProfilePhotoUrl();
+  };
   const statusLabel = isAuthenticated ? (isConnected ? 'Live assistant' : 'Assistant available') : 'Guided support';
 
   return (
@@ -1047,7 +1054,7 @@ const SupportWidget: React.FC = () => {
             <div className="flex items-center min-w-0">
               <div className="bg-white/20 p-2 rounded-full mr-3 relative h-10 w-10 flex items-center justify-center overflow-hidden shrink-0">
                 {logoUrl ? (
-                  <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+                  <img src={logoUrl} alt="" onError={handleLogoError} className="h-full w-full object-cover" />
                 ) : (
                   <Sparkles className="h-5 w-5 text-yellow-300" aria-hidden="true" />
                 )}
@@ -1121,7 +1128,7 @@ const SupportWidget: React.FC = () => {
                         {msg.sender === 'agent' && (
                         <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center mr-2 mt-1 flex-shrink-0 overflow-hidden">
                             {logoUrl ? (
-                              <img src={logoUrl} alt={assistantName} className="h-full w-full object-cover" />
+                              <img src={logoUrl} alt={assistantName} onError={handleLogoError} className="h-full w-full object-cover" />
                             ) : (
                               <Sparkles className="h-3 w-3 text-indigo-600" />
                             )}
@@ -1163,7 +1170,7 @@ const SupportWidget: React.FC = () => {
               <div className="flex justify-start animate-pulse">
                  <div className="h-6 w-6 rounded-full bg-indigo-100 flex items-center justify-center mr-2">
                     {logoUrl ? (
-                      <img src={logoUrl} alt={assistantName} className="h-full w-full object-cover rounded-full" />
+                      <img src={logoUrl} alt={assistantName} onError={handleLogoError} className="h-full w-full object-cover rounded-full" />
                     ) : (
                       <Sparkles className="h-3 w-3 text-indigo-600" />
                     )}
@@ -1414,8 +1421,8 @@ const SupportWidget: React.FC = () => {
         aria-label={isOpen ? `Close ${assistantName}` : `Open ${assistantName}`}
       >
         {isOpen ? <X className="h-6 w-6" aria-hidden="true" /> : (
-          <div className="relative">
-             <Headphones className="h-6 w-6" aria-hidden="true" />
+          <div className="relative h-7 w-7 overflow-hidden rounded-full bg-white/20 ring-1 ring-white/40">
+             <img src={logoUrl} alt="" onError={handleLogoError} className="h-full w-full object-cover" />
              <span className="absolute -top-1 -right-1 flex h-3 w-3" aria-hidden="true">
                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75 motion-reduce:animate-none"></span>
                <span className="relative inline-flex rounded-full h-3 w-3 bg-yellow-500"></span>

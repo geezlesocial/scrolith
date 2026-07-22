@@ -1049,6 +1049,7 @@ export const MessagingService = {
     attachmentFileIds?: string[];
     source?: string;
     stream?: boolean;
+    timeoutMs?: number;
   }): Promise<{
     conversationId: string;
     userMessageId?: string;
@@ -1062,13 +1063,19 @@ export const MessagingService = {
     streamingMode?: string;
     messagingAssistantEnabled?: boolean;
   }> => {
-    const response = await api.post('/messages/scrolitha/turn', {
-      message: payload.message,
-      clientRequestId: payload.clientRequestId,
-      attachmentFileIds: payload.attachmentFileIds || [],
-      source: payload.source || 'support_widget',
-      stream: Boolean(payload.stream)
-    });
+    const response = await api.post(
+      '/messages/scrolitha/turn',
+      {
+        message: payload.message,
+        clientRequestId: payload.clientRequestId,
+        attachmentFileIds: payload.attachmentFileIds || [],
+        source: payload.source || 'support_widget',
+        stream: Boolean(payload.stream)
+      },
+      {
+        timeout: Math.max(5_000, Math.min(120_000, Number(payload.timeoutMs || 16_000)))
+      }
+    );
     const data = extractData<any>(response) || {};
     conversationCache.clear();
     return {

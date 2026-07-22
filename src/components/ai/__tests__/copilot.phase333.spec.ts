@@ -18,9 +18,9 @@ describe('Phase 33.3 Platform Copilot UI', () => {
     expect(src).toContain('/ai/orchestrate');
   });
 
-  it('App mounts floating copilot', () => {
+  it('App keeps the canonical logo-backed assistant as the only floating assistant', () => {
     const src = readFileSync(resolve(__dirname, '../../../App.tsx'), 'utf8');
-    expect(src).toContain('ScrolithaCopilotPanel');
-    expect(src).toContain('Phase 33.3');
+    expect(src).toContain("import('./components/SupportWidget')");
+    expect(src).not.toContain('ScrolithaCopilotPanel');
   });
 });
