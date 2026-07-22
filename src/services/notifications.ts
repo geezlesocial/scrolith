@@ -61,6 +61,35 @@ export type NotificationSummary = {
   unread: number;
   total: number;
   archived: number;
+  critical?: number;
+  high?: number;
+  pinned?: number;
+  byCategory?: Record<string, number>;
+};
+
+export type NotificationInboxQuery = {
+  limit?: number;
+  cursor?: string;
+  category?: string;
+  q?: string;
+  unreadOnly?: boolean;
+  readOnly?: boolean;
+  includeArchived?: boolean;
+  archivedOnly?: boolean;
+  priority?: string;
+  highPriorityOnly?: boolean;
+  criticalOnly?: boolean;
+  pinnedOnly?: boolean;
+  timeRange?: string;
+};
+
+export type NotificationInboxPage = {
+  items: any[];
+  pagination: {
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
+  };
 };
 
 export const notificationsApi = {
@@ -96,30 +125,58 @@ export const notificationsApi = {
 };
 
 export const NotificationService = {
-  getAll: async (options?: {
-    limit?: number;
-    cursor?: string;
-    category?: string;
-    unreadOnly?: boolean;
-    includeArchived?: boolean;
-  }) => {
+  getPage: async (options?: NotificationInboxQuery): Promise<NotificationInboxPage> => {
     const res = await api.get('/notifications', {
       params: {
-        limit: Math.max(20, Math.min(100, Number(options?.limit || 80))),
+        limit: Math.max(10, Math.min(100, Number(options?.limit || 40))),
         ...(options?.cursor ? { cursor: options.cursor } : {}),
-        ...(options?.category ? { category: options.category } : {}),
+        ...(options?.category && options.category !== 'all' ? { category: options.category } : {}),
+        ...(options?.q ? { q: options.q } : {}),
         ...(options?.unreadOnly ? { unreadOnly: 'true' } : {}),
-        ...(options?.includeArchived ? { includeArchived: 'true' } : {})
+        ...(options?.readOnly ? { readOnly: 'true' } : {}),
+        ...(options?.includeArchived ? { includeArchived: 'true' } : {}),
+        ...(options?.archivedOnly ? { archivedOnly: 'true' } : {}),
+        ...(options?.priority ? { priority: options.priority } : {}),
+        ...(options?.highPriorityOnly ? { highPriorityOnly: 'true' } : {}),
+        ...(options?.criticalOnly ? { criticalOnly: 'true' } : {}),
+        ...(options?.pinnedOnly ? { pinnedOnly: 'true' } : {}),
+        ...(options?.timeRange ? { timeRange: options.timeRange } : {})
       }
     });
     const payload = res.data?.data;
-    if (Array.isArray(payload)) return payload;
-    if (payload && Array.isArray(payload.items)) return payload.items;
-    return [];
+    const pagination = res.data?.pagination || {
+      limit: Number(options?.limit || 40),
+      hasMore: false,
+      nextCursor: null
+    };
+    if (Array.isArray(payload)) {
+      return { items: payload, pagination };
+    }
+    if (payload && Array.isArray(payload.items)) {
+      return {
+        items: payload.items,
+        pagination: payload.pagination || pagination
+      };
+    }
+    return { items: [], pagination };
+  },
+  getAll: async (options?: NotificationInboxQuery) => {
+    const page = await NotificationService.getPage(options);
+    return page.items;
   },
   getSummary: async (): Promise<NotificationSummary> => {
     const res = await api.get('/notifications/summary');
-    return res.data?.data || { unread: 0, total: 0, archived: 0 };
+    return (
+      res.data?.data || {
+        unread: 0,
+        total: 0,
+        archived: 0,
+        critical: 0,
+        high: 0,
+        pinned: 0,
+        byCategory: {}
+      }
+    );
   },
   getUnread: async () => {
     const res = await api.get('/notifications', { params: { unreadOnly: 'true' } });
@@ -142,7 +199,15 @@ export const NotificationService = {
     await api.post('/notifications/mark-all-read');
   },
   bulkUpdate: async (
-    action: 'read' | 'unread' | 'archive' | 'unarchive' | 'delete' | 'restore',
+    action:
+      | 'read'
+      | 'unread'
+      | 'archive'
+      | 'unarchive'
+      | 'delete'
+      | 'restore'
+      | 'pin'
+      | 'unpin',
     ids: string[]
   ) => {
     const res = await api.post('/notifications/bulk', { action, ids });
@@ -150,6 +215,8 @@ export const NotificationService = {
   },
   archive: async (ids: string[]) => NotificationService.bulkUpdate('archive', ids),
   delete: async (ids: string[]) => NotificationService.bulkUpdate('delete', ids),
+  pin: async (ids: string[]) => NotificationService.bulkUpdate('pin', ids),
+  unpin: async (ids: string[]) => NotificationService.bulkUpdate('unpin', ids),
   emit: async (payload: {
     type: string;
     recipientId?: string;

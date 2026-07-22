@@ -402,6 +402,7 @@ const MobileFeedScreen = React.lazy(() => import('./mobile/home/screens/MobileFe
 const MobileNetworkScreen = React.lazy(() => import('./mobile/home/screens/MobileNetworkScreen'));
 const MobilePostScreen = React.lazy(() => import('./mobile/home/screens/MobilePostScreen'));
 const MobileNotificationsScreen = React.lazy(() => import('./mobile/home/screens/MobileNotificationsScreen'));
+const NotificationCenter = React.lazy(() => import('./pages/NotificationCenter'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
 const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
@@ -1592,6 +1593,14 @@ const AppContent = () => {
               <Route path="/p/:slug" element={<StaticPage />} />
               
                {/* Support Page */}
+               <Route
+                 path="/notifications"
+                 element={
+                   <ProtectedRoute>
+                     <NotificationCenter />
+                   </ProtectedRoute>
+                 }
+               />
                <Route path="/support" element={renderResponsiveMobilePage('Support', <Support />)} />
                <Route
                  path="/contact"

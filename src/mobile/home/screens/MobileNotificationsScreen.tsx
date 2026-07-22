@@ -39,6 +39,10 @@ export default function MobileNotificationsScreen({
   }, [refreshNotifications]);
 
   const list = Array.isArray(notifications) ? notifications : [];
+  const openFullCenter = () => {
+    if (onNavigate) onNavigate('/notifications');
+    else navigate('/notifications');
+  };
   const buckets = useMemo(() => {
     const home: any[] = [];
     const community: any[] = [];
@@ -189,6 +193,13 @@ export default function MobileNotificationsScreen({
           Notifications
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openFullCenter}
+            className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700"
+          >
+            Full inbox
+          </button>
           <button
             type="button"
             onClick={() => setTab('home')}

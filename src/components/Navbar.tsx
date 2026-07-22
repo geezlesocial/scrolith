@@ -1276,6 +1276,15 @@ const Navbar = () => {
             </>
           )}
         </div>
+        <div className="border-t border-gray-100 p-2">
+          <Link
+            to="/notifications"
+            onClick={() => setShowNotifications(false)}
+            className="flex w-full items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+          >
+            Open Notification Center
+          </Link>
+        </div>
       </div>
     ) : null;
 
