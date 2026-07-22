@@ -7539,3 +7539,203 @@ model HumanVerificationAuditLog {
   @@index([action, createdAt])
   @@index([createdAt])
 }
+
+// ===== Phase 33.0 — Scrolitha AI Platform Foundation (additive) =====
+model AIProviderConfiguration {
+  id        String   @id @default(cuid())
+  provider  String   @unique
+  enabled   Boolean  @default(false)
+  config    Json?
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIModelConfiguration {
+  id          String   @id @default(cuid())
+  provider    String
+  modelId     String
+  displayName String?
+  enabled     Boolean  @default(true)
+  maxTokens   Int      @default(4096)
+  costTier    String   @default("low")
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([provider, modelId])
+  @@index([provider, enabled])
+}
+
+model AICapability {
+  id          String   @id @default(cuid())
+  capability  String   @unique
+  enabled     Boolean  @default(false)
+  description String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AIPrompt {
+  id                 String    @id @default(cuid())
+  promptKey          String
+  capability         String
+  version            Int       @default(1)
+  status             String    @default("draft")
+  systemInstructions String    @default("")
+  inputTemplate      String    @default("{{content}}")
+  outputSchemaName   String?
+  locale             String    @default("en")
+  maxContextChars    Int       @default(8000)
+  safetyPolicy       String    @default("33.0.0")
+  createdBy          String?
+  publishedBy        String?
+  publishedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([promptKey, version, locale])
+  @@index([capability, status])
+}
+
+model AIPromptVersion {
+  id        String   @id @default(cuid())
+  promptId  String
+  version   Int
+  snapshot  Json
+  status    String   @default("draft")
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([promptId, version])
+}
+
+model AIRequest {
+  id            String   @id @default(cuid())
+  userId        String?
+  tenantId      String?
+  capability    String
+  lifecycle     String
+  privacyLevel  String
+  provider      String?
+  model         String?
+  inputHash     String?
+  correlationId String?
+  reason        String?
+  latencyMs     Int?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([capability, createdAt])
+  @@index([correlationId])
+  @@index([lifecycle, createdAt])
+}
+
+model AIResponseMetadata {
+  id            String   @id @default(cuid())
+  requestId     String
+  provider      String?
+  model         String?
+  promptVersion String?
+  outputHash    String?
+  parseAttempts Int      @default(1)
+  disclosure    Json?
+  createdAt     DateTime @default(now())
+
+  @@index([requestId])
+}
+
+model AIUsageLedger {
+  id               String   @id @default(cuid())
+  userId           String?
+  capability       String
+  provider         String
+  model            String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  estimatedCostUsd Float    @default(0)
+  status           String   @default("COMPLETED")
+  correlationId    String?
+  requestId        String?
+  createdAt        DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([provider, createdAt])
+  @@index([capability, createdAt])
+}
+
+model AIConsent {
+  id                                String   @id @default(cuid())
+  userId                            String   @unique
+  aiFeaturesEnabled                 Boolean  @default(false)
+  privateMessageAnalysisAllowed     Boolean  @default(false)
+  personalizationAllowed            Boolean  @default(false)
+  externalProviderProcessingAllowed Boolean  @default(false)
+  aiSuggestionsAllowed              Boolean  @default(false)
+  aiActivityHistoryEnabled          Boolean  @default(false)
+  productImprovementDataAllowed     Boolean  @default(false)
+  consentVersion                    String   @default("33.0.0")
+  createdAt                         DateTime @default(now())
+  updatedAt                         DateTime @updatedAt
+}
+
+model AISafetyDecision {
+  id            String   @id @default(cuid())
+  requestId     String?
+  stage         String
+  allowed       Boolean
+  action        String
+  reasons       String[] @default([])
+  policyVersion String   @default("33.0.0")
+  createdAt     DateTime @default(now())
+
+  @@index([requestId])
+  @@index([action, createdAt])
+}
+
+model AIFeatureFlag {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
+  version   Int      @default(1)
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AIAuditLog {
+  id            String   @id @default(cuid())
+  action        String
+  actorUserId   String?
+  targetUserId  String?
+  capability    String?
+  provider      String?
+  model         String?
+  privacyLevel  String?
+  lifecycle     String?
+  reason        String?
+  correlationId String?
+  requestId     String?
+  inputHash     String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([correlationId])
+}
+
+model AIProviderHealthSnapshot {
+  id        String   @id @default(cuid())
+  provider  String
+  status    String
+  latencyMs Int?
+  message   String?
+  metadata  Json?
+  checkedAt DateTime @default(now())
+
+  @@index([provider, checkedAt])
+}
