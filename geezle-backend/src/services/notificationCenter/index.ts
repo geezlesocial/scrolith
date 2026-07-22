@@ -7,4 +7,7 @@ export { NotificationFocusModeService } from './focusMode.service';
 export { NotificationDigestEngine } from './digestEngine.service';
 export { NotificationDeliveryPolicy } from './delivery/NotificationDeliveryPolicy';
 export * from './delivery/policyTypes';
+export { NotificationSyncService } from './notificationSync.service';
+export { NotificationLifecycleService } from './notificationLifecycle.service';
+export { resolveRichActions, serializeActionsForPush } from './richActions';
 export { default } from './NotificationService';

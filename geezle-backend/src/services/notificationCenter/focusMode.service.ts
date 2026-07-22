@@ -106,6 +106,12 @@ export class NotificationFocusModeService {
         userId,
         details: { endsAt, indefinite }
       });
+      try {
+        const { NotificationSyncService } = await import('./notificationSync.service');
+        await NotificationSyncService.broadcast(userId, { reason: 'focus_started', focus: row } as any);
+      } catch {
+        /* optional */
+      }
       return row;
     } catch (err) {
       if (isMissing(err)) {
@@ -124,6 +130,12 @@ export class NotificationFocusModeService {
         data: { active: false }
       });
       await writeNotificationAudit({ action: 'focus_mode_stopped', userId });
+      try {
+        const { NotificationSyncService } = await import('./notificationSync.service');
+        await NotificationSyncService.broadcast(userId, { reason: 'focus_stopped', focus: null } as any);
+      } catch {
+        /* optional */
+      }
       return { success: true };
     } catch (err) {
       if (isMissing(err)) {

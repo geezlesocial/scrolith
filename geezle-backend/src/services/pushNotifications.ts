@@ -13,6 +13,10 @@ import {
   SCROLITH_NOTIFICATION_SMALL_ICON,
   ANDROID_CHANNEL_IDS
 } from './notificationAndroidChannels';
+import {
+  resolveRichActions,
+  serializeActionsForPush
+} from './notificationCenter/richActions';
 
 export type PushNotificationPayload = {
   id?: string;
@@ -419,6 +423,11 @@ const normalizeDeepLink = (raw?: string) => {
   return `Scrolith://${pathValue}`;
 };
 
+const tagSafe = (value: unknown) =>
+  String(value || 'scrolith')
+    .replace(/[^a-zA-Z0-9:_-]/g, '_')
+    .slice(0, 64);
+
 const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
   const categoryInput = {
     type: payload.type || payload.data?.type,
@@ -450,6 +459,21 @@ const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
   const deepLink = normalizeDeepLink(normalizedLink);
   const entityId = customData.entityId || inferEntityId(payload.meta);
   const channelId = resolveAndroidChannelId(categoryInput);
+  // Phase 32.3 — rich actions + conversation grouping + badge hooks
+  const conversationId =
+    customData.conversationId ||
+    customData.conversation_id ||
+    payload.meta?.conversationId ||
+    payload.meta?.conversation_id ||
+    null;
+  const richActions = resolveRichActions({
+    type: payload.type || customData.type,
+    category,
+    deepLink: normalizedLink || deepLink,
+    conversationId,
+    entityType: customData.entityType || payload.meta?.entityType,
+    entityId
+  });
   const data = normalizeData({
     ...customData,
     notificationId: payload.id,
@@ -459,7 +483,17 @@ const buildPushMessage = (payload: PushNotificationPayload): PushMessage => {
     channelId,
     deepLink,
     link: normalizedLink,
-    entityId
+    entityId,
+    conversationId: conversationId || undefined,
+    actions: serializeActionsForPush(richActions),
+    groupKey: conversationId
+      ? `conv:${conversationId}`
+      : entityId
+        ? `${category}:${entityId}`
+        : tagSafe(payload.id || category),
+    // Client may override with live unread; emit path can inject badgeCount
+    badgeCount: customData.badgeCount ?? customData.unreadCount ?? payload.meta?.badgeCount,
+    schemaVersion: '32.3'
   });
   return { title, body, data };
 };

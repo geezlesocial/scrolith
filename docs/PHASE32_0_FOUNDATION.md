@@ -23,10 +23,12 @@ Module producer
       → NotificationDelivery (in_app / push attempts)
       → NotificationAudit + analytics counters
       → notifyUser (socket + FCM) [existing]
+          → rich actions / groupKey / badge [Phase 32.3]
       → Digest worker (scheduled) [Phase 32.2]
+      → Cross-device sync broadcast [Phase 32.3]
 ```
 
-See also: `PHASE32_2_PREFERENCES_AND_DIGESTS.md`, `PHASE32_2_DELIVERY_POLICY.md`, `PHASE32_2_DIGEST_ENGINE.md`.
+See also: `PHASE32_2_PREFERENCES_AND_DIGESTS.md`, `PHASE32_2_DELIVERY_POLICY.md`, `PHASE32_2_DIGEST_ENGINE.md`, `PHASE32_3_ANDROID_EXCELLENCE.md`, `PHASE32_3_CROSS_DEVICE_SYNC.md`.
 
 ## Taxonomy categories
 

@@ -7005,21 +7005,65 @@ model AuthAuditLog {
 }
 
 // Device tokens for mobile push notifications
+// Phase 32.3 — deviceName, appVersion, pushStatus, lastSyncAt, capabilities
 model DeviceToken {
-  id         String    @id @default(cuid())
-  userId     String
-  platform   String
-  deviceId   String?
-  token      String    @unique
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  lastSeenAt DateTime?
+  id                   String    @id @default(cuid())
+  userId               String
+  platform             String
+  deviceId             String?
+  token                String    @unique
+  deviceName           String?
+  appVersion           String?
+  pushStatus           String    @default("active")
+  notificationCapable  Boolean   @default(true)
+  lastSyncAt           DateTime?
+  capabilities         Json?
+  metadata             Json?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  lastSeenAt           DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([platform])
   @@index([deviceId])
+  @@index([userId, lastSeenAt])
+  @@index([userId, pushStatus])
+}
+
+// Phase 32.3 — delivery/display/open receipts (analytics)
+model NotificationLifecycleEvent {
+  id             String    @id @default(cuid())
+  userId         String
+  notificationId String?
+  eventId        String?
+  deviceId       String?
+  channel        String    @default("push")
+  lifecycle      String
+  clientTimestamp DateTime?
+  serverTimestamp DateTime @default(now())
+  idempotencyKey String?   @unique
+  metadata       Json?
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, createdAt])
+  @@index([notificationId, lifecycle])
+  @@index([lifecycle, createdAt])
+}
+
+// Phase 32.3 — per-user badge/sync cursor for cross-device recovery
+model NotificationSyncState {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  badgeCount   Int       @default(0)
+  unreadCount  Int       @default(0)
+  version      Int       @default(1)
+  lastDeviceId String?
+  lastEventAt  DateTime?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 // ===== Market Intelligence Models =====

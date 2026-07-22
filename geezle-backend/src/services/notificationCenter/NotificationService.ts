@@ -799,6 +799,16 @@ export class NotificationService {
       if (action === 'archive') await bumpNotificationMetric('archived', null, result.count);
       if (action === 'delete') await bumpNotificationMetric('deleted', null, result.count);
       if (action === 'pin') await bumpNotificationMetric('pinned', null, result.count);
+      // Phase 32.3 — cross-device sync broadcast (read/archive/pin/delete)
+      try {
+        const { NotificationSyncService } = await import('./notificationSync.service');
+        await NotificationSyncService.broadcast(input.userId, {
+          reason: `bulk_${action}`,
+          ids
+        } as any);
+      } catch {
+        /* optional */
+      }
       return { success: true as const, count: result.count };
     } catch (err) {
       if (isMissingSchemaError(err) && (action === 'read' || action === 'unread')) {
@@ -837,12 +847,24 @@ export class NotificationService {
         userId,
         details: { count: result.count }
       });
+      try {
+        const { NotificationSyncService } = await import('./notificationSync.service');
+        await NotificationSyncService.broadcast(userId, { reason: 'mark_all_read' } as any);
+      } catch {
+        /* optional */
+      }
       return { success: true as const, count: result.count };
     } catch {
       await prisma.notification.updateMany({
         where: { userId, isRead: false },
         data: { isRead: true }
       });
+      try {
+        const { NotificationSyncService } = await import('./notificationSync.service');
+        await NotificationSyncService.broadcast(userId, { reason: 'mark_all_read' } as any);
+      } catch {
+        /* optional */
+      }
       return { success: true as const, count: 0 };
     }
   }

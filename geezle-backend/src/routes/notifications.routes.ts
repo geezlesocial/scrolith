@@ -36,6 +36,14 @@ import {
   markDigestRead,
   evaluateDeliveryPolicy
 } from '../controllers/notificationPreferences.controller';
+import {
+  getSyncState,
+  postSyncHeartbeat,
+  listDevices,
+  removeDevice,
+  postReceipts,
+  postNotificationAction
+} from '../controllers/notificationSync.controller';
 
 const router = express.Router();
 
@@ -109,6 +117,16 @@ router.post('/digests/:digestId/mark-read', authMiddleware, markDigestRead);
 
 router.post('/device/register', authMiddleware, registerDevice);
 router.post('/device/unregister', authMiddleware, unregisterDevice);
+
+// Phase 32.3 — devices, sync, receipts, rich actions
+router.get('/devices', authMiddleware, listDevices);
+router.delete('/devices/:deviceId', authMiddleware, removeDevice);
+router.get('/sync-state', authMiddleware, getSyncState);
+router.post('/sync-state', authMiddleware, postSyncHeartbeat);
+router.post('/sync/heartbeat', authMiddleware, postSyncHeartbeat);
+router.post('/receipts', authMiddleware, postReceipts);
+router.post('/actions', authMiddleware, postNotificationAction);
+
 router.post('/test/push', authMiddleware, adminMiddleware, testPushNotification);
 
 export default router;
