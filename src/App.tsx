@@ -406,6 +406,7 @@ const NotificationCenter = React.lazy(() => import('./pages/NotificationCenter')
 const NotificationSettings = React.lazy(() => import('./pages/settings/NotificationSettings'));
 const AISettings = React.lazy(() => import('./pages/settings/AISettings'));
 const ScrolithaAssistantPage = React.lazy(() => import('./pages/assistant/ScrolithaAssistantPage'));
+const PersonalizedDiscovery = React.lazy(() => import('./pages/discovery/PersonalizedDiscovery'));
 const MobileJobsScreen = React.lazy(() => import('./mobile/home/screens/MobileJobsScreen'));
 const MobileBriefsScreen = React.lazy(() => import('./mobile/home/screens/MobileBriefsScreen'));
 const MobileAppRouteFrame = React.lazy(() => import('./mobile/home/components/MobileAppRouteFrame'));
@@ -1625,6 +1626,14 @@ const AppContent = () => {
                  element={
                    <ProtectedRoute>
                      <ScrolithaAssistantPage />
+                   </ProtectedRoute>
+                 }
+               />
+               <Route
+                 path="/discovery"
+                 element={
+                   <ProtectedRoute>
+                     <PersonalizedDiscovery />
                    </ProtectedRoute>
                  }
                />

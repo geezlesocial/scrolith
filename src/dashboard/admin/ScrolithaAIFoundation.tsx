@@ -15,6 +15,7 @@ import {
   FileText
 } from 'lucide-react';
 import { ScrolithaAIService } from '../../services/scrolithaAi';
+import { ScrolithaDiscoveryService } from '../../services/scrolithaDiscovery';
 import { useNotification } from '../../context/NotificationContext';
 
 type TabId =
@@ -24,6 +25,7 @@ type TabId =
   | 'capabilities'
   | 'prompts'
   | 'usage'
+  | 'discovery'
   | 'safety'
   | 'health'
   | 'flags'
@@ -37,6 +39,7 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ElementType }> = [
   { id: 'capabilities', label: 'Capabilities', icon: Flag },
   { id: 'prompts', label: 'Prompts', icon: FileText },
   { id: 'usage', label: 'Usage', icon: Activity },
+  { id: 'discovery', label: 'Discovery Analytics', icon: Activity },
   { id: 'safety', label: 'Safety', icon: Shield },
   { id: 'health', label: 'Health', icon: HeartPulse },
   { id: 'flags', label: 'Feature Flags', icon: Flag },
@@ -56,12 +59,13 @@ const ScrolithaAIFoundation: React.FC = () => {
   const [health, setHealth] = useState<any>(null);
   const [audit, setAudit] = useState<any[]>([]);
   const [flags, setFlags] = useState<Record<string, boolean>>({});
+  const [discovery, setDiscovery] = useState<any>(null);
   const [liveMsg, setLiveMsg] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ov, pr, mo, pm, us, he, au, fl] = await Promise.all([
+      const [ov, pr, mo, pm, us, he, au, fl, disc] = await Promise.all([
         ScrolithaAIService.adminOverview().catch(() => null),
         ScrolithaAIService.adminProviders().catch(() => null),
         ScrolithaAIService.adminModels().catch(() => []),
@@ -69,7 +73,8 @@ const ScrolithaAIFoundation: React.FC = () => {
         ScrolithaAIService.adminUsage().catch(() => null),
         ScrolithaAIService.adminHealth().catch(() => null),
         ScrolithaAIService.adminAudit(40).catch(() => []),
-        ScrolithaAIService.adminGetFlags().catch(() => ({}))
+        ScrolithaAIService.adminGetFlags().catch(() => ({})),
+        ScrolithaDiscoveryService.adminAnalytics().catch(() => null)
       ]);
       setOverview(ov);
       setProviders(pr);
@@ -79,6 +84,7 @@ const ScrolithaAIFoundation: React.FC = () => {
       setHealth(he);
       setAudit(Array.isArray(au) ? au : []);
       setFlags(fl || {});
+      setDiscovery(disc);
       setLiveMsg('Scrolitha AI admin data loaded');
     } catch {
       showNotification('alert', 'Scrolitha AI', 'Failed to load admin data');
@@ -314,6 +320,60 @@ const ScrolithaAIFoundation: React.FC = () => {
             <div className="text-sm space-y-2">
               <p>Process metrics: {JSON.stringify(usage?.metrics || overview?.metrics || {}, null, 0)}</p>
               <p className="text-xs text-slate-500">Recent ledger rows: {(usage?.recent || []).length}</p>
+            </div>
+          )}
+
+          {tab === 'discovery' && (
+            <div className="space-y-3 text-sm">
+              <p className="text-xs text-slate-500">
+                Phase 33.2 discovery analytics (proxies only — not production fairness certification).
+              </p>
+              {discovery ? (
+                <>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded border border-slate-100 p-2">
+                      <div className="text-xs text-slate-500">Acceptance rate</div>
+                      <div className="font-semibold">
+                        {((discovery.recommendation?.acceptanceRate || 0) * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="rounded border border-slate-100 p-2">
+                      <div className="text-xs text-slate-500">Dismissal rate</div>
+                      <div className="font-semibold">
+                        {((discovery.recommendation?.dismissalRate || 0) * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="rounded border border-slate-100 p-2">
+                      <div className="text-xs text-slate-500">CTR proxy</div>
+                      <div className="font-semibold">
+                        {((discovery.recommendation?.ctrProxy || 0) * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="rounded border border-slate-100 p-2">
+                      <div className="text-xs text-slate-500">Diversity score</div>
+                      <div className="font-semibold">{discovery.diversity?.diversityScore ?? '—'}</div>
+                    </div>
+                  </div>
+                  <p className="text-xs">
+                    Fairness proxy: {discovery.diversity?.fairnessProxy} · Learning signals:{' '}
+                    {discovery.learningSignals}
+                  </p>
+                  <pre className="max-h-48 overflow-auto rounded bg-slate-50 p-2 text-xs">
+                    {JSON.stringify(
+                      {
+                        byEntityType: discovery.diversity?.byEntityType,
+                        flags: discovery.flags,
+                        recommendationsIssued: discovery.aiUsage?.recommendationsIssued,
+                        feedScoresIssued: discovery.aiUsage?.feedScoresIssued
+                      },
+                      null,
+                      2
+                    )}
+                  </pre>
+                </>
+              ) : (
+                <p className="text-slate-500">Analytics unavailable.</p>
+              )}
             </div>
           )}
 
