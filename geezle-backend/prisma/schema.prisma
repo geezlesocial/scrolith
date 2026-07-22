@@ -7540,7 +7540,7 @@ model HumanVerificationAuditLog {
   @@index([createdAt])
 }
 
-// ===== Phase 33.0 — Scrolitha AI Platform Foundation (additive) =====
+// ===== Phase 33.0 ï¿½ Scrolitha AI Platform Foundation (additive) =====
 model AIProviderConfiguration {
   id        String   @id @default(cuid())
   provider  String   @unique
@@ -7740,7 +7740,7 @@ model AIProviderHealthSnapshot {
   @@index([provider, checkedAt])
 }
 
-// ===== Phase 33.1 — Scrolitha AI Assistant (additive) =====
+// ===== Phase 33.1 ï¿½ Scrolitha AI Assistant (additive) =====
 model AIConversation {
   id            String    @id @default(cuid())
   userId        String
@@ -7788,7 +7788,7 @@ model AIFeedback {
   @@index([rating, createdAt])
 }
 
-// ===== Phase 33.2 — Intelligent discovery (additive) =====
+// ===== Phase 33.2 ï¿½ Intelligent discovery (additive) =====
 model AIUserMemory {
   id                   String   @id @default(cuid())
   userId               String   @unique
