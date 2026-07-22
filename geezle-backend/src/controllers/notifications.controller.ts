@@ -17,15 +17,36 @@ export const listNotifications = async (req: Request, res: Response) => {
     const authId = ensureAuthId(req);
     if (!authId) return res.status(401).json({ success: false, error: 'Unauthorized' });
 
-    // Phase 32.0 inbox list with category/unread filters; falls back to NI legacy path
+    // Phase 32.0/32.1 inbox list with search/filters; falls back to NI legacy path
+    const q = String(req.query?.q || req.query?.search || '').trim();
     const result = await NotificationService.listInbox({
       userId: authId,
       limit: req.query?.limit,
       cursor: req.query?.cursor,
       category: (req.query?.category as string) || null,
-      unreadOnly: String(req.query?.unreadOnly || '') === 'true' || String(req.query?.unread || '') === '1',
-      includeArchived: String(req.query?.includeArchived || '') === 'true',
-      includeDeleted: String(req.query?.includeDeleted || '') === 'true'
+      q: q || null,
+      search: q || null,
+      unreadOnly:
+        String(req.query?.unreadOnly || '') === 'true' ||
+        String(req.query?.unread || '') === '1' ||
+        String(req.query?.filter || '') === 'unread',
+      readOnly:
+        String(req.query?.readOnly || '') === 'true' || String(req.query?.filter || '') === 'read',
+      includeArchived:
+        String(req.query?.includeArchived || '') === 'true' ||
+        String(req.query?.filter || '') === 'archived',
+      archivedOnly: String(req.query?.archivedOnly || '') === 'true' || String(req.query?.filter || '') === 'archived',
+      includeDeleted: String(req.query?.includeDeleted || '') === 'true',
+      priority: (req.query?.priority as string) || null,
+      highPriorityOnly:
+        String(req.query?.highPriorityOnly || '') === 'true' ||
+        String(req.query?.filter || '') === 'high',
+      criticalOnly:
+        String(req.query?.criticalOnly || '') === 'true' ||
+        String(req.query?.filter || '') === 'critical',
+      pinnedOnly:
+        String(req.query?.pinnedOnly || '') === 'true' || String(req.query?.filter || '') === 'pinned',
+      timeRange: (req.query?.timeRange as string) || (req.query?.range as string) || null
     });
     return res.json({
       success: true,

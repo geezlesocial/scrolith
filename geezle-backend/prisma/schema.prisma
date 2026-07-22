@@ -5352,6 +5352,8 @@ model Notification {
   archivedAt     DateTime?
   deletedAt      DateTime?
   readAt         DateTime?
+  /// Phase 32.1 — pin important notifications to top of inbox
+  pinnedAt       DateTime?
 
   user  User  @relation("NotificationUser", fields: [userId], references: [id], onDelete: Cascade)
   actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
@@ -5364,6 +5366,8 @@ model Notification {
   @@index([userId, category, createdAt])
   @@index([userId, archivedAt, createdAt])
   @@index([userId, deletedAt, createdAt])
+  @@index([userId, pinnedAt, createdAt])
+  @@index([userId, priority, createdAt])
   @@index([eventId])
   @@index([entityType, entityId])
   @@index([actorId])

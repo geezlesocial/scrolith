@@ -27,6 +27,7 @@ import type {
   NotificationEmitResult,
   NotificationEmitResultItem
 } from './types';
+import { DEFAULT_PIN_LIMIT } from './types';
 
 const isMissingSchemaError = (err: any) => {
   const msg = String(err?.message || err || '');
@@ -455,45 +456,103 @@ export class NotificationService {
     return this.emit({ ...input, recipientId: userId });
   }
 
-  static async listInbox(query: InboxListQuery) {
-    const includeArchived = Boolean(query.includeArchived);
-    const includeDeleted = Boolean(query.includeDeleted);
-    const category = query.category ? resolveNotificationCategory('x', query.category) : null;
+  private static mapInboxRow(row: any) {
+    const api = toApiNotification(row);
+    const meta = (api.meta || {}) as Record<string, any>;
+    const pinnedAt = row.pinnedAt || meta.pinnedAt || null;
+    return {
+      ...api,
+      category: row.category || meta.category || null,
+      priority: row.priority || meta.priority || 'normal',
+      deepLink: row.deepLink || api.actionUrl,
+      archivedAt: row.archivedAt || null,
+      deletedAt: row.deletedAt || null,
+      pinnedAt,
+      isPinned: Boolean(pinnedAt),
+      eventId: row.eventId || meta.eventId || null,
+      schemaVersion: row.schemaVersion || meta.schemaVersion || null,
+      actorName: api.actorName || meta.actorName || null,
+      actorAvatar: api.actorAvatar || meta.actorAvatar || null
+    };
+  }
 
-    // Prefer extended filters when columns exist; fall back to legacy list
+  private static buildTimeRangeFilter(timeRange?: string | null) {
+    const range = String(timeRange || '').trim().toLowerCase();
+    if (!range || range === 'all') return {};
+    const now = Date.now();
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000);
+    if (range === 'today') {
+      return { createdAt: { gte: startOfToday } };
+    }
+    if (range === 'week' || range === 'this_week') {
+      return { createdAt: { gte: weekAgo } };
+    }
+    if (range === 'older') {
+      return { createdAt: { lt: weekAgo } };
+    }
+    return {};
+  }
+
+  static async listInbox(query: InboxListQuery) {
+    const includeArchived = Boolean(query.includeArchived) || Boolean(query.archivedOnly);
+    const includeDeleted = Boolean(query.includeDeleted);
+    const categoryRaw = String(query.category || '').trim().toLowerCase();
+    const category =
+      categoryRaw && categoryRaw !== 'all'
+        ? resolveNotificationCategory('x', categoryRaw)
+        : null;
+    const q = String(query.q || query.search || '').trim();
+    const priorityRaw = String(query.priority || '').trim().toLowerCase();
+
     try {
-      const defaultLimit = 50;
+      const defaultLimit = 40;
       const limit = Math.max(10, Math.min(100, Number(query.limit) || defaultLimit));
       const cursorId = String(query.cursor || '').trim();
       const where: any = {
         userId: query.userId,
         ...(includeDeleted ? {} : { deletedAt: null }),
-        ...(includeArchived ? {} : { archivedAt: null }),
+        ...(query.archivedOnly
+          ? { archivedAt: { not: null } }
+          : includeArchived
+            ? {}
+            : { archivedAt: null }),
         ...(query.unreadOnly ? { isRead: false } : {}),
-        ...(category ? { category } : {})
+        ...(query.readOnly ? { isRead: true } : {}),
+        ...(category ? { category } : {}),
+        ...(query.pinnedOnly ? { pinnedAt: { not: null } } : {}),
+        ...(query.criticalOnly || priorityRaw === 'critical'
+          ? { priority: 'critical' }
+          : query.highPriorityOnly || priorityRaw === 'high'
+            ? { priority: { in: ['high', 'critical'] } }
+            : priorityRaw
+              ? { priority: priorityRaw }
+              : {}),
+        ...this.buildTimeRangeFilter(query.timeRange)
       };
+
+      if (q) {
+        where.OR = [
+          { title: { contains: q, mode: 'insensitive' } },
+          { body: { contains: q, mode: 'insensitive' } },
+          { type: { contains: q, mode: 'insensitive' } },
+          { category: { contains: q, mode: 'insensitive' } },
+          { deepLink: { contains: q, mode: 'insensitive' } }
+        ];
+      }
+
       const rows = await prisma.notification.findMany({
         where,
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        // Pinned first, then newest
+        orderBy: [{ pinnedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }] as any,
         take: limit + 1,
         ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {})
       });
       const hasMore = rows.length > limit;
       const pageRows = hasMore ? rows.slice(0, limit) : rows;
       return {
-        items: pageRows.map((row) => {
-          const api = toApiNotification(row);
-          return {
-            ...api,
-            category: (row as any).category || api.meta?.category || null,
-            priority: (row as any).priority || api.meta?.priority || 'normal',
-            deepLink: (row as any).deepLink || api.actionUrl,
-            archivedAt: (row as any).archivedAt || null,
-            deletedAt: (row as any).deletedAt || null,
-            eventId: (row as any).eventId || api.meta?.eventId || null,
-            schemaVersion: (row as any).schemaVersion || api.meta?.schemaVersion || null
-          };
-        }),
+        items: pageRows.map((row) => this.mapInboxRow(row)),
         pagination: {
           limit,
           hasMore,
@@ -502,34 +561,111 @@ export class NotificationService {
       };
     } catch (err) {
       if (!isMissingSchemaError(err)) throw err;
-      return legacyListNotifications({
-        userId: query.userId,
-        limit: query.limit,
-        cursor: query.cursor
-      });
+      // Fallback without pin ordering / extended columns
+      try {
+        const defaultLimit = 40;
+        const limit = Math.max(10, Math.min(100, Number(query.limit) || defaultLimit));
+        const cursorId = String(query.cursor || '').trim();
+        const where: any = {
+          userId: query.userId,
+          ...(query.unreadOnly ? { isRead: false } : {}),
+          ...(q
+            ? {
+                OR: [
+                  { title: { contains: q, mode: 'insensitive' } },
+                  { body: { contains: q, mode: 'insensitive' } },
+                  { type: { contains: q, mode: 'insensitive' } }
+                ]
+              }
+            : {})
+        };
+        const rows = await prisma.notification.findMany({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: limit + 1,
+          ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {})
+        });
+        const hasMore = rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        return {
+          items: pageRows.map((row) => this.mapInboxRow(row)),
+          pagination: {
+            limit,
+            hasMore,
+            nextCursor: hasMore ? String(pageRows[pageRows.length - 1]?.id || '') : null
+          }
+        };
+      } catch {
+        return legacyListNotifications({
+          userId: query.userId,
+          limit: query.limit,
+          cursor: query.cursor
+        });
+      }
     }
   }
 
   static async getSummary(userId: string) {
     try {
-      const [unread, total, archived] = await Promise.all([
-        prisma.notification.count({
-          where: { userId, isRead: false, deletedAt: null, archivedAt: null } as any
-        }),
-        prisma.notification.count({
-          where: { userId, deletedAt: null, archivedAt: null } as any
-        }),
+      const baseOpen = { userId, deletedAt: null, archivedAt: null } as any;
+      const [unread, total, archived, critical, high, pinned] = await Promise.all([
+        prisma.notification.count({ where: { ...baseOpen, isRead: false } }),
+        prisma.notification.count({ where: baseOpen }),
         prisma.notification.count({
           where: { userId, archivedAt: { not: null }, deletedAt: null } as any
+        }),
+        prisma.notification.count({
+          where: { ...baseOpen, isRead: false, priority: 'critical' }
+        }),
+        prisma.notification.count({
+          where: { ...baseOpen, isRead: false, priority: { in: ['high', 'critical'] } }
+        }),
+        prisma.notification.count({
+          where: { ...baseOpen, pinnedAt: { not: null } }
         })
       ]);
-      return { unread, total, archived };
+
+      // Category breakdown (unread in default inbox)
+      let byCategory: Record<string, number> = {};
+      try {
+        const grouped = await prisma.notification.groupBy({
+          by: ['category'] as any,
+          where: { ...baseOpen, isRead: false } as any,
+          _count: { _all: true }
+        } as any);
+        byCategory = Object.fromEntries(
+          (grouped || []).map((row: any) => [
+            String(row.category || 'system'),
+            Number(row._count?._all || 0)
+          ])
+        );
+      } catch {
+        byCategory = {};
+      }
+
+      return {
+        unread,
+        total,
+        archived,
+        critical,
+        high,
+        pinned,
+        byCategory
+      };
     } catch {
       const unread = await prisma.notification.count({
         where: { userId, isRead: false }
       });
       const total = await prisma.notification.count({ where: { userId } });
-      return { unread, total, archived: 0 };
+      return {
+        unread,
+        total,
+        archived: 0,
+        critical: 0,
+        high: 0,
+        pinned: 0,
+        byCategory: {}
+      };
     }
   }
 
@@ -557,6 +693,37 @@ export class NotificationService {
       data.deletedAt = new Date();
     } else if (action === 'restore') {
       data.deletedAt = null;
+    } else if (action === 'pin') {
+      // Enforce pin limit
+      try {
+        const currentPinned = await prisma.notification.count({
+          where: {
+            userId: input.userId,
+            pinnedAt: { not: null },
+            deletedAt: null
+          } as any
+        });
+        const alreadyPinned = await prisma.notification.count({
+          where: {
+            userId: input.userId,
+            id: { in: ids },
+            pinnedAt: { not: null }
+          } as any
+        });
+        const newPins = Math.max(0, ids.length - alreadyPinned);
+        if (currentPinned + newPins > DEFAULT_PIN_LIMIT) {
+          const err = new Error(`Pin limit is ${DEFAULT_PIN_LIMIT}. Unpin some notifications first.`);
+          (err as any).statusCode = 400;
+          (err as any).code = 'NOTIFICATION_PIN_LIMIT';
+          throw err;
+        }
+      } catch (limitErr: any) {
+        if (limitErr?.code === 'NOTIFICATION_PIN_LIMIT') throw limitErr;
+        // ignore count failures when column missing
+      }
+      data.pinnedAt = new Date();
+    } else if (action === 'unpin') {
+      data.pinnedAt = null;
     } else {
       const err = new Error('Invalid action');
       (err as any).statusCode = 400;
@@ -578,10 +745,10 @@ export class NotificationService {
       }
       if (action === 'archive') await bumpNotificationMetric('archived', null, result.count);
       if (action === 'delete') await bumpNotificationMetric('deleted', null, result.count);
+      if (action === 'pin') await bumpNotificationMetric('pinned', null, result.count);
       return { success: true as const, count: result.count };
     } catch (err) {
       if (isMissingSchemaError(err) && (action === 'read' || action === 'unread')) {
-        // Pre-migration: only read/unread supported
         const result = await prisma.notification.updateMany({
           where: { id: { in: ids }, userId: input.userId },
           data: { isRead: action === 'read' }
@@ -589,7 +756,7 @@ export class NotificationService {
         return { success: true as const, count: result.count };
       }
       if (isMissingSchemaError(err)) {
-        const e = new Error('Archive/delete requires Phase 32.0 migration');
+        const e = new Error('This inbox action requires Phase 32 migrations');
         (e as any).statusCode = 503;
         (e as any).code = 'NOTIFICATION_FOUNDATION_MIGRATION_REQUIRED';
         throw e;

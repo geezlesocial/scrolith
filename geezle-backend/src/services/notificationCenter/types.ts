@@ -61,15 +61,37 @@ export type InboxListQuery = {
   limit?: unknown;
   cursor?: unknown;
   category?: string | null;
+  /** Free-text search across title/body/actor/category */
+  q?: string | null;
+  search?: string | null;
   unreadOnly?: boolean;
+  readOnly?: boolean;
   includeArchived?: boolean;
+  archivedOnly?: boolean;
   includeDeleted?: boolean;
+  /** high | critical | normal | low | silent */
+  priority?: string | null;
+  highPriorityOnly?: boolean;
+  criticalOnly?: boolean;
+  pinnedOnly?: boolean;
+  /** today | week | older | all */
+  timeRange?: string | null;
 };
 
 export type BulkInboxUpdateInput = {
   userId: string;
   ids: string[];
-  action: 'read' | 'unread' | 'archive' | 'unarchive' | 'delete' | 'restore';
+  action:
+    | 'read'
+    | 'unread'
+    | 'archive'
+    | 'unarchive'
+    | 'delete'
+    | 'restore'
+    | 'pin'
+    | 'unpin';
 };
+
+export const DEFAULT_PIN_LIMIT = 25;
 
 export { NOTIFICATION_SCHEMA_VERSION };
