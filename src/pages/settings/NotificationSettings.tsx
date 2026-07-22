@@ -74,7 +74,7 @@ const EVENT_OVERRIDE_EXAMPLES = [
   'support.ticket_reply'
 ];
 
-type TabId = 'overview' | 'channels' | 'categories' | 'events' | 'quiet' | 'focus' | 'digests' | 'privacy';
+type TabId = 'overview' | 'channels' | 'categories' | 'events' | 'quiet' | 'focus' | 'digests' | 'devices' | 'privacy';
 
 const Toggle: React.FC<{
   checked: boolean;
@@ -137,6 +137,7 @@ const NotificationSettings: React.FC = () => {
   const [digests, setDigests] = useState<any[]>([]);
   const [eventType, setEventType] = useState(EVENT_OVERRIDE_EXAMPLES[0]);
   const [eventMuted, setEventMuted] = useState(false);
+  const [devices, setDevices] = useState<any[]>([]);
   const [qhForm, setQhForm] = useState({
     startTime: '22:00',
     endTime: '07:00',
@@ -152,12 +153,14 @@ const NotificationSettings: React.FC = () => {
     }
     setLoading(true);
     try {
-      const [prefs, digestList] = await Promise.all([
+      const [prefs, digestList, deviceList] = await Promise.all([
         NotificationService.getPreferences(),
-        NotificationService.listDigests(10).catch(() => [])
+        NotificationService.listDigests(10).catch(() => []),
+        NotificationService.listDevices().catch(() => [])
       ]);
       setBundle(prefs);
       setDigests(digestList || []);
+      setDevices(Array.isArray(deviceList) ? deviceList : []);
       if (prefs?.global?.timezone) {
         setQhForm((f) => ({ ...f, timezone: prefs.global.timezone }));
       }
@@ -213,6 +216,7 @@ const NotificationSettings: React.FC = () => {
     { id: 'quiet', label: 'Quiet hours' },
     { id: 'focus', label: 'Focus mode' },
     { id: 'digests', label: 'Digests' },
+    { id: 'devices', label: 'Devices' },
     { id: 'privacy', label: 'Privacy' }
   ];
 
@@ -810,6 +814,57 @@ const NotificationSettings: React.FC = () => {
                   )}
                 </SectionCard>
               </>
+            )}
+
+            {tab === 'devices' && (
+              <SectionCard title="Registered devices" icon={<Smartphone className="h-4 w-4 text-blue-600" />}>
+                <p className="mb-3 text-sm text-slate-600">
+                  Push tokens registered for your account. Removing a device stops push delivery to that installation.
+                  Preferences, Focus Mode, and read state still sync over the web session.
+                </p>
+                {devices.length === 0 ? (
+                  <p className="text-sm text-slate-500">No devices registered yet. Open the Android app while signed in to register push.</p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 text-sm">
+                    {devices.map((d) => (
+                      <li key={d.id || d.deviceId} className="flex flex-wrap items-center justify-between gap-2 py-3">
+                        <div>
+                          <div className="font-medium text-slate-900">
+                            {d.deviceName || d.platform || 'Device'} · {d.platform}
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            Status: {d.pushStatus || 'active'}
+                            {d.appVersion ? ` · app ${d.appVersion}` : ''}
+                            {d.lastSeenAt ? ` · last seen ${new Date(d.lastSeenAt).toLocaleString()}` : ''}
+                            {d.lastSyncAt ? ` · synced ${new Date(d.lastSyncAt).toLocaleString()}` : ''}
+                          </div>
+                          {d.tokenPrefix ? (
+                            <div className="font-mono text-[11px] text-slate-400">token {d.tokenPrefix}…</div>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
+                          onClick={async () => {
+                            const key = d.deviceId || d.id;
+                            if (!key) return;
+                            if (!window.confirm('Remove this device’s push registration?')) return;
+                            try {
+                              await NotificationService.removeDevice(String(key));
+                              showNotification('success', 'Devices', 'Device removed.');
+                              await load();
+                            } catch (e: any) {
+                              showNotification('error', 'Devices', e?.message || 'Failed to remove device');
+                            }
+                          }}
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </SectionCard>
             )}
 
             {tab === 'privacy' && (

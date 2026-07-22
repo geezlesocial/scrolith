@@ -618,8 +618,33 @@ export const buildEnterprisePushDeepLink = (data: Record<string, unknown> | null
   if (type === 'app_campaign' || type === 'campaign') {
     return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
   }
+  // Phase 32.3 — expanded destinations
   if (type.includes('security')) {
-    return '/settings/security';
+    return '/settings/notifications?tab=privacy';
+  }
+  if (type.includes('support') || type.includes('ticket')) {
+    return entityId ? `/support?ticket=${encodeURIComponent(entityId)}` : '/support';
+  }
+  if (type.includes('digest')) {
+    const digestId = String(data.digestId || data.digest_id || entityId || '').trim();
+    return digestId ? `/notifications?digest=${encodeURIComponent(digestId)}` : '/notifications';
+  }
+  if (type.includes('group_message') || type.includes('messaging_group') || type.includes('group_mention')) {
+    if (conversationId) return `/messages/${encodeURIComponent(conversationId)}`;
+    if (communityId) return `/messages?group=${encodeURIComponent(communityId)}`;
+    return '/messages';
+  }
+  if (type.includes('wallet') || type.includes('transaction')) {
+    const txId = String(data.transactionId || data.transaction_id || entityId || '').trim();
+    return txId ? `/wallet?tx=${encodeURIComponent(txId)}` : '/wallet';
+  }
+  if (type.includes('preference') || type.includes('quiet') || type.includes('focus')) {
+    return '/settings/notifications';
+  }
+  if (type.includes('profile')) {
+    if (actorUsername) return `/profile/${encodeURIComponent(actorUsername)}`;
+    if (actorId) return `/profile/${encodeURIComponent(actorId)}`;
+    return '/profile/edit';
   }
   return null;
 };

@@ -333,5 +333,33 @@ export const NotificationService = {
   markDigestRead: async (digestId: string) => {
     const res = await api.post(`/notifications/digests/${encodeURIComponent(digestId)}/mark-read`);
     return res.data?.data;
+  },
+
+  // Phase 32.3 — cross-device sync, devices, receipts
+  getSyncState: async (deviceId?: string) => {
+    const res = await api.get('/notifications/sync-state', {
+      params: deviceId ? { deviceId } : undefined
+    });
+    return res.data?.data;
+  },
+  postSyncHeartbeat: async (deviceId?: string) => {
+    const res = await api.post('/notifications/sync/heartbeat', { deviceId });
+    return res.data?.data;
+  },
+  listDevices: async () => {
+    const res = await api.get('/notifications/devices');
+    return Array.isArray(res.data?.data) ? res.data.data : [];
+  },
+  removeDevice: async (deviceId: string) => {
+    const res = await api.delete(`/notifications/devices/${encodeURIComponent(deviceId)}`);
+    return res.data?.data;
+  },
+  postReceipts: async (payload: Record<string, unknown> | { events: Record<string, unknown>[] }) => {
+    const res = await api.post('/notifications/receipts', payload);
+    return res.data?.data;
+  },
+  postAction: async (action: string, ids: string[], extra?: Record<string, unknown>) => {
+    const res = await api.post('/notifications/actions', { action, ids, ...extra });
+    return res.data?.data;
   }
 };

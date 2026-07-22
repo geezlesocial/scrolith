@@ -163,6 +163,24 @@ const buildFallbackPathFromPushData = (data: any): string | null => {
   if (type === 'app_campaign' || type === 'campaign') {
     return campaignId ? `/m/notifications?campaignId=${encodeURIComponent(campaignId)}` : '/m/notifications';
   }
+  // Phase 32.3 — wallet / support / security / digest / settings
+  if (type.includes('wallet') || type.includes('payment') || type.includes('transaction')) {
+    const tx = String(data?.transactionId || data?.transaction_id || data?.entityId || '').trim();
+    return tx ? `/wallet?tx=${encodeURIComponent(tx)}` : '/wallet';
+  }
+  if (type.includes('support') || type.includes('ticket')) {
+    return '/support';
+  }
+  if (type.includes('security')) {
+    return '/settings/notifications';
+  }
+  if (type.includes('digest')) {
+    const digestId = String(data?.digestId || data?.digest_id || '').trim();
+    return digestId ? `/notifications?digest=${encodeURIComponent(digestId)}` : '/notifications';
+  }
+  if (type.includes('group') && conversationId) {
+    return `/messages/${encodeURIComponent(conversationId)}`;
+  }
   // Never invent home as a push destination when type is unknown without ids.
   return null;
 };
@@ -385,7 +403,18 @@ const registerTokenWithBackend = async (token: string) => {
     await api.post('/notifications/device/register', {
       platform: Capacitor.getPlatform(),
       token,
-      deviceId
+      deviceId,
+      // Phase 32.3 — device metadata for multi-device management
+      deviceName: `${Capacitor.getPlatform()}-device`,
+      appVersion: String(import.meta.env.VITE_APP_VERSION || import.meta.env.VITE_BUILD_ID || 'web').slice(0, 64),
+      pushStatus: 'active',
+      notificationCapable: true,
+      capabilities: {
+        richActions: true,
+        channels: true,
+        deepLinks: true,
+        phase: '32.3'
+      }
     }, {
       headers: {
         Authorization: `Bearer ${authToken}`
@@ -538,9 +567,42 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('pushNotificationReceived', (notification) => {
     try {
+      const notificationId =
+        notification?.id ||
+        notification?.data?.notificationId ||
+        (notification as any)?.notification?.data?.notificationId ||
+        null;
       void reportPushTrackingEvent('push_notification_received', {
-        type: notification?.data?.type || notification?.notification?.data?.type || 'system',
-        notificationId: notification?.id || notification?.data?.notificationId || null
+        type: notification?.data?.type || (notification as any)?.notification?.data?.type || 'system',
+        notificationId
+      });
+      // Phase 32.3 — delivery / displayed receipts
+      void import('./notificationSync').then(({ recordLifecycleReceipt, getLocalBadgeCount, incrementLocalBadge }) => {
+        void recordLifecycleReceipt({
+          notificationId: notificationId ? String(notificationId) : null,
+          lifecycle: 'delivered',
+          deviceId: undefined,
+          channel: 'push'
+        });
+        void recordLifecycleReceipt({
+          notificationId: notificationId ? String(notificationId) : null,
+          lifecycle: 'displayed',
+          channel: 'push'
+        });
+        // Badge hint from payload when present
+        const data = (notification?.data || {}) as any;
+        const badgeRaw = data.badgeCount ?? data.unreadCount;
+        if (badgeRaw != null && Number.isFinite(Number(badgeRaw))) {
+          // apply via event so listeners update
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('notifications:badge-hint', { detail: { badgeCount: Number(badgeRaw) } })
+            );
+          }
+        } else {
+          incrementLocalBadge(1);
+        }
+        void getLocalBadgeCount();
       });
       if (typeof window === 'undefined') return;
       window.dispatchEvent(new CustomEvent('mobile:push-notification-received', {
@@ -553,6 +615,31 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
 
   PushNotifications.addListener('pushNotificationActionPerformed', (event) => {
     const notificationData = (event.notification?.data as any) || {};
+    const notificationId =
+      event.notification?.id || notificationData?.notificationId || null;
+    const actionId = String((event as any)?.actionId || notificationData?.actionId || 'tap').toLowerCase();
+
+    // Phase 32.3 — rich action ids (mark_read / archive) reuse existing APIs
+    if (actionId === 'mark_read' || actionId === 'read') {
+      if (notificationId) {
+        void import('./notificationSync').then(({ runNotificationAction, recordLifecycleReceipt }) => {
+          void runNotificationAction('mark_read', [String(notificationId)], { offlineQueue: true });
+          void recordLifecycleReceipt({
+            notificationId: String(notificationId),
+            lifecycle: 'read',
+            channel: 'push'
+          });
+        });
+      }
+      return;
+    }
+    if (actionId === 'archive' && notificationId) {
+      void import('./notificationSync').then(({ runNotificationAction }) => {
+        void runNotificationAction('archive', [String(notificationId)], { offlineQueue: true });
+      });
+      return;
+    }
+
     const action =
       notificationData?.deepLink ||
       notificationData?.deeplink ||
@@ -561,17 +648,39 @@ const attachPushListeners = (navigate?: (path: string) => void) => {
       notificationData?.action_url ||
       notificationData?.url ||
       event.notification?.link;
-    const path = normalizePushActionPath(action) || buildFallbackPathFromPushData(notificationData);
+    // Prefer action-specific deep link from actions JSON
+    let path = normalizePushActionPath(action) || buildFallbackPathFromPushData(notificationData);
+    try {
+      const rawActions = notificationData?.actions;
+      const actions = typeof rawActions === 'string' ? JSON.parse(rawActions) : rawActions;
+      if (Array.isArray(actions)) {
+        const match = actions.find((a: any) => String(a?.id || '').toLowerCase() === actionId);
+        if (match?.deepLink) path = normalizePushActionPath(match.deepLink) || path;
+      }
+    } catch {
+      /* ignore */
+    }
+
     void reportPushTrackingEvent('push_notification_opened', {
-      notificationId: event.notification?.id || (event.notification?.data as any)?.notificationId || null,
-      path: path || String(action || '') || null
+      notificationId,
+      path: path || String(action || '') || null,
+      actionId
+    });
+    void import('./notificationSync').then(({ recordLifecycleReceipt }) => {
+      void recordLifecycleReceipt({
+        notificationId: notificationId ? String(notificationId) : null,
+        lifecycle: 'opened',
+        channel: 'push'
+      });
     });
     if (!path || !navigateToPath) {
       void reportPushTrackingEvent('push_notification_open_failed', {
-        notificationId: event.notification?.id || notificationData?.notificationId || null,
+        notificationId: notificationId || notificationData?.notificationId || null,
         reason: !action ? 'missing_deeplink' : !path ? 'invalid_path' : 'navigate_unavailable',
         path: String(action || '') || null
       });
+      // Fallback: Notification Center
+      if (navigateToPath) navigateToPath('/notifications');
       return;
     }
     navigateToPath(path);

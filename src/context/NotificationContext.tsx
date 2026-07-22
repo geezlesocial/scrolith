@@ -331,6 +331,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (!isAuthenticated || !user?.id) return;
     if (!isOnline || recoveryTick <= 0) return;
     void refreshNotifications({ force: true });
+    // Phase 32.3 — flush offline notification actions + recover badge on reconnect
+    void import('../mobile/notificationSync').then(({ flushNotificationOfflineQueue, fetchAndApplySyncState }) => {
+      void flushNotificationOfflineQueue().then(() => fetchAndApplySyncState());
+    });
   }, [isAuthenticated, user?.id, isOnline, recoveryTick, refreshNotifications]);
 
   useEffect(() => {
@@ -367,6 +371,34 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
     };
   }, [socket, isConnected, connectionHealth, isAuthenticated, user?.id, refreshNotifications, isOnline]);
+
+  // Phase 32.3 — multi-session badge / focus / preference sync
+  useEffect(() => {
+    if (!socket || !isAuthenticated || !user?.id) return;
+    let unbind: (() => void) | undefined;
+    void import('../mobile/notificationSync').then(({ bindNotificationSyncSocket, fetchAndApplySyncState }) => {
+      unbind = bindNotificationSyncSocket(socket);
+      void fetchAndApplySyncState();
+    });
+    const onBadgeHint = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail;
+      if (detail && typeof detail.badgeCount === 'number') {
+        void import('../mobile/notificationSync').then(({ applyRemoteSync, getLocalSyncVersion }) => {
+          applyRemoteSync({
+            badgeCount: detail.badgeCount,
+            unreadCount: detail.badgeCount,
+            version: getLocalSyncVersion(),
+            serverTime: new Date().toISOString()
+          });
+        });
+      }
+    };
+    window.addEventListener('notifications:badge-hint', onBadgeHint);
+    return () => {
+      unbind?.();
+      window.removeEventListener('notifications:badge-hint', onBadgeHint);
+    };
+  }, [socket, isAuthenticated, user?.id]);
 
   useEffect(() => {
     if (!socket || !isAuthenticated || !user?.id) return;
