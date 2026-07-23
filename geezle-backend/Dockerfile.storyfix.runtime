@@ -10,9 +10,12 @@ COPY . .
 
 RUN npm run prisma:generate
 RUN mkdir -p uploads && cp -f assets/brand/runtime-uploads/* uploads/
+RUN npm run build:prod
 
 ENV NODE_ENV=production
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "npm run migrate:apply && node -r ts-node/register/transpile-only src/server.ts"]
+# Production migrations are run by the release pipeline before traffic moves.
+# Cloud Run instances must not block startup by re-running Prisma work on every scale-out.
+CMD ["node", "dist/server.js"]
