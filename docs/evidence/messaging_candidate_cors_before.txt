@@ -1,0 +1,21 @@
+Command:
+curl -i -X OPTIONS https://api.scrolith.com/api/auth/login \
+  -H "Origin: https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type,authorization"
+
+Result:
+HTTP/1.1 200 OK
+allow: POST
+content-type: text/html; charset=utf-8
+
+Body:
+POST
+
+Evidence:
+No access-control-allow-origin header was present for the candidate frontend origin.
+Browser preflight was therefore blocked before login could reach the API.
+
+Control:
+Production origin https://scrolith.com returned HTTP 204 with access-control-allow-origin and access-control-allow-credentials: true.
+

@@ -1,0 +1,17 @@
+{
+  "date": "2026-07-23",
+  "status": "BLOCKED",
+  "reason": "No approved production smoke credentials or approved authenticated candidate browser session were available.",
+  "directMessaging": "NOT_RUN",
+  "groupMessaging": "NOT_RUN",
+  "scrolithaMessaging": "NOT_RUN",
+  "memberLookupByUsername": "NOT_RUN",
+  "memberLookupByEmail": "NOT_RUN",
+  "memberLookupByUserId": "NOT_RUN",
+  "emailPrivacy": "NOT_RUN",
+  "groupAuthorization": "NOT_RUN",
+  "duplicatePrevention": "NOT_RUN",
+  "cleanup": "NOT_REQUIRED",
+  "trafficPromotionAllowed": false
+}
+

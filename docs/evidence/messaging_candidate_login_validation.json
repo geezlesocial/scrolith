@@ -1,0 +1,21 @@
+{
+  "date": "2026-07-23",
+  "candidateFrontend": "https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app",
+  "candidateFrontendRevision": "scrolith-frontend-00312-net",
+  "candidateBackend": "https://messaging-e5fa6599---scrolith-backend-25ysnpjdda-as.a.run.app",
+  "candidateBackendRevision": "scrolith-backend-00262-dif",
+  "pageLoad": "PASS",
+  "candidateApiBaseEmbedded": "PASS",
+  "cmsRequestsReachedCandidateBackend": "PASS",
+  "loginRequestReachedCandidateBackend": "PASS_UNAUTHENTICATED_PROBE",
+  "corsErrorsObserved": false,
+  "failedNetworkRequestsObserved": false,
+  "expectedUnauthenticatedStatusesObserved": [
+    401,
+    400
+  ],
+  "approvedProductionSmokeCredentialsAvailable": false,
+  "authenticatedLogin": "BLOCKED_NO_APPROVED_CREDENTIALS_OR_BROWSER_SESSION",
+  "notes": "A no-credential browser probe confirmed frontend requests reached the backend candidate. Real login was not attempted because no approved production smoke credentials or approved authenticated browser session were available."
+}
+

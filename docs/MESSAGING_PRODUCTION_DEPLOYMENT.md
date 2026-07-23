@@ -2,14 +2,26 @@
 
 Date: 2026-07-23
 
-Deployment status: NOT STARTED
+## Status
 
-Reason: The DB-backed Cloud Build regression matrix failed at the full Jest gate.
+NOT STARTED.
 
-No production candidate image was built for this phase. No Cloud Run revision was created. No production traffic was changed.
+## Reason
 
-Required unblock:
+Authenticated messaging certification is blocked due to missing approved credentials or approved authenticated browser session.
 
-1. Repair or explicitly scope the failing backend tests.
-2. Re-run the Cloud Build regression matrix successfully against the ephemeral PostgreSQL database.
-3. Only after the matrix passes, take the approved production backup and proceed with the existing Cloud Build plus Cloud Run 0% revision deployment method.
+## Current Production Traffic
+
+- Backend: `scrolith-backend-00152-9tk` at 100%
+- Frontend: `scrolith-frontend-00181-hdk` at 100%
+
+## Candidate Revisions
+
+- Backend candidate: `scrolith-backend-00262-dif` at 0%
+- Frontend candidate: `scrolith-frontend-00312-net` at 0%
+
+## Rollback Targets
+
+- Backend: `scrolith-backend-00152-9tk`
+- Frontend: `scrolith-frontend-00181-hdk`
+

@@ -42,6 +42,33 @@ describe('production CORS preflight', () => {
     expect(response.headers['access-control-allow-credentials']).toBe('true');
   });
 
+  test('allows an exact messaging release candidate origin from CORS_ALLOWED_ORIGINS', async () => {
+    const origin = 'https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app';
+    const scopedApp = express();
+    const scopedCorsOptions = createCorsOptions({
+      ...process.env,
+      NODE_ENV: 'production',
+      FRONTEND_URL: '',
+      CORS_ALLOWED_ORIGINS: origin
+    });
+
+    scopedApp.use(cors(scopedCorsOptions));
+    scopedApp.options('*', cors(scopedCorsOptions));
+    scopedApp.post('/api/auth/login', (_req, res) => res.json({ ok: true }));
+
+    const response = await request(scopedApp)
+      .options('/api/auth/login')
+      .set('Origin', origin)
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type,authorization');
+
+    expect(response.status).toBe(204);
+    expect(response.headers['access-control-allow-origin']).toBe(origin);
+    expect(response.headers['access-control-allow-credentials']).toBe('true');
+    expect(response.headers['access-control-allow-methods']).toContain('POST');
+    expect(response.headers['access-control-allow-headers']).toContain('content-type');
+  });
+
   test('unknown origins do not crash preflight handling', async () => {
     const response = await preflight('https://not-allowed.example.com');
 

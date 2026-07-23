@@ -1,0 +1,12 @@
+{
+  "date": "2026-07-23",
+  "scope": "candidate-only pre-promotion monitoring",
+  "backendCandidateRevision": "scrolith-backend-00262-dif",
+  "frontendCandidateRevision": "scrolith-frontend-00312-net",
+  "backend5xxLast30m": 0,
+  "backendP2024Last30m": 0,
+  "frontend5xxLast30m": 0,
+  "productionTrafficChanged": false,
+  "notes": "Staged rollout monitoring was not started because authenticated certification is blocked."
+}
+

@@ -1,0 +1,20 @@
+Command:
+curl -i -X OPTIONS https://messaging-e5fa6599---scrolith-backend-25ysnpjdda-as.a.run.app/api/auth/login \
+  -H "Origin: https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app" \
+  -H "Access-Control-Request-Method: POST" \
+  -H "Access-Control-Request-Headers: content-type,authorization"
+
+Result:
+HTTP/1.1 204 No Content
+access-control-allow-origin: https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app
+access-control-allow-credentials: true
+access-control-allow-methods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+access-control-allow-headers: content-type,authorization
+access-control-max-age: 86400
+
+Rejected-origin control:
+Origin https://evil-example.invalid returned no access-control-allow-origin header.
+
+Production-origin control:
+Origin https://scrolith.com returned HTTP 204 with access-control-allow-origin: https://scrolith.com and access-control-allow-credentials: true.
+

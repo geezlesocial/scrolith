@@ -2,16 +2,19 @@
 
 Date: 2026-07-23
 
-Monitoring status: NOT STARTED
+## Status
 
-No new production revision was deployed and no traffic was shifted, so production monitoring was not started for this release.
+Candidate-only pre-promotion checks completed.
 
-When unblocked, monitor:
+## Observations
 
-- Cloud Run backend 5xx rate
-- Messaging endpoint 4xx/5xx changes
-- Cloud SQL Prisma pool errors, especially P2024
-- Request latency
-- Authentication failures
-- Messaging URL join/support behavior
-- Group-member addition behavior
+- Backend candidate 5xx in recent log window: 0
+- Backend candidate P2024 in recent log window: 0
+- Frontend candidate 5xx in recent log window: 0
+- Production staged rollout: NOT STARTED
+- Production traffic: UNCHANGED
+
+## Reason Monitoring Did Not Continue
+
+The required authenticated certification gate is blocked. Staged rollout and extended production monitoring must wait for approved credentials or an approved authenticated browser session.
+
