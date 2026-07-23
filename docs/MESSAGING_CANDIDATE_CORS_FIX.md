@@ -22,6 +22,7 @@ Created a replacement frontend candidate that targets the backend candidate:
 - Candidate preflight: PASS
 - Production-origin preflight: PASS
 - Unknown-origin rejection: PASS
+- Serialized invalid-credential login POST reached candidate backend and returned HTTP 400 with the candidate allow-origin: PASS
 - Wildcard CORS: NOT ENABLED
 - Production traffic: UNCHANGED
 
@@ -36,3 +37,6 @@ Created a replacement frontend candidate that targets the backend candidate:
 - Frontend direct message-link assertions: PASS
 - Checked-in Vitest message-link spec: NOT RUN, `vitest` is not installed in this workspace.
 
+## Note
+
+Two malformed manual `curl` login probes returned HTTP 500 from the candidate backend. They were not used as certification evidence. The follow-up serializer-based POST used valid JSON and confirmed the login endpoint is reachable with candidate CORS headers.

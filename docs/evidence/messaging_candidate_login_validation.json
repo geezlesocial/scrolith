@@ -8,8 +8,13 @@
   "candidateApiBaseEmbedded": "PASS",
   "cmsRequestsReachedCandidateBackend": "PASS",
   "loginRequestReachedCandidateBackend": "PASS_UNAUTHENTICATED_PROBE",
+  "serializedInvalidCredentialPost": {
+    "status": 400,
+    "accessControlAllowOrigin": "https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app"
+  },
   "corsErrorsObserved": false,
   "failedNetworkRequestsObserved": false,
+  "operatorMalformedCurl500Count": 2,
   "expectedUnauthenticatedStatusesObserved": [
     401,
     400
@@ -18,4 +23,3 @@
   "authenticatedLogin": "BLOCKED_NO_APPROVED_CREDENTIALS_OR_BROWSER_SESSION",
   "notes": "A no-credential browser probe confirmed frontend requests reached the backend candidate. Real login was not attempted because no approved production smoke credentials or approved authenticated browser session were available."
 }
-

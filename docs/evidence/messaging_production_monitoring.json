@@ -3,10 +3,9 @@
   "scope": "candidate-only pre-promotion monitoring",
   "backendCandidateRevision": "scrolith-backend-00262-dif",
   "frontendCandidateRevision": "scrolith-frontend-00312-net",
-  "backend5xxLast30m": 0,
+  "backend5xxLast30m": 2,
   "backendP2024Last30m": 0,
   "frontend5xxLast30m": 0,
   "productionTrafficChanged": false,
-  "notes": "Staged rollout monitoring was not started because authenticated certification is blocked."
+  "notes": "Two backend candidate 500 entries were produced by malformed operator curl POST bodies during candidate probing. A subsequent PowerShell JSON-serialized invalid-credential POST returned HTTP 400 with the correct candidate allow-origin. Staged rollout monitoring was not started because authenticated certification is blocked."
 }
-

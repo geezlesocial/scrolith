@@ -16,6 +16,7 @@ No approved production smoke credentials or approved authenticated candidate bro
 - Candidate CMS requests reached the backend candidate.
 - Candidate login request reached the backend candidate with no CORS or network failure.
 - A no-credential login probe returned expected unauthenticated/invalid-login HTTP statuses.
+- A serializer-based invalid-credential POST returned HTTP 400 with the candidate allow-origin.
 
 ## Not Run
 
@@ -32,4 +33,3 @@ No approved production smoke credentials or approved authenticated candidate bro
 ## Gate
 
 Traffic promotion is not authorized until authenticated certification is completed with approved credentials or an approved authenticated browser workflow.
-
