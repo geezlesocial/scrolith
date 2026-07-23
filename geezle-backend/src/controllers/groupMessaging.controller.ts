@@ -339,6 +339,29 @@ export const updateGroupMeta = async (req: Request, res: Response) => {
       data
     } as any);
 
+    // Realtime: group photo / title / description changes without full refresh
+    try {
+      const { emitGroupLifecycle } = await import('../services/messaging/groupRealtime');
+      const { GROUP_WIRE_EVENTS } = await import('../services/messaging/groupRealtimeEvents');
+      await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_UPDATED, {
+        conversationId,
+        title: (updated as any).title || null,
+        description: (updated as any).description || null,
+        avatarFileId: (updated as any).avatarFileId || null,
+        visibility: (updated as any).visibility || 'PRIVATE',
+        actorId: userId,
+        fields: Object.keys(data)
+      });
+      await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.CONVERSATION_UPDATED, {
+        conversationId,
+        title: (updated as any).title || null,
+        avatarFileId: (updated as any).avatarFileId || null,
+        actorId: userId
+      });
+    } catch {
+      /* non-fatal realtime */
+    }
+
     return res.json({
       success: true,
       data: {

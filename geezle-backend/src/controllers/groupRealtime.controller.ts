@@ -55,6 +55,12 @@ export const getGroupPins = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
     const conversationId = String(req.params.id || '').trim();
+    // Members only — never leak pin previews to non-participants
+    const { getActiveMembership } = await import('../services/messaging/groupRealtime');
+    const membership = await getActiveMembership(conversationId, userId);
+    if (!membership) {
+      return res.status(403).json({ success: false, error: 'Not a member', code: 'GROUP_NOT_MEMBER' });
+    }
     const pins = await listGroupPins(conversationId);
     return res.json({ success: true, data: pins });
   } catch (e: any) {

@@ -4028,6 +4028,8 @@ model ConversationParticipant {
   lastMessageAt       DateTime?
   /// Phase 29.1 — sparse per-member permission overrides
   permissionOverrides Json?
+  /// Per-user chat appearance (background, opacity, blur). Not shared with peers.
+  chatAppearanceJson  Json?
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -4093,6 +4095,8 @@ model ConversationSettings {
   maxMentionsPerMessage   Int      @default(20)
   messageApprovalRequired Boolean  @default(false)
   mediaApprovalRequired   Boolean  @default(false)
+  /// OWNER_ADMIN (default) | EVERYONE — who may pin messages in this group
+  pinPolicy               String   @default("OWNER_ADMIN")
   /// Advanced filters / keyword lists / AI hooks (opaque JSON)
   policyJson              Json?
   createdAt               DateTime @default(now())

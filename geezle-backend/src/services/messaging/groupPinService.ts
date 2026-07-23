@@ -14,6 +14,9 @@ export type PinResult =
   | { ok: true; pins: any[]; action: 'created' | 'removed' | 'noop' }
   | { ok: false; code: string; error: string };
 
+/** Maximum pinned messages per conversation (oldest unpinned first when exceeded). */
+export const MAX_PINNED_MESSAGES = 10;
+
 const listPins = async (conversationId: string) => {
   try {
     const rows = await (prisma as any).conversationPinnedMessage.findMany({
@@ -74,18 +77,29 @@ export const pinMessage = async (input: {
   if (!membership) return { ok: false, code: 'GROUP_NOT_MEMBER', error: 'Not a member' };
 
   const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
-  if (!conversation || conversation.type !== 'GROUP') {
-    return { ok: false, code: 'GROUP_NOT_FOUND', error: 'Not a group' };
+  if (!conversation) {
+    return { ok: false, code: 'GROUP_NOT_FOUND', error: 'Conversation not found' };
   }
 
-  const perms = getEffectivePermissionsForMember({
-    role: normalizeMemberRole((membership as any).role),
-    profileKey: (membership as any).profileKey,
-    conversationOverrides: (conversation as any).permissionOverrides,
-    participantOverrides: (membership as any).permissionOverrides
-  });
-  if (!perms.canPin) {
-    return { ok: false, code: 'GROUP_PERMISSION_DENIED', error: 'Cannot pin' };
+  // DIRECT: either participant may pin. GROUP: permission engine + optional pinPolicy=EVERYONE.
+  if (conversation.type === 'GROUP') {
+    const settings = await (prisma as any).conversationSettings
+      ?.findUnique?.({ where: { conversationId } })
+      .catch?.(() => null);
+    const pinPolicy = String(settings?.pinPolicy || 'OWNER_ADMIN').toUpperCase();
+    if (pinPolicy !== 'EVERYONE') {
+      const perms = getEffectivePermissionsForMember({
+        role: normalizeMemberRole((membership as any).role),
+        profileKey: (membership as any).profileKey,
+        conversationOverrides: (conversation as any).permissionOverrides,
+        participantOverrides: (membership as any).permissionOverrides
+      });
+      if (!perms.canPin) {
+        return { ok: false, code: 'GROUP_PERMISSION_DENIED', error: 'Cannot pin' };
+      }
+    }
+  } else if (conversation.type !== 'DIRECT') {
+    return { ok: false, code: 'GROUP_NOT_FOUND', error: 'Unsupported conversation type' };
   }
 
   const message = await prisma.directMessage.findFirst({
@@ -115,6 +129,17 @@ export const pinMessage = async (input: {
         rank
       }
     });
+    // Cap at MAX_PINNED_MESSAGES — drop oldest by rank then createdAt
+    const allPins = await (prisma as any).conversationPinnedMessage.findMany({
+      where: { conversationId },
+      orderBy: [{ rank: 'asc' }, { createdAt: 'asc' }]
+    });
+    if (allPins.length > MAX_PINNED_MESSAGES) {
+      const overflow = allPins.slice(0, allPins.length - MAX_PINNED_MESSAGES);
+      await (prisma as any).conversationPinnedMessage.deleteMany({
+        where: { id: { in: overflow.map((p: any) => p.id) } }
+      });
+    }
   } catch (e: any) {
     return { ok: false, code: 'GROUP_ERROR', error: e?.message || 'Pin failed' };
   }
@@ -130,11 +155,22 @@ export const pinMessage = async (input: {
 
   const pins = await listPins(conversationId);
   await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.PIN_UPDATED, {
+    conversationId,
     action: 'created',
     messageId,
     pins,
     actorId
   });
+  // Also fan-out for DIRECT rooms via conversation_updated so clients without group room still refresh
+  if (conversation.type === 'DIRECT') {
+    await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.CONVERSATION_UPDATED, {
+      conversationId,
+      pinAction: 'created',
+      messageId,
+      pins,
+      actorId
+    });
+  }
   return { ok: true, pins, action: 'created' };
 };
 
@@ -153,17 +189,27 @@ export const unpinMessage = async (input: {
   if (!membership) return { ok: false, code: 'GROUP_NOT_MEMBER', error: 'Not a member' };
 
   const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } });
-  if (!conversation || conversation.type !== 'GROUP') {
-    return { ok: false, code: 'GROUP_NOT_FOUND', error: 'Not a group' };
+  if (!conversation) {
+    return { ok: false, code: 'GROUP_NOT_FOUND', error: 'Conversation not found' };
   }
-  const perms = getEffectivePermissionsForMember({
-    role: normalizeMemberRole((membership as any).role),
-    profileKey: (membership as any).profileKey,
-    conversationOverrides: (conversation as any).permissionOverrides,
-    participantOverrides: (membership as any).permissionOverrides
-  });
-  if (!perms.canPin) {
-    return { ok: false, code: 'GROUP_PERMISSION_DENIED', error: 'Cannot unpin' };
+  if (conversation.type === 'GROUP') {
+    const settings = await (prisma as any).conversationSettings
+      ?.findUnique?.({ where: { conversationId } })
+      .catch?.(() => null);
+    const pinPolicy = String(settings?.pinPolicy || 'OWNER_ADMIN').toUpperCase();
+    if (pinPolicy !== 'EVERYONE') {
+      const perms = getEffectivePermissionsForMember({
+        role: normalizeMemberRole((membership as any).role),
+        profileKey: (membership as any).profileKey,
+        conversationOverrides: (conversation as any).permissionOverrides,
+        participantOverrides: (membership as any).permissionOverrides
+      });
+      if (!perms.canPin) {
+        return { ok: false, code: 'GROUP_PERMISSION_DENIED', error: 'Cannot unpin' };
+      }
+    }
+  } else if (conversation.type !== 'DIRECT') {
+    return { ok: false, code: 'GROUP_NOT_FOUND', error: 'Unsupported conversation type' };
   }
 
   try {
@@ -185,11 +231,21 @@ export const unpinMessage = async (input: {
 
   const pins = await listPins(conversationId);
   await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.PIN_UPDATED, {
+    conversationId,
     action: 'removed',
     messageId,
     pins,
     actorId
   });
+  if (conversation.type === 'DIRECT') {
+    await emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.CONVERSATION_UPDATED, {
+      conversationId,
+      pinAction: 'removed',
+      messageId,
+      pins,
+      actorId
+    });
+  }
   return { ok: true, pins, action: 'removed' };
 };
 

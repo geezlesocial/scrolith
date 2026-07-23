@@ -413,8 +413,18 @@ export const patchEnterpriseGroup = async (req: Request, res: Response) => {
       visibility: normalizeGroupVisibility((updated as any).visibility),
       joinPolicy: normalizeJoinPolicy((updated as any).joinPolicy),
       slowModeSeconds: Number((updated as any).slowModeSeconds || 0),
+      title: (updated as any).title || null,
+      avatarFileId: (updated as any).avatarFileId || null,
       fields: Object.keys(data)
     });
+    if (data.avatarFileId !== undefined) {
+      void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.CONVERSATION_UPDATED, {
+        conversationId,
+        avatarFileId: (updated as any).avatarFileId || null,
+        title: (updated as any).title || null,
+        actorId: userId
+      });
+    }
     if (data.messagingMode === 'LOCKED' || (updated as any).messagingMode === 'LOCKED') {
       void emitGroupLifecycle(conversationId, GROUP_WIRE_EVENTS.GROUP_LOCKED, {
         actorId: userId,

@@ -57,6 +57,11 @@ import {
   getGroupRealtimeMetrics
 } from '../controllers/groupRealtime.controller';
 import {
+  getConversationAppearance,
+  putConversationAppearance,
+  deleteConversationAppearance
+} from '../controllers/chatAppearance.controller';
+import {
   searchGroupsEnterprise,
   saveGroupSearch,
   discoverGroups,
@@ -120,13 +125,21 @@ router.post('/groups/:id/unlock', authMiddleware, unlockGroup);
 router.post('/groups/:id/restrictions', authMiddleware, applyMemberRestriction);
 router.post('/groups/:id/invites', authMiddleware, createEnterpriseInvite);
 router.get('/groups/:id/audit', authMiddleware, listGroupAudit);
-// Phase 29.2 — pins + reconnect catch-up
+// Phase 29.2 — pins + reconnect catch-up (groups path; also works for DIRECT via same service)
 router.get('/groups/:id/pins', authMiddleware, getGroupPins);
 router.post('/groups/:id/pins', authMiddleware, postGroupPin);
 router.delete('/groups/:id/pins/:messageId', authMiddleware, deleteGroupPin);
 router.get('/groups/:id/catchup', authMiddleware, getGroupCatchup);
 
 router.get('/conversations/:id', authMiddleware, getConversation);
+// Conversation-scoped pin aliases (DM + group) — same handlers as /groups/:id/pins
+router.get('/conversations/:id/pins', authMiddleware, getGroupPins);
+router.post('/conversations/:id/pins', authMiddleware, postGroupPin);
+router.delete('/conversations/:id/pins/:messageId', authMiddleware, deleteGroupPin);
+// Per-user chat appearance (background) — personal only
+router.get('/conversations/:id/appearance', authMiddleware, getConversationAppearance);
+router.put('/conversations/:id/appearance', authMiddleware, putConversationAppearance);
+router.delete('/conversations/:id/appearance', authMiddleware, deleteConversationAppearance);
 // Phase 20.7.8 — media browser + honest security status
 router.get('/conversations/:id/attachments', authMiddleware, listConversationAttachments);
 router.get('/conversations/:id/security', authMiddleware, getConversationSecurityStatus);
