@@ -6,9 +6,11 @@ import {
   getConversationAvatarParticipant,
   getConversationCategory,
   getConversationDisplayName,
+  getConversationGroupAvatarFileId,
   getConversationPreviewText,
   getConversationUnreadCount
 } from '../../services/messagingSurfaces';
+import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import { Paperclip, Pin, VolumeX } from 'lucide-react';
 
 type MessagingConversationRowProps = {
@@ -32,6 +34,10 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
     () => getConversationAvatarParticipant(conversation, currentUserId),
     [conversation, currentUserId]
   );
+  const groupAvatarFileId = useMemo(
+    () => getConversationGroupAvatarFileId(conversation),
+    [conversation]
+  );
   const unread = getConversationUnreadCount(conversation);
   const preview = getConversationPreviewText(conversation, { currentUserId });
   const timestamp = formatRelativeMessageTime(
@@ -41,6 +47,12 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
   const isMuted = Boolean(conversation.isMuted ?? conversation.is_muted);
   const isStarred = Boolean(conversation.isStarred ?? conversation.is_starred);
   const category = getConversationCategory(conversation);
+  const isGroupLike = category === 'group' || category === 'community';
+  const avatarSrc = isGroupLike
+    ? groupAvatarFileId
+      ? resolveUserAvatarUrl(groupAvatarFileId)
+      : undefined
+    : other?.avatar || other?.avatarUrl || other?.profilePhotoFileId;
   const hasAttachmentHint =
     /image|photo|video|audio|voice|pdf|document|file|attachment/i.test(preview);
 
@@ -61,15 +73,18 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
     >
       <div className="relative h-11 w-11 shrink-0">
         <EnterpriseAvatar
-          user={other}
+          user={isGroupLike ? undefined : other}
           name={name}
-          src={other?.avatar || other?.avatarUrl || other?.profilePhotoFileId}
+          src={avatarSrc}
           size="md"
           loading="eager"
-          className="!h-11 !w-11 border border-slate-200"
+          className={[
+            '!h-11 !w-11 border border-slate-200',
+            isGroupLike && !groupAvatarFileId ? 'bg-indigo-50 text-indigo-700' : ''
+          ].join(' ')}
           alt=""
         />
-        {isOnline ? (
+        {!isGroupLike && isOnline ? (
           <span
             className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500"
             title="Online"

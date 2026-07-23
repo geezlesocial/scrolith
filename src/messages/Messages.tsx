@@ -14,7 +14,7 @@ import {
 } from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search, Shield } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search, Shield, Pin, Palette } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -40,7 +40,15 @@ import ScrolithaConversationMenu from '../components/messaging/ScrolithaConversa
 import SmartComposer from '../components/messaging/SmartComposer';
 import GroupManagePanel from '../components/messaging/GroupManagePanel';
 import GroupCreateWizard from '../components/messaging/GroupCreateWizard';
+import ChatAppearancePanel from '../components/messaging/ChatAppearancePanel';
 import SafeMessageText from '../components/messaging/SafeMessageText';
+import {
+  appearanceToBackgroundStyle,
+  buildChatPalette,
+  paletteToCssVars,
+  type AppearanceInput
+} from '../services/messaging/chatTextColorEngine';
+import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import {
   formatMultiRecorderLabel,
   formatMultiTyperLabel,
@@ -248,6 +256,8 @@ const Messages = () => {
   /** Phase 29.3 — enterprise group profile for active conversation */
   const [activeGroupProfile, setActiveGroupProfile] = useState<any>(null);
   const [groupPins, setGroupPins] = useState<any[]>([]);
+  const [chatAppearance, setChatAppearance] = useState<AppearanceInput>({ kind: 'none' });
+  const [chatAppearanceOpen, setChatAppearanceOpen] = useState(false);
   const [groupSendAckStatus, setGroupSendAckStatus] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [showMessageSettings, setShowMessageSettings] = useState(false);
@@ -1136,21 +1146,26 @@ const Messages = () => {
       [isActiveGroupConversation, activeGroupProfile, groupSendAckStatus, activeConvo]
   );
 
-  // Phase 29.3 — load enterprise group profile + pins; join authorized socket room
+  // Pins + appearance for any active conversation; enterprise group profile for groups
   useEffect(() => {
-      if (!activeConvoId || !isActiveGroupConversation) {
+      if (!activeConvoId) {
           setActiveGroupProfile(null);
           setGroupPins([]);
+          setChatAppearance({ kind: 'none' });
           setGroupSendAckStatus(null);
           return;
       }
       let cancelled = false;
       void (async () => {
-          try {
-              const profile = await MessagingService.getEnterpriseGroup(activeConvoId);
-              if (!cancelled) setActiveGroupProfile(profile || null);
-          } catch {
-              if (!cancelled) setActiveGroupProfile(null);
+          if (isActiveGroupConversation) {
+              try {
+                  const profile = await MessagingService.getEnterpriseGroup(activeConvoId);
+                  if (!cancelled) setActiveGroupProfile(profile || null);
+              } catch {
+                  if (!cancelled) setActiveGroupProfile(null);
+              }
+          } else if (!cancelled) {
+              setActiveGroupProfile(null);
           }
           try {
               const pins = await MessagingService.listGroupPins(activeConvoId);
@@ -1158,9 +1173,15 @@ const Messages = () => {
           } catch {
               if (!cancelled) setGroupPins([]);
           }
+          try {
+              const appearance = await MessagingService.getChatAppearance(activeConvoId);
+              if (!cancelled) setChatAppearance(appearance || { kind: 'none' });
+          } catch {
+              if (!cancelled) setChatAppearance({ kind: 'none' });
+          }
       })();
       try {
-          if (socket && isConnected) {
+          if (socket && isConnected && isActiveGroupConversation) {
               socket.emit('messages:group:join', { conversationId: activeConvoId });
           }
       } catch {
@@ -1169,12 +1190,108 @@ const Messages = () => {
       return () => {
           cancelled = true;
           try {
-              if (socket) socket.emit('messages:group:leave', { conversationId: activeConvoId });
+              if (socket && isActiveGroupConversation) {
+                  socket.emit('messages:group:leave', { conversationId: activeConvoId });
+              }
           } catch {
               /* optional */
           }
       };
   }, [activeConvoId, isActiveGroupConversation, socket, isConnected]);
+
+  const chatSurfaceStyle = useMemo(() => {
+      const vars = paletteToCssVars(buildChatPalette(chatAppearance));
+      const kind = String(chatAppearance?.kind || 'none').toLowerCase();
+      if (kind === 'none') {
+          return { ...vars } as React.CSSProperties;
+      }
+      const bg = appearanceToBackgroundStyle(chatAppearance);
+      return { ...bg, ...vars } as React.CSSProperties;
+  }, [chatAppearance]);
+
+  const activeGroupAvatarSrc = useMemo(() => {
+      if (!isActiveGroupConversation) return null;
+      const fileId = String(
+          (activeConvo as any)?.avatarFileId ||
+              (activeConvo as any)?.avatar_file_id ||
+              activeGroupProfile?.avatarFileId ||
+              activeGroupProfile?.avatar_file_id ||
+              ''
+      ).trim();
+      return fileId ? resolveUserAvatarUrl(fileId) : null;
+  }, [isActiveGroupConversation, activeConvo, activeGroupProfile]);
+
+  const jumpToPinnedMessage = useCallback(
+      (messageId: string) => {
+          const id = String(messageId || '').trim();
+          if (!id) return;
+          const node = document.getElementById(`message-${id}`);
+          if (node) {
+              node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              setHighlightedMessageId(id);
+              window.setTimeout(() => {
+                  setHighlightedMessageId((current) => (current === id ? null : current));
+              }, 1800);
+              return;
+          }
+          // Fall through to existing search/jump path via query-style focus
+          pendingSearchMessageFocusRef.current = id;
+          setHighlightedMessageId(id);
+          void MessagingService.getMessagesAround(activeConvoId || '', id, 40)
+              .then((result) => {
+                  const around = Array.isArray(result?.messages) ? result.messages : [];
+                  if (!around.length || !activeConvoId) return;
+                  setConversations((prev) =>
+                      prev.map((conversation) => {
+                          if (conversation.id !== activeConvoId) return conversation;
+                          return {
+                              ...conversation,
+                              messages: dedupeMessagesById([...(conversation.messages || []), ...around])
+                          };
+                      })
+                  );
+                  window.setTimeout(() => {
+                      document.getElementById(`message-${id}`)?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'center'
+                      });
+                  }, 160);
+              })
+              .catch(() => null);
+      },
+      [activeConvoId]
+  );
+
+  const handlePinToggle = useCallback(
+      async (messageId: string, isPinned: boolean) => {
+          if (!activeConvoId) return;
+          setMessageActionBusyId(messageId);
+          try {
+              if (isPinned) {
+                  const data = await MessagingService.unpinGroupMessage(activeConvoId, messageId);
+                  setGroupPins(
+                      Array.isArray(data?.pins) ? data.pins : await MessagingService.listGroupPins(activeConvoId)
+                  );
+                  showNotification('success', 'Unpinned', 'Message unpinned.');
+              } else {
+                  const data = await MessagingService.pinGroupMessage(activeConvoId, messageId);
+                  setGroupPins(
+                      Array.isArray(data?.pins) ? data.pins : await MessagingService.listGroupPins(activeConvoId)
+                  );
+                  showNotification('success', 'Pinned', 'Message pinned.');
+              }
+          } catch (error: any) {
+              showNotification(
+                  'error',
+                  'Pin',
+                  error?.response?.data?.error || error?.message || 'Could not update pin'
+              );
+          } finally {
+              setMessageActionBusyId(null);
+          }
+      },
+      [activeConvoId, showNotification]
+  );
 
   const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
   const otherPresenceState = String(
@@ -2289,6 +2406,9 @@ const Messages = () => {
           const convoId = payload?.conversationId || payload?.conversation_id;
           if (!convoId) return;
           traceClient('socket.conversation_updated', { conversationId: convoId, payload });
+          if (Array.isArray(payload?.pins) && convoId === activeConvoIdRef.current) {
+              setGroupPins(payload.pins);
+          }
           setConversations(prev => {
               const targetConversation = prev.find((conversation) => conversation.id === convoId);
               const targetMergeKey = targetConversation ? getConversationMergeKey(targetConversation) : '';
@@ -2304,6 +2424,13 @@ const Messages = () => {
                       ...(payload?.isMuted !== undefined ? { isMuted: Boolean(payload.isMuted), is_muted: Boolean(payload.isMuted) } : {}),
                       ...(payload?.isArchived !== undefined ? { isArchived: Boolean(payload.isArchived), is_archived: Boolean(payload.isArchived) } : {}),
                       ...(payload?.unread_count !== undefined ? { unreadCount: Number(payload.unread_count), unread_count: Number(payload.unread_count) } : {}),
+                      ...(payload?.avatarFileId !== undefined
+                          ? {
+                                avatarFileId: payload.avatarFileId || null,
+                                avatar_file_id: payload.avatarFileId || null
+                            }
+                          : {}),
+                      ...(payload?.title !== undefined ? { title: payload.title } : {}),
                       ...(payload?.lastMessage !== undefined || payload?.last_message !== undefined
                           ? {
                                 lastMessage: payload?.lastMessage ?? payload?.last_message ?? conversation.lastMessage,
@@ -2363,6 +2490,62 @@ const Messages = () => {
       socket.on('messages:conversation_updated', handleConversationUpdated);
       socket.on('messages:conversation_deleted', handleConversationDeleted);
       socket.on('messages:privacy:updated', handlePrivacyUpdated);
+
+      const handlePinUpdated = (payload: any) => {
+          const convoId = String(payload?.conversationId || payload?.conversation_id || '').trim();
+          if (!convoId || convoId !== activeConvoIdRef.current) return;
+          if (Array.isArray(payload?.pins)) {
+              setGroupPins(payload.pins);
+          } else {
+              void MessagingService.listGroupPins(convoId)
+                  .then((pins) => setGroupPins(Array.isArray(pins) ? pins : []))
+                  .catch(() => null);
+          }
+          const actorId = String(payload?.actorId || '').trim();
+          if (actorId && actorId !== userIdRef.current && payload?.action === 'created') {
+              showNotification('info', 'Pinned message', 'A message was pinned in this chat.');
+          }
+      };
+
+      const handleAppearanceUpdated = (payload: any) => {
+          const convoId = String(payload?.conversationId || payload?.conversation_id || '').trim();
+          if (!convoId || convoId !== activeConvoIdRef.current) return;
+          if (payload?.appearance) {
+              setChatAppearance(payload.appearance);
+          }
+      };
+
+      const handleGroupUpdated = (payload: any) => {
+          const convoId = String(payload?.conversationId || payload?.conversation_id || '').trim();
+          if (!convoId) return;
+          const avatarFileId =
+              payload?.avatarFileId != null
+                  ? String(payload.avatarFileId || '').trim() || null
+                  : undefined;
+          const title =
+              payload?.title != null ? String(payload.title || '').trim() || null : undefined;
+          setConversations((prev) =>
+              prev.map((c) => {
+                  if (c.id !== convoId) return c;
+                  return {
+                      ...c,
+                      ...(avatarFileId !== undefined
+                          ? { avatarFileId, avatar_file_id: avatarFileId }
+                          : {}),
+                      ...(title !== undefined ? { title } : {})
+                  } as any;
+              })
+          );
+          if (convoId === activeConvoIdRef.current && avatarFileId !== undefined) {
+              setActiveGroupProfile((prev: any) =>
+                  prev ? { ...prev, avatarFileId, avatar_file_id: avatarFileId } : prev
+              );
+          }
+      };
+
+      socket.on('messages:pin_updated', handlePinUpdated);
+      socket.on('messages:appearance_updated', handleAppearanceUpdated);
+      socket.on('messages:group_updated', handleGroupUpdated);
       return () => {
           socket.off('messages:new', handleIncoming);
           socket.off('messages:sent', handleIncoming);
@@ -2377,8 +2560,11 @@ const Messages = () => {
           socket.off('messages:conversation_updated', handleConversationUpdated);
           socket.off('messages:conversation_deleted', handleConversationDeleted);
           socket.off('messages:privacy:updated', handlePrivacyUpdated);
+          socket.off('messages:pin_updated', handlePinUpdated);
+          socket.off('messages:appearance_updated', handleAppearanceUpdated);
+          socket.off('messages:group_updated', handleGroupUpdated);
       };
-  }, [socket, user, refreshMessages, navigate]);
+  }, [socket, user, refreshMessages, navigate, showNotification]);
   const renderReplyPreview = (message: Message) => {
       const reply = (message.replyTo || message.reply_to || null) as any;
       if (!reply && !message.replyToMessageId && !message.reply_to_message_id) return null;
@@ -3714,26 +3900,46 @@ const Messages = () => {
                                             >
                                                 <EnterpriseAvatar
                                                     src={
-                                                      resolveScrolithaAvatar(
-                                                        isScrolithaConvo
-                                                          ? { ...participant, isScrolitha: true }
-                                                          : participant
-                                                      ) ||
-                                                      participant?.avatar ||
-                                                      (isScrolithaConvo ? getScrolithaProfilePhotoUrl() : null)
+                                                      isGroupConvo
+                                                        ? (() => {
+                                                            const fid = String(
+                                                              (convo as any)?.avatarFileId ||
+                                                                (convo as any)?.avatar_file_id ||
+                                                                ''
+                                                            ).trim();
+                                                            return fid
+                                                              ? resolveUserAvatarUrl(fid)
+                                                              : undefined;
+                                                          })()
+                                                        : resolveScrolithaAvatar(
+                                                            isScrolithaConvo
+                                                              ? { ...participant, isScrolitha: true }
+                                                              : participant
+                                                          ) ||
+                                                          participant?.avatar ||
+                                                          (isScrolithaConvo
+                                                            ? getScrolithaProfilePhotoUrl()
+                                                            : null)
                                                     }
-                                                    name={participant?.name || (isScrolithaConvo ? 'Scrolitha' : 'User')}
-                                                    user={participant}
+                                                    name={
+                                                      isGroupConvo
+                                                        ? groupDisplayName
+                                                        : participant?.name ||
+                                                          (isScrolithaConvo ? 'Scrolitha' : 'User')
+                                                    }
+                                                    user={isGroupConvo ? undefined : participant}
                                                     size="md"
                                                     className={
                                                       isScrolithaConvo
                                                         ? 'border border-indigo-200 ring-2 ring-indigo-100'
-                                                        : 'border border-gray-200'
+                                                        : isGroupConvo
+                                                          ? 'border border-indigo-100 bg-indigo-50 text-indigo-700'
+                                                          : 'border border-gray-200'
                                                     }
                                                     alt={participant?.name || 'Profile'}
                                                 />
                                             </button>
-                                            {(participant?.isOnline || isScrolithaConvo) && (
+                                            {(!isGroupConvo && (participant?.isOnline || isScrolithaConvo)) && (
                                         <span className="absolute bottom-0 right-3 h-2.5 w-2.5 rounded-full border-2 border-white bg-green-500"></span>
                                             )}
                                         </div>
@@ -3883,7 +4089,7 @@ const Messages = () => {
                                     <EnterpriseAvatar
                                         src={
                                           isActiveGroupConversation
-                                            ? undefined
+                                            ? activeGroupAvatarSrc || undefined
                                             : resolveScrolithaAvatar(
                                                 isActiveScrolithaConversation
                                                   ? { ...otherParticipant, isScrolitha: true }
@@ -4010,6 +4216,16 @@ const Messages = () => {
                                 </div>
                             </div>
                             <div className="flex items-center gap-1.5 sm:gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setChatAppearanceOpen(true)}
+                                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
+                                    title="Chat appearance"
+                                    aria-label="Chat appearance"
+                                    data-testid="messages-appearance-btn"
+                                >
+                                    <Palette className="h-4 w-4" />
+                                </button>
                                 {isActiveGroupConversation ? (
                                     <button
                                         type="button"
@@ -4096,12 +4312,45 @@ const Messages = () => {
                         {/* Messages List — owns remaining height; independent scroll */}
                         <div
                             className={`min-h-0 min-w-0 flex-1 space-y-3 overflow-x-hidden overflow-y-auto overscroll-y-contain p-3 pb-4 md:space-y-4 md:p-6 ${
-                                isMobileConversationMode ? 'bg-gradient-to-b from-gray-50 to-gray-100' : ''
+                                chatAppearance?.kind && chatAppearance.kind !== 'none'
+                                    ? ''
+                                    : isMobileConversationMode
+                                      ? 'bg-gradient-to-b from-gray-50 to-gray-100'
+                                      : ''
                             }`}
                             ref={messagesContainerRef}
                             onScroll={handleMessagesScroll}
                             data-testid="messages-history-viewport"
+                            style={chatSurfaceStyle}
                         >
+                            {groupPins.length > 0 ? (
+                                <button
+                                    type="button"
+                                    className="sticky top-0 z-20 mb-1 w-full rounded-xl border px-3 py-2 text-left text-xs shadow-sm backdrop-blur"
+                                    style={{
+                                        background: 'var(--chat-pin-bg, #fffbeb)',
+                                        color: 'var(--chat-pin-text, #78350f)',
+                                        borderColor: 'rgba(0,0,0,0.08)'
+                                    }}
+                                    data-testid="group-pins-banner"
+                                    onClick={() => {
+                                        const mid = String(
+                                            groupPins[0]?.messageId || groupPins[0]?.message?.id || ''
+                                        );
+                                        if (mid) jumpToPinnedMessage(mid);
+                                    }}
+                                >
+                                    <div className="font-semibold">
+                                        📌 {groupPins.length} pinned message
+                                        {groupPins.length === 1 ? '' : 's'}
+                                    </div>
+                                    <div className="mt-0.5 truncate opacity-90">
+                                        {String(
+                                            groupPins[0]?.message?.text || groupPins[0]?.messageId || ''
+                                        ).slice(0, 120)}
+                                    </div>
+                                </button>
+                            ) : null}
                             {showJumpToUnread ? (
                                 <div className="sticky top-2 z-10 flex justify-center">
                                     <button
@@ -4450,6 +4699,43 @@ const Messages = () => {
                                                     <CornerUpLeft className="w-4 h-4" />
                                                     <span>Reply</span>
                                                 </button>
+                                                {!isDeleted ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const isPinnedMsg = groupPins.some(
+                                                                (p: any) =>
+                                                                    String(p.messageId || p.message?.id || '') ===
+                                                                    String(msg.id)
+                                                            );
+                                                            void handlePinToggle(msg.id, isPinnedMsg);
+                                                        }}
+                                                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                                                        title="Pin message"
+                                                        data-testid="message-pin-action"
+                                                        disabled={messageActionBusyId === msg.id}
+                                                        aria-label={
+                                                            groupPins.some(
+                                                                (p: any) =>
+                                                                    String(p.messageId || p.message?.id || '') ===
+                                                                    String(msg.id)
+                                                            )
+                                                                ? 'Unpin message'
+                                                                : 'Pin message'
+                                                        }
+                                                    >
+                                                        <Pin className="w-4 h-4" />
+                                                        <span>
+                                                            {groupPins.some(
+                                                                (p: any) =>
+                                                                    String(p.messageId || p.message?.id || '') ===
+                                                                    String(msg.id)
+                                                            )
+                                                                ? 'Unpin'
+                                                                : 'Pin'}
+                                                        </span>
+                                                    </button>
+                                                ) : null}
                                                 <button
                                                     type="button"
                                                     onClick={() => handleCopyMessage(msg)}
@@ -4741,23 +5027,7 @@ const Messages = () => {
                                 </div>
                             )}
 
-                            {/* Phase 29.3 — group pins + composer policy banners */}
-                            {isActiveGroupConversation && groupPins.length > 0 ? (
-                                <div
-                                    className="mx-2 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
-                                    data-testid="group-pins-banner"
-                                >
-                                    <div className="font-semibold">
-                                        {groupPins.length} pinned message
-                                        {groupPins.length === 1 ? '' : 's'}
-                                    </div>
-                                    <div className="mt-0.5 truncate opacity-90">
-                                        {String(
-                                            groupPins[0]?.message?.text || groupPins[0]?.messageId || ''
-                                        ).slice(0, 120)}
-                                    </div>
-                                </div>
-                            ) : null}
+                            {/* Composer policy banners */}
                             {isActiveGroupConversation && groupComposerRestriction.message ? (
                                 <div
                                     className={`mx-2 mb-2 rounded-xl border px-3 py-2 text-xs ${
@@ -4889,6 +5159,17 @@ const Messages = () => {
             onUpdated={() => {
                 void refreshConversationData();
                 void refreshMessages();
+            }}
+        />
+    ) : null}
+    {activeConvoId ? (
+        <ChatAppearancePanel
+            conversationId={activeConvoId}
+            open={chatAppearanceOpen}
+            onClose={() => setChatAppearanceOpen(false)}
+            onSaved={(next) => {
+                setChatAppearance(next || { kind: 'none' });
+                setChatAppearanceOpen(false);
             }}
         />
     ) : null}

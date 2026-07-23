@@ -552,6 +552,22 @@ export const getConversationAvatarParticipant = (
   );
 };
 
+/**
+ * Group/community avatar file id when set; otherwise null (caller shows initials).
+ * Personal DM avatars come from participants — use getConversationAvatarParticipant.
+ */
+export const getConversationGroupAvatarFileId = (
+  conversation: Conversation | null | undefined
+): string | null => {
+  if (!conversation) return null;
+  const category = getConversationCategory(conversation);
+  if (category !== 'group' && category !== 'community') return null;
+  const fileId = safeString(
+    (conversation as any).avatarFileId ?? (conversation as any).avatar_file_id
+  );
+  return fileId || null;
+};
+
 export const formatRelativeMessageTime = (value: unknown, nowMs = Date.now()): string => {
   const raw = safeString(value);
   if (!raw) return '';

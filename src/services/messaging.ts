@@ -717,9 +717,30 @@ export const MessagingService = {
 
   updateConversationPreferences: async (
     conversationId: string,
-    updates: { label?: 'other' | 'jobs'; isStarred?: boolean; isMuted?: boolean; isArchived?: boolean }
+    updates: {
+      label?: 'other' | 'jobs';
+      isStarred?: boolean;
+      isMuted?: boolean;
+      isArchived?: boolean;
+      chatAppearance?: Record<string, unknown>;
+    }
   ): Promise<any> => {
     const response = await api.patch(`/messages/conversations/${conversationId}/preferences`, updates);
+    return extractData<any>(response);
+  },
+
+  getChatAppearance: async (conversationId: string) => {
+    const response = await api.get(`/messages/conversations/${conversationId}/appearance`);
+    return extractData<any>(response);
+  },
+
+  saveChatAppearance: async (conversationId: string, appearance: Record<string, unknown>) => {
+    const response = await api.put(`/messages/conversations/${conversationId}/appearance`, appearance);
+    return extractData<any>(response);
+  },
+
+  resetChatAppearance: async (conversationId: string) => {
+    const response = await api.delete(`/messages/conversations/${conversationId}/appearance`);
     return extractData<any>(response);
   },
 

@@ -10,8 +10,18 @@ import {
   Pencil,
   Trash2,
   RefreshCw,
-  MoreVertical
+  MoreVertical,
+  Pin,
+  Palette
 } from 'lucide-react';
+import { MessagingService } from '../../services/messaging';
+import {
+  appearanceToBackgroundStyle,
+  buildChatPalette,
+  paletteToCssVars,
+  type AppearanceInput
+} from '../../services/messaging/chatTextColorEngine';
+import ChatAppearancePanel from './ChatAppearancePanel';
 import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
@@ -100,6 +110,11 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
     : typingRaw;
   const sending = Boolean(sendingConversationIds[conversationId]);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [pins, setPins] = useState<any[]>([]);
+  const [appearance, setAppearance] = useState<AppearanceInput>({ kind: 'none' });
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [stickToBottom, setStickToBottom] = useState(true);
   const [hasNewBelow, setHasNewBelow] = useState(false);
   const [expandedMessageId, setExpandedMessageId] = useState<string | null>(null);
@@ -113,19 +128,55 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
 
   const title = getConversationDisplayName(conversation, user?.id);
   const other = getConversationAvatarParticipant(conversation, user?.id);
-  const avatarUrl =
-    resolveUserAvatarUrl(other) ||
-    resolveUserAvatarUrl({
-      avatar: other?.avatar,
-      avatarUrl: other?.avatarUrl,
-      profilePhotoFileId: other?.profilePhotoFileId || other?.profile_photo_file_id
-    }) ||
-    String(other?.avatar || other?.avatarUrl || '').trim();
-  const isOnline = Boolean(other?.isOnline ?? other?.is_online);
+  const isGroupConversation = Boolean(
+    conversation?.type === 'group' ||
+      String((conversation as any)?.type || '').toUpperCase() === 'GROUP' ||
+      Boolean((conversation as any)?.title && (conversation?.participants?.length || 0) > 2)
+  );
+  const groupAvatarFileId = String(
+    (conversation as any)?.avatarFileId || (conversation as any)?.avatar_file_id || ''
+  ).trim();
+  const otherAny = other as any;
+  const avatarUrl = isGroupConversation
+    ? groupAvatarFileId
+      ? resolveUserAvatarUrl(groupAvatarFileId)
+      : ''
+    : resolveUserAvatarUrl(otherAny) ||
+      resolveUserAvatarUrl({
+        avatar: otherAny?.avatar,
+        avatarUrl: otherAny?.avatarUrl,
+        profilePhotoFileId: otherAny?.profilePhotoFileId || otherAny?.profile_photo_file_id
+      }) ||
+      String(otherAny?.avatar || otherAny?.avatarUrl || '').trim();
+  const isOnline = !isGroupConversation && Boolean(otherAny?.isOnline ?? otherAny?.is_online);
 
   useEffect(() => {
     void ensureThreadLoaded(conversationId);
   }, [conversationId, ensureThreadLoaded]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [pinList, app] = await Promise.all([
+          MessagingService.listGroupPins(conversationId).catch(() => []),
+          MessagingService.getChatAppearance(conversationId).catch(() => ({ kind: 'none' }))
+        ]);
+        if (!cancelled) {
+          setPins(Array.isArray(pinList) ? pinList : []);
+          setAppearance(app || { kind: 'none' });
+        }
+      } catch {
+        if (!cancelled) {
+          setPins([]);
+          setAppearance({ kind: 'none' });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId]);
 
   useEffect(() => {
     if (minimized) {
@@ -135,6 +186,42 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
     registerVisibleConversation(conversationId);
     return () => unregisterVisibleConversation(conversationId);
   }, [conversationId, minimized, registerVisibleConversation, unregisterVisibleConversation]);
+
+  const scrollToPinned = (messageId: string) => {
+    const el = messageRefs.current[messageId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlightMessageId(messageId);
+      window.setTimeout(() => setHighlightMessageId(null), 1600);
+    }
+  };
+
+  const handlePinToggle = async (messageId: string, isPinned: boolean) => {
+    setActionBusyId(messageId);
+    try {
+      if (isPinned) {
+        const data = await MessagingService.unpinGroupMessage(conversationId, messageId);
+        setPins(Array.isArray(data?.pins) ? data.pins : await MessagingService.listGroupPins(conversationId));
+      } else {
+        const data = await MessagingService.pinGroupMessage(conversationId, messageId);
+        setPins(Array.isArray(data?.pins) ? data.pins : await MessagingService.listGroupPins(conversationId));
+      }
+    } catch (error) {
+      setSendError(getRecoverableActionMessage('Pin message', error));
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const chatSurfaceStyle = useMemo(() => {
+    const vars = paletteToCssVars(buildChatPalette(appearance));
+    const kind = String(appearance?.kind || 'none').toLowerCase();
+    if (kind === 'none') {
+      return { ...vars } as React.CSSProperties;
+    }
+    const bg = appearanceToBackgroundStyle(appearance);
+    return { ...bg, ...vars } as React.CSSProperties;
+  }, [appearance]);
 
   useEffect(() => {
     setExpandedMessageId(null);
@@ -261,12 +348,14 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
       <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
         <div className="relative h-8 w-8 shrink-0">
           <EnterpriseAvatar
-            user={other}
-            src={avatarUrl}
+            user={isGroupConversation ? undefined : other}
+            src={avatarUrl || undefined}
             name={title}
             size="sm"
             loading="eager"
-            className="border border-slate-200"
+            className={`border border-slate-200 ${
+              isGroupConversation && !groupAvatarFileId ? 'bg-indigo-50 text-indigo-700' : ''
+            }`}
           />
           {isOnline ? (
             <span
@@ -288,6 +377,16 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                 : 'Messaging'}
           </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setAppearanceOpen(true)}
+          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          aria-label="Chat appearance"
+          title="Chat appearance"
+          data-testid="chat-appearance-open"
+        >
+          <Palette className="h-4 w-4" />
+        </button>
         <Link
           to={`/messages/${encodeURIComponent(conversationId)}`}
           className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
@@ -318,8 +417,33 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         <div
           ref={scrollRef}
           onScroll={handleScroll}
-          className="h-full space-y-2 overflow-y-auto bg-white px-3 py-3"
+          className="h-full space-y-2 overflow-y-auto px-3 py-3"
+          style={chatSurfaceStyle}
+          data-testid="chat-thread-surface"
         >
+          {pins.length > 0 ? (
+            <button
+              type="button"
+              data-testid="dock-pins-banner"
+              className="sticky top-0 z-10 mb-2 w-full rounded-xl border px-3 py-2 text-left text-xs shadow-sm"
+              style={{
+                background: 'var(--chat-pin-bg)',
+                color: 'var(--chat-pin-text)',
+                borderColor: 'rgba(0,0,0,0.08)'
+              }}
+              onClick={() => {
+                const mid = String(pins[0]?.messageId || pins[0]?.message?.id || '');
+                if (mid) scrollToPinned(mid);
+              }}
+            >
+              <div className="font-semibold">
+                📌 {pins.length} pinned message{pins.length === 1 ? '' : 's'}
+              </div>
+              <div className="mt-0.5 truncate opacity-90">
+                {String(pins[0]?.message?.text || pins[0]?.messageId || '').slice(0, 120)}
+              </div>
+            </button>
+          ) : null}
           {thread.loading && messages.length === 0 ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-500">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -352,8 +476,20 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
             const reactionChips = deleted ? [] : getReactionChipEntries(message);
             const mediaAttachments = deleted ? [] : extractMessageAttachments(message);
 
+            const isPinnedMsg = pins.some(
+              (p) => String(p.messageId || p.message?.id || '') === String(message.id)
+            );
             return (
-              <div key={message.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+              <div
+                key={message.id}
+                ref={(node) => {
+                  messageRefs.current[message.id] = node;
+                }}
+                className={`flex ${mine ? 'justify-end' : 'justify-start'} ${
+                  highlightMessageId === message.id ? 'animate-pulse ring-2 ring-amber-400 ring-offset-2' : ''
+                }`}
+                data-message-id={message.id}
+              >
                 <div className="max-w-[86%]">
                   <div
                     className={[
@@ -361,9 +497,22 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                       mine
                         ? failed
                           ? 'bg-red-50 text-red-800 ring-1 ring-red-200'
-                          : 'bg-blue-600 text-white'
-                        : 'bg-slate-100 text-slate-800'
+                          : ''
+                        : ''
                     ].join(' ')}
+                    style={
+                      mine && !failed
+                        ? {
+                            background: 'var(--chat-bubble-out)',
+                            color: 'var(--chat-bubble-out-text)'
+                          }
+                        : !mine
+                          ? {
+                              background: 'var(--chat-bubble-in)',
+                              color: 'var(--chat-bubble-in-text)'
+                            }
+                          : undefined
+                    }
                     onClick={() => {
                       if (editing) return;
                       setExpandedMessageId((prev) => (prev === message.id ? null : message.id));
@@ -559,6 +708,19 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
                           Reply
                         </button>
                       ) : null}
+                      {!deleted ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-[10px] text-slate-600"
+                          disabled={actionBusyId === message.id}
+                          data-testid="message-pin-action"
+                          onClick={() => void handlePinToggle(message.id, isPinnedMsg)}
+                          aria-label={isPinnedMsg ? 'Unpin message' : 'Pin message'}
+                        >
+                          <Pin className="h-3 w-3" />
+                          {isPinnedMsg ? 'Unpin' : 'Pin'}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="inline-flex h-7 items-center gap-1 rounded-full border border-slate-200 bg-white px-2 text-[10px] text-slate-600"
@@ -751,6 +913,16 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
           } catch (error) {
             setSendError(getRecoverableActionMessage('Message send', error));
           }
+        }}
+      />
+
+      <ChatAppearancePanel
+        conversationId={conversationId}
+        open={appearanceOpen}
+        onClose={() => setAppearanceOpen(false)}
+        onSaved={(next) => {
+          setAppearance(next || { kind: 'none' });
+          setAppearanceOpen(false);
         }}
       />
     </div>

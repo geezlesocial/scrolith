@@ -2,8 +2,11 @@
  * Phase 22.2 + 29.3 — Group management panel.
  * Tabs: General · Members · Invites · Join requests · Restrictions · Danger
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MessagingService } from '../../services/messaging';
+import { FileService } from '../../services/files';
+import EnterpriseAvatar from '../common/EnterpriseAvatar';
+import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import {
   Users,
   UserPlus,
@@ -16,7 +19,8 @@ import {
   Lock,
   Bell,
   UserCheck,
-  AlertTriangle
+  AlertTriangle,
+  Camera
 } from 'lucide-react';
 
 export type GroupMember = {
@@ -93,6 +97,9 @@ const GroupManagePanel: React.FC<Props> = ({
   const [pins, setPins] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [groupProfile, setGroupProfile] = useState<any>(null);
+  const [avatarFileId, setAvatarFileId] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     if (!conversationId || !open) return;
@@ -116,6 +123,9 @@ const GroupManagePanel: React.FC<Props> = ({
         if (profile?.visibility) setVisibility(String(profile.visibility).toUpperCase());
         if (profile?.messagingMode) setMessagingMode(String(profile.messagingMode).toUpperCase());
         if (profile?.slowModeSeconds != null) setSlowModeSeconds(Number(profile.slowModeSeconds) || 0);
+        if (profile?.avatarFileId != null || profile?.avatar_file_id != null) {
+          setAvatarFileId(String(profile.avatarFileId || profile.avatar_file_id || '').trim() || null);
+        }
       } catch {
         /* enterprise endpoint may be unavailable until migration */
       }
@@ -177,13 +187,15 @@ const GroupManagePanel: React.FC<Props> = ({
           description: description.trim(),
           visibility,
           messagingMode,
-          slowModeSeconds
+          slowModeSeconds,
+          avatarFileId: avatarFileId
         });
       } catch {
         await MessagingService.updateGroupMeta(conversationId, {
           title: title.trim(),
           description: description.trim(),
-          visibility
+          visibility,
+          avatarFileId: avatarFileId
         });
       }
       onUpdated?.();
@@ -192,6 +204,58 @@ const GroupManagePanel: React.FC<Props> = ({
       setError(e?.message || 'Failed to save group');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const uploadGroupPhoto = async (file: File | null) => {
+    if (!file || !canManage) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Group photo must be 10 MB or smaller');
+      return;
+    }
+    const okType = /image\/(jpeg|jpg|png|webp|avif)/i.test(file.type);
+    if (!okType) {
+      setError('Use JPG, PNG, WEBP, or AVIF');
+      return;
+    }
+    setAvatarUploading(true);
+    setError(null);
+    try {
+      const uploaded = await FileService.uploadFile(file, 'image', { visibility: 'public' });
+      const fileId = String((uploaded as any)?.id || (uploaded as any)?.fileId || '').trim();
+      if (!fileId) throw new Error('Upload did not return a file id');
+      setAvatarFileId(fileId);
+      try {
+        await MessagingService.patchEnterpriseGroup(conversationId, { avatarFileId: fileId });
+      } catch {
+        await MessagingService.updateGroupMeta(conversationId, { avatarFileId: fileId });
+      }
+      onUpdated?.();
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to upload group photo');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
+  const removeGroupPhoto = async () => {
+    if (!canManage) return;
+    setAvatarUploading(true);
+    setError(null);
+    try {
+      setAvatarFileId(null);
+      try {
+        await MessagingService.patchEnterpriseGroup(conversationId, { avatarFileId: null });
+      } catch {
+        await MessagingService.updateGroupMeta(conversationId, { avatarFileId: null });
+      }
+      onUpdated?.();
+      await load();
+    } catch (e: any) {
+      setError(e?.message || 'Failed to remove group photo');
+    } finally {
+      setAvatarUploading(false);
     }
   };
 
@@ -398,6 +462,65 @@ const GroupManagePanel: React.FC<Props> = ({
 
           {tab === 'general' ? (
             <section className="space-y-2" data-testid="group-tab-panel-general">
+              <div className="flex items-center gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3">
+                <EnterpriseAvatar
+                  src={avatarFileId ? resolveUserAvatarUrl(avatarFileId) : undefined}
+                  name={title || 'Group'}
+                  size="lg"
+                  className="!h-16 !w-16 border border-slate-200 bg-indigo-50 text-indigo-700"
+                  alt={title || 'Group photo'}
+                />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Group photo
+                  </div>
+                  {canManage ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        disabled={avatarUploading || saving}
+                        onClick={() => avatarInputRef.current?.click()}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        data-testid="group-photo-upload"
+                      >
+                        <Camera className="h-3.5 w-3.5" />
+                        {avatarUploading ? 'Uploading…' : avatarFileId ? 'Change' : 'Upload'}
+                      </button>
+                      {avatarFileId ? (
+                        <button
+                          type="button"
+                          disabled={avatarUploading || saving}
+                          onClick={() => void removeGroupPhoto()}
+                          className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                          data-testid="group-photo-remove"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      {avatarFileId ? 'Photo set by admins' : 'No photo yet — initials are shown'}
+                    </p>
+                  )}
+                  <p className="text-[11px] text-slate-400">
+                    JPG, PNG, WEBP, AVIF · max 10 MB · square crop recommended
+                  </p>
+                </div>
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp,image/avif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    e.target.value = '';
+                    void uploadGroupPhoto(f);
+                  }}
+                />
+              </div>
+
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Title</label>
               <input
                 value={title}
