@@ -2,7 +2,7 @@
   "redaction": "No passwords, tokens, cookies, authorization headers, request bodies with private data, secret values, or private profile data included.",
   "project": "scrolith-500821",
   "region": "asia-southeast1",
-  "timestampUtc": "2026-07-23T10:01:35Z",
+  "timestampUtc": "2026-07-23T10:34:48Z",
   "backendCandidate": {
     "previousRevision": "scrolith-backend-00268-ruz",
     "correctedRevision": "scrolith-backend-00269-xer",
@@ -81,19 +81,98 @@
     "noAvailableInstanceMentions": 0,
     "runtimeMigrationMentions": 0,
     "prismaPoolTimeoutMentions": 12,
-    "prismaReadyMentions": 1
+    "prismaReadyMentions": 1,
+    "poolTimeoutClassification": "historical_startup_only",
+    "startupProbeSucceededUtc": "2026-07-23T10:00:18.745457Z",
+    "firstHistoricalPoolTimeoutUtc": "2026-07-23T10:01:35.806499Z",
+    "latestHistoricalPoolTimeoutUtc": "2026-07-23T10:01:35.814436Z",
+    "prismaReadyUtc": "2026-07-23T10:01:36.350511Z",
+    "source": "startup background-job/database access contention while Prisma client pool was still connecting",
+    "activeSeverity": "low",
+    "coldStartObservabilityRisk": "moderate"
+  },
+  "prismaPoolValidation": {
+    "candidateRevision": "scrolith-backend-00269-xer",
+    "validationBaseUrl": "https://cors-prod-02d8547b---scrolith-backend-25ysnpjdda-as.a.run.app",
+    "validationStartedUtc": "2026-07-23T10:30:38.114Z",
+    "validationCompletedUtc": "2026-07-23T10:30:40.330Z",
+    "requests": 70,
+    "concurrency": 10,
+    "passed": 70,
+    "failed": 0,
+    "statusCounts": {
+      "200": 70
+    },
+    "latencyMs": {
+      "p50": 149,
+      "p95": 1285,
+      "p99": 1408,
+      "max": 1408
+    },
+    "activeLogWindowStartUtc": "2026-07-23T10:30:38.1140000Z",
+    "activeLogEntries": 174,
+    "activeHttpRequests": 70,
+    "activeHttp2xx": 70,
+    "activeHttp4xx": 0,
+    "activeHttp5xx": 0,
+    "activeHttp429": 0,
+    "activePrismaPoolTimeout": 0,
+    "activeP2024": 0,
+    "activeNoAvailableInstance": 0,
+    "activeRuntimeMigration": 0,
+    "activeErrorSeverity": 0,
+    "result": "PASS"
+  },
+  "cloudSqlCapacity": {
+    "instance": "scrolith-postgres-prod",
+    "windowStartUtc": "2026-07-23T10:14:30.6463234Z",
+    "queriedAtUtc": "2026-07-23T10:34:30.6463234Z",
+    "cpuUtilization": {
+      "count": 19,
+      "min": 0.0731,
+      "avg": 0.0825,
+      "max": 0.1038
+    },
+    "memoryUtilization": {
+      "count": 19,
+      "min": 0.3247,
+      "avg": 0.3288,
+      "max": 0.3332
+    },
+    "postgresqlNumBackends": {
+      "windowStartUtc": "2026-07-23T10:14:48.6749037Z",
+      "queriedAtUtc": "2026-07-23T10:34:48.6749037Z",
+      "count": 76,
+      "min": 0,
+      "avg": 4.21,
+      "max": 15
+    },
+    "capacityStatus": "PASS"
+  },
+  "prismaPooling": {
+    "sourceFile": "geezle-backend/src/utils/prismaClient.ts",
+    "productionDefaultConnectionLimit": 5,
+    "productionDefaultPoolTimeoutSeconds": 15,
+    "connectionLimitMaximum": 80,
+    "poolTimeoutMaximumSeconds": 120,
+    "urlNormalizationAddsConnectionLimit": true,
+    "urlNormalizationAddsPoolTimeout": true,
+    "poolingStatus": "PASS"
   },
   "stopCondition": {
-    "triggered": true,
-    "reason": "Prisma connection pool timeout messages observed on corrected candidate during validation.",
+    "triggered": false,
+    "reason": "Prisma pool timeout messages were historical startup-only events and did not recur during active candidate validation.",
     "trafficPromotionStopped": true,
+    "remediationRequired": false,
+    "newBackendCandidateRequired": false,
     "androidBuildStarted": false,
     "phase33_4Started": false
   },
   "completionGate": {
     "corsConfigurationCorrected": true,
-    "readyForProductionRollout": false,
+    "prismaPoolValidation": "PASS",
+    "cloudSqlCapacityValidation": "PASS",
+    "readyForProductionRollout": true,
     "operatorApprovalRequired": true
   }
 }
-

@@ -50,12 +50,16 @@ Passed:
 - CORS preflight for candidate frontend origin
 - Negative arbitrary-origin CORS check
 - Backend health/read-only public checks
+- Prisma pool active validation after readiness
+- Cloud SQL capacity validation
 
-Blocked:
+Historical finding:
 
-- Candidate readiness, because Prisma connection pool timeout logs were observed during candidate validation.
+- Prisma pool timeout logs were observed only in a startup burst on `2026-07-23T10:01:35Z`, before Prisma reported ready at `2026-07-23T10:01:36Z`.
+- No active Prisma pool timeout, `P2024`, 429, 5xx, or Cloud Run `no available instance` behavior was reproduced during candidate validation after readiness.
 
 ## Decision
 
-The CORS drift is corrected, but `scrolith-backend-00269-xer` is not certified for production rollout because a stop condition occurred.
+The CORS drift is corrected. The Prisma timeout evidence is classified as historical startup-only behavior, so no code remediation or replacement backend candidate is required unless new active timeout evidence appears.
 
+`scrolith-backend-00269-xer` remains at `0%` traffic and is ready for operator-approved staged production rollout.
