@@ -1,0 +1,99 @@
+{
+  "redaction": "No passwords, tokens, cookies, authorization headers, request bodies with private data, secret values, or private profile data included.",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "timestampUtc": "2026-07-23T10:01:35Z",
+  "backendCandidate": {
+    "previousRevision": "scrolith-backend-00268-ruz",
+    "correctedRevision": "scrolith-backend-00269-xer",
+    "tag": "cors-prod-02d8547b",
+    "trafficPercent": 0,
+    "imageDigest": "sha256:6155490fbb6b467179f651ea8c13d6697937fcfa8f301e59453b938987705896"
+  },
+  "frontendCandidate": {
+    "revision": "scrolith-frontend-00313-dep",
+    "tag": "messaging-322ab66d",
+    "trafficPercent": 0
+  },
+  "productionTraffic": {
+    "backend": {
+      "revision": "scrolith-backend-00152-9tk",
+      "percent": 100
+    },
+    "frontend": {
+      "revision": "scrolith-frontend-00181-hdk",
+      "percent": 100
+    },
+    "changed": false
+  },
+  "allowedOrigins": [
+    "https://scrolith.com",
+    "https://www.scrolith.com",
+    "https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app"
+  ],
+  "wildcardOriginsEnabled": false,
+  "arbitraryOriginAllowed": false,
+  "corsPreflight": {
+    "paths": [
+      "/api/auth/login",
+      "/api/messages/conversations",
+      "/api/messages/groups/member-resolver",
+      "/api/scrolitha/health",
+      "/api/wallet/me"
+    ],
+    "allowedOriginStatus": 204,
+    "allowedOriginHeaderMatched": true,
+    "arbitraryOriginAllowHeaderPresent": false,
+    "result": "PASS"
+  },
+  "backendBuild": {
+    "localProductionBuild": "PASS",
+    "cloudBuildId": "4ee1f902-1ab3-4310-b316-7c8d447726e6",
+    "cloudBuildStatus": "PASS",
+    "cloudBuildSteps": {
+      "production-build": "PASS",
+      "node-tests": "PASS",
+      "full-jest": "PASS"
+    },
+    "testSuites": "137 passed, 137 total",
+    "tests": "980 passed, 980 total"
+  },
+  "candidateHealth": {
+    "apiHealth": 200,
+    "publicReadOnlyChecks": "PASS",
+    "expectedUnauthenticatedGuards": "PASS"
+  },
+  "preservedConfiguration": {
+    "startupRemediationImagePreserved": true,
+    "cloudSqlAttachmentPreserved": true,
+    "serviceAccountPreserved": true,
+    "sidecarsPreserved": true,
+    "scrolithaProvider": "core",
+    "scrolithaCoreModel": "qwen3:14b",
+    "scrolithaDefaultProvider": "OLLAMA",
+    "scrolithaDefaultModel": "qwen3:14b",
+    "geminiEnabled": false,
+    "openaiEnabled": false
+  },
+  "candidateLogSummary": {
+    "errorSeverityCount": 0,
+    "http5xx": 0,
+    "noAvailableInstanceMentions": 0,
+    "runtimeMigrationMentions": 0,
+    "prismaPoolTimeoutMentions": 12,
+    "prismaReadyMentions": 1
+  },
+  "stopCondition": {
+    "triggered": true,
+    "reason": "Prisma connection pool timeout messages observed on corrected candidate during validation.",
+    "trafficPromotionStopped": true,
+    "androidBuildStarted": false,
+    "phase33_4Started": false
+  },
+  "completionGate": {
+    "corsConfigurationCorrected": true,
+    "readyForProductionRollout": false,
+    "operatorApprovalRequired": true
+  }
+}
+
