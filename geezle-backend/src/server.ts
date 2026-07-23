@@ -3987,18 +3987,17 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 // Start server (skip auto-listen during test runs to avoid port conflicts)
 const PORT = parseInt(process.env.PORT!) || 5000;
 if (runtimePolicy.backgroundWorkersEnabled) {
-  registerInsightsJobs(app);
-  registerFxJobs(app).catch((error) => {
-    console.error('[fx] Failed to register FX jobs:', error);
-  });
-  startDemoAutomationScheduler();
-  server.listen(PORT, async () => {
+  void (async () => {
+    let prismaReadyForWorkers = false;
     try {
       await ensurePrismaReady();
+      prismaReadyForWorkers = true;
       console.log(`[prisma] connection state: ${getPrismaConnectionState()}`);
     } catch (error) {
       console.error('[prisma] initial connect failed; continuing in degraded mode', error);
     }
+
+    server.listen(PORT, async () => {
     console.log(`========================================`);
     console.log(`🚀 Scrolith Marketplace Backend Started`);
     console.log(`📍 Port: ${PORT}`);
@@ -4024,8 +4023,19 @@ if (runtimePolicy.backgroundWorkersEnabled) {
     console.log('  /socket.io/*   - Socket.io WebSocket');
     console.log('========================================');
 
+    if (prismaReadyForWorkers) {
+      registerInsightsJobs(app);
+      registerFxJobs(app).catch((error) => {
+        console.error('[fx] Failed to register FX jobs:', error);
+      });
+      startDemoAutomationScheduler();
+    } else {
+      console.warn('[startup] background workers not started because Prisma is not ready.');
+    }
+
     // Initialize AdPayment reconciliation: run once and schedule periodically
-    try {
+    if (prismaReadyForWorkers) {
+      try {
       if (process.env.STRIPE_SECRET_KEY) {
         // Run an initial reconciliation on startup
         reconcileAdPayments().catch(err => console.error('Initial reconcileAdPayments failed:', err));
@@ -4047,11 +4057,15 @@ if (runtimePolicy.backgroundWorkersEnabled) {
       } else {
         console.warn('STRIPE_SECRET_KEY not set; skipping AdPayment reconciliation on startup.');
       }
-    } catch (err) {
-      console.error('Failed to initialize reconcileAdPayments cron job:', err);
+      } catch (err) {
+        console.error('Failed to initialize reconcileAdPayments cron job:', err);
+      }
+    } else {
+      console.warn('[cron] AdPayment reconciliation not started because Prisma is not ready.');
     }
 
-    try {
+    if (prismaReadyForWorkers) {
+      try {
       const talentCloudSettings = await getTalentCloudSettings();
       if (talentCloudSettings.enabled && talentCloudSettings.webhooksEnabled) {
         setInterval(() => {
@@ -4062,13 +4076,17 @@ if (runtimePolicy.backgroundWorkersEnabled) {
       } else {
         console.log('[webhooks] Talent cloud webhooks disabled; dispatcher not started.');
       }
-    } catch (error) {
-      console.error('[webhooks] Failed to initialize webhook dispatcher', error);
+      } catch (error) {
+        console.error('[webhooks] Failed to initialize webhook dispatcher', error);
+      }
+    } else {
+      console.warn('[webhooks] dispatcher not started because Prisma is not ready.');
     }
 
     // Phase 32.2 — digest worker + focus session cleanup (node-cron, 15-minute ticks)
     // Phase 32.6 — allowlist gate via NOTIFICATION_DIGEST_ALLOWLIST / REQUIRE_ALLOWLIST
-    try {
+    if (prismaReadyForWorkers) {
+      try {
       const digestEnabled = String(process.env.NOTIFICATION_DIGEST_CRON_ENABLED || 'true').toLowerCase() !== 'false';
       if (digestEnabled) {
         const digestTask = cron.schedule(
@@ -4097,12 +4115,16 @@ if (runtimePolicy.backgroundWorkersEnabled) {
       } else {
         console.log('[cron] NOTIFICATION_DIGEST_CRON_ENABLED=false; digest worker not started.');
       }
-    } catch (err) {
-      console.error('Failed to initialize digest worker cron:', err);
+      } catch (err) {
+        console.error('Failed to initialize digest worker cron:', err);
+      }
+    } else {
+      console.warn('[cron] digest worker not started because Prisma is not ready.');
     }
 
     // Phase 32.6 — retention purge worker (conservative daily). Kill switch env required.
-    try {
+    if (prismaReadyForWorkers) {
+      try {
       const purgeEnabled =
         String(process.env.NOTIFICATION_RETENTION_PURGE_ENABLED || '').toLowerCase() === 'true';
       if (purgeEnabled) {
@@ -4132,10 +4154,14 @@ if (runtimePolicy.backgroundWorkersEnabled) {
       } else {
         console.log('[cron] NOTIFICATION_RETENTION_PURGE_ENABLED not true; purge worker not started.');
       }
-    } catch (err) {
-      console.error('Failed to initialize retention purge cron:', err);
+      } catch (err) {
+        console.error('Failed to initialize retention purge cron:', err);
+      }
+    } else {
+      console.warn('[cron] retention purge worker not started because Prisma is not ready.');
     }
   });
+  })();
 } else {
   console.log('Server auto-start skipped (test/runtime policy disabled background workers).');
 }

@@ -177,6 +177,7 @@ const isRetryablePrismaError = (error: unknown) => {
 export const getPrismaConnectionState = () => global.__prismaConnectionState || 'idle';
 
 export const ensurePrismaReady = async () => {
+  if (global.__prismaConnectionState === 'ready') return;
   if (global.__prismaConnectPromise) return global.__prismaConnectPromise;
   global.__prismaConnectionState = 'connecting';
   global.__prismaConnectPromise = (async () => {

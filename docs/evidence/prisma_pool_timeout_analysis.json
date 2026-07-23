@@ -1,0 +1,79 @@
+{
+  "redaction": "No passwords, tokens, cookies, authorization headers, request bodies with private data, secret values, or private profile data included.",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "analysisStartedLocal": "2026-07-23T19:44:06+08:00",
+  "productionTrafficChanged": false,
+  "productionRevisions": {
+    "backend": {
+      "revision": "scrolith-backend-00152-9tk",
+      "trafficPercent": 100
+    },
+    "frontend": {
+      "revision": "scrolith-frontend-00181-hdk",
+      "trafficPercent": 100
+    }
+  },
+  "failedCandidates": {
+    "backend": {
+      "revision": "scrolith-backend-00269-xer",
+      "trafficPercent": 0
+    },
+    "frontend": {
+      "revision": "scrolith-frontend-00313-dep",
+      "trafficPercent": 0
+    }
+  },
+  "rolloutEvidence": {
+    "stage5Percent": "PASS",
+    "stage25Percent": "PASS",
+    "stage50Percent": "PASS",
+    "stage100Percent": "FAIL",
+    "rollbackCompleted": true,
+    "http5xxObserved": 0,
+    "http429Observed": 0,
+    "noAvailableInstanceObserved": 0,
+    "candidatePrismaTimeoutMentionsDuringFailure": 43,
+    "candidatePrismaTimeoutMentionsAcross24hSample": 91,
+    "productionPrismaTimeoutMentionsInRecentSample": 0
+  },
+  "rootCause": {
+    "identified": true,
+    "summary": "DB-backed startup workers and full production request traffic competed for the local Prisma pool while candidate instances were still completing initial Prisma readiness.",
+    "cloudSqlCapacityIssue": false,
+    "prismaLifecycleIssue": "Startup ordering allowed worker database work and request handling to overlap with initial Prisma pool acquisition.",
+    "connectionLeakDetected": false,
+    "slowQueryDetected": false,
+    "transactionIssueDetected": false
+  },
+  "remediation": {
+    "codeChangeRequired": true,
+    "configurationChangeRequired": false,
+    "summary": "Await initial Prisma readiness before opening the listener, start DB-backed workers only after readiness, and make ensurePrismaReady idempotent after success.",
+    "files": [
+      "geezle-backend/src/server.ts",
+      "geezle-backend/src/utils/prismaClient.ts"
+    ]
+  },
+  "validation": {
+    "backendBuild": "PASS_LOCAL",
+    "repositoryRegression": "PENDING",
+    "messagingRegression": "PENDING",
+    "authenticationRegression": "PENDING",
+    "performanceValidation": "PENDING",
+    "sustainedLoadValidation": "PENDING",
+    "activePrismaPoolTimeouts": "PENDING"
+  },
+  "deployment": {
+    "newBackendCommit": "PENDING",
+    "cloudBuildId": "PENDING",
+    "backendImageDigest": "PENDING",
+    "newBackendRevision": "PENDING",
+    "backendTraffic": "PENDING"
+  },
+  "releaseRestrictions": {
+    "productionTrafficPromotionPerformed": false,
+    "androidBuildStarted": false,
+    "phase33_4Started": false
+  }
+}
