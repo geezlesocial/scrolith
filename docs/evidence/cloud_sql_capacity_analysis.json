@@ -1,0 +1,23 @@
+{
+  "redaction": "No connection strings, database credentials, row data, query parameter values, or private data included.",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "cloudSqlInstance": "scrolith-postgres-prod",
+  "windowUtc": {
+    "start": "2026-07-23T06:38:00Z",
+    "end": "2026-07-23T06:48:00Z"
+  },
+  "observedDuringIncidentInvestigation": {
+    "cpuUtilizationApproxRange": "7%-10%",
+    "memoryUtilizationApproxRange": "32%-33%",
+    "postgresBackendConnectionsApproxRange": "5-10"
+  },
+  "applicationPoolEvidence": {
+    "prismaPoolTimeoutsObserved": true,
+    "firstApproxUtc": "2026-07-23T06:46:40Z",
+    "poolLimit": 5,
+    "poolTimeoutSeconds": 15
+  },
+  "conclusion": "Cloud SQL infrastructure saturation was not indicated. Prisma pool timeouts occurred after the first Cloud Run platform no-available-instance failures and are classified as a contributing factor during scale-out pressure."
+}
+

@@ -1,0 +1,86 @@
+{
+  "redaction": "No credentials, request bodies, cookies, tokens, auth headers, or private profile data included.",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "service": "scrolith-backend",
+  "failedWindowUtc": {
+    "start": "2026-07-23T06:38:00Z",
+    "end": "2026-07-23T06:48:00Z",
+    "revision": "scrolith-backend-00262-dif"
+  },
+  "failedRevisionRequestCounts": [
+    {
+      "responseCode": "101",
+      "responseClass": "1xx",
+      "count": 2
+    },
+    {
+      "responseCode": "200",
+      "responseClass": "2xx",
+      "count": 218
+    },
+    {
+      "responseCode": "204",
+      "responseClass": "2xx",
+      "count": 67
+    },
+    {
+      "responseCode": "304",
+      "responseClass": "3xx",
+      "count": 459
+    },
+    {
+      "responseCode": "401",
+      "responseClass": "4xx",
+      "count": 1
+    },
+    {
+      "responseCode": "429",
+      "responseClass": "4xx",
+      "count": 1
+    },
+    {
+      "responseCode": "500",
+      "responseClass": "5xx",
+      "count": 3
+    }
+  ],
+  "failedRevisionInstanceCounts": [
+    {
+      "state": "active",
+      "max": 5,
+      "avg": 1.8
+    },
+    {
+      "state": "idle",
+      "max": 4,
+      "avg": 0.8
+    }
+  ],
+  "candidateWindowUtc": {
+    "start": "2026-07-23T08:17:00Z",
+    "end": "2026-07-23T08:24:51Z",
+    "revision": "scrolith-backend-00268-ruz"
+  },
+  "candidateRequestCounts": [
+    {
+      "responseCode": "200",
+      "responseClass": "2xx",
+      "count": 294
+    }
+  ],
+  "candidateInstanceCounts": [
+    {
+      "state": "active",
+      "max": 1,
+      "avg": 0.83
+    },
+    {
+      "state": "idle",
+      "max": 1,
+      "avg": 0.17
+    }
+  ],
+  "interpretation": "The failed revision reached maxScale 5 in the same window as platform no-available-instance responses. The remediated candidate handled tagged read-only validation with only HTTP 200 responses and no Cloud Run platform errors."
+}
+

@@ -1,0 +1,73 @@
+{
+  "redaction": "No passwords, cookies, tokens, authorization headers, request bodies, or private profile data included.",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "service": "scrolith-backend",
+  "failedRevision": "scrolith-backend-00262-dif",
+  "windowUtc": {
+    "start": "2026-07-23T06:38:00Z",
+    "end": "2026-07-23T06:48:00Z"
+  },
+  "summary": {
+    "cloudRunNoAvailableInstance": true,
+    "http500": 3,
+    "http429": 1,
+    "firstFailureUtc": "2026-07-23T06:43:31.218720Z",
+    "appStackTracePresent": false,
+    "containerCrashObserved": false,
+    "oomObserved": false
+  },
+  "samples": [
+    {
+      "timestampUtc": "2026-07-23T06:43:31.218720Z",
+      "severity": "ERROR",
+      "status": 500,
+      "method": "OPTIONS",
+      "path": "/api/community/ads",
+      "queryShape": "placement=community_feed&limit=8",
+      "message": "The request was aborted because there was no available instance."
+    },
+    {
+      "timestampUtc": "2026-07-23T06:43:31.220173Z",
+      "severity": "ERROR",
+      "status": 500,
+      "method": "OPTIONS",
+      "path": "/api/reco/accounts",
+      "queryShape": "surface=who_to_follow&type=freelancer&limit=5",
+      "message": "The request was aborted because there was no available instance."
+    },
+    {
+      "timestampUtc": "2026-07-23T06:43:31.228170Z",
+      "severity": "ERROR",
+      "status": 500,
+      "method": "OPTIONS",
+      "path": "/api/reco/accounts",
+      "queryShape": "surface=who_to_follow&type=freelancer&limit=5",
+      "message": "The request was aborted because there was no available instance."
+    },
+    {
+      "timestampUtc": "2026-07-23T06:43:31.227766Z",
+      "severity": "WARNING",
+      "status": 429,
+      "method": "OPTIONS",
+      "path": "redacted",
+      "message": "The request was aborted because there was no available instance."
+    }
+  ],
+  "startupEvidence": {
+    "runtimeCommand": "npm run migrate:apply && node -r ts-node/register/transpile-only src/server.ts",
+    "migrateApplyScript": "npx prisma migrate deploy && npx prisma generate",
+    "startupLogSequenceAfterFailure": [
+      "npx prisma migrate deploy && npx prisma generate",
+      "Prisma schema loaded from prisma/schema.prisma",
+      "121 migrations found in prisma/migrations",
+      "Generated Prisma Client"
+    ]
+  },
+  "databaseEvidence": {
+    "prismaPoolTimeoutsObservedAfterFirstCloudRunFailure": true,
+    "firstPrismaPoolTimeoutApproxUtc": "2026-07-23T06:46:40Z",
+    "classification": "contributing factor, not first failure"
+  }
+}
+

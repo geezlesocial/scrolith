@@ -1,0 +1,53 @@
+{
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "timestampUtc": "2026-07-23T08:24:51Z",
+  "repositoryCommit": "192117d4cf35cb767b69e8799a76020d8b7d505f",
+  "frontendCommit": "24e0ac66d63b6a9d4a0526b573e93cad1c8ea726",
+  "failedBackendRevision": "scrolith-backend-00262-dif",
+  "remediatedBackendRevision": "scrolith-backend-00268-ruz",
+  "correctedFrontendCandidateRevision": "scrolith-frontend-00313-dep",
+  "rollbackTargets": {
+    "backend": "scrolith-backend-00152-9tk",
+    "frontend": "scrolith-frontend-00181-hdk"
+  },
+  "traffic": {
+    "backendProductionRevision": "scrolith-backend-00152-9tk",
+    "backendProductionPercent": 100,
+    "frontendProductionRevision": "scrolith-frontend-00181-hdk",
+    "frontendProductionPercent": 100,
+    "remediatedBackendCandidatePercent": 0,
+    "correctedFrontendCandidatePercent": 0,
+    "productionTrafficChangedByThisPhase": false
+  },
+  "cloudBuilds": {
+    "fullRegression": {
+      "id": "da708ea4-7c40-4ba0-bcd9-e685450c4fc9",
+      "status": "PASS"
+    },
+    "backendImage": {
+      "id": "4721942c-a111-4277-a3be-af82a1bc9321",
+      "status": "PASS",
+      "imageDigest": "sha256:6155490fbb6b467179f651ea8c13d6697937fcfa8f301e59453b938987705896"
+    }
+  },
+  "gates": {
+    "rootCauseConfirmed": true,
+    "minimumSafeRemediationApplied": true,
+    "backendProductionBuild": "PASS",
+    "fullRegression": "PASS",
+    "candidateDeployAtZeroPercent": "PASS",
+    "candidateReadOnlySmoke": "PASS",
+    "candidateControlledLoad": "PASS",
+    "noNoAvailableInstanceOnCandidate": "PASS",
+    "noP2024OnCandidate": "PASS",
+    "noRuntimePrismaMigrationOrGenerate": "PASS",
+    "authenticatedBrowserValidation": "NOT_REPEATED_IN_THIS_PHASE",
+    "trafficPromotion": "NOT_STARTED",
+    "androidBuild": "NOT_STARTED",
+    "phase33_4Started": false
+  },
+  "productionReadinessRecommendation": "READY_FOR_OPERATOR_APPROVED_STAGED_ROLLOUT",
+  "operatorApprovalRequiredBeforeRollout": true
+}
+

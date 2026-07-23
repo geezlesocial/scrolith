@@ -1,0 +1,79 @@
+{
+  "redaction": "Secret values omitted. Only secret names/version labels and non-secret configuration fields are included.",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "service": "scrolith-backend",
+  "stableRevision": {
+    "name": "scrolith-backend-00152-9tk",
+    "trafficPercent": 100,
+    "imageDigest": "sha256:5955832b6fa6625995c3c7070d2e7786106b5da9d3c995ed59cbc153590cdb2f",
+    "containerHealthyMessage": "Containers became healthy in 1m27.29s."
+  },
+  "failedRevision": {
+    "name": "scrolith-backend-00262-dif",
+    "trafficPercent": 0,
+    "tag": "messaging-e5fa6599",
+    "imageDigest": "sha256:d2c338e6debf4e21637f2ce68094e6088988b80a62d4c8b840449794608f0f78",
+    "containerHealthyMessage": "Containers became healthy in 1m29.56s."
+  },
+  "remediatedRevision": {
+    "name": "scrolith-backend-00268-ruz",
+    "trafficPercent": 0,
+    "tag": "readiness-192117d4",
+    "imageDigest": "sha256:6155490fbb6b467179f651ea8c13d6697937fcfa8f301e59453b938987705896",
+    "containerHealthyMessage": "Containers became healthy in 53.31s."
+  },
+  "sharedRuntimeShape": {
+    "cpu": "1",
+    "memory": "1Gi",
+    "concurrency": 80,
+    "timeoutSeconds": 300,
+    "serviceAccount": "scrolith-runner@scrolith-500821.iam.gserviceaccount.com",
+    "port": 8080,
+    "startupCpuBoost": true,
+    "minScale": null,
+    "maxScale": 5,
+    "cloudSqlInstance": "scrolith-500821:asia-southeast1:scrolith-postgres-prod",
+    "sidecars": [
+      "app",
+      "clamav"
+    ]
+  },
+  "secretRefs": [
+    {
+      "env": "DATABASE_URL",
+      "secret": "DATABASE_URL",
+      "version": "latest"
+    },
+    {
+      "env": "JWT_SECRET",
+      "secret": "JWT_SECRET",
+      "version": "latest"
+    },
+    {
+      "env": "FCM_SERVICE_ACCOUNT_JSON",
+      "secret": "FCM_SERVICE_ACCOUNT_JSON",
+      "version": "latest"
+    }
+  ],
+  "configDiffsRelevantToIncident": [
+    {
+      "field": "image",
+      "classification": "different application image"
+    },
+    {
+      "field": "runtime startup command inside image",
+      "failed": "runs Prisma migrate/generate before server startup",
+      "remediated": "starts compiled dist/server.js directly"
+    }
+  ],
+  "configDiffsNotPrimaryRootCause": [
+    {
+      "field": "CORS_ALLOWED_ORIGINS",
+      "stable": "production allowlist",
+      "failedAndRemediated": "candidate frontend origin",
+      "reason": "The first observed failures were Cloud Run platform no-available-instance responses on OPTIONS requests, not application CORS responses."
+    }
+  ]
+}
+
