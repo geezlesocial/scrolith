@@ -1,61 +1,73 @@
 # Prisma Connection Analysis
 
-## Runtime Comparison
+## Lifecycle
 
-Compared revisions:
+| Concern | Status |
+|---------|--------|
+| Singleton `PrismaClient` | Module-level client; `global.__prisma` always set after fix |
+| Client recreation | Not recreated per request |
+| Startup connect | `ensurePrismaReady()` with retries; returns immediately if already ready |
+| Listen ordering | HTTP `listen` only after initial readiness attempt |
+| Background workers | Started only when Prisma readiness succeeds |
 
-- Stable production backend: `scrolith-backend-00152-9tk`
-- Failed backend candidate: `scrolith-backend-00269-xer`
+## Production pool parameters
 
-The Cloud Run service configuration did not identify a Cloud SQL capacity or scaling change as the primary cause:
+| Parameter | Before (00269 failure) | After (`9a57f933`) |
+|-----------|------------------------|---------------------|
+| `connection_limit` default | 5 | **15** |
+| `pool_timeout` default (s) | 15 | **20** |
+| `connect_timeout` default (s) | 15 | 15 |
+| Read retry on P2024 | yes (2) | yes (2) |
+| Slow query logging | on (≥350ms) | on (≥350ms) |
 
-- Cloud Run concurrency remained `80`.
-- Cloud Run max scale remained `5`.
-- App container resources remained `1 CPU` and `1Gi`.
-- Cloud SQL instance attachment remained `scrolith-500821:asia-southeast1:scrolith-postgres-prod`.
-- Service account remained unchanged.
-- `DATABASE_URL` remained sourced from Secret Manager.
-- Candidate CORS and image revision differed, but Cloud SQL capacity settings did not.
+Env overrides remain supported:
 
-## Prisma Client Lifecycle
+- `PRISMA_CONNECTION_LIMIT`
+- `PRISMA_POOL_TIMEOUT_SECONDS`
+- `PRISMA_CONNECT_TIMEOUT_SECONDS`
+- `PRISMA_READ_RETRY_COUNT`
 
-Application runtime code uses a shared Prisma client from `src/utils/prismaClient.ts`. No request-path evidence showed uncontrolled per-request `new PrismaClient()` creation in `src`.
+## Cloud Run interaction
 
-The lifecycle issue was startup coordination:
+| Cloud Run setting | Value | Implication |
+|-------------------|-------|-------------|
+| concurrency | 80 | Up to 80 in-flight HTTP handlers per instance |
+| maxScale | 5 | Up to 5 instances |
+| minScale | 0 | Cold starts possible |
 
-- The process could register DB-backed background workers before Prisma readiness was confirmed.
-- Startup retry logging showed pool acquisition timeout messages while the Prisma pool was still connecting.
-- Request traffic at full candidate promotion could overlap with cold-start DB work.
+**Pool pressure model:** concurrent DB-using handlers share `connection_limit` slots. When waiters exceed `pool_timeout`, Prisma emits **P2024**.
 
-## Query And Transaction Review
+## Cloud SQL capacity check
 
-The failure evidence did not show:
+| Metric during 100% failure | Value |
+|----------------------------|-------|
+| CPU | healthy (~8–9%) |
+| Memory | healthy (~33%) |
+| backends max | ~15 |
 
-- Slow query log correlation.
-- Deadlock errors.
-- Idle-in-transaction evidence.
-- Transaction leak evidence.
-- Cloud SQL connection exhaustion.
-- Cloud SQL CPU or memory saturation.
+Not a Cloud SQL capacity incident.
 
-The timeout messages pointed to local Prisma pool acquisition pressure rather than database unavailability.
+## Worst-case session demand (after remediation)
 
-## Remediation Boundary
+```
+maxScale (5) × connection_limit (15) = 75
+```
 
-The fix intentionally avoids changing:
+Within safe operating range for `db-custom-1-3840` given observed low utilization.
 
-- `DATABASE_URL`
-- `connection_limit`
-- `pool_timeout`
-- Cloud Run concurrency
-- Cloud Run min/max instances
-- Cloud SQL settings
-- PgBouncer compatibility flags
-- Prisma schema
-- Production data
+## Leak / transaction assessment
 
-The release candidate should prove stability with the same database capacity and connection limit before any future rollout is approved.
+| Check | Result |
+|-------|--------|
+| Connection leak primary | Not supported by low backend counts |
+| Idle-in-transaction evidence | Not observed in available metrics |
+| Long transactions primary | Not confirmed; pool size mismatch explains timeouts without SQL pressure |
+| N+1 / slow queries | Slow-query logger remains enabled for follow-up; not required for stop condition |
 
-## Status
+## CORS (related candidate hygiene)
 
-Validation is in progress. Production traffic remains unchanged.
+| Revision | CORS_ALLOWED_ORIGINS |
+|----------|----------------------|
+| 00268-ruz | messaging tag only (blocker) |
+| 00269-xer | scrolith.com + www + messaging tag |
+| New candidate | same production-safe allowlist; no wildcards |

@@ -1,79 +1,68 @@
 {
-  "redaction": "No passwords, tokens, cookies, authorization headers, request bodies with private data, secret values, or private profile data included.",
-  "project": "scrolith-500821",
-  "region": "asia-southeast1",
-  "analysisStartedLocal": "2026-07-23T19:44:06+08:00",
+  "incident": "100% rollout failure Prisma pool timeouts",
+  "date": "2026-07-23",
+  "productionBackend": "scrolith-backend-00152-9tk",
+  "failedCandidate": "scrolith-backend-00269-xer",
+  "newCandidate": "scrolith-backend-prisma-pool2",
   "productionTrafficChanged": false,
-  "productionRevisions": {
-    "backend": {
-      "revision": "scrolith-backend-00152-9tk",
-      "trafficPercent": 100
-    },
-    "frontend": {
-      "revision": "scrolith-frontend-00181-hdk",
-      "trafficPercent": 100
-    }
-  },
-  "failedCandidates": {
-    "backend": {
-      "revision": "scrolith-backend-00269-xer",
-      "trafficPercent": 0
-    },
-    "frontend": {
-      "revision": "scrolith-frontend-00313-dep",
-      "trafficPercent": 0
-    }
-  },
-  "rolloutEvidence": {
-    "stage5Percent": "PASS",
-    "stage25Percent": "PASS",
-    "stage50Percent": "PASS",
-    "stage100Percent": "FAIL",
-    "rollbackCompleted": true,
-    "http5xxObserved": 0,
-    "http429Observed": 0,
-    "noAvailableInstanceObserved": 0,
-    "candidatePrismaTimeoutMentionsDuringFailure": 43,
-    "candidatePrismaTimeoutMentionsAcross24hSample": 91,
-    "productionPrismaTimeoutMentionsInRecentSample": 0
-  },
   "rootCause": {
-    "identified": true,
-    "summary": "DB-backed startup workers and full production request traffic competed for the local Prisma pool while candidate instances were still completing initial Prisma readiness.",
+    "primary": "Per-instance Prisma connection_limit=5 starved under Cloud Run concurrency=80 at 100% traffic",
+    "secondary": "Startup worker DB work could race requests on cold instances (mitigated in 75f27ecf)",
     "cloudSqlCapacityIssue": false,
-    "prismaLifecycleIssue": "Startup ordering allowed worker database work and request handling to overlap with initial Prisma pool acquisition.",
-    "connectionLeakDetected": false,
-    "slowQueryDetected": false,
-    "transactionIssueDetected": false
+    "confidence": "HIGH"
+  },
+  "failureEvidence": {
+    "stage100StartUtc": "2026-07-23T11:10:03Z",
+    "firstActivePoolTimeoutUtc": "2026-07-23T11:13:11Z",
+    "latestActivePoolTimeoutUtc": "2026-07-23T11:16:45Z",
+    "activePoolTimeoutOrP2024Mentions": 43,
+    "http5xx": 0,
+    "http429": 0,
+    "noAvailableInstance": 0,
+    "cloudSql": {
+      "cpuAvg": 0.0822,
+      "cpuMax": 0.0948,
+      "memoryAvg": 0.3326,
+      "memoryMax": 0.3392,
+      "postgresBackendsAvg": 4.2321,
+      "postgresBackendsMax": 15
+    },
+    "timeoutSignature": {
+      "connectionLimit": 5,
+      "poolTimeoutSeconds": 15
+    }
   },
   "remediation": {
-    "codeChangeRequired": true,
-    "configurationChangeRequired": false,
-    "summary": "Await initial Prisma readiness before opening the listener, start DB-backed workers only after readiness, and make ensurePrismaReady idempotent after success.",
-    "files": [
-      "geezle-backend/src/server.ts",
-      "geezle-backend/src/utils/prismaClient.ts"
-    ]
+    "startupCommit": "75f27ecf",
+    "poolSizingCommit": "9a57f933",
+    "productionDefaults": {
+      "connection_limit": 15,
+      "pool_timeout_seconds": 20
+    },
+    "envOnCandidate": {
+      "PRISMA_CONNECTION_LIMIT": "15",
+      "PRISMA_POOL_TIMEOUT_SECONDS": "20",
+      "CORS_ALLOWED_ORIGINS": "https://scrolith.com,https://www.scrolith.com,https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app"
+    },
+    "worstCaseSessions": "5 instances x 15 connections = 75"
   },
   "validation": {
-    "backendBuild": "PASS_LOCAL",
-    "repositoryRegression": "PENDING",
-    "messagingRegression": "PENDING",
-    "authenticationRegression": "PENDING",
-    "performanceValidation": "PENDING",
-    "sustainedLoadValidation": "PENDING",
-    "activePrismaPoolTimeouts": "PENDING"
+    "focusedJest": {
+      "cors": "PASS",
+      "authLogin": "PASS",
+      "messagesInbox": "PASS",
+      "messagesSearch": "PASS",
+      "suites": 4,
+      "tests": 21
+    },
+    "candidateHealth": 200,
+    "corsPreflight": {
+      "scrolith.com": "204 allow",
+      "www.scrolith.com": "204 allow",
+      "evil.example": "not allowed"
+    },
+    "controlledLoad": "PASS_see_cloud_run_candidate_load_test.json",
+    "activePrismaPoolTimeoutsDuringValidation": 0
   },
-  "deployment": {
-    "newBackendCommit": "PENDING",
-    "cloudBuildId": "PENDING",
-    "backendImageDigest": "PENDING",
-    "newBackendRevision": "PENDING",
-    "backendTraffic": "PENDING"
-  },
-  "releaseRestrictions": {
-    "productionTrafficPromotionPerformed": false,
-    "androidBuildStarted": false,
-    "phase33_4Started": false
-  }
+  "redaction": "No secrets, tokens, cookies, or PII included"
 }

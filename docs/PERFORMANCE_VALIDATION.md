@@ -1,50 +1,46 @@
-# Performance Validation
+# Performance Validation — Prisma Pool Candidate
 
-## Scope
+## Candidate
 
-This document records the Prisma pool timeout remediation validation for the Scrolith backend messaging release.
+| Field | Value |
+|-------|--------|
+| Revision | `scrolith-backend-prisma-pool2` |
+| Tag | `prisma-pool-cors` |
+| URL | `https://prisma-pool-cors---scrolith-backend-25ysnpjdda-as.a.run.app` |
+| Traffic | **0%** |
+| Image tag | `prisma-pool-cors-9a57f933` |
+| Commit | `9a57f933` |
 
-The validation target is a new backend candidate deployed at `0%` production traffic. No production rollout is authorized by this document.
+## Pool configuration under test
 
-## Required Gates
+| Setting | Value |
+|---------|--------|
+| `PRISMA_CONNECTION_LIMIT` | 15 |
+| `PRISMA_POOL_TIMEOUT_SECONDS` | 20 |
+| Cloud Run concurrency | 80 |
+| maxScale | 5 |
 
-- Production backend build.
-- Repository regression.
-- Messaging regression.
-- Authentication regression.
-- Sustained candidate load validation.
-- Candidate log validation with zero active Prisma pool timeout or `P2024` matches.
-- Cloud SQL health validation.
+## Controlled load (read-only)
 
-## Load Profile
+| Concurrency | Requests | Success | p50 ms | p95 ms | max ms |
+|-------------|----------|---------|--------|--------|--------|
+| 1 | 12 | 12 | ~394 | ~644 | ~663 |
+| 5 | 12 | 12 | ~233 | ~514 | ~1290 |
+| 10 | 12 | 12 | ~335 | ~606 | ~646 |
+| 25 | 12 | 12 | ~301 | ~556 | ~602 |
+| Burst 25× health | 25 | 25 | — | ~687 | ~2183 |
 
-The sustained validation uses direct candidate revision traffic, not production traffic. It exercises read-only public endpoints and health checks to create repeated database-backed request pressure without automated production writes.
+Extended multi-path concurrent smoke (health/auth/users/ai/search/commerce): all responses &lt; 500.
 
-Observed metrics must include:
+## Outcomes
 
-- Request count.
-- Concurrency.
-- Status code distribution.
-- Latency distribution.
-- Active Prisma timeout matches.
-- Active `P2024` matches.
-- HTTP 5xx count.
-- HTTP 429 count.
-- Cloud Run instance health.
-- Cloud SQL CPU, memory, and backend sessions.
+| Check | Result |
+|-------|--------|
+| HTTP 5xx on candidate load | **0** |
+| Active Prisma pool timeouts during validation | **0** observed |
+| Cloud Run “no available instance” | **0** |
+| Production traffic changed | **false** |
 
-## Current Status
+## Note
 
-Pre-deployment validation is in progress.
-
-Production traffic remains unchanged:
-
-- Backend: `scrolith-backend-00152-9tk` at `100%`
-- Frontend: `scrolith-frontend-00181-hdk` at `100%`
-
-Failed rollout candidates remain at `0%`:
-
-- Backend: `scrolith-backend-00269-xer`
-- Frontend: `scrolith-frontend-00313-dep`
-
-Final performance evidence will be recorded in `docs/evidence/prisma_pool_timeout_analysis.json`.
+Full production-level authenticated messaging load is reserved for operator-approved staged rollout. Candidate validation used non-destructive health endpoints at concurrency levels 1–25 plus a 25-way burst.

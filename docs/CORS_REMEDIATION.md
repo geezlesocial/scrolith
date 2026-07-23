@@ -1,65 +1,41 @@
-# Backend Candidate CORS Remediation
+# CORS Remediation
 
-## Scope
+## Blocker
 
-This remediation created a new backend candidate revision to correct the CORS allowlist drift that blocked staged production rollout.
+Revision `scrolith-backend-00268-ruz` allowed only:
 
-No production traffic was promoted.
+```text
+https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app
+```
 
-## Candidate
+Promoting that revision would break production browser calls from `https://scrolith.com` / `https://www.scrolith.com`.
 
-- Previous backend candidate: `scrolith-backend-00268-ruz`
-- Corrected backend candidate: `scrolith-backend-00269-xer`
-- Corrected candidate tag: `cors-prod-02d8547b`
-- Corrected candidate traffic: `0%`
-- Image digest preserved: `sha256:6155490fbb6b467179f651ea8c13d6697937fcfa8f301e59453b938987705896`
+## Corrected allowlist
 
-## CORS Configuration
+Candidate `scrolith-backend-prisma-pool2` (tag `prisma-pool-cors`) uses:
 
-Allowed origins on the corrected candidate:
+```text
+https://scrolith.com
+https://www.scrolith.com
+https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app
+```
 
-- `https://scrolith.com`
-- `https://www.scrolith.com`
-- `https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app`
+| Control | Value |
+|---------|--------|
+| Wildcard `*` | **disabled** |
+| Wildcard `*.a.run.app` | **disabled** |
+| Credentials | allowed for exact origins only |
 
-Wildcard origins were not enabled.
+`BASE_ALLOWED_ORIGINS` in `geezle-backend/src/config/cors.ts` also includes localhost/Capacitor origins used by mobile/dev; production env still constrains via `CORS_ALLOWED_ORIGINS` + production checks.
 
-## Preserved Configuration
+## Validation (candidate URL)
 
-The corrected candidate preserved:
+| Origin | Preflight | Access-Control-Allow-Origin |
+|--------|-----------|-------------------------------|
+| `https://scrolith.com` | 204 | `https://scrolith.com` |
+| `https://www.scrolith.com` | 204 | `https://www.scrolith.com` |
+| `https://evil.example` | no allow | empty / not reflected |
 
-- Startup remediation image
-- Cloud SQL attachment
-- Service account
-- Sidecar configuration
-- Concurrency
-- Timeout
-- Max scale
-- Scrolitha provider/model configuration
-- Secret references
+## Production impact
 
-## Validation
-
-Passed:
-
-- Local backend production TypeScript build
-- Cloud Build production build
-- Cloud Build node tests
-- Cloud Build full Jest regression
-- CORS preflight for production origins
-- CORS preflight for candidate frontend origin
-- Negative arbitrary-origin CORS check
-- Backend health/read-only public checks
-- Prisma pool active validation after readiness
-- Cloud SQL capacity validation
-
-Historical finding:
-
-- Prisma pool timeout logs were observed only in a startup burst on `2026-07-23T10:01:35Z`, before Prisma reported ready at `2026-07-23T10:01:36Z`.
-- No active Prisma pool timeout, `P2024`, 429, 5xx, or Cloud Run `no available instance` behavior was reproduced during candidate validation after readiness.
-
-## Decision
-
-The CORS drift is corrected. The Prisma timeout evidence is classified as historical startup-only behavior, so no code remediation or replacement backend candidate is required unless new active timeout evidence appears.
-
-`scrolith-backend-00269-xer` remains at `0%` traffic and is ready for operator-approved staged production rollout.
+None. Production traffic remains on `scrolith-backend-00152-9tk` @ 100%.

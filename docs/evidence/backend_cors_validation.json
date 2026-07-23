@@ -1,178 +1,31 @@
 {
-  "redaction": "No passwords, tokens, cookies, authorization headers, request bodies with private data, secret values, or private profile data included.",
-  "project": "scrolith-500821",
-  "region": "asia-southeast1",
-  "timestampUtc": "2026-07-23T10:34:48Z",
-  "backendCandidate": {
-    "previousRevision": "scrolith-backend-00268-ruz",
-    "correctedRevision": "scrolith-backend-00269-xer",
-    "tag": "cors-prod-02d8547b",
-    "trafficPercent": 0,
-    "imageDigest": "sha256:6155490fbb6b467179f651ea8c13d6697937fcfa8f301e59453b938987705896"
-  },
-  "frontendCandidate": {
-    "revision": "scrolith-frontend-00313-dep",
-    "tag": "messaging-322ab66d",
-    "trafficPercent": 0
-  },
-  "productionTraffic": {
-    "backend": {
-      "revision": "scrolith-backend-00152-9tk",
-      "percent": 100
-    },
-    "frontend": {
-      "revision": "scrolith-frontend-00181-hdk",
-      "percent": 100
-    },
-    "changed": false
-  },
-  "allowedOrigins": [
+  "candidateRevision": "scrolith-backend-prisma-pool2",
+  "candidateUrl": "https://prisma-pool-cors---scrolith-backend-25ysnpjdda-as.a.run.app",
+  "capturedAt": "2026-07-23T12:14:00Z",
+  "allowedOriginsConfigured": [
     "https://scrolith.com",
     "https://www.scrolith.com",
     "https://messaging-322ab66d---scrolith-frontend-25ysnpjdda-as.a.run.app"
   ],
   "wildcardOriginsEnabled": false,
-  "arbitraryOriginAllowed": false,
-  "corsPreflight": {
-    "paths": [
-      "/api/auth/login",
-      "/api/messages/conversations",
-      "/api/messages/groups/member-resolver",
-      "/api/scrolitha/health",
-      "/api/wallet/me"
-    ],
-    "allowedOriginStatus": 204,
-    "allowedOriginHeaderMatched": true,
-    "arbitraryOriginAllowHeaderPresent": false,
-    "result": "PASS"
-  },
-  "backendBuild": {
-    "localProductionBuild": "PASS",
-    "cloudBuildId": "4ee1f902-1ab3-4310-b316-7c8d447726e6",
-    "cloudBuildStatus": "PASS",
-    "cloudBuildSteps": {
-      "production-build": "PASS",
-      "node-tests": "PASS",
-      "full-jest": "PASS"
+  "preflightResults": [
+    {
+      "origin": "https://scrolith.com",
+      "status": 204,
+      "accessControlAllowOrigin": "https://scrolith.com"
     },
-    "testSuites": "137 passed, 137 total",
-    "tests": "980 passed, 980 total"
-  },
-  "candidateHealth": {
-    "apiHealth": 200,
-    "publicReadOnlyChecks": "PASS",
-    "expectedUnauthenticatedGuards": "PASS"
-  },
-  "preservedConfiguration": {
-    "startupRemediationImagePreserved": true,
-    "cloudSqlAttachmentPreserved": true,
-    "serviceAccountPreserved": true,
-    "sidecarsPreserved": true,
-    "scrolithaProvider": "core",
-    "scrolithaCoreModel": "qwen3:14b",
-    "scrolithaDefaultProvider": "OLLAMA",
-    "scrolithaDefaultModel": "qwen3:14b",
-    "geminiEnabled": false,
-    "openaiEnabled": false
-  },
-  "candidateLogSummary": {
-    "errorSeverityCount": 0,
-    "http5xx": 0,
-    "noAvailableInstanceMentions": 0,
-    "runtimeMigrationMentions": 0,
-    "prismaPoolTimeoutMentions": 12,
-    "prismaReadyMentions": 1,
-    "poolTimeoutClassification": "historical_startup_only",
-    "startupProbeSucceededUtc": "2026-07-23T10:00:18.745457Z",
-    "firstHistoricalPoolTimeoutUtc": "2026-07-23T10:01:35.806499Z",
-    "latestHistoricalPoolTimeoutUtc": "2026-07-23T10:01:35.814436Z",
-    "prismaReadyUtc": "2026-07-23T10:01:36.350511Z",
-    "source": "startup background-job/database access contention while Prisma client pool was still connecting",
-    "activeSeverity": "low",
-    "coldStartObservabilityRisk": "moderate"
-  },
-  "prismaPoolValidation": {
-    "candidateRevision": "scrolith-backend-00269-xer",
-    "validationBaseUrl": "https://cors-prod-02d8547b---scrolith-backend-25ysnpjdda-as.a.run.app",
-    "validationStartedUtc": "2026-07-23T10:30:38.114Z",
-    "validationCompletedUtc": "2026-07-23T10:30:40.330Z",
-    "requests": 70,
-    "concurrency": 10,
-    "passed": 70,
-    "failed": 0,
-    "statusCounts": {
-      "200": 70
+    {
+      "origin": "https://www.scrolith.com",
+      "status": 204,
+      "accessControlAllowOrigin": "https://www.scrolith.com"
     },
-    "latencyMs": {
-      "p50": 149,
-      "p95": 1285,
-      "p99": 1408,
-      "max": 1408
-    },
-    "activeLogWindowStartUtc": "2026-07-23T10:30:38.1140000Z",
-    "activeLogEntries": 174,
-    "activeHttpRequests": 70,
-    "activeHttp2xx": 70,
-    "activeHttp4xx": 0,
-    "activeHttp5xx": 0,
-    "activeHttp429": 0,
-    "activePrismaPoolTimeout": 0,
-    "activeP2024": 0,
-    "activeNoAvailableInstance": 0,
-    "activeRuntimeMigration": 0,
-    "activeErrorSeverity": 0,
-    "result": "PASS"
-  },
-  "cloudSqlCapacity": {
-    "instance": "scrolith-postgres-prod",
-    "windowStartUtc": "2026-07-23T10:14:30.6463234Z",
-    "queriedAtUtc": "2026-07-23T10:34:30.6463234Z",
-    "cpuUtilization": {
-      "count": 19,
-      "min": 0.0731,
-      "avg": 0.0825,
-      "max": 0.1038
-    },
-    "memoryUtilization": {
-      "count": 19,
-      "min": 0.3247,
-      "avg": 0.3288,
-      "max": 0.3332
-    },
-    "postgresqlNumBackends": {
-      "windowStartUtc": "2026-07-23T10:14:48.6749037Z",
-      "queriedAtUtc": "2026-07-23T10:34:48.6749037Z",
-      "count": 76,
-      "min": 0,
-      "avg": 4.21,
-      "max": 15
-    },
-    "capacityStatus": "PASS"
-  },
-  "prismaPooling": {
-    "sourceFile": "geezle-backend/src/utils/prismaClient.ts",
-    "productionDefaultConnectionLimit": 5,
-    "productionDefaultPoolTimeoutSeconds": 15,
-    "connectionLimitMaximum": 80,
-    "poolTimeoutMaximumSeconds": 120,
-    "urlNormalizationAddsConnectionLimit": true,
-    "urlNormalizationAddsPoolTimeout": true,
-    "poolingStatus": "PASS"
-  },
-  "stopCondition": {
-    "triggered": false,
-    "reason": "Prisma pool timeout messages were historical startup-only events and did not recur during active candidate validation.",
-    "trafficPromotionStopped": true,
-    "remediationRequired": false,
-    "newBackendCandidateRequired": false,
-    "androidBuildStarted": false,
-    "phase33_4Started": false
-  },
-  "completionGate": {
-    "corsConfigurationCorrected": true,
-    "prismaPoolValidation": "PASS",
-    "cloudSqlCapacityValidation": "PASS",
-    "readyForProductionRollout": true,
-    "operatorApprovalRequired": true
-  }
+    {
+      "origin": "https://evil.example",
+      "status": 200,
+      "accessControlAllowOrigin": null,
+      "note": "Origin not reflected; request not authorized for credentialed CORS"
+    }
+  ],
+  "productionTrafficChanged": false,
+  "redaction": "No secrets or credentials"
 }

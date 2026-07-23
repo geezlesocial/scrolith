@@ -1,53 +1,33 @@
 {
-  "project": "scrolith-500821",
-  "region": "asia-southeast1",
-  "timestampUtc": "2026-07-23T08:24:51Z",
-  "repositoryCommit": "192117d4cf35cb767b69e8799a76020d8b7d505f",
-  "frontendCommit": "24e0ac66d63b6a9d4a0526b573e93cad1c8ea726",
-  "failedBackendRevision": "scrolith-backend-00262-dif",
-  "remediatedBackendRevision": "scrolith-backend-00268-ruz",
-  "correctedFrontendCandidateRevision": "scrolith-frontend-00313-dep",
-  "rollbackTargets": {
-    "backend": "scrolith-backend-00152-9tk",
-    "frontend": "scrolith-frontend-00181-hdk"
-  },
-  "traffic": {
-    "backendProductionRevision": "scrolith-backend-00152-9tk",
-    "backendProductionPercent": 100,
-    "frontendProductionRevision": "scrolith-frontend-00181-hdk",
-    "frontendProductionPercent": 100,
-    "remediatedBackendCandidatePercent": 0,
-    "correctedFrontendCandidatePercent": 0,
-    "productionTrafficChangedByThisPhase": false
-  },
-  "cloudBuilds": {
-    "fullRegression": {
-      "id": "da708ea4-7c40-4ba0-bcd9-e685450c4fc9",
-      "status": "PASS"
-    },
-    "backendImage": {
-      "id": "4721942c-a111-4277-a3be-af82a1bc9321",
-      "status": "PASS",
-      "imageDigest": "sha256:6155490fbb6b467179f651ea8c13d6697937fcfa8f301e59453b938987705896"
-    }
-  },
-  "gates": {
-    "rootCauseConfirmed": true,
-    "minimumSafeRemediationApplied": true,
-    "backendProductionBuild": "PASS",
-    "fullRegression": "PASS",
-    "candidateDeployAtZeroPercent": "PASS",
-    "candidateReadOnlySmoke": "PASS",
-    "candidateControlledLoad": "PASS",
-    "noNoAvailableInstanceOnCandidate": "PASS",
-    "noP2024OnCandidate": "PASS",
-    "noRuntimePrismaMigrationOrGenerate": "PASS",
-    "authenticatedBrowserValidation": "NOT_REPEATED_IN_THIS_PHASE",
-    "trafficPromotion": "NOT_STARTED",
-    "androidBuild": "NOT_STARTED",
-    "phase33_4Started": false
-  },
-  "productionReadinessRecommendation": "READY_FOR_OPERATOR_APPROVED_STAGED_ROLLOUT",
-  "operatorApprovalRequiredBeforeRollout": true
+  "rootCauseConfirmed": true,
+  "primaryRootCause": "Prisma connection_limit=5 per instance exhausted under full Cloud Run concurrency at 100% traffic (P2024 pool timeout); Cloud SQL not saturated",
+  "remediationApplied": "Startup ready-before-workers (75f27ecf) + production pool defaults 15/20s (9a57f933) + CORS production origins on candidate env",
+  "backendBuild": "PASS",
+  "fullRegression": "PARTIAL_FOCUSED_PASS",
+  "messagingRegression": "PASS",
+  "authenticationRegression": "PASS",
+  "paymentsRegression": "NOT_RUN_THIS_PASS",
+  "gcoinRegression": "NOT_RUN_THIS_PASS",
+  "adsRegression": "NOT_RUN_THIS_PASS",
+  "socketRegression": "NOT_RUN_THIS_PASS",
+  "scrolithaRegression": "CONFIG_PRESERVED",
+  "newBackendCandidateRevision": "scrolith-backend-prisma-pool2",
+  "newBackendCandidateTraffic": "0%",
+  "candidateHealth": "PASS",
+  "coldStartValidation": "PASS",
+  "controlledLoadValidation": "PASS",
+  "noAvailableInstanceErrors": "PASS",
+  "noUnexpected5xx": "PASS",
+  "noP2024": "PASS",
+  "cloudSqlCapacityValidated": "PASS",
+  "corsValidation": "PASS",
+  "rollbackRevisionPreserved": "PASS",
+  "productionTrafficChanged": false,
+  "productionReadyForStagedRollout": true,
+  "explicitOperatorApprovalRequired": true,
+  "androidBuildStarted": false,
+  "phase33_4Started": false,
+  "cloudBuildId": "11aeb01d-be53-4b9e-b9d7-d864925a2794",
+  "backendImageDigest": "sha256:0f3b8f1895cbe5fbe5d26c071d805c45fc5900949719da6a4252d108beecb9a6",
+  "newBackendCommit": "9a57f933"
 }
-

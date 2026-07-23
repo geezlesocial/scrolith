@@ -1,144 +1,65 @@
 {
-  "redaction": "No credentials, cookies, tokens, authorization headers, request bodies, or private profile data included.",
-  "project": "scrolith-500821",
-  "region": "asia-southeast1",
-  "service": "scrolith-backend",
-  "candidateRevision": "scrolith-backend-00268-ruz",
-  "candidateTag": "readiness-192117d4",
-  "candidateUrl": "https://readiness-192117d4---scrolith-backend-25ysnpjdda-as.a.run.app",
-  "mode": "read-only public endpoint validation",
-  "endpoints": [
-    "/api/health",
-    "/api/public/preloader/active",
-    "/api/homepage/guest",
-    "/api/currencies/active",
-    "/api/cms/header",
-    "/api/ai/config",
-    "/api/payments/methods/active"
-  ],
-  "initialSmoke": [
-    {
-      "path": "/api/health",
-      "status": 200,
-      "latencyMs": 2772
-    },
-    {
-      "path": "/api/public/preloader/active",
-      "status": 200,
-      "latencyMs": 259
-    },
-    {
-      "path": "/api/homepage/guest",
-      "status": 200,
-      "latencyMs": 374
-    },
-    {
-      "path": "/api/currencies/active",
-      "status": 200,
-      "latencyMs": 359
-    },
-    {
-      "path": "/api/cms/header",
-      "status": 200,
-      "latencyMs": 183
-    },
-    {
-      "path": "/api/ai/config",
-      "status": 200,
-      "latencyMs": 214
-    },
-    {
-      "path": "/api/payments/methods/active",
-      "status": 200,
-      "latencyMs": 157
-    }
-  ],
-  "controlledLoad": [
+  "candidate": "scrolith-backend-prisma-pool2",
+  "url": "https://prisma-pool-cors---scrolith-backend-25ysnpjdda-as.a.run.app",
+  "stages": [
     {
       "concurrency": 1,
-      "startedUtc": "2026-07-23T08:20:26.9143033Z",
-      "completedUtc": "2026-07-23T08:20:45.6676367Z",
-      "requests": 7,
-      "passed": 7,
-      "failed": 0,
-      "statusCounts": [
-        {
-          "status": 200,
-          "count": 7
-        }
-      ],
-      "p50Ms": 548,
-      "p95Ms": 574,
-      "p99Ms": 574,
-      "maxMs": 579
+      "requests": 12,
+      "success": 12,
+      "status_counts": {
+        "200": 12
+      },
+      "p50_ms": 394,
+      "p95_ms": 644,
+      "max_ms": 663,
+      "duration_s": 4.79
     },
     {
       "concurrency": 5,
-      "startedUtc": "2026-07-23T08:20:45.7451808Z",
-      "completedUtc": "2026-07-23T08:20:57.7447185Z",
-      "requests": 35,
-      "passed": 35,
-      "failed": 0,
-      "statusCounts": [
-        {
-          "status": 200,
-          "count": 35
-        }
-      ],
-      "p50Ms": 783,
-      "p95Ms": 1236,
-      "p99Ms": 1275,
-      "maxMs": 2356
+      "requests": 12,
+      "success": 12,
+      "status_counts": {
+        "200": 12
+      },
+      "p50_ms": 233,
+      "p95_ms": 514,
+      "max_ms": 1290,
+      "duration_s": 1.76
     },
     {
       "concurrency": 10,
-      "startedUtc": "2026-07-23T08:20:57.7512666Z",
-      "completedUtc": "2026-07-23T08:21:22.4812865Z",
-      "requests": 70,
-      "passed": 70,
-      "failed": 0,
-      "statusCounts": [
-        {
-          "status": 200,
-          "count": 70
-        }
-      ],
-      "p50Ms": 674,
-      "p95Ms": 924,
-      "p99Ms": 1070,
-      "maxMs": 1178
+      "requests": 12,
+      "success": 12,
+      "status_counts": {
+        "200": 12
+      },
+      "p50_ms": 335,
+      "p95_ms": 606,
+      "max_ms": 646,
+      "duration_s": 0.91
     },
     {
       "concurrency": 25,
-      "startedUtc": "2026-07-23T08:21:22.4852882Z",
-      "completedUtc": "2026-07-23T08:22:36.0402428Z",
-      "requests": 175,
-      "passed": 175,
-      "failed": 0,
-      "statusCounts": [
-        {
-          "status": 200,
-          "count": 175
-        }
-      ],
-      "p50Ms": 631,
-      "p95Ms": 1102,
-      "p99Ms": 1421,
-      "maxMs": 15768
+      "requests": 12,
+      "success": 12,
+      "status_counts": {
+        "200": 12
+      },
+      "p50_ms": 301,
+      "p95_ms": 556,
+      "max_ms": 602,
+      "duration_s": 0.61
     }
   ],
-  "candidateRequestLogSummary": {
-    "requestEntries": 294,
-    "http200": 294,
-    "non2xx": 0
+  "burst25": {
+    "requests": 25,
+    "success": 25,
+    "status": {
+      "200": 25
+    },
+    "p95_ms": 687,
+    "max_ms": 2183
   },
-  "candidateRuntimeLogSummary": {
-    "runtimeMigrationMentions": 0,
-    "noAvailableInstanceMentions": 0,
-    "p2024Mentions": 0,
-    "errorSeverityCount": 0,
-    "prismaReadyMentions": 1
-  },
-  "result": "PASS"
+  "http5xx": 0,
+  "notes": "Read-only health endpoints; no authenticated destructive calls"
 }
-
