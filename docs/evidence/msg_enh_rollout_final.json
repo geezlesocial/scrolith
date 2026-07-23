@@ -1,0 +1,4806 @@
+{
+  "startedAt": "2026-07-23T15:18:59.205Z",
+  "stages": [
+    {
+      "percent": 5,
+      "at": "2026-07-23T15:19:34.805Z",
+      "backendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00100-qih",
+          "tag": "p202t-upload-err"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00102-loc",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00104-rib",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00106-poy",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00108-lig",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00110-sal",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00112-qar",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00114-bay",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-qoc",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-wpf",
+          "tag": "feed-video-hydrate"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00117-78x",
+          "tag": "gcs-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-cud",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-dvt",
+          "tag": "media-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00119-zx2",
+          "tag": "media-playback-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00120-fld",
+          "tag": "my-posts-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00121-d7d",
+          "tag": "scroll-mine-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00122-taj",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00124-rom",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00126-deh",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00128-guz",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00130-joj",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00132-loh",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00134-neh",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00136-ziz",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00138-zan",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00140-ban",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00148-ruy",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-9tk",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-sag",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00154-cit",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00156-jor",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00158-faz",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00160-xez",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00162-jih",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00164-vax",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00169-yup",
+          "tag": "post-integrity-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00183-lep",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00187-tov",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00189-yuc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00191-gol",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00193-but",
+          "tag": "fcm-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00199-hef",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00203-xep",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00205-lup",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00207-tew",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00210-sih",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00214-rid",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00221-qam",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00227-wer",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00235-mib",
+          "tag": "p333"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00262-dif",
+          "tag": "messaging-e5fa6599"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00268-ruz",
+          "tag": "readiness-192117d4"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00269-xer",
+          "tag": "cors-prod-02d8547b"
+        },
+        {
+          "percent": 5,
+          "revision": "scrolith-backend-00282-xup",
+          "tag": "msg-enh-51716906"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama2",
+          "tag": "p3334-ollama2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama3",
+          "tag": "p3334-ollama3"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama4",
+          "tag": "p3334-ollama4"
+        },
+        {
+          "percent": 95,
+          "revision": "scrolith-backend-prisma-pool2",
+          "tag": "prisma-pool-cors"
+        }
+      ],
+      "frontendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00080-vev",
+          "tag": "mh-comp-3f753aac"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "mh-hc-ea3ec591"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "mh-avatar-4e74c661"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "mh-disc-68619a19"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "phase17-00d8b158"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "phase18-33d1c946"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "phase18-media-hotfix-c93e0fc8"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "p18-cat-c94890d2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00106-loq",
+          "tag": "p19-fe-49d1c7b1"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00108-buh",
+          "tag": "p192b-a9a0229a"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00110-xay",
+          "tag": "p192b-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00113-nav",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00116-ley",
+          "tag": "p2021-mh"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00118-ruj",
+          "tag": "p2021-mh-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00120-kaf",
+          "tag": "p2022-marketplace-card"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00122-nah",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00124-xam",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00126-seb",
+          "tag": "p2025r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00127-p5c",
+          "tag": "p2112"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-cob",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-gr7",
+          "tag": "p2112r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00129-vkb",
+          "tag": "p2112s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-dhz",
+          "tag": "p2114"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-gug",
+          "tag": "p2026rr"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00131-4jr",
+          "tag": "p2114i"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00132-boz",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00134-bof",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00136-dit",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00138-ruh",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00140-zaq",
+          "tag": "p204"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00143-leb",
+          "tag": "p2041"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00145-dez",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00147-dag",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00148-f66",
+          "tag": "feed-video-preview"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-4nh",
+          "tag": "video-playback-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-siz",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00150-mjf",
+          "tag": "composer-blob-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-7qt",
+          "tag": "my-posts-module"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-fin",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00152-bsk",
+          "tag": "my-posts-highlight"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-2w2",
+          "tag": "scroll-my-posts"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-qid",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00155-goh",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00157-nij",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00159-vox",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00161-bov",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00163-wer",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00165-bef",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00167-wal",
+          "tag": "p2080"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00169-wob",
+          "tag": "p2081"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00171-yis",
+          "tag": "p2082"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00173-hox",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00175-jiw",
+          "tag": "p211"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00179-zav",
+          "tag": "p2111"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00198-jak",
+          "tag": "p2115"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00203-yot",
+          "tag": "p2117"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00205-rub",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00207-rug",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00209-yet",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00211-kev",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00213-hit",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00215-tab",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00217-niy",
+          "tag": "p24"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00219-nuf",
+          "tag": "p24r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00221-loj",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00223-tac",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00225-fof",
+          "tag": "p26c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00227-xud",
+          "tag": "p26c-logo"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00241-koh",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00243-vic",
+          "tag": "p28c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00245-yuh",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00247-dur",
+          "tag": "pin-feat"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00249-huc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00251-lok",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00253-mek",
+          "tag": "feed-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00255-nic",
+          "tag": "push-sound"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00267-qob",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00271-quk",
+          "tag": "p297m"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00273-vil",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00275-boj",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00277-zuz",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00279-xug",
+          "tag": "p297b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00281-qik",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00285-wep",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00292-dux",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00294-zaq",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00299-zah",
+          "tag": "p333"
+        },
+        {
+          "percent": 95,
+          "revision": "scrolith-frontend-00313-dep",
+          "tag": "messaging-322ab66d"
+        },
+        {
+          "percent": 5,
+          "revision": "scrolith-frontend-00328-rav",
+          "tag": "msg-enh-92da8d29"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-mh-layout-hotfix-491adafc",
+          "tag": "mh-layout-hotfix-491adafc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "scrolitha-w1b-cf207a23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "scrolitha-w2-df3908e9"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "prod-previous"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "prod-previous-discovery"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "prod-previous-w1b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "prod-previous-w2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "prod-previous-p17"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "prod-previous-p18"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "prod-previous-media-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "prod-previous-category-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "prod-previous-phase19b"
+        }
+      ],
+      "smoke": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      },
+      "recheck": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "percent": 25,
+      "at": "2026-07-23T15:21:40.979Z",
+      "backendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00100-qih",
+          "tag": "p202t-upload-err"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00102-loc",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00104-rib",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00106-poy",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00108-lig",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00110-sal",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00112-qar",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00114-bay",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-qoc",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-wpf",
+          "tag": "feed-video-hydrate"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00117-78x",
+          "tag": "gcs-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-cud",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-dvt",
+          "tag": "media-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00119-zx2",
+          "tag": "media-playback-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00120-fld",
+          "tag": "my-posts-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00121-d7d",
+          "tag": "scroll-mine-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00122-taj",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00124-rom",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00126-deh",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00128-guz",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00130-joj",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00132-loh",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00134-neh",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00136-ziz",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00138-zan",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00140-ban",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00148-ruy",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-9tk",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-sag",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00154-cit",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00156-jor",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00158-faz",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00160-xez",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00162-jih",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00164-vax",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00169-yup",
+          "tag": "post-integrity-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00183-lep",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00187-tov",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00189-yuc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00191-gol",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00193-but",
+          "tag": "fcm-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00199-hef",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00203-xep",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00205-lup",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00207-tew",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00210-sih",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00214-rid",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00221-qam",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00227-wer",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00235-mib",
+          "tag": "p333"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00262-dif",
+          "tag": "messaging-e5fa6599"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00268-ruz",
+          "tag": "readiness-192117d4"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00269-xer",
+          "tag": "cors-prod-02d8547b"
+        },
+        {
+          "percent": 25,
+          "revision": "scrolith-backend-00282-xup",
+          "tag": "msg-enh-51716906"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama2",
+          "tag": "p3334-ollama2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama3",
+          "tag": "p3334-ollama3"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama4",
+          "tag": "p3334-ollama4"
+        },
+        {
+          "percent": 75,
+          "revision": "scrolith-backend-prisma-pool2",
+          "tag": "prisma-pool-cors"
+        }
+      ],
+      "frontendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00080-vev",
+          "tag": "mh-comp-3f753aac"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "mh-hc-ea3ec591"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "mh-avatar-4e74c661"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "mh-disc-68619a19"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "phase17-00d8b158"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "phase18-33d1c946"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "phase18-media-hotfix-c93e0fc8"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "p18-cat-c94890d2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00106-loq",
+          "tag": "p19-fe-49d1c7b1"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00108-buh",
+          "tag": "p192b-a9a0229a"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00110-xay",
+          "tag": "p192b-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00113-nav",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00116-ley",
+          "tag": "p2021-mh"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00118-ruj",
+          "tag": "p2021-mh-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00120-kaf",
+          "tag": "p2022-marketplace-card"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00122-nah",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00124-xam",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00126-seb",
+          "tag": "p2025r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00127-p5c",
+          "tag": "p2112"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-cob",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-gr7",
+          "tag": "p2112r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00129-vkb",
+          "tag": "p2112s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-dhz",
+          "tag": "p2114"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-gug",
+          "tag": "p2026rr"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00131-4jr",
+          "tag": "p2114i"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00132-boz",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00134-bof",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00136-dit",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00138-ruh",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00140-zaq",
+          "tag": "p204"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00143-leb",
+          "tag": "p2041"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00145-dez",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00147-dag",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00148-f66",
+          "tag": "feed-video-preview"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-4nh",
+          "tag": "video-playback-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-siz",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00150-mjf",
+          "tag": "composer-blob-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-7qt",
+          "tag": "my-posts-module"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-fin",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00152-bsk",
+          "tag": "my-posts-highlight"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-2w2",
+          "tag": "scroll-my-posts"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-qid",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00155-goh",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00157-nij",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00159-vox",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00161-bov",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00163-wer",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00165-bef",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00167-wal",
+          "tag": "p2080"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00169-wob",
+          "tag": "p2081"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00171-yis",
+          "tag": "p2082"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00173-hox",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00175-jiw",
+          "tag": "p211"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00179-zav",
+          "tag": "p2111"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00198-jak",
+          "tag": "p2115"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00203-yot",
+          "tag": "p2117"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00205-rub",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00207-rug",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00209-yet",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00211-kev",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00213-hit",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00215-tab",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00217-niy",
+          "tag": "p24"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00219-nuf",
+          "tag": "p24r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00221-loj",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00223-tac",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00225-fof",
+          "tag": "p26c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00227-xud",
+          "tag": "p26c-logo"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00241-koh",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00243-vic",
+          "tag": "p28c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00245-yuh",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00247-dur",
+          "tag": "pin-feat"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00249-huc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00251-lok",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00253-mek",
+          "tag": "feed-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00255-nic",
+          "tag": "push-sound"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00267-qob",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00271-quk",
+          "tag": "p297m"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00273-vil",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00275-boj",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00277-zuz",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00279-xug",
+          "tag": "p297b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00281-qik",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00285-wep",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00292-dux",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00294-zaq",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00299-zah",
+          "tag": "p333"
+        },
+        {
+          "percent": 75,
+          "revision": "scrolith-frontend-00313-dep",
+          "tag": "messaging-322ab66d"
+        },
+        {
+          "percent": 25,
+          "revision": "scrolith-frontend-00328-rav",
+          "tag": "msg-enh-92da8d29"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-mh-layout-hotfix-491adafc",
+          "tag": "mh-layout-hotfix-491adafc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "scrolitha-w1b-cf207a23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "scrolitha-w2-df3908e9"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "prod-previous"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "prod-previous-discovery"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "prod-previous-w1b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "prod-previous-w2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "prod-previous-p17"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "prod-previous-p18"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "prod-previous-media-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "prod-previous-category-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "prod-previous-phase19b"
+        }
+      ],
+      "smoke": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      },
+      "recheck": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "percent": 50,
+      "at": "2026-07-23T15:23:50.685Z",
+      "backendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00100-qih",
+          "tag": "p202t-upload-err"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00102-loc",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00104-rib",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00106-poy",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00108-lig",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00110-sal",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00112-qar",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00114-bay",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-qoc",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-wpf",
+          "tag": "feed-video-hydrate"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00117-78x",
+          "tag": "gcs-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-cud",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-dvt",
+          "tag": "media-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00119-zx2",
+          "tag": "media-playback-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00120-fld",
+          "tag": "my-posts-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00121-d7d",
+          "tag": "scroll-mine-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00122-taj",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00124-rom",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00126-deh",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00128-guz",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00130-joj",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00132-loh",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00134-neh",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00136-ziz",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00138-zan",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00140-ban",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00148-ruy",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-9tk",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-sag",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00154-cit",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00156-jor",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00158-faz",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00160-xez",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00162-jih",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00164-vax",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00169-yup",
+          "tag": "post-integrity-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00183-lep",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00187-tov",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00189-yuc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00191-gol",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00193-but",
+          "tag": "fcm-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00199-hef",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00203-xep",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00205-lup",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00207-tew",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00210-sih",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00214-rid",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00221-qam",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00227-wer",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00235-mib",
+          "tag": "p333"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00262-dif",
+          "tag": "messaging-e5fa6599"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00268-ruz",
+          "tag": "readiness-192117d4"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00269-xer",
+          "tag": "cors-prod-02d8547b"
+        },
+        {
+          "percent": 50,
+          "revision": "scrolith-backend-00282-xup",
+          "tag": "msg-enh-51716906"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama2",
+          "tag": "p3334-ollama2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama3",
+          "tag": "p3334-ollama3"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama4",
+          "tag": "p3334-ollama4"
+        },
+        {
+          "percent": 50,
+          "revision": "scrolith-backend-prisma-pool2",
+          "tag": "prisma-pool-cors"
+        }
+      ],
+      "frontendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00080-vev",
+          "tag": "mh-comp-3f753aac"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "mh-hc-ea3ec591"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "mh-avatar-4e74c661"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "mh-disc-68619a19"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "phase17-00d8b158"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "phase18-33d1c946"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "phase18-media-hotfix-c93e0fc8"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "p18-cat-c94890d2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00106-loq",
+          "tag": "p19-fe-49d1c7b1"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00108-buh",
+          "tag": "p192b-a9a0229a"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00110-xay",
+          "tag": "p192b-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00113-nav",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00116-ley",
+          "tag": "p2021-mh"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00118-ruj",
+          "tag": "p2021-mh-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00120-kaf",
+          "tag": "p2022-marketplace-card"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00122-nah",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00124-xam",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00126-seb",
+          "tag": "p2025r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00127-p5c",
+          "tag": "p2112"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-cob",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-gr7",
+          "tag": "p2112r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00129-vkb",
+          "tag": "p2112s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-dhz",
+          "tag": "p2114"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-gug",
+          "tag": "p2026rr"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00131-4jr",
+          "tag": "p2114i"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00132-boz",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00134-bof",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00136-dit",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00138-ruh",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00140-zaq",
+          "tag": "p204"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00143-leb",
+          "tag": "p2041"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00145-dez",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00147-dag",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00148-f66",
+          "tag": "feed-video-preview"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-4nh",
+          "tag": "video-playback-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-siz",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00150-mjf",
+          "tag": "composer-blob-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-7qt",
+          "tag": "my-posts-module"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-fin",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00152-bsk",
+          "tag": "my-posts-highlight"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-2w2",
+          "tag": "scroll-my-posts"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-qid",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00155-goh",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00157-nij",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00159-vox",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00161-bov",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00163-wer",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00165-bef",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00167-wal",
+          "tag": "p2080"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00169-wob",
+          "tag": "p2081"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00171-yis",
+          "tag": "p2082"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00173-hox",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00175-jiw",
+          "tag": "p211"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00179-zav",
+          "tag": "p2111"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00198-jak",
+          "tag": "p2115"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00203-yot",
+          "tag": "p2117"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00205-rub",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00207-rug",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00209-yet",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00211-kev",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00213-hit",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00215-tab",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00217-niy",
+          "tag": "p24"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00219-nuf",
+          "tag": "p24r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00221-loj",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00223-tac",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00225-fof",
+          "tag": "p26c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00227-xud",
+          "tag": "p26c-logo"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00241-koh",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00243-vic",
+          "tag": "p28c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00245-yuh",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00247-dur",
+          "tag": "pin-feat"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00249-huc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00251-lok",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00253-mek",
+          "tag": "feed-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00255-nic",
+          "tag": "push-sound"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00267-qob",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00271-quk",
+          "tag": "p297m"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00273-vil",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00275-boj",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00277-zuz",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00279-xug",
+          "tag": "p297b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00281-qik",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00285-wep",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00292-dux",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00294-zaq",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00299-zah",
+          "tag": "p333"
+        },
+        {
+          "percent": 50,
+          "revision": "scrolith-frontend-00313-dep",
+          "tag": "messaging-322ab66d"
+        },
+        {
+          "percent": 50,
+          "revision": "scrolith-frontend-00328-rav",
+          "tag": "msg-enh-92da8d29"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-mh-layout-hotfix-491adafc",
+          "tag": "mh-layout-hotfix-491adafc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "scrolitha-w1b-cf207a23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "scrolitha-w2-df3908e9"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "prod-previous"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "prod-previous-discovery"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "prod-previous-w1b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "prod-previous-w2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "prod-previous-p17"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "prod-previous-p18"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "prod-previous-media-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "prod-previous-category-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "prod-previous-phase19b"
+        }
+      ],
+      "smoke": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      },
+      "recheck": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "percent": 100,
+      "at": "2026-07-23T15:26:12.353Z",
+      "backendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00100-qih",
+          "tag": "p202t-upload-err"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00102-loc",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00104-rib",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00106-poy",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00108-lig",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00110-sal",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00112-qar",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00114-bay",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-qoc",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00116-wpf",
+          "tag": "feed-video-hydrate"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00117-78x",
+          "tag": "gcs-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-cud",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00118-dvt",
+          "tag": "media-env-restore"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00119-zx2",
+          "tag": "media-playback-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00120-fld",
+          "tag": "my-posts-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00121-d7d",
+          "tag": "scroll-mine-api"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00122-taj",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00124-rom",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00126-deh",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00128-guz",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00130-joj",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00132-loh",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00134-neh",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00136-ziz",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00138-zan",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00140-ban",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00148-ruy",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-9tk",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00152-sag",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00154-cit",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00156-jor",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00158-faz",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00160-xez",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00162-jih",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00164-vax",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00169-yup",
+          "tag": "post-integrity-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00183-lep",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00187-tov",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00189-yuc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00191-gol",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00193-but",
+          "tag": "fcm-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00199-hef",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00203-xep",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00205-lup",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00207-tew",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00210-sih",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00214-rid",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00221-qam",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00227-wer",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00235-mib",
+          "tag": "p333"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00262-dif",
+          "tag": "messaging-e5fa6599"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00268-ruz",
+          "tag": "readiness-192117d4"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-00269-xer",
+          "tag": "cors-prod-02d8547b"
+        },
+        {
+          "percent": 100,
+          "revision": "scrolith-backend-00282-xup",
+          "tag": "msg-enh-51716906"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama2",
+          "tag": "p3334-ollama2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama3",
+          "tag": "p3334-ollama3"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-p3334-ollama4",
+          "tag": "p3334-ollama4"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-backend-prisma-pool2",
+          "tag": "prisma-pool-cors"
+        }
+      ],
+      "frontendTraffic": [
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00080-vev",
+          "tag": "mh-comp-3f753aac"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "mh-hc-ea3ec591"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "mh-avatar-4e74c661"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "mh-disc-68619a19"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "phase17-00d8b158"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "phase18-33d1c946"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "phase18-media-hotfix-c93e0fc8"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "p18-cat-c94890d2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00106-loq",
+          "tag": "p19-fe-49d1c7b1"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00108-buh",
+          "tag": "p192b-a9a0229a"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00110-xay",
+          "tag": "p192b-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00113-nav",
+          "tag": "p202-kyc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00116-ley",
+          "tag": "p2021-mh"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00118-ruj",
+          "tag": "p2021-mh-v2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00120-kaf",
+          "tag": "p2022-marketplace-card"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00122-nah",
+          "tag": "p2023r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00124-xam",
+          "tag": "p2024r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00126-seb",
+          "tag": "p2025r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00127-p5c",
+          "tag": "p2112"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-cob",
+          "tag": "p2026r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00128-gr7",
+          "tag": "p2112r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00129-vkb",
+          "tag": "p2112s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-dhz",
+          "tag": "p2114"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00130-gug",
+          "tag": "p2026rr"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00131-4jr",
+          "tag": "p2114i"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00132-boz",
+          "tag": "p2027r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00134-bof",
+          "tag": "p2027c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00136-dit",
+          "tag": "p2028"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00138-ruh",
+          "tag": "p203"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00140-zaq",
+          "tag": "p204"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00143-leb",
+          "tag": "p2041"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00145-dez",
+          "tag": "p206"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00147-dag",
+          "tag": "p207"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00148-f66",
+          "tag": "feed-video-preview"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-4nh",
+          "tag": "video-playback-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00149-siz",
+          "tag": "p2071"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00150-mjf",
+          "tag": "composer-blob-fix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-7qt",
+          "tag": "my-posts-module"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00151-fin",
+          "tag": "p2072"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00152-bsk",
+          "tag": "my-posts-highlight"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-2w2",
+          "tag": "scroll-my-posts"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00153-qid",
+          "tag": "p2073"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00155-goh",
+          "tag": "p2074"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00157-nij",
+          "tag": "p2075"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00159-vox",
+          "tag": "p2076"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00161-bov",
+          "tag": "p2077"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00163-wer",
+          "tag": "p2078"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00165-bef",
+          "tag": "p2079"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00167-wal",
+          "tag": "p2080"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00169-wob",
+          "tag": "p2081"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00171-yis",
+          "tag": "p2082"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00173-hox",
+          "tag": "p2083"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00175-jiw",
+          "tag": "p211"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00179-zav",
+          "tag": "p2111"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00198-jak",
+          "tag": "p2115"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00203-yot",
+          "tag": "p2117"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00205-rub",
+          "tag": "p221"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00207-rug",
+          "tag": "p222"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00209-yet",
+          "tag": "p221b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00211-kev",
+          "tag": "p223"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00213-hit",
+          "tag": "p223c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00215-tab",
+          "tag": "p23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00217-niy",
+          "tag": "p24"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00219-nuf",
+          "tag": "p24r"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00221-loj",
+          "tag": "p25c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00223-tac",
+          "tag": "p26"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00225-fof",
+          "tag": "p26c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00227-xud",
+          "tag": "p26c-logo"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00241-koh",
+          "tag": "p28"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00243-vic",
+          "tag": "p28c"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00245-yuh",
+          "tag": "p28e"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00247-dur",
+          "tag": "pin-feat"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00249-huc",
+          "tag": "msg-rxn"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00251-lok",
+          "tag": "p28g"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00253-mek",
+          "tag": "feed-ux"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00255-nic",
+          "tag": "push-sound"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00267-qob",
+          "tag": "p297"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00271-quk",
+          "tag": "p297m"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00273-vil",
+          "tag": "p297u"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00275-boj",
+          "tag": "p297s"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00277-zuz",
+          "tag": "p297t"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00279-xug",
+          "tag": "p297b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00281-qik",
+          "tag": "p31"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00285-wep",
+          "tag": "p31sb"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00292-dux",
+          "tag": "p32"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00294-zaq",
+          "tag": "p332"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00299-zah",
+          "tag": "p333"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00313-dep",
+          "tag": "messaging-322ab66d"
+        },
+        {
+          "percent": 100,
+          "revision": "scrolith-frontend-00328-rav",
+          "tag": "msg-enh-92da8d29"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-mh-layout-hotfix-491adafc",
+          "tag": "mh-layout-hotfix-491adafc"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-p3334-ollama",
+          "tag": "p3334-ollama"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "scrolitha-w1b-cf207a23"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "scrolitha-w2-df3908e9"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00081-nan",
+          "tag": "prod-previous"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00085-hew",
+          "tag": "prod-previous-discovery"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00087-kur",
+          "tag": "prod-previous-w1b"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w1b-cf207a23",
+          "tag": "prod-previous-w2"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-w2-df3908e9",
+          "tag": "prod-previous-p17"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00095-gub",
+          "tag": "prod-previous-p18"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00098-vay",
+          "tag": "prod-previous-media-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00101-muh",
+          "tag": "prod-previous-category-hotfix"
+        },
+        {
+          "percent": 0,
+          "revision": "scrolith-frontend-00104-zen",
+          "tag": "prod-previous-phase19b"
+        }
+      ],
+      "smoke": {
+        "ok": true,
+        "checks": [
+          {
+            "name": "be_main_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "be_tag_health",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_main",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "fe_tag",
+            "ok": true,
+            "status": 200
+          },
+          {
+            "name": "auth_me_tag",
+            "ok": true,
+            "status": 200,
+            "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+          },
+          {
+            "name": "messages_list_tag",
+            "ok": true,
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "monitoring": [
+    {
+      "at": "2026-07-23T15:26:13.677Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T15:31:16.017Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T15:36:17.856Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T15:41:19.376Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T15:46:20.860Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T15:51:22.244Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T15:56:23.974Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T16:01:25.466Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T16:06:26.935Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T16:11:28.758Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T16:16:30.207Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T16:21:32.137Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    },
+    {
+      "at": "2026-07-23T16:26:13.641Z",
+      "ok": true,
+      "checks": [
+        {
+          "name": "be_main_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "be_tag_health",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_main",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "fe_tag",
+          "ok": true,
+          "status": 200
+        },
+        {
+          "name": "auth_me_tag",
+          "ok": true,
+          "status": 200,
+          "allowOrigin": "https://msg-enh-92da8d29---scrolith-frontend-25ysnpjdda-as.a.run.app"
+        },
+        {
+          "name": "messages_list_tag",
+          "ok": true,
+          "status": 200
+        }
+      ]
+    }
+  ],
+  "rollbackRequired": false,
+  "productionCertificationComplete": true,
+  "endedAt": "2026-07-23T16:26:13.643Z",
+  "finalTraffic": {
+    "backend": [
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00100-qih",
+        "tag": "p202t-upload-err"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00102-loc",
+        "tag": "p2023r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00104-rib",
+        "tag": "p2024r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00106-poy",
+        "tag": "p2026r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00108-lig",
+        "tag": "p2027r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00110-sal",
+        "tag": "p2027c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00112-qar",
+        "tag": "p2028"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00114-bay",
+        "tag": "p203"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00116-qoc",
+        "tag": "p206"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00116-wpf",
+        "tag": "feed-video-hydrate"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00117-78x",
+        "tag": "gcs-env-restore"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00118-cud",
+        "tag": "p207"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00118-dvt",
+        "tag": "media-env-restore"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00119-zx2",
+        "tag": "media-playback-fix"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00120-fld",
+        "tag": "my-posts-api"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00121-d7d",
+        "tag": "scroll-mine-api"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00122-taj",
+        "tag": "p2071"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00124-rom",
+        "tag": "p2072"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00126-deh",
+        "tag": "p2073"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00128-guz",
+        "tag": "p2074"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00130-joj",
+        "tag": "p2075"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00132-loh",
+        "tag": "p2076"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00134-neh",
+        "tag": "p2077"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00136-ziz",
+        "tag": "p2078"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00138-zan",
+        "tag": "p2079"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00140-ban",
+        "tag": "p2083"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00148-ruy",
+        "tag": "p221"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00152-9tk",
+        "tag": "p202-kyc"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00152-sag",
+        "tag": "p222"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00154-cit",
+        "tag": "p221b"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00156-jor",
+        "tag": "p223"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00158-faz",
+        "tag": "p223c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00160-xez",
+        "tag": "p23"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00162-jih",
+        "tag": "p25c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00164-vax",
+        "tag": "p26"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00169-yup",
+        "tag": "post-integrity-fix"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00183-lep",
+        "tag": "p28"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00187-tov",
+        "tag": "p28e"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00189-yuc",
+        "tag": "msg-rxn"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00191-gol",
+        "tag": "p28g"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00193-but",
+        "tag": "fcm-fix"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00199-hef",
+        "tag": "p297"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00203-xep",
+        "tag": "p297u"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00205-lup",
+        "tag": "p297s"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00207-tew",
+        "tag": "p297t"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00210-sih",
+        "tag": "p31"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00214-rid",
+        "tag": "p31sb"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00221-qam",
+        "tag": "p32"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00227-wer",
+        "tag": "p332"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00235-mib",
+        "tag": "p333"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00262-dif",
+        "tag": "messaging-e5fa6599"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00268-ruz",
+        "tag": "readiness-192117d4"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-00269-xer",
+        "tag": "cors-prod-02d8547b"
+      },
+      {
+        "percent": 100,
+        "revision": "scrolith-backend-00282-xup",
+        "tag": "msg-enh-51716906"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-p3334-ollama",
+        "tag": "p3334-ollama"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-p3334-ollama2",
+        "tag": "p3334-ollama2"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-p3334-ollama3",
+        "tag": "p3334-ollama3"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-p3334-ollama4",
+        "tag": "p3334-ollama4"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-backend-prisma-pool2",
+        "tag": "prisma-pool-cors"
+      }
+    ],
+    "frontend": [
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00080-vev",
+        "tag": "mh-comp-3f753aac"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00081-nan",
+        "tag": "mh-hc-ea3ec591"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00085-hew",
+        "tag": "mh-avatar-4e74c661"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00087-kur",
+        "tag": "mh-disc-68619a19"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00095-gub",
+        "tag": "phase17-00d8b158"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00098-vay",
+        "tag": "phase18-33d1c946"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00101-muh",
+        "tag": "phase18-media-hotfix-c93e0fc8"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00104-zen",
+        "tag": "p18-cat-c94890d2"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00106-loq",
+        "tag": "p19-fe-49d1c7b1"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00108-buh",
+        "tag": "p192b-a9a0229a"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00110-xay",
+        "tag": "p192b-v2"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00113-nav",
+        "tag": "p202-kyc"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00116-ley",
+        "tag": "p2021-mh"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00118-ruj",
+        "tag": "p2021-mh-v2"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00120-kaf",
+        "tag": "p2022-marketplace-card"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00122-nah",
+        "tag": "p2023r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00124-xam",
+        "tag": "p2024r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00126-seb",
+        "tag": "p2025r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00127-p5c",
+        "tag": "p2112"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00128-cob",
+        "tag": "p2026r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00128-gr7",
+        "tag": "p2112r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00129-vkb",
+        "tag": "p2112s"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00130-dhz",
+        "tag": "p2114"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00130-gug",
+        "tag": "p2026rr"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00131-4jr",
+        "tag": "p2114i"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00132-boz",
+        "tag": "p2027r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00134-bof",
+        "tag": "p2027c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00136-dit",
+        "tag": "p2028"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00138-ruh",
+        "tag": "p203"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00140-zaq",
+        "tag": "p204"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00143-leb",
+        "tag": "p2041"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00145-dez",
+        "tag": "p206"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00147-dag",
+        "tag": "p207"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00148-f66",
+        "tag": "feed-video-preview"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00149-4nh",
+        "tag": "video-playback-ux"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00149-siz",
+        "tag": "p2071"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00150-mjf",
+        "tag": "composer-blob-fix"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00151-7qt",
+        "tag": "my-posts-module"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00151-fin",
+        "tag": "p2072"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00152-bsk",
+        "tag": "my-posts-highlight"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00153-2w2",
+        "tag": "scroll-my-posts"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00153-qid",
+        "tag": "p2073"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00155-goh",
+        "tag": "p2074"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00157-nij",
+        "tag": "p2075"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00159-vox",
+        "tag": "p2076"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00161-bov",
+        "tag": "p2077"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00163-wer",
+        "tag": "p2078"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00165-bef",
+        "tag": "p2079"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00167-wal",
+        "tag": "p2080"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00169-wob",
+        "tag": "p2081"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00171-yis",
+        "tag": "p2082"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00173-hox",
+        "tag": "p2083"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00175-jiw",
+        "tag": "p211"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00179-zav",
+        "tag": "p2111"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00198-jak",
+        "tag": "p2115"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00203-yot",
+        "tag": "p2117"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00205-rub",
+        "tag": "p221"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00207-rug",
+        "tag": "p222"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00209-yet",
+        "tag": "p221b"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00211-kev",
+        "tag": "p223"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00213-hit",
+        "tag": "p223c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00215-tab",
+        "tag": "p23"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00217-niy",
+        "tag": "p24"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00219-nuf",
+        "tag": "p24r"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00221-loj",
+        "tag": "p25c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00223-tac",
+        "tag": "p26"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00225-fof",
+        "tag": "p26c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00227-xud",
+        "tag": "p26c-logo"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00241-koh",
+        "tag": "p28"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00243-vic",
+        "tag": "p28c"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00245-yuh",
+        "tag": "p28e"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00247-dur",
+        "tag": "pin-feat"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00249-huc",
+        "tag": "msg-rxn"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00251-lok",
+        "tag": "p28g"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00253-mek",
+        "tag": "feed-ux"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00255-nic",
+        "tag": "push-sound"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00267-qob",
+        "tag": "p297"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00271-quk",
+        "tag": "p297m"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00273-vil",
+        "tag": "p297u"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00275-boj",
+        "tag": "p297s"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00277-zuz",
+        "tag": "p297t"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00279-xug",
+        "tag": "p297b"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00281-qik",
+        "tag": "p31"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00285-wep",
+        "tag": "p31sb"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00292-dux",
+        "tag": "p32"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00294-zaq",
+        "tag": "p332"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00299-zah",
+        "tag": "p333"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00313-dep",
+        "tag": "messaging-322ab66d"
+      },
+      {
+        "percent": 100,
+        "revision": "scrolith-frontend-00328-rav",
+        "tag": "msg-enh-92da8d29"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-mh-layout-hotfix-491adafc",
+        "tag": "mh-layout-hotfix-491adafc"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-p3334-ollama",
+        "tag": "p3334-ollama"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-w1b-cf207a23",
+        "tag": "scrolitha-w1b-cf207a23"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-w2-df3908e9",
+        "tag": "scrolitha-w2-df3908e9"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00081-nan",
+        "tag": "prod-previous"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00085-hew",
+        "tag": "prod-previous-discovery"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00087-kur",
+        "tag": "prod-previous-w1b"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-w1b-cf207a23",
+        "tag": "prod-previous-w2"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-w2-df3908e9",
+        "tag": "prod-previous-p17"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00095-gub",
+        "tag": "prod-previous-p18"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00098-vay",
+        "tag": "prod-previous-media-hotfix"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00101-muh",
+        "tag": "prod-previous-category-hotfix"
+      },
+      {
+        "percent": 0,
+        "revision": "scrolith-frontend-00104-zen",
+        "tag": "prod-previous-phase19b"
+      }
+    ]
+  }
+}
