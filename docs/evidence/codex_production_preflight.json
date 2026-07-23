@@ -1,0 +1,21 @@
+{
+  "date": "2026-07-23",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "backend": {
+    "service": "scrolith-backend",
+    "activeImageObserved": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:p333-scrolitha-canonical3",
+    "trafficObserved": "100% production traffic",
+    "newRevisionCreated": false
+  },
+  "frontend": {
+    "service": "scrolith-frontend",
+    "activeImageObserved": "asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:p333-scrolitha-canonical1",
+    "trafficObserved": "100% production traffic"
+  },
+  "cloudSql": {
+    "productionInstanceObserved": "scrolith-postgres-prod",
+    "testInstanceObserved": false,
+    "productionDatabaseUsedForTests": false
+  }
+}

@@ -2,5 +2,5 @@ node_modules
 dist
 *.log
 secrets/
-data/
+/data/
 npx

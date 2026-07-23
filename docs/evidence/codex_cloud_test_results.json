@@ -1,0 +1,43 @@
+{
+  "date": "2026-07-23",
+  "project": "scrolith-500821",
+  "region": "asia-southeast1",
+  "config": "geezle-backend/cloudbuild.messaging-regression-test.yaml",
+  "database": {
+    "kind": "cloudbuild-postgres",
+    "name": "scrolith_test",
+    "productionCloudSqlUsed": false
+  },
+  "runs": [
+    {
+      "id": "05a11361-b84d-4722-bb2f-bff26e6fb858",
+      "status": "FAILURE",
+      "failure": "production-build failed; logs unavailable under initial logging option"
+    },
+    {
+      "id": "54f1c4cf-1598-47db-b474-d178a8c8589d",
+      "status": "FAILURE",
+      "failure": "production-build failed because src/data was excluded from Cloud Build upload"
+    },
+    {
+      "id": "1d6e8b6d-ed1c-4b68-b108-a7ff567b4bbd",
+      "status": "FAILURE",
+      "failure": "full Jest failed: 28 suites / 58 tests"
+    },
+    {
+      "id": "efeecb82-a40c-447a-bad9-ab2ba8aff834",
+      "status": "FAILURE",
+      "passingSteps": [
+        "start-ephemeral-postgres",
+        "install",
+        "wait-for-test-db",
+        "guard",
+        "prepare-test-db",
+        "production-build",
+        "node-tests"
+      ],
+      "failingStep": "full-jest",
+      "failure": "full Jest failed: 22 suites / 36 tests"
+    }
+  ]
+}

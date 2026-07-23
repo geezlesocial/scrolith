@@ -1,0 +1,7 @@
+{
+  "date": "2026-07-23",
+  "status": "NOT_STARTED",
+  "reason": "Release did not reach 0% production candidate validation because the DB-backed regression matrix failed.",
+  "productionCandidateRevision": null,
+  "authenticatedCredentialsUsed": false
+}

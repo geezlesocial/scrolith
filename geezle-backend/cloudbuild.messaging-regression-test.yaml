@@ -1,0 +1,61 @@
+# Messaging release backend regression tests without local Docker.
+# Uses an ephemeral PostgreSQL container inside Cloud Build's build network.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    id: start-ephemeral-postgres
+    args:
+      [
+        run,
+        -d,
+        --name,
+        postgres-test,
+        --network,
+        cloudbuild,
+        -e,
+        POSTGRES_USER=scrolith_test,
+        -e,
+        POSTGRES_HOST_AUTH_METHOD=trust,
+        -e,
+        POSTGRES_DB=scrolith_test,
+        postgres:16
+      ]
+
+  - name: node:22-bookworm
+    id: install
+    entrypoint: bash
+    args: [-lc, npm ci]
+
+  - name: node:22-bookworm
+    id: wait-for-test-db
+    entrypoint: bash
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:wait]
+
+  - name: node:22-bookworm
+    id: guard
+    entrypoint: bash
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:guard]
+
+  - name: node:22-bookworm
+    id: prepare-test-db
+    entrypoint: bash
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:prepare]
+
+  - name: node:22-bookworm
+    id: production-build
+    entrypoint: bash
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run build:prod]
+
+  - name: node:22-bookworm
+    id: node-tests
+    entrypoint: bash
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:node]
+
+  - name: node:22-bookworm
+    id: full-jest
+    entrypoint: bash
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:full]
+
+options:
+  logging: GCS_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 3600s
