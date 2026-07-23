@@ -31,8 +31,12 @@ const parseIntegerEnv = (value: string | undefined, fallback: number, min = 1, m
 const wait = (ms: number) => new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 const prismaSlowQueryLoggingEnabled = parseBooleanEnv(process.env.PRISMA_SLOW_QUERY_LOGGING, true);
 const prismaSlowQueryMs = Math.max(50, Number(process.env.PRISMA_SLOW_QUERY_MS || 350));
-const defaultPrismaConnectionLimit = isLocalDev ? 12 : 5;
-const defaultPrismaPoolTimeoutSeconds = isLocalDev ? 25 : 15;
+// Production: Cloud Run containerConcurrency is typically 80 with maxScale≈5.
+// A 5-connection Prisma pool starves under full production traffic (P2024 pool timeout)
+// even when Cloud SQL backends remain healthy. Size the pool for concurrent request
+// handlers while staying within safe Cloud SQL capacity (5 instances × 15 = 75).
+const defaultPrismaConnectionLimit = isLocalDev ? 12 : 15;
+const defaultPrismaPoolTimeoutSeconds = isLocalDev ? 25 : 20;
 const prismaConnectionLimit = parseIntegerEnv(process.env.PRISMA_CONNECTION_LIMIT, defaultPrismaConnectionLimit, 1, 80);
 const prismaPoolTimeoutSeconds = parseIntegerEnv(
   process.env.PRISMA_POOL_TIMEOUT_SECONDS,
@@ -287,8 +291,21 @@ if (!global.__prismaRetryMiddlewareAttached && typeof (prisma as any)?.$use === 
   global.__prismaRetryMiddlewareAttached = true;
 }
 
-if (process.env.NODE_ENV !== 'production') {
-  global.__prisma = prisma;
+// Always retain the process-wide singleton (dev hot-reload and production).
+global.__prisma = prisma;
+
+if (process.env.NODE_ENV === 'production') {
+  console.log(
+    '[prisma:pool-config]',
+    JSON.stringify({
+      connectionLimit: prismaConnectionLimit,
+      poolTimeoutSeconds: prismaPoolTimeoutSeconds,
+      connectTimeoutSeconds: prismaConnectTimeoutSeconds,
+      readRetryCount: prismaReadRetryCount,
+      slowQueryLogging: prismaSlowQueryLoggingEnabled,
+      slowQueryMs: prismaSlowQueryMs
+    })
+  );
 }
 
 export default prisma;
