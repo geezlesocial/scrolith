@@ -750,6 +750,8 @@ const Messages = () => {
                       setConversations(prev => prev.map(c => 
                           c.id === conversationId ? { ...c, unreadCount: 0 } : c
                       ));
+                  }).catch(() => {
+                      // Read receipts are best-effort; conversation loading and messaging must remain stable.
                   });
               }
           } else {
@@ -2017,7 +2019,9 @@ const Messages = () => {
           const isActive = activeConvoIdRef.current === convoId;
           const isFromOther = (message.senderId || message.sender_id) !== userIdRef.current;
           if (isActive && isFromOther && userIdRef.current) {
-              void MessagingService.markAsRead(convoId, userIdRef.current);
+              void MessagingService.markAsRead(convoId, userIdRef.current).catch(() => {
+                  // Read receipts are best-effort and should not surface as unhandled runtime errors.
+              });
               setConversations(prev => prev.map(c => {
                   if (c.id !== convoId) return c;
                   return {
