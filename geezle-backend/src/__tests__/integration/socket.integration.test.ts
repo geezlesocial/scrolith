@@ -86,9 +86,17 @@ describe('Socket integration - targeted emits', () => {
       const res = await request(app)
         .post('/api/community/ads/draft')
         .set('x-dev-role', 'freelancer')
-        .send({ title: 'Test Ad', body: 'Hello', budget: 10 });
+        .send({
+          title: 'Test Ad',
+          body: 'Hello',
+          budget: 10,
+          destinationUrl: 'https://scrolith.test/socket-ad',
+          placements: ['community_feed'],
+          targetCountries: ['Philippines']
+        });
+      expect(res.status).toBe(200);
       const ad = res.body?.data;
-      const adId = ad?.adId || ad?.id;
+      expect(ad?.adId || ad?.id).toBeTruthy();
       // don't join after creation — the controller emits immediately
       const payload = await waiter;
       expect(payload).toBeDefined();

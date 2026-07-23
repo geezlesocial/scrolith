@@ -106,6 +106,13 @@ const createValidationError = (message: string, code = 'VALIDATION_ERROR') => {
   return err;
 };
 
+const createForbiddenError = (message: string, code = 'FORBIDDEN') => {
+  const err: any = new Error(message);
+  err.statusCode = 403;
+  err.code = code;
+  return err;
+};
+
 const isPrismaValidationLikeError = (error: any): boolean => {
   if (!error) return false;
   const name = String(error?.name || '').toLowerCase();
@@ -852,7 +859,7 @@ const buildPostBoostPrefill = async (userId: string, postId: string) => {
     post.businessPage?.ownerId === userId ||
     post.club?.ownerId === userId ||
     isAdmin;
-  if (!canPromote) throw createValidationError('You can only promote posts you own.', 'PROMOTION_POST_INVALID');
+  if (!canPromote) throw createForbiddenError('You can only promote posts you own.', 'PROMOTION_POST_FORBIDDEN');
   const sourceTitle = String(post.title || '').trim() || String(post.author?.name || 'Community Post').trim() || 'Community Post';
   const sourceSubtitle = String(post.businessPage?.name || post.club?.name || post.author?.username || '').trim() || 'Community Post';
   const sourceUrl = buildPlatformPromotionUrl('post', post.id);
@@ -895,7 +902,7 @@ const buildPageBoostPrefill = async (userId: string, pageId: string) => {
     }
   });
   if (!page) throw createValidationError('Page not found.', 'PROMOTION_PAGE_INVALID');
-  if (page.ownerId !== userId) throw createValidationError('You can only promote pages you own.', 'PROMOTION_PAGE_INVALID');
+  if (page.ownerId !== userId) throw createForbiddenError('You can only promote pages you own.', 'PROMOTION_PAGE_FORBIDDEN');
   const sourceUrl = buildPlatformPromotionUrl('page', page.id, page.slug);
   const mediaFileIds = [page.coverFileId, page.logoFileId].filter(Boolean) as string[];
   const media = await resolveBoostMediaItems(mediaFileIds);
@@ -939,7 +946,7 @@ const buildGroupBoostPrefill = async (userId: string, clubId: string) => {
     }
   });
   if (!club) throw createValidationError('Group not found.', 'PROMOTION_GROUP_INVALID');
-  if (club.ownerId !== userId) throw createValidationError('You can only promote groups you own.', 'PROMOTION_GROUP_INVALID');
+  if (club.ownerId !== userId) throw createForbiddenError('You can only promote groups you own.', 'PROMOTION_GROUP_FORBIDDEN');
   const sourceUrl = buildPlatformPromotionUrl('group', club.id, club.slug);
   const mediaFileIds = [club.coverImage, club.avatarImage].filter(Boolean).map((entry) => String(entry || '').trim());
   const media = await resolveBoostMediaItems(mediaFileIds);

@@ -1637,6 +1637,14 @@ const processThresholds = async (postId: string, io: any) => {
   }
 };
 
+const runThresholdsAfterEngagement = async (postId: string, io: any) => {
+  if (process.env.NODE_ENV === 'test' || process.env.APP_RUNTIME === 'test') {
+    await processThresholds(postId, io);
+    return;
+  }
+  void processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
+};
+
 export const postView = async (req: Request, res: Response) => {
   try {
     const postId = req.params.id;
@@ -1653,8 +1661,8 @@ export const postView = async (req: Request, res: Response) => {
 
     await emitPostMetricsUpdated(io, postId, 'view');
 
-    // process thresholds asynchronously but don't block response
-    processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
+    // Production keeps threshold accounting off the response path; tests await it for deterministic teardown.
+    await runThresholdsAfterEngagement(postId, io);
 
     return res.json({ success: true });
   } catch (error: any) {
@@ -1679,7 +1687,7 @@ export const postShare = async (req: Request, res: Response) => {
 
     await emitPostMetricsUpdated(io, postId, 'share');
 
-    processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
+    await runThresholdsAfterEngagement(postId, io);
 
     return res.json({ success: true });
   } catch (error: any) {
@@ -1894,7 +1902,7 @@ export const postRepost = async (req: Request, res: Response) => {
       }
     }
 
-    processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
+    await runThresholdsAfterEngagement(postId, io);
 
     if (actorId && originalPost.authorId !== actorId) {
       try {
@@ -1958,7 +1966,7 @@ export const postLike = async (req: Request, res: Response) => {
 
     await emitPostMetricsUpdated(io, postId, 'like');
 
-    processThresholds(postId, io).catch(e => console.error('Threshold processing error:', e));
+    await runThresholdsAfterEngagement(postId, io);
 
     return res.json({ success: true });
   } catch (error: any) {

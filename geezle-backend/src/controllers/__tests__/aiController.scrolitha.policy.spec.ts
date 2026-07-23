@@ -69,6 +69,10 @@ jest.mock('../../services/scrolitha/scrolitha.policy', () => {
   };
 });
 
+jest.mock('../../services/scrolitha/scrolitha.rollout', () => ({
+  assertScrolithaAccess: jest.fn().mockResolvedValue(undefined)
+}));
+
 import {
   answerQuestion,
   answerQuestionWithScrolitha,

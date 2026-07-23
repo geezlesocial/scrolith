@@ -85,8 +85,8 @@ describe('Payment gateway integration tests', () => {
     expect(updatedPayment?.status).toBe('completed');
 
     const updatedAd = await prisma.communityAd.findUnique({ where: { id: ad.id } });
-    expect(updatedAd?.status).toBe('PAID');
+    expect(updatedAd?.paymentTransactionId).toBe('pi_integration_123');
+    expect(updatedAd?.status).toBe('SUBMITTED_FOR_REVIEW');
   });
 
 });
-

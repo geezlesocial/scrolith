@@ -5,6 +5,10 @@ import prisma from '../utils/prismaClient';
 jest.mock('../utils/prismaClient', () => {
   const mockPrisma = {
     conversation: {
+      findMany: jest.fn(),
+      findUnique: jest.fn()
+    },
+    conversationParticipant: {
       findMany: jest.fn()
     },
     directMessage: {
@@ -23,6 +27,7 @@ jest.mock('../utils/prismaClient', () => {
 
 const mockPrisma = prisma as unknown as {
   conversation: { findMany: jest.Mock };
+  conversationParticipant: { findMany: jest.Mock };
   directMessage: { findMany: jest.Mock };
   directMessageRecord: { findMany: jest.Mock };
 };
@@ -88,7 +93,11 @@ const conversation = (overrides: Record<string, unknown> = {}) => ({
 describe('message search controller', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.conversationParticipant.findMany.mockResolvedValue([
+      { conversationId: 'conversation-1' }
+    ]);
     mockPrisma.conversation.findMany.mockResolvedValue([]);
+    (mockPrisma.conversation as any).findUnique.mockResolvedValue(conversation());
     mockPrisma.directMessage.findMany.mockResolvedValue([]);
     mockPrisma.directMessageRecord.findMany.mockResolvedValue([]);
   });
@@ -116,14 +125,16 @@ describe('message search controller', () => {
 
     await searchMessages({ user: { id: 'user-1', role: 'USER' }, query: { q: 'sarah' } } as any, res as any);
 
+    expect(mockPrisma.conversationParticipant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-1', deletedAt: null, isArchived: false },
+        select: { conversationId: true }
+      })
+    );
     expect(mockPrisma.conversation.findMany.mock.calls[0][0].where).toEqual(
       expect.objectContaining({
-        AND: expect.arrayContaining([
-          expect.objectContaining({
-            participants: expect.objectContaining({
-              some: expect.objectContaining({ userId: 'user-1', deletedAt: null })
-            })
-          }),
+        id: { in: ['conversation-1'] },
+        OR: expect.arrayContaining([
           expect.objectContaining({
             participants: expect.objectContaining({
               some: expect.objectContaining({ userId: { not: 'user-1' } })
@@ -134,7 +145,7 @@ describe('message search controller', () => {
     );
     const payload = res.json.mock.calls[0][0];
     expect(payload.success).toBe(true);
-    expect(payload.data[0]).toEqual(
+    expect(payload.data.results[0]).toEqual(
       expect.objectContaining({
         conversationId: 'conversation-1',
         matchType: 'username',
@@ -146,11 +157,13 @@ describe('message search controller', () => {
   test('finds message text matches and returns a matched snippet', async () => {
     const res = createResponse();
     const sourceConversation = conversation();
+    (mockPrisma.conversation as any).findUnique.mockResolvedValue(sourceConversation);
     mockPrisma.directMessage.findMany.mockResolvedValue([
       {
         id: 'message-match',
         text: 'This conversation contains a milestone payment update for the project.',
         createdAt: new Date('2026-05-04T10:00:00.000Z'),
+        conversationId: 'conversation-1',
         conversation: sourceConversation
       }
     ]);
@@ -159,7 +172,7 @@ describe('message search controller', () => {
 
     const payload = res.json.mock.calls[0][0];
     expect(payload.success).toBe(true);
-    expect(payload.data[0]).toEqual(
+    expect(payload.data.results[0]).toEqual(
       expect.objectContaining({
         conversationId: 'conversation-1',
         matchType: 'message',

@@ -47,6 +47,10 @@ const resolveAuthorizationHeader = (req: Request) => {
   return authHeader;
 };
 
+const sendAuthFailure = (res: Response, status: number, error: string) => {
+  res.status(status).json({ success: false, error });
+};
+
 const resolveAuthenticatedUser = async (req: Request) => {
   const authHeader = resolveAuthorizationHeader(req);
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -127,14 +131,21 @@ export const authMiddleware = async (
     // Optional dev bypass (explicit opt-in only)
     if (process.env.ALLOW_DEV_AUTH_BYPASS === 'true') {
       const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
-      const roleHint =
+      const explicitDevRole =
         (req.headers['x-dev-role'] as string | undefined) ||
-        (req.query.role as string | undefined) ||
+        (req.query.role as string | undefined);
+      const roleHint =
+        explicitDevRole ||
         (fullPath.startsWith('/api/proposals/me') || fullPath.startsWith('/proposals/me') ? 'freelancer' :
           fullPath.startsWith('/api/proposals') || fullPath.startsWith('/proposals') ? 'client' :
           fullPath.startsWith('/api/freelancer') || fullPath.startsWith('/freelancer') ? 'freelancer' :
           fullPath.startsWith('/api/client') || fullPath.startsWith('/client') ? 'client' :
           fullPath.startsWith('/api/admin') || fullPath.startsWith('/admin') ? 'admin' : undefined);
+
+      if (!explicitDevRole) {
+        sendAuthFailure(res, resolved.status || 401, resolved.error || 'Authentication failed');
+        return;
+      }
 
       const normalizeRole = (value?: string) => {
         const v = (value || '').toString().toLowerCase();
@@ -171,7 +182,7 @@ export const authMiddleware = async (
     }
 
     // No token provided
-    res.status(resolved.status || 401).json({ error: resolved.error || 'Authentication failed' });
+    sendAuthFailure(res, resolved.status || 401, resolved.error || 'Authentication failed');
     return;
     
     /*
@@ -218,7 +229,7 @@ export const authMiddleware = async (
     */
     } catch (error) {
     console.error('Auth middleware error:', error);
-    res.status(500).json({ error: 'Authentication failed' });
+    sendAuthFailure(res, 500, 'Authentication failed');
     return;
   }
 };
@@ -238,4 +249,3 @@ export const optionalAuthMiddleware = async (
   }
   next();
 };
-

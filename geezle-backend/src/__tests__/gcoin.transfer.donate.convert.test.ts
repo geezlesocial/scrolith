@@ -30,7 +30,28 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
     postId = post.id;
 
     // ensure settings for conversion
-    await prisma.gcoinSettings.upsert({ where: { id: 'default' }, update: { conversionRate: 0.01, minWithdrawal: 1 }, create: { id: 'default', conversionRate: 0.01, minWithdrawal: 1 } as any });
+    await prisma.gcoinSettings.upsert({
+      where: { id: 'default' },
+      update: {
+        conversionRate: 0.01,
+        minWithdrawal: 1,
+        conversionEnabled: true,
+        autoApproveConversions: false,
+        userTransfersEnabled: true,
+        transferFeeType: 'percentage',
+        transferFeeValue: 0
+      },
+      create: {
+        id: 'default',
+        conversionRate: 0.01,
+        minWithdrawal: 1,
+        conversionEnabled: true,
+        autoApproveConversions: false,
+        userTransfersEnabled: true,
+        transferFeeType: 'percentage',
+        transferFeeValue: 0
+      } as any
+    });
   });
 
   afterAll(async () => {
@@ -42,7 +63,10 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
   });
 
   test('POST /api/gcoin/transfer transfers gcoin between users', async () => {
-    const res = await request(app).post('/api/gcoin/transfer').send({ toRecipientId: recipientId, amount: 5, note: 'test transfer' });
+    const res = await request(app)
+      .post('/api/gcoin/transfer')
+      .set('x-dev-role', 'freelancer')
+      .send({ toRecipientId: recipientId, amount: 5, note: 'test transfer' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
     const data = res.body.data;
@@ -57,7 +81,10 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
   });
 
   test('POST /api/gcoin/donate allows donating to a post', async () => {
-    const res = await request(app).post('/api/gcoin/donate').send({ postId, amount: 2, note: 'ty' });
+    const res = await request(app)
+      .post('/api/gcoin/donate')
+      .set('x-dev-role', 'freelancer')
+      .send({ postId, amount: 2, note: 'ty' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
     const txs = await prisma.gcoinTransaction.findMany({ where: { userId: recipientUserId, type: 'donation_received' } });
@@ -65,7 +92,10 @@ describe('Gcoin transfer, donate, conversion endpoints', () => {
   });
 
   test('POST /api/gcoin/conversions creates a conversion request', async () => {
-    const res = await request(app).post('/api/gcoin/conversions').send({ amount: 1 });
+    const res = await request(app)
+      .post('/api/gcoin/conversions')
+      .set('x-dev-role', 'freelancer')
+      .send({ amount: 1 });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
     const list = await prisma.gcoinConversionRequest.findMany({ where: { userId: devUserId } });

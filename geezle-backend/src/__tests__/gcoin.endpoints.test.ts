@@ -46,6 +46,28 @@ describe('Gcoin API endpoint tests', () => {
   });
 
   test('Conversion request lifecycle', async () => {
+    await prisma.gcoinSettings.upsert({
+      where: { id: 'default' },
+      update: {
+        conversionRate: 1,
+        minWithdrawal: 0,
+        conversionEnabled: true,
+        autoApproveConversions: false,
+        userTransfersEnabled: true,
+        transferFeeType: 'percentage',
+        transferFeeValue: 0
+      },
+      create: {
+        id: 'default',
+        conversionRate: 1,
+        minWithdrawal: 0,
+        conversionEnabled: true,
+        autoApproveConversions: false,
+        userTransfersEnabled: true,
+        transferFeeType: 'percentage',
+        transferFeeValue: 0
+      } as any
+    });
     // credit dev user
     await request(app).post('/api/gcoin/admin/credit').set('x-dev-role', 'admin').send({ userId: 'dev-user-id-123', amount: 100 });
 

@@ -499,7 +499,9 @@ export const checkAndAward = async (req: AuthRequest, res: Response) => {
       // GcoinEarningEvent.postId is required by schema; create a lightweight CommunityPost when none is available
       let postIdForEvent = null as string | null;
       try {
-        const createdPost = await tx.communityPost.create({ data: { authorId: userId, content: `system:${type}:award`, title: null as any } });
+        const createdPost = await tx.communityPost.create({
+          data: { authorId: userId, content: `system:${type}:award`, title: `${type} reward` }
+        });
         postIdForEvent = createdPost.id;
       } catch (e) {
         // fallback: try to find any existing post for user

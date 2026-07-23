@@ -10,6 +10,7 @@
     "test:db:wait": "node scripts/wait-test-db.mjs",
     "test:db:guard": "node scripts/run-test-db-command.mjs --guard-only",
     "test:db:prepare": "node scripts/run-test-db-command.mjs migrate deploy && node scripts/run-test-db-command.mjs generate",
+    "test:db:seed": "node scripts/seed-test-fixtures.mjs",
     "test:db:reset": "node scripts/run-test-db-command.mjs migrate reset --force --skip-seed",
     "test:node": "node scripts/run-node-test-files.mjs",
     "test:full": "node scripts/run-jest-full.mjs",

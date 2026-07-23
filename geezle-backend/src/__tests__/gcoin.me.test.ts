@@ -30,7 +30,7 @@ describe('Gcoin user endpoints', () => {
   });
 
   test('GET /api/gcoin/me returns wallet summary', async () => {
-    const res = await request(app).get('/api/gcoin/me');
+    const res = await request(app).get('/api/gcoin/me').set('x-dev-role', 'freelancer');
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
     expect(res.body).toHaveProperty('data');
@@ -41,7 +41,10 @@ describe('Gcoin user endpoints', () => {
   });
 
   test('GET /api/gcoin/transactions supports pagination', async () => {
-    const res = await request(app).get('/api/gcoin/transactions').query({ limit: 2 });
+    const res = await request(app)
+      .get('/api/gcoin/transactions')
+      .set('x-dev-role', 'freelancer')
+      .query({ limit: 2 });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('success', true);
     const payload = res.body.data;

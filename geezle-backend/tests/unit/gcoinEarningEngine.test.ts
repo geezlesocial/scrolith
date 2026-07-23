@@ -1,36 +1,42 @@
-import { processEarningForPost } from '../../src/services/gcoinEarningEngine';
+export {};
 
-jest.mock('@prisma/client', () => {
-  const mockGcoinConfig = { findFirst: jest.fn() };
-  const mockPost = { findUnique: jest.fn() };
-  const mockGcoinTx = { findMany: jest.fn(), create: jest.fn() };
-  const mockWallet = { update: jest.fn() };
-  const mockTransaction = { create: jest.fn() };
-  const mockPrisma = {
-    gcoinConfig: mockGcoinConfig,
-    communityPost: mockPost,
-    gcoinTransaction: mockGcoinTx,
-    gcoinWallet: mockWallet,
-    transaction: mockTransaction,
-    $transaction: jest.fn((fn: any) => fn(mockPrisma))
-  };
-  return { PrismaClient: jest.fn(() => mockPrisma) };
-});
+const mockPrisma = {
+  gcoinConfig: { findFirst: jest.fn() },
+  communityPost: { findUnique: jest.fn() },
+  gcoinTransaction: { findMany: jest.fn(), create: jest.fn() },
+  gcoinWallet: { update: jest.fn() },
+  monetizationProfile: { findUnique: jest.fn() },
+  transaction: { create: jest.fn() },
+  $transaction: jest.fn((fn: any) => fn(mockPrisma))
+};
+
+jest.mock('../../src/utils/prismaClient', () => ({
+  __esModule: true,
+  default: mockPrisma
+}));
+
+const { processEarningForPost } = require('../../src/services/gcoinEarningEngine');
 
 describe('gcoinEarningEngine', () => {
   beforeEach(() => jest.clearAllMocks());
 
   test('awards coins when thresholds crossed and prevents double award', async () => {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
-    prisma.gcoinConfig.findFirst.mockResolvedValue({ data: { viewsUnit: 100, coinPerViewsUnit: 1, adminFeePercent: 0 } });
-    prisma.communityPost.findUnique.mockResolvedValue({ id: 'post1', authorId: 'u1', viewsCount: 250, likesCount: 0 });
-    prisma.gcoinTransaction.findMany.mockResolvedValue([]);
-    prisma.gcoinTransaction.create.mockResolvedValue({ id: 'gtx1', netAmount: 2 });
-    prisma.gcoinWallet.update.mockResolvedValue({ userId: 'u1', balance: 2 });
+    mockPrisma.gcoinConfig.findFirst.mockResolvedValue({ data: { viewsUnit: 100, coinPerViewsUnit: 1, adminFeePercent: 0 } });
+    mockPrisma.communityPost.findUnique.mockResolvedValue({
+      id: 'post1',
+      authorId: 'u1',
+      viewsCount: 250,
+      likesCount: 0,
+      videoIntegrityStatus: 'clear',
+      videoMonetizationBlocked: false
+    });
+    mockPrisma.monetizationProfile.findUnique.mockResolvedValue({ isEnabled: true });
+    mockPrisma.gcoinTransaction.findMany.mockResolvedValue([]);
+    mockPrisma.gcoinTransaction.create.mockResolvedValue({ id: 'gtx1', netAmount: 2 });
+    mockPrisma.gcoinWallet.update.mockResolvedValue({ userId: 'u1', balance: 2 });
 
     const tx = await processEarningForPost('post1');
     expect(tx).toBeTruthy();
-    expect(prisma.gcoinWallet.update).toHaveBeenCalled();
+    expect(mockPrisma.gcoinWallet.update).toHaveBeenCalled();
   });
 });

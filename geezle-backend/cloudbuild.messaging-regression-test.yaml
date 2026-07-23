@@ -22,36 +22,43 @@ steps:
 
   - name: node:22-bookworm
     id: install
+    dir: geezle-backend
     entrypoint: bash
-    args: [-lc, npm ci]
+    args: [-lc, npm ci --cache /workspace/.npm-cache --prefer-offline=false]
 
   - name: node:22-bookworm
     id: wait-for-test-db
+    dir: geezle-backend
     entrypoint: bash
     args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:wait]
 
   - name: node:22-bookworm
     id: guard
+    dir: geezle-backend
     entrypoint: bash
     args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:guard]
 
   - name: node:22-bookworm
     id: prepare-test-db
+    dir: geezle-backend
     entrypoint: bash
-    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:prepare]
+    args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:db:prepare && node scripts/run-cloudbuild-test-command.mjs npm run test:db:seed]
 
   - name: node:22-bookworm
     id: production-build
+    dir: geezle-backend
     entrypoint: bash
     args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run build:prod]
 
   - name: node:22-bookworm
     id: node-tests
+    dir: geezle-backend
     entrypoint: bash
     args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:node]
 
   - name: node:22-bookworm
     id: full-jest
+    dir: geezle-backend
     entrypoint: bash
     args: [-lc, node scripts/run-cloudbuild-test-command.mjs npm run test:full]
 

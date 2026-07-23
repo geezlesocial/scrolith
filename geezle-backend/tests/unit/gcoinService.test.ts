@@ -1,34 +1,30 @@
-import gcoinService from '../../src/services/gcoinService';
+export {};
 
-jest.mock('@prisma/client', () => {
-  const mockWallet = {
-    findUnique: jest.fn(),
-    create: jest.fn(),
-    update: jest.fn()
-  };
-  const mockGcoinTx = { create: jest.fn(), findMany: jest.fn() };
-  const mockUser = { findUnique: jest.fn() };
-  const mockConfig = { findFirst: jest.fn() };
-  const mockTransaction = { create: jest.fn() };
-  const mockPrisma = {
-    gcoinWallet: mockWallet,
-    gcoinTransaction: mockGcoinTx,
-    user: mockUser,
-    gcoinConfig: mockConfig,
-    transaction: mockTransaction,
-    $transaction: jest.fn((fn: any) => fn(mockPrisma))
-  };
-  return { PrismaClient: jest.fn(() => mockPrisma) };
-});
+const mockPrisma = {
+  gcoinWallet: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), upsert: jest.fn() },
+  gcoinTransaction: { create: jest.fn(), findMany: jest.fn() },
+  user: { findUnique: jest.fn(), findFirst: jest.fn() },
+  gcoinConfig: { findFirst: jest.fn() },
+  transaction: { create: jest.fn() },
+  $transaction: jest.fn((fn: any) => fn(mockPrisma))
+};
+
+jest.mock('../../src/utils/prismaClient', () => ({
+  __esModule: true,
+  default: mockPrisma
+}));
+
+const gcoinService = require('../../src/services/gcoinService').default;
 
 describe('GcoinService', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockPrisma.gcoinConfig.findFirst.mockResolvedValue(null);
+    mockPrisma.user.findFirst.mockResolvedValue(null);
+  });
 
   test('transfer throws on insufficient funds', async () => {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
-
-    prisma.gcoinWallet.findUnique.mockImplementation(({ where }: any) => {
+    mockPrisma.gcoinWallet.findUnique.mockImplementation(({ where }: any) => {
       if (where.userId === 'sender') return { userId: 'sender', balance: 10, status: 'active' };
       if (where.recipientId === 'r1') return { userId: 'recipient', balance: 0, status: 'active', recipientId: 'r1' };
       return null;
@@ -38,9 +34,7 @@ describe('GcoinService', () => {
   });
 
   test('transfer throws when wallet frozen', async () => {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
-    prisma.gcoinWallet.findUnique.mockImplementation(({ where }: any) => {
+    mockPrisma.gcoinWallet.findUnique.mockImplementation(({ where }: any) => {
       if (where.userId === 'sender') return { userId: 'sender', balance: 100, status: 'frozen' };
       if (where.recipientId === 'r1') return { userId: 'recipient', balance: 0, status: 'active', recipientId: 'r1' };
       return null;
@@ -50,17 +44,16 @@ describe('GcoinService', () => {
   });
 
   test('award increments wallet and creates transaction', async () => {
-    const { PrismaClient } = require('@prisma/client');
-    const prisma = new PrismaClient();
-    prisma.gcoinWallet.findUnique.mockResolvedValue(null);
-    prisma.gcoinWallet.create.mockResolvedValue({ userId: 'u1', balance: 0 });
-    prisma.gcoinTransaction.create.mockResolvedValue({ id: 'gtx1', amount: 5, netAmount: 5 });
-    prisma.gcoinWallet.update.mockResolvedValue({ userId: 'u1', balance: 5 });
-    prisma.transaction.create.mockResolvedValue({ id: 'tx1' });
+    mockPrisma.gcoinWallet.findUnique.mockResolvedValue(null);
+    mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1' });
+    mockPrisma.gcoinWallet.create.mockResolvedValue({ userId: 'u1', balance: 0 });
+    mockPrisma.gcoinTransaction.create.mockResolvedValue({ id: 'gtx1', amount: 5, netAmount: 5 });
+    mockPrisma.gcoinWallet.update.mockResolvedValue({ userId: 'u1', balance: 5 });
+    mockPrisma.transaction.create.mockResolvedValue({ id: 'tx1' });
 
     const tx = await gcoinService.award('u1', 5, 'test award');
     expect(tx).toHaveProperty('id', 'gtx1');
-    expect(prisma.gcoinWallet.update).toHaveBeenCalled();
-    expect(prisma.transaction.create).toHaveBeenCalled();
+    expect(mockPrisma.gcoinWallet.update).toHaveBeenCalled();
+    expect(mockPrisma.transaction.create).toHaveBeenCalled();
   });
 });

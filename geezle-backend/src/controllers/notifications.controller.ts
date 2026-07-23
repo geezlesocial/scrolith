@@ -9,8 +9,10 @@ const ensureAuthId = (req: Request) => req.user?.id as string | undefined;
 
 const isAdminRole = (role: unknown) => String(role || '').toLowerCase().includes('admin');
 
-const requestIdOf = (req: Request) =>
-  String(req.headers['x-request-id'] || req.headers['x-correlation-id'] || '').trim() || null;
+const requestIdOf = (req: Request) => {
+  const headers = req.headers || {};
+  return String(headers['x-request-id'] || headers['x-correlation-id'] || '').trim() || null;
+};
 
 export const listNotifications = async (req: Request, res: Response) => {
   try {

@@ -6,6 +6,24 @@ describe('Gcoin edge cases', () => {
   const senderId = 'dev-user-id-123';
   const recipientId = 'edge-recipient-1';
   let prevSettings: any = null;
+  const enabledSettings = {
+    conversionRate: 0.5,
+    minWithdrawal: 0,
+    conversionEnabled: true,
+    autoApproveConversions: false,
+    userTransfersEnabled: true,
+    transferFeeType: 'percentage',
+    transferFeeValue: 0,
+    viewsUnit: 200,
+    likesUnit: 30,
+    repostsUnit: 40,
+    sharesUnit: 50,
+    coinPerViewsUnit: 1,
+    coinPerLikesUnit: 1,
+    coinPerRepostsUnit: 1,
+    coinPerSharesUnit: 1,
+    adminFeePercent: 0.1
+  };
 
   beforeAll(async () => {
     // ensure users and clean state
@@ -27,17 +45,23 @@ describe('Gcoin edge cases', () => {
     await prisma.gcoinWallet.deleteMany({ where: { OR: [{ userId: senderId }, { userId: recipientId }] } });
     await prisma.gcoinConversionRequest.deleteMany({ where: { userId: senderId } });
     // restore previous gcoin settings if any
-    if (prevSettings) {
-      await prisma.gcoinSettings.update({ where: { id: prevSettings.id }, data: prevSettings as any });
-    } else {
+    if (!prevSettings || prevSettings.id !== 'default') {
       await prisma.gcoinSettings.deleteMany({ where: { id: 'default' } });
+    }
+    if (prevSettings) {
+      const { id, createdAt, updatedAt, ...restoredSettings } = prevSettings;
+      await prisma.gcoinSettings.update({ where: { id: prevSettings.id }, data: restoredSettings as any });
     }
     await prisma.$disconnect();
   });
 
   test('transfer fails when insufficient balance for amount+fee', async () => {
     // set transfer fee high so small balance is insufficient
-    await prisma.gcoinSettings.upsert({ where: { id: 'default' }, update: { transferFeeType: 'percentage', transferFeeValue: 0.5 }, create: { id: 'default', transferFeeType: 'percentage', transferFeeValue: 0.5 } as any });
+    await prisma.gcoinSettings.upsert({
+      where: { id: 'default' },
+      update: { ...enabledSettings, transferFeeType: 'percentage', transferFeeValue: 0.5 },
+      create: { id: 'default', ...enabledSettings, transferFeeType: 'percentage', transferFeeValue: 0.5 } as any
+    });
 
     const res = await request(app)
       .post('/api/gcoin/transfer')
@@ -60,7 +84,11 @@ describe('Gcoin edge cases', () => {
 
   test('conversion request respects min withdrawal and rate calculation', async () => {
     // set conversion settings
-    await prisma.gcoinSettings.upsert({ where: { id: 'default' }, update: { conversionRate: 0.5, minWithdrawal: 10 }, create: { id: 'default', conversionRate: 0.5, minWithdrawal: 10 } as any });
+    await prisma.gcoinSettings.upsert({
+      where: { id: 'default' },
+      update: { ...enabledSettings, conversionRate: 0.5, minWithdrawal: 10 },
+      create: { id: 'default', ...enabledSettings, conversionRate: 0.5, minWithdrawal: 10 } as any
+    });
 
     // insufficient (below min)
     const resFail = await request(app).post('/api/gcoin/conversions').send({ amount: 1 }).set('x-dev-role', 'freelancer');

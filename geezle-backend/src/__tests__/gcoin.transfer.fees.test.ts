@@ -41,16 +41,37 @@ describe('Gcoin transfer with fees', () => {
     // set transfer fee to 10% on settings
     const settings = await prisma.gcoinSettings.findFirst();
     if (!settings) {
-      await prisma.gcoinSettings.create({ data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } });
+      await prisma.gcoinSettings.create({
+        data: {
+          conversionRate: 1,
+          minWithdrawal: 0,
+          conversionEnabled: true,
+          autoApproveConversions: false,
+          userTransfersEnabled: true,
+          transferFeeType: 'percentage',
+          transferFeeValue: 10
+        }
+      });
     } else {
-      await prisma.gcoinSettings.update({ where: { id: settings.id }, data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } });
+      await prisma.gcoinSettings.update({
+        where: { id: settings.id },
+        data: {
+          conversionRate: 1,
+          minWithdrawal: 0,
+          conversionEnabled: true,
+          autoApproveConversions: false,
+          userTransfersEnabled: true,
+          transferFeeType: 'percentage',
+          transferFeeValue: 10
+        }
+      });
     }
 
     // Ensure gcoinConfig.default explicitly sets the transfer fee for deterministic behavior
     await prisma.gcoinConfig.upsert({
       where: { key: 'default' },
-      update: { data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } as any },
-      create: { key: 'default', data: { transferFeeType: 'percentage', transferFeeValue: 0.1 } as any }
+      update: { data: { transferFeeType: 'percentage', transferFeeValue: 10 } as any },
+      create: { key: 'default', data: { transferFeeType: 'percentage', transferFeeValue: 10 } as any }
     });
 
     const senderWalletBefore = await prisma.gcoinWallet.findUnique({ where: { userId: 'dev-user-id-123' } });

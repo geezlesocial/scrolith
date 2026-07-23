@@ -65,8 +65,13 @@ describe('createNotification authorization', () => {
       { user: { id: 'u1', role: 'USER' }, body: { userId: 'u1', type: 'info', title: 't', body: 'b' } } as any,
       res
     );
-    expect(res.json).toHaveBeenCalledWith({ success: true, data: { id: 'new-1' } });
-    expect(mockCreate).toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ id: null, status: 'suppressed' })
+      })
+    );
+    expect(mockCreate).not.toHaveBeenCalled();
   });
 
   test('allows admin create for another user', async () => {
@@ -78,7 +83,12 @@ describe('createNotification authorization', () => {
       } as any,
       res
     );
-    expect(res.json).toHaveBeenCalledWith({ success: true, data: { id: 'new-1' } });
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ id: 'new-1', status: 'created' })
+      })
+    );
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ userId: 'u2', type: 'system' })

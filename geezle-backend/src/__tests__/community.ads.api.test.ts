@@ -49,14 +49,16 @@ describe('Community Ads API (basic)', () => {
     expect(Number(res.body.data.budget)).toBe(150);
   });
 
-  test('PUT /api/community/ads/:id is forbidden when ad is ACTIVE', async () => {
+  test('PUT /api/community/ads/:id sends major ACTIVE edits back to review', async () => {
     // Move ad to ACTIVE
     await prisma.communityAd.update({ where: { id: adId }, data: { status: 'ACTIVE' } });
     const res = await request(app)
       .put(`/api/community/ads/${adId}`)
       .set('x-dev-role', 'freelancer')
-      .send({ title: 'Should Fail' });
-    expect(res.status).toBe(403);
+      .send({ title: 'Needs Review' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.status).toBe('SUBMITTED_FOR_REVIEW');
   });
 
   test('GET /api/community/admin/ads returns list for admin', async () => {

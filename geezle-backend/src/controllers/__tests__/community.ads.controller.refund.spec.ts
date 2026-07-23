@@ -6,6 +6,12 @@ jest.mock('stripe', () => {
   }));
 });
 
+jest.mock('../../services/stripeConfig.service', () => ({
+  getStripeClient: jest.fn().mockResolvedValue({
+    refunds: { create: jest.fn().mockResolvedValue({ id: 're_1' }) }
+  })
+}));
+
 const mockUpdate = jest.fn();
 const mockFindMany = jest.fn();
 const mockCreate = jest.fn();

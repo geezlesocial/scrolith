@@ -9,9 +9,30 @@ jest.mock('stripe', () => {
       create: jest.fn().mockResolvedValue({ id: 'pi_test_123', client_secret: 'cs_test_123' }),
       retrieve: jest.fn().mockResolvedValue({ id: 'pi_test_123', amount_received: 2000, amount: 2000, currency: 'usd', status: 'succeeded' })
     },
+    checkout: {
+      sessions: {
+        create: jest.fn().mockResolvedValue({ id: 'cs_test_123', url: 'https://checkout.stripe.test/session/cs_test_123' }),
+        retrieve: jest.fn().mockResolvedValue({ id: 'cs_test_123', url: 'https://checkout.stripe.test/session/cs_test_123' })
+      }
+    },
     refunds: { create: jest.fn().mockResolvedValue({ id: 're_test_123' }) }
   }));
 });
+
+jest.mock('../services/stripeConfig.service', () => ({
+  getStripeClient: jest.fn().mockResolvedValue({
+    checkout: {
+      sessions: {
+        create: jest.fn().mockResolvedValue({ id: 'cs_test_123', url: 'https://checkout.stripe.test/session/cs_test_123' }),
+        retrieve: jest.fn().mockResolvedValue({ id: 'cs_test_123', url: 'https://checkout.stripe.test/session/cs_test_123' })
+      }
+    },
+    paymentIntents: {
+      retrieve: jest.fn().mockResolvedValue({ id: 'pi_test_123', amount_received: 2000, amount: 2000, currency: 'usd', status: 'succeeded' })
+    },
+    refunds: { create: jest.fn().mockResolvedValue({ id: 're_test_123' }) }
+  })
+}));
 
 import { reconcileAdPayments } from '../scripts/reconcileAdPayments';
 
@@ -40,12 +61,18 @@ describe('Ad payment and reconciliation flow', () => {
     await prisma.$disconnect();
   });
 
-  test('payAd creates pending AdPayment and reconciliation marks it completed and PAID', async () => {
+  test('payAd creates checkout session and reconciliation marks pending AdPayment completed', async () => {
     // Create ad draft via API as dev user
     const draftRes = await request(app)
       .post('/api/community/ads/draft')
       .set('x-dev-role', 'freelancer')
-      .send({ title: 'Test Ad', body: 'Buy now', placement: 'feed', budget: 20 });
+      .send({
+        title: 'Test Ad',
+        body: 'Buy now',
+        placement: 'feed',
+        budget: 20,
+        destinationUrl: 'https://scrolith.test/ad-payment'
+      });
     expect(draftRes.status).toBe(200);
     const ad = draftRes.body.data;
     expect(ad).toBeTruthy();
@@ -58,15 +85,15 @@ describe('Ad payment and reconciliation flow', () => {
       .send();
     expect(payRes.status).toBe(200);
     expect(payRes.body.success).toBe(true);
-    expect(payRes.body.data.paymentIntentId).toBe('pi_test_123');
+    expect(payRes.body.data.checkoutSessionId).toBe('cs_test_123');
+    expect(payRes.body.data.checkout_url).toContain('checkout.stripe.test');
 
-    // Verify DB: ad status awaiting payment and pending AdPayment exists
+    // Verify DB: ad status awaiting payment, then seed a pending row as the webhook would.
     const adDb = await prisma.communityAd.findUnique({ where: { id: adId } });
     expect(adDb?.status).toBe('AWAITING_PAYMENT');
-    const payments = await prisma.adPayment.findMany({ where: { adId } });
-    expect(payments.length).toBeGreaterThan(0);
-    const pending = payments.find(p => p.transactionId === 'pi_test_123');
-    expect(pending).toBeTruthy();
+    const pending = await prisma.adPayment.create({
+      data: { adId, transactionId: 'pi_test_123', amount: 20, currency: 'USD', status: 'pending' }
+    });
     expect(pending?.status).toBe('pending');
 
     // Run reconciliation (this will use mocked Stripe.retrieve)
