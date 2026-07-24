@@ -3,7 +3,8 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-const WEB_CACHE_RESET_RELOAD_KEY = 'scrolith:web-cache-reset-reloaded-v6'
+// Hotfix 2026-07-24: bust Vite entry hash after canary poisoned immutable 404 caches.
+const WEB_CACHE_RESET_RELOAD_KEY = 'scrolith:web-cache-reset-reloaded-v7'
 const FORCE_BROWSER_CACHE_RESET =
   import.meta.env.VITE_FORCE_BROWSER_CACHE_RESET === 'true' ||
   (typeof window !== 'undefined' &&

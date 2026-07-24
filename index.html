@@ -141,13 +141,27 @@
           <div id="boot-help-text" style="margin-top:14px;font-size:13px;color:#475569;">
             This is taking longer than expected. You can retry without losing the page.
           </div>
-          <button class="boot-reload" type="button" onclick="window.location.reload()">Reload App</button>
+          <button class="boot-reload" type="button" id="boot-reload-btn">Reload App</button>
         </div>
       </div>
     </div>
     <div id="root"></div>
     <script>
       (function () {
+        // Hard recovery: drop query noise and force a fresh document load so
+        // browsers with poisoned immutable 404 asset caches re-fetch index.html.
+        window.__scrolithHardReload = function () {
+          try {
+            var u = new URL(window.location.href);
+            u.searchParams.set('_boot', String(Date.now()));
+            window.location.replace(u.toString());
+          } catch (e) {
+            window.location.href = window.location.pathname + '?_boot=' + Date.now();
+          }
+        };
+        var reloadBtn = document.getElementById('boot-reload-btn');
+        if (reloadBtn) reloadBtn.addEventListener('click', function () { window.__scrolithHardReload(); });
+
         var boot = document.getElementById('boot-fallback');
         var status = document.getElementById('boot-status');
         var help = document.getElementById('boot-help-text');
