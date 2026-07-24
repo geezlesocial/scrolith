@@ -138,7 +138,13 @@ const VoiceCallControls: React.FC<{
     endCall,
     toggleMute,
     toggleSpeaker,
-    addParticipant
+    addParticipant,
+    requestJoin,
+    approveJoinRequest,
+    rejectJoinRequest,
+    cancelJoinRequest,
+    pendingJoinRequests,
+    myJoinRequestStatus
   } = useVoiceCall();
 
   const handleStart = async (conference?: boolean) => {
@@ -225,6 +231,29 @@ const VoiceCallControls: React.FC<{
         onToggleMute={toggleMute}
         onToggleSpeaker={toggleSpeaker}
         onAddParticipant={(userId) => void handleAddParticipant(userId)}
+        myJoinRequestStatus={myJoinRequestStatus}
+        pendingJoinRequests={pendingJoinRequests}
+        canModerateJoinRequests={!incoming}
+        onRequestJoin={() =>
+          void requestJoin().catch((error: any) =>
+            onError(error?.message || 'Unable to request join.')
+          )
+        }
+        onCancelJoinRequest={() =>
+          void cancelJoinRequest().catch((error: any) =>
+            onError(error?.message || 'Unable to cancel join request.')
+          )
+        }
+        onApproveJoinRequest={(requestId) =>
+          void approveJoinRequest(requestId).catch((error: any) =>
+            onError(error?.message || 'Unable to approve join request.')
+          )
+        }
+        onRejectJoinRequest={(requestId) =>
+          void rejectJoinRequest(requestId).catch((error: any) =>
+            onError(error?.message || 'Unable to reject join request.')
+          )
+        }
       />
     </>
   );

@@ -38,6 +38,18 @@ type VoiceCallContextValue = {
   toggleMute: () => void;
   toggleSpeaker: () => void;
   addParticipant: (userId: string) => Promise<void>;
+  /** REQUEST mode: ask host/mods for permission to join. */
+  requestJoin: () => Promise<void>;
+  approveJoinRequest: (requestId: string) => Promise<void>;
+  rejectJoinRequest: (requestId: string, reason?: string) => Promise<void>;
+  cancelJoinRequest: () => Promise<void>;
+  pendingJoinRequests: Array<{
+    requestId: string;
+    requesterId: string;
+    status: string;
+    requestedAt?: string;
+  }>;
+  myJoinRequestStatus: string | null;
 };
 
 const VoiceCallContext = createContext<VoiceCallContextValue | undefined>(undefined);
@@ -134,6 +146,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const [participants, setParticipants] = useState<VoiceCallParticipant[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [addBusy, setAddBusy] = useState(false);
+  const [pendingJoinRequests, setPendingJoinRequests] = useState<
+    Array<{ requestId: string; requesterId: string; status: string; requestedAt?: string }>
+  >([]);
+  const [myJoinRequestStatus, setMyJoinRequestStatus] = useState<string | null>(null);
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
@@ -700,11 +716,69 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     socket.on('call:end', onCallEnded);
     socket.on('call:reject', onCallRejected);
     socket.on('call:busy', onCallBusy);
+    const onJoinRequested = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      const request = payload?.request;
+      if (!request?.requestId) return;
+      const entry = {
+        requestId: String(request.requestId),
+        requesterId: String(request.requesterId || ''),
+        status: String(request.status || 'pending'),
+        requestedAt: request.requestedAt
+      };
+      setPendingJoinRequests((prev) => {
+        if (prev.some((row) => row.requestId === entry.requestId)) {
+          return prev.map((row) => (row.requestId === entry.requestId ? entry : row));
+        }
+        return [...prev, entry];
+      });
+      if (entry.requesterId === String(userId || '')) {
+        setMyJoinRequestStatus(entry.status);
+      }
+    };
+
+    const onJoinApproved = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      const request = payload?.request;
+      const requestId = String(request?.requestId || '');
+      const requesterId = String(request?.requesterId || '');
+      setPendingJoinRequests((prev) =>
+        prev.map((row) =>
+          row.requestId === requestId ? { ...row, status: 'approved' } : row
+        )
+      );
+      if (requesterId === String(userId || '')) {
+        setMyJoinRequestStatus('approved');
+        emitVoiceLifecycleEvent('join_approved', { callId, requestId });
+      }
+    };
+
+    const onJoinRejected = (payload: any) => {
+      const callId = String(payload?.callId || '').trim();
+      if (!callId || (callIdRef.current && callId !== callIdRef.current)) return;
+      const request = payload?.request;
+      const requestId = String(request?.requestId || '');
+      const requesterId = String(request?.requesterId || '');
+      setPendingJoinRequests((prev) =>
+        prev.map((row) =>
+          row.requestId === requestId ? { ...row, status: 'rejected' } : row
+        )
+      );
+      if (requesterId === String(userId || '')) {
+        setMyJoinRequestStatus('rejected');
+      }
+    };
+
     socket.on('call:signal', onSignal);
     socket.on('messenger:call_joined', onLifecycleJoined);
     socket.on('messenger:call_missed', onLifecycleMissed);
     socket.on('messenger:call_failed', onLifecycleFailed);
     socket.on('messenger:call_ended', onLifecycleEnded);
+    socket.on('call:join-requested', onJoinRequested);
+    socket.on('call:join-approved', onJoinApproved);
+    socket.on('call:join-rejected', onJoinRejected);
 
     return () => {
       socket.off('call:initiate', onInitiated);
@@ -720,6 +794,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       socket.off('messenger:call_missed', onLifecycleMissed);
       socket.off('messenger:call_failed', onLifecycleFailed);
       socket.off('messenger:call_ended', onLifecycleEnded);
+      socket.off('call:join-requested', onJoinRequested);
+      socket.off('call:join-approved', onJoinApproved);
+      socket.off('call:join-rejected', onJoinRejected);
     };
   }, [
     socket,
@@ -796,13 +873,91 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     if (!socket || !callState?.callId) return;
     const response = await emitWithAck(socket, 'call:accept', { callId: callState.callId });
     if (response?.success === false) {
+      const code = String(response?.code || '');
+      if (code === 'GROUP_CALL_JOIN_REQUEST_REQUIRED') {
+        setMyJoinRequestStatus('required');
+        throw new Error(
+          String(response?.error || 'You must request to join this call and wait for approval.')
+        );
+      }
       throw new Error(String(response?.error || 'Failed to accept call.'));
     }
     stopRingingAlert();
     setIncoming(false);
+    setMyJoinRequestStatus(null);
     setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
     ensureParticipantEntry(String(userId || ''), 'joined');
   }, [socket, callState?.callId, ensureParticipantEntry, userId, stopRingingAlert]);
+
+  const requestJoin = useCallback(async () => {
+    if (!socket || !callState?.callId) return;
+    const response = await emitWithAck(socket, 'call:join-request', { callId: callState.callId });
+    if (response?.success === false) {
+      throw new Error(String(response?.error || 'Failed to request join.'));
+    }
+    const status = String(response?.data?.request?.status || 'pending');
+    setMyJoinRequestStatus(status);
+    if (response?.data?.request) {
+      setPendingJoinRequests((prev) => {
+        const id = String(response.data.request.requestId || '');
+        if (prev.some((entry) => entry.requestId === id)) return prev;
+        return [
+          ...prev,
+          {
+            requestId: id,
+            requesterId: String(response.data.request.requesterId || userId || ''),
+            status,
+            requestedAt: response.data.request.requestedAt
+          }
+        ];
+      });
+    }
+  }, [socket, callState?.callId, userId]);
+
+  const approveJoinRequest = useCallback(
+    async (requestId: string) => {
+      if (!socket || !callState?.callId || !requestId) return;
+      const response = await emitWithAck(socket, 'call:join-approve', {
+        callId: callState.callId,
+        requestId
+      });
+      if (response?.success === false) {
+        throw new Error(String(response?.error || 'Failed to approve join request.'));
+      }
+    },
+    [socket, callState?.callId]
+  );
+
+  const rejectJoinRequest = useCallback(
+    async (requestId: string, reason?: string) => {
+      if (!socket || !callState?.callId || !requestId) return;
+      const response = await emitWithAck(socket, 'call:join-reject', {
+        callId: callState.callId,
+        requestId,
+        reason: reason || 'rejected'
+      });
+      if (response?.success === false) {
+        throw new Error(String(response?.error || 'Failed to reject join request.'));
+      }
+    },
+    [socket, callState?.callId]
+  );
+
+  const cancelJoinRequest = useCallback(async () => {
+    if (!socket || !callState?.callId) return;
+    const mine = pendingJoinRequests.find(
+      (entry) =>
+        entry.requesterId === String(userId || '') && entry.status === 'pending'
+    );
+    const response = await emitWithAck(socket, 'call:join-cancel', {
+      callId: callState.callId,
+      requestId: mine?.requestId
+    });
+    if (response?.success === false) {
+      throw new Error(String(response?.error || 'Failed to cancel join request.'));
+    }
+    setMyJoinRequestStatus('cancelled');
+  }, [socket, callState?.callId, pendingJoinRequests, userId]);
 
   const rejectCall = useCallback(async () => {
     if (!socket || !callState?.callId) {
@@ -902,7 +1057,13 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       endCall,
       toggleMute,
       toggleSpeaker,
-      addParticipant
+      addParticipant,
+      requestJoin,
+      approveJoinRequest,
+      rejectJoinRequest,
+      cancelJoinRequest,
+      pendingJoinRequests,
+      myJoinRequestStatus
     }),
     [
       open,
@@ -920,7 +1081,13 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       endCall,
       toggleMute,
       toggleSpeaker,
-      addParticipant
+      addParticipant,
+      requestJoin,
+      approveJoinRequest,
+      rejectJoinRequest,
+      cancelJoinRequest,
+      pendingJoinRequests,
+      myJoinRequestStatus
     ]
   );
 
