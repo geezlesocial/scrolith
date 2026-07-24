@@ -1933,7 +1933,7 @@ const Messages = () => {
           setConversations(prev => {
               const activeId = activeConvoIdRef.current;
               const existingMap = new Map(prev.map(conversation => [conversation.id, conversation]));
-              return list.map((conversation) => {
+              const next = list.map((conversation) => {
                   const existing = existingMap.get(conversation.id);
                   if (!existing) return conversation;
                   if (options?.silent && activeId && conversation.id === activeId) {
@@ -1944,12 +1944,21 @@ const Messages = () => {
                   }
                   return conversation;
               });
+              return mergeDirectConversations(next);
           });
           const convoId = activeConvoIdRef.current;
           if (convoId && !options?.silent) {
               const full = await MessagingService.getConversationById(convoId);
               if (full) {
-                  setConversations(prev => prev.map(c => c.id === convoId ? { ...c, ...full } : c));
+                  setConversations((prev) => {
+                      const mergeKey = getConversationMergeKey(full);
+                      const without = prev.filter((entry) => {
+                          if (entry.id === full.id) return false;
+                          if (mergeKey && getConversationMergeKey(entry) === mergeKey) return false;
+                          return true;
+                      });
+                      return mergeDirectConversations([{ ...full }, ...without]);
+                  });
               }
           }
           refreshMessages();
@@ -3937,19 +3946,10 @@ const Messages = () => {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex justify-between items-baseline mb-1">
                                                 <div className="flex items-center gap-2 min-w-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={(event) => {
-                                                            event.preventDefault();
-                                                            event.stopPropagation();
-                                                            if (!isScrolithaConvo) {
-                                                                navigate(resolveParticipantProfileUrl(participant));
-                                                            }
-                                                        }}
-                                                        className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600"
-                                                    >
+                                                    {/* Name opens the conversation (row click). Only avatar navigates to profile. */}
+                                                    <span className="min-w-0 flex-1 truncate text-left text-sm font-bold text-gray-900">
                                                         {renderHighlightedText(inboxTitle, activeMessageSearchQuery)}
-                                                    </button>
+                                                    </span>
                                                     {isGroupConvo ? (
                                                         <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
                                                             Group
@@ -4104,20 +4104,24 @@ const Messages = () => {
                                 </button>
                                 <div className="min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                if (isActiveGroupConversation) {
-                                                    setShowGroupManage(true);
-                                                    return;
-                                                }
-                                                navigate(resolveParticipantProfileUrl(otherParticipant));
-                                            }}
-                                            className="max-w-[9.5rem] truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600 sm:max-w-xs"
-                                            data-testid="messages-conversation-title"
-                                        >
-                                            {activeConversationTitle}
-                                        </button>
+                                        {/* Title: groups open manage panel; DM names stay in-thread (profile via avatar only). */}
+                                        {isActiveGroupConversation ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowGroupManage(true)}
+                                                className="max-w-[9.5rem] truncate text-left text-sm font-bold text-gray-900 hover:text-blue-600 sm:max-w-xs"
+                                                data-testid="messages-conversation-title"
+                                            >
+                                                {activeConversationTitle}
+                                            </button>
+                                        ) : (
+                                            <h3
+                                                className="max-w-[9.5rem] truncate text-left text-sm font-bold text-gray-900 sm:max-w-xs"
+                                                data-testid="messages-conversation-title"
+                                            >
+                                                {activeConversationTitle}
+                                            </h3>
+                                        )}
                                         {isActiveGroupConversation ? (
                                             <span className="hidden rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 sm:inline">
                                                 Group · {(activeConvo?.participants || []).length} members

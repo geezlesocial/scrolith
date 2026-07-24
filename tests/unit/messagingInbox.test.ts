@@ -175,3 +175,95 @@ test('messageMatchesConversation matches by conversation id', () => {
     true
   );
 });
+
+test('mergeDirectConversations collapses rows when one payload includes a soft-deleted third participant', () => {
+  const clean = conversation({
+    id: 'c-clean',
+    participants: [participant('user-1', 'A'), participant('user-2', 'B')],
+    lastMessageAt: '2026-05-03T12:00:00.000Z',
+    lastMessage: 'Hi',
+    messages: [
+      {
+        id: 'm-hi',
+        conversation_id: 'c-clean',
+        sender_id: 'user-2',
+        receiver_id: 'user-1',
+        text: 'Hi',
+        timestamp: '2026-05-03T12:00:00.000Z',
+        is_read: true
+      } as any
+    ]
+  });
+  const bloated = conversation({
+    id: 'c-bloated',
+    participants: [
+      participant('user-1', 'A'),
+      participant('user-2', 'B'),
+      { ...participant('user-3', 'Ghost'), deletedAt: '2026-01-01T00:00:00.000Z' } as any
+    ],
+    lastMessageAt: '2026-05-03T13:00:00.000Z',
+    lastMessage: 'Voice note',
+    messages: [
+      {
+        id: 'm-voice',
+        conversation_id: 'c-bloated',
+        sender_id: 'user-2',
+        receiver_id: 'user-1',
+        text: 'Voice note',
+        timestamp: '2026-05-03T13:00:00.000Z',
+        is_read: true
+      } as any
+    ]
+  });
+
+  const merged = mergeDirectConversations([clean, bloated]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].id, 'c-bloated');
+  assert.equal(getConversationMergeKey(clean), getConversationMergeKey(bloated));
+  assert.deepEqual(
+    merged[0].messages.map((entry) => entry.id),
+    ['m-hi', 'm-voice']
+  );
+});
+
+test('mergeDirectConversations collapses when one side only lists the peer participant', () => {
+  const fullPair = conversation({
+    id: 'c-full',
+    participants: [participant('user-1', 'Me'), participant('user-2', 'Peer')],
+    lastMessageAt: '2026-05-03T10:00:00.000Z',
+    lastMessage: 'Earlier',
+    messages: [
+      {
+        id: 'm1',
+        conversation_id: 'c-full',
+        sender_id: 'user-2',
+        receiver_id: 'user-1',
+        text: 'Earlier',
+        timestamp: '2026-05-03T10:00:00.000Z',
+        is_read: true
+      } as any
+    ]
+  });
+  const peerOnly = conversation({
+    id: 'c-peer-only',
+    participants: [participant('user-2', 'Peer')],
+    lastMessageAt: '2026-05-03T11:00:00.000Z',
+    lastMessage: 'Later',
+    messages: [
+      {
+        id: 'm2',
+        conversation_id: 'c-peer-only',
+        sender_id: 'user-2',
+        receiver_id: 'user-1',
+        text: 'Later',
+        timestamp: '2026-05-03T11:00:00.000Z',
+        is_read: true
+      } as any
+    ]
+  });
+
+  const merged = mergeDirectConversations([fullPair, peerOnly]);
+  assert.equal(merged.length, 1);
+  assert.equal(getConversationMergeKey(fullPair), getConversationMergeKey(peerOnly));
+  assert.equal(merged[0].lastMessage, 'Later');
+});

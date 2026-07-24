@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Conversation } from '../../types';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import {
@@ -20,12 +21,25 @@ type MessagingConversationRowProps = {
   dense?: boolean;
 };
 
+const resolveParticipantProfileUrl = (participant: any) => {
+  if (!participant) return null;
+  if (participant?.isScrolitha || participant?.is_scrolitha) return null;
+  const username = String(participant.username || '').trim();
+  if (username) return `/u/${username.replace(/^@+/, '')}`;
+  if (participant.profileUrl || participant.profile_url) {
+    return String(participant.profileUrl || participant.profile_url);
+  }
+  const participantId = String(participant.id || participant.userId || '').trim();
+  return participantId ? `/profile/${participantId}` : null;
+};
+
 const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
   conversation,
   currentUserId,
   onSelect,
   dense = false
 }) => {
+  const navigate = useNavigate();
   const name = useMemo(
     () => getConversationDisplayName(conversation, currentUserId),
     [conversation, currentUserId]
@@ -48,6 +62,13 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
   const isStarred = Boolean(conversation.isStarred ?? conversation.is_starred);
   const category = getConversationCategory(conversation);
   const isGroupLike = category === 'group' || category === 'community';
+  const isScrolitha = Boolean(
+    (conversation as any)?.isScrolitha ||
+      (conversation as any)?.is_scrolitha ||
+      (other as any)?.isScrolitha ||
+      (other as any)?.is_scrolitha
+  );
+  const profileUrl = !isGroupLike && !isScrolitha ? resolveParticipantProfileUrl(other) : null;
   const avatarSrc = isGroupLike
     ? groupAvatarFileId
       ? resolveUserAvatarUrl(groupAvatarFileId)
@@ -65,91 +86,127 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
     /image|photo|video|audio|voice|pdf|document|file|attachment/i.test(preview);
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(conversation.id)}
+    <div
       className={[
         'flex w-full items-center gap-3 border-b border-slate-100 px-3 text-left',
-        'hover:bg-slate-50 focus:outline-none focus-visible:bg-blue-50/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30',
+        'hover:bg-slate-50',
         dense ? 'min-h-[64px] py-2' : 'min-h-[72px] py-2.5'
       ].join(' ')}
-      aria-label={
-        unread > 0
-          ? `${name}, ${unread} unread. ${preview}`
-          : `${name}. ${preview}`
-      }
     >
-      <div className="relative h-11 w-11 shrink-0">
-        <EnterpriseAvatar
-          user={isGroupLike ? undefined : other}
-          name={name}
-          src={avatarSrc}
-          size="md"
-          loading="eager"
-          className={[
-            '!h-11 !w-11 border border-slate-200',
-            isGroupLike && !groupAvatarFileId ? 'bg-indigo-50 text-indigo-700' : ''
-          ].join(' ')}
-          alt=""
-        />
-        {!isGroupLike && isOnline ? (
-          <span
-            className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500"
-            title="Online"
-            aria-label="Online"
+      {/* Avatar alone opens profile; name/preview open the conversation. */}
+      {profileUrl ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            navigate(profileUrl);
+          }}
+          className="relative h-11 w-11 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+          aria-label={`View ${name} profile`}
+          title="View profile"
+        >
+          <EnterpriseAvatar
+            user={other}
+            name={name}
+            src={avatarSrc}
+            size="md"
+            loading="eager"
+            className="!h-11 !w-11 border border-slate-200"
+            alt=""
           />
-        ) : null}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span
+          {isOnline ? (
+            <span
+              className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500"
+              title="Online"
+              aria-label="Online"
+            />
+          ) : null}
+        </button>
+      ) : (
+        <div className="relative h-11 w-11 shrink-0">
+          <EnterpriseAvatar
+            user={isGroupLike ? undefined : other}
+            name={name}
+            src={avatarSrc}
+            size="md"
+            loading="eager"
             className={[
-              'min-w-0 truncate text-sm',
-              unread > 0 ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'
+              '!h-11 !w-11 border border-slate-200',
+              isGroupLike && !groupAvatarFileId ? 'bg-indigo-50 text-indigo-700' : ''
             ].join(' ')}
-          >
-            {name}
-          </span>
-          {category === 'group' ? (
-            <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
-              Group
-            </span>
+            alt=""
+          />
+          {!isGroupLike && isOnline ? (
+            <span
+              className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500"
+              title="Online"
+              aria-label="Online"
+            />
           ) : null}
-          {category === 'community' ? (
-            <span className="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
-              Community
-            </span>
-          ) : null}
-          {isStarred ? <Pin className="h-3 w-3 shrink-0 text-amber-500" aria-label="Pinned" /> : null}
-          {isMuted ? <VolumeX className="h-3 w-3 shrink-0 text-slate-400" aria-label="Muted" /> : null}
         </div>
-        <div className="mt-0.5 flex items-center gap-1.5">
-          {hasAttachmentHint ? (
-            <Paperclip className="h-3 w-3 shrink-0 text-slate-400" aria-hidden="true" />
-          ) : null}
-          <p
-            className={[
-              'min-w-0 truncate text-xs',
-              unread > 0 ? 'font-semibold text-slate-800' : 'text-slate-500'
-            ].join(' ')}
-          >
-            {preview}
-          </p>
-        </div>
-      </div>
+      )}
 
-      <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
-        <span className="text-[10px] font-medium text-slate-400">{timestamp}</span>
-        {unread > 0 ? (
-          <span className="min-w-[18px] rounded-full bg-blue-600 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
-            {unread > 99 ? '99+' : unread}
-          </span>
-        ) : (
-          <span className="h-[18px]" aria-hidden="true" />
-        )}
-      </div>
-    </button>
+      <button
+        type="button"
+        onClick={() => onSelect(conversation.id)}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left focus:outline-none focus-visible:bg-blue-50/60 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30"
+        aria-label={
+          unread > 0
+            ? `Open conversation with ${name}, ${unread} unread. ${preview}`
+            : `Open conversation with ${name}. ${preview}`
+        }
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className={[
+                'min-w-0 truncate text-sm',
+                unread > 0 ? 'font-bold text-slate-900' : 'font-semibold text-slate-800'
+              ].join(' ')}
+            >
+              {name}
+            </span>
+            {category === 'group' ? (
+              <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                Group
+              </span>
+            ) : null}
+            {category === 'community' ? (
+              <span className="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">
+                Community
+              </span>
+            ) : null}
+            {isStarred ? <Pin className="h-3 w-3 shrink-0 text-amber-500" aria-label="Pinned" /> : null}
+            {isMuted ? <VolumeX className="h-3 w-3 shrink-0 text-slate-400" aria-label="Muted" /> : null}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5">
+            {hasAttachmentHint ? (
+              <Paperclip className="h-3 w-3 shrink-0 text-slate-400" aria-hidden="true" />
+            ) : null}
+            <p
+              className={[
+                'min-w-0 truncate text-xs',
+                unread > 0 ? 'font-semibold text-slate-800' : 'text-slate-500'
+              ].join(' ')}
+            >
+              {preview}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex shrink-0 flex-col items-end gap-1 self-start pt-0.5">
+          <span className="text-[10px] font-medium text-slate-400">{timestamp}</span>
+          {unread > 0 ? (
+            <span className="min-w-[18px] rounded-full bg-blue-600 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">
+              {unread > 99 ? '99+' : unread}
+            </span>
+          ) : (
+            <span className="h-[18px]" aria-hidden="true" />
+          )}
+        </div>
+      </button>
+    </div>
   );
 };
 

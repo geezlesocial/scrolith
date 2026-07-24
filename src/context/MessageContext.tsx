@@ -14,7 +14,7 @@ import {
   messageMatchesConversation,
   normalizeMessageReactions
 } from '../services/messaging';
-import { getConversationMergeKey } from '../services/messagingMerge';
+import { getConversationMergeKey, mergeDirectConversations } from '../services/messagingMerge';
 import {
   applyIncomingPreviewUpdate,
   clearConversationDraft,
@@ -393,13 +393,17 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             }
           );
           // Phase 22.1 — soft refresh isolates new rows; force replace still allowed.
-          let sorted = incoming;
+          // Always re-merge DIRECT participant pairs so delta soft-refresh cannot reintroduce
+          // a legacy duplicate conversation id that was previously collapsed.
+          let sorted = mergeDirectConversations(incoming);
           if (!options?.force && conversationsRef.current.length > 0 && updatedSince) {
             const isolated = isolateInboxSoftRefresh(conversationsRef.current, incoming);
             // Auto-apply pending for messaging (unlike feed) so users see new DMs,
             // but preserve relative order of existing sessions (no full reorder thrash).
-            sorted = sortConversationsByRecent(
-              applyPendingInboxItems(isolated.sessionItems, isolated.pendingNewItems)
+            sorted = mergeDirectConversations(
+              sortConversationsByRecent(
+                applyPendingInboxItems(isolated.sessionItems, isolated.pendingNewItems)
+              )
             );
           }
           setConversations(sorted);
@@ -657,7 +661,7 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (mergeKey && getConversationMergeKey(entry) === mergeKey) return false;
                 return true;
               });
-              return sortConversationsByRecent([full, ...without]);
+              return mergeDirectConversations(sortConversationsByRecent([full, ...without]));
             });
           }
         } catch (e: any) {
@@ -1596,7 +1600,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   return true;
                 });
                 // Prefer server unread for newly discovered conversations to avoid local double-count.
-                const next = sortConversationsByRecent([full, ...without]);
+                const next = mergeDirectConversations(
+                  sortConversationsByRecent([full, ...without])
+                );
                 recomputeUnread(next);
                 return next;
               });

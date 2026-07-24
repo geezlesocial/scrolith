@@ -59,14 +59,89 @@ const extractStoryThreadKey = (message: any): string => {
   return isStoryContext ? 'story-thread' : '';
 };
 
-const getConversationParticipantsKey = (conversation: Conversation) => {
-  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return '';
-  const ids = safeArray<any>(conversation.participants)
+const isActiveParticipant = (participant: any) => {
+  if (!participant) return false;
+  // Soft-left members must not affect the pair key (legacy duplicate root cause).
+  if (participant.deletedAt || participant.deleted_at) return false;
+  return true;
+};
+
+/**
+ * Collect stable participant user ids for DIRECT merge keys.
+ * Prefers active participants; falls back to message sender/receiver pair when the
+ * participant list is incomplete (e.g. one-sided preview payloads).
+ */
+const collectDirectParticipantIds = (conversation: Conversation): string[] => {
+  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return [];
+
+  const fromParticipants = safeArray<any>(conversation.participants)
+    .filter(isActiveParticipant)
     .map((participant) => safeString(participant?.id ?? participant?.userId ?? participant?.user_id))
     .filter(Boolean);
-  const uniqueIds = Array.from(new Set(ids));
+
+  let uniqueIds = Array.from(new Set(fromParticipants));
+
+  // Soft-deleted rows may leave only the deleted set on participants — use full list as fallback.
+  if (uniqueIds.length === 0) {
+    uniqueIds = Array.from(
+      new Set(
+        safeArray<any>(conversation.participants)
+          .map((participant) => safeString(participant?.id ?? participant?.userId ?? participant?.user_id))
+          .filter(Boolean)
+      )
+    );
+  }
+
+  // Exactly 2 → canonical pair.
+  if (uniqueIds.length === 2) return uniqueIds.sort();
+
+  // More than 2 active on a DIRECT row is legacy noise — keep the two most recent message peers if possible.
+  if (uniqueIds.length > 2) {
+    const messagePeerIds = new Set<string>();
+    safeArray<any>(conversation.messages).forEach((message) => {
+      const sender = safeString(message?.senderId ?? message?.sender_id);
+      const receiver = safeString(message?.receiverId ?? message?.receiver_id);
+      if (sender) messagePeerIds.add(sender);
+      if (receiver) messagePeerIds.add(receiver);
+    });
+    const peersFromMessages = Array.from(messagePeerIds).filter((id) => uniqueIds.includes(id));
+    if (peersFromMessages.length === 2) return peersFromMessages.sort();
+    // Last resort: first two sorted ids keeps key stable across dual rows with same extras.
+    return uniqueIds.sort().slice(0, 2);
+  }
+
+  // Single participant (other user only) — augment from last message peers.
+  if (uniqueIds.length === 1) {
+    const known = uniqueIds[0];
+    const messages = safeArray<any>(conversation.messages);
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const message = messages[i];
+      const sender = safeString(message?.senderId ?? message?.sender_id);
+      const receiver = safeString(message?.receiverId ?? message?.receiver_id);
+      const other =
+        sender && sender !== known ? sender : receiver && receiver !== known ? receiver : '';
+      if (other) return [known, other].sort();
+    }
+    return uniqueIds;
+  }
+
+  // No participants — derive pair purely from messages.
+  const messagePeerIds = new Set<string>();
+  safeArray<any>(conversation.messages).forEach((message) => {
+    const sender = safeString(message?.senderId ?? message?.sender_id);
+    const receiver = safeString(message?.receiverId ?? message?.receiver_id);
+    if (sender) messagePeerIds.add(sender);
+    if (receiver) messagePeerIds.add(receiver);
+  });
+  const fromMessages = Array.from(messagePeerIds);
+  if (fromMessages.length >= 2) return fromMessages.sort().slice(0, 2);
+  return fromMessages;
+};
+
+const getConversationParticipantsKey = (conversation: Conversation) => {
+  const uniqueIds = collectDirectParticipantIds(conversation);
   if (uniqueIds.length === 0) return '';
-  return uniqueIds.sort().join(':');
+  return uniqueIds.join(':');
 };
 
 /**

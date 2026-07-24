@@ -346,25 +346,68 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
       aria-label={`Conversation with ${title}`}
     >
       <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
-        <div className="relative h-8 w-8 shrink-0">
-          <EnterpriseAvatar
-            user={isGroupConversation ? undefined : other}
-            src={avatarUrl || undefined}
-            name={title}
-            size="sm"
-            loading="eager"
-            className={`border border-slate-200 ${
-              isGroupConversation && !groupAvatarFileId ? 'bg-indigo-50 text-indigo-700' : ''
-            }`}
-          />
-          {isOnline ? (
-            <span
-              className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500"
-              title="Online"
-              aria-label="Online"
+        {/* Avatar → profile; title stays in-thread (does not navigate away). */}
+        {(() => {
+          const otherAny = other as any;
+          const isScrolitha = Boolean(
+            (conversation as any)?.isScrolitha ||
+              (conversation as any)?.is_scrolitha ||
+              otherAny?.isScrolitha ||
+              otherAny?.is_scrolitha
+          );
+          const username = String(otherAny?.username || '').trim();
+          const profileUrl =
+            !isGroupConversation && !isScrolitha
+              ? username
+                ? `/u/${username.replace(/^@+/, '')}`
+                : otherAny?.profileUrl || otherAny?.profile_url
+                  ? String(otherAny.profileUrl || otherAny.profile_url)
+                  : otherAny?.id
+                    ? `/profile/${otherAny.id}`
+                    : null
+              : null;
+          const avatarNode = (
+            <EnterpriseAvatar
+              user={isGroupConversation ? undefined : other}
+              src={avatarUrl || undefined}
+              name={title}
+              size="sm"
+              loading="eager"
+              className={`border border-slate-200 ${
+                isGroupConversation && !groupAvatarFileId ? 'bg-indigo-50 text-indigo-700' : ''
+              }`}
             />
-          ) : null}
-        </div>
+          );
+          return profileUrl ? (
+            <button
+              type="button"
+              onClick={() => navigate(profileUrl)}
+              className="relative h-8 w-8 shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              aria-label={`View ${title} profile`}
+              title="View profile"
+            >
+              {avatarNode}
+              {isOnline ? (
+                <span
+                  className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500"
+                  title="Online"
+                  aria-label="Online"
+                />
+              ) : null}
+            </button>
+          ) : (
+            <div className="relative h-8 w-8 shrink-0">
+              {avatarNode}
+              {isOnline ? (
+                <span
+                  className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500"
+                  title="Online"
+                  aria-label="Online"
+                />
+              ) : null}
+            </div>
+          );
+        })()}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-slate-900">{title}</div>
           <div className="truncate text-[11px] text-slate-500">
