@@ -154,6 +154,25 @@ router.put('/:id', requireAnyPermission('users.update', 'users.update_status', '
   const prismaClient = getPrisma();
 
   try {
+    // Detect official Scrolitha platform identity (admin may manage photo/email/verified badge).
+    let isScrolithaTarget = false;
+    if (prismaClient) {
+      try {
+        const target = await prismaClient.user.findUnique({
+          where: { id: userId },
+          select: { username: true, email: true }
+        });
+        const uname = String(target?.username || '').toLowerCase();
+        const mail = String(target?.email || '').toLowerCase();
+        isScrolithaTarget =
+          uname === 'scrolitha' ||
+          mail === 'scrolitha@system.scrolith.internal' ||
+          mail.endsWith('@system.scrolith.internal');
+      } catch {
+        isScrolithaTarget = false;
+      }
+    }
+
     const updates: any = {};
     if (name !== undefined) updates.name = String(name).trim() || null;
     if (email !== undefined) {
@@ -169,47 +188,64 @@ router.put('/:id', requireAnyPermission('users.update', 'users.update_status', '
       }
     }
     if (username !== undefined) {
-      const nextUsername = String(username).trim();
-      if (nextUsername) {
-        const existingUsername = prismaClient
-          ? await prismaClient.user.findUnique({ where: { username: nextUsername }, select: { id: true } })
-          : null;
-        if (existingUsername && existingUsername.id !== userId) {
-          return res.status(400).json({ success: false, error: 'Username already in use' });
-        }
-        updates.username = nextUsername;
+      // Reserved system handle for Scrolitha — username is not editable.
+      if (isScrolithaTarget) {
+        updates.username = 'scrolitha';
       } else {
-        updates.username = null;
+        const nextUsername = String(username).trim();
+        if (nextUsername) {
+          const existingUsername = prismaClient
+            ? await prismaClient.user.findUnique({ where: { username: nextUsername }, select: { id: true } })
+            : null;
+          if (existingUsername && existingUsername.id !== userId) {
+            return res.status(400).json({ success: false, error: 'Username already in use' });
+          }
+          updates.username = nextUsername;
+        } else {
+          updates.username = null;
+        }
       }
     }
     if (avatar !== undefined) updates.avatar = avatar;
     if (profilePhotoFileId !== undefined) updates.profilePhotoFileId = profilePhotoFileId || null;
-    if (role) updates.role = role.toString().toUpperCase();
+    if (role && !isScrolithaTarget) updates.role = role.toString().toUpperCase();
 
-    // Phase 20.2: block side-channel KYC / verification mutations.
-    // Final KYC decisions must go through POST /api/admin/kyc/:id/status.
+    // Phase 20.2: block side-channel KYC / verification mutations for human accounts.
+    // Scrolitha is a platform AI identity — admin may toggle the public verified badge
+    // (isVerified) without the human KYC workflow.
     const normalizedKycStatus = normalizeKycStatus(kycStatus);
-    const attemptsKycBypass =
-      normalizedKycStatus !== null ||
-      isVerified !== undefined;
-    if (attemptsKycBypass) {
-      try {
-        const { blockSideChannelKycMutation } = require('../../services/kyc/kyc.decision.service');
-        await blockSideChannelKycMutation({
-          targetUserId: userId,
-          actorUserId: (req as any).user?.id || null,
-          attemptedKycStatus: normalizedKycStatus,
-          attemptedIsVerified: isVerified === undefined ? null : Boolean(isVerified)
-        });
-      } catch {
-        /* audit best-effort */
+    if (isScrolithaTarget) {
+      if (isVerified !== undefined) {
+        updates.isVerified = Boolean(isVerified);
       }
-      return res.status(403).json({
-        success: false,
-        error:
-          'KYC verification status cannot be changed via generic user update. Use the KYC decision workflow.',
-        code: 'KYC_SIDE_CHANNEL_BLOCKED'
-      });
+      if (normalizedKycStatus === 'VERIFIED') {
+        updates.isVerified = true;
+      } else if (normalizedKycStatus && normalizedKycStatus !== 'VERIFIED') {
+        updates.isVerified = false;
+      }
+    } else {
+      const attemptsKycBypass =
+        normalizedKycStatus !== null ||
+        isVerified !== undefined;
+      if (attemptsKycBypass) {
+        try {
+          const { blockSideChannelKycMutation } = require('../../services/kyc/kyc.decision.service');
+          await blockSideChannelKycMutation({
+            targetUserId: userId,
+            actorUserId: (req as any).user?.id || null,
+            attemptedKycStatus: normalizedKycStatus,
+            attemptedIsVerified: isVerified === undefined ? null : Boolean(isVerified)
+          });
+        } catch {
+          /* audit best-effort */
+        }
+        return res.status(403).json({
+          success: false,
+          error:
+            'KYC verification status cannot be changed via generic user update. Use the KYC decision workflow.',
+          code: 'KYC_SIDE_CHANNEL_BLOCKED'
+        });
+      }
     }
 
     if (status !== undefined || isActive !== undefined) {
@@ -225,6 +261,14 @@ router.put('/:id', requireAnyPermission('users.update', 'users.update_status', '
         where: { id: userId },
         data: updates
       });
+      if (isScrolithaTarget) {
+        try {
+          const { clearScrolithaPlatformIdentityCache } = require('../../services/scrolitha/scrolitha.platformIdentity');
+          clearScrolithaPlatformIdentityCache();
+        } catch {
+          /* best-effort */
+        }
+      }
     } else {
       ensureMemoryUser(req);
       const idx = memoryUsers.findIndex(u => u.id === userId);

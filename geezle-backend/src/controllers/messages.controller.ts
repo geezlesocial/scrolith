@@ -296,13 +296,20 @@ const formatParticipant = (participant: any) => {
     avatarIsBareFileId
       ? `/api/files/content/${encodeURIComponent(avatarRaw)}`
       : avatarRaw;
+  // Prefer admin-managed Scrolitha avatar when present; fall back to official art.
   const avatarResolved = isScrolitha
-    ? withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL)
+    ? withScrolithaAssetVersion(
+        avatarRaw ||
+          contentFromFileId ||
+          SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL
+      )
     : contentFromFileId || avatarFromRaw || '';
 
   return {
     id: participant.user.id,
-    name: isScrolitha ? 'Scrolitha' : participant.user.name || participant.user.email || 'User',
+    name: isScrolitha
+      ? participant.user.name || 'Scrolitha'
+      : participant.user.name || participant.user.email || 'User',
     avatar: avatarResolved,
     avatarUrl: avatarResolved,
     // Secondary candidate for FE multi-source avatar loading (when primary content URL fails).

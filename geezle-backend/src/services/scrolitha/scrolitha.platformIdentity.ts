@@ -61,28 +61,43 @@ const toPublicIdentity = (user: {
   username: string | null;
   name: string | null;
   avatar: string | null;
+  profilePhotoFileId?: string | null;
   isVerified: boolean;
   isActive: boolean;
   role: string;
-}): ScrolithaPlatformUser => ({
-  id: user.id,
-  username: String(user.username || SCROLITHA_PLATFORM_USERNAME).toLowerCase(),
-  name: user.name || SCROLITHA_PLATFORM_DISPLAY_NAME,
-  // Always prefer official canonical photo for public presentation.
-  avatar: withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL),
-  coverPhotoUrl: withScrolithaAssetVersion(SCROLITHA_OFFICIAL_COVER_PHOTO_URL),
-  profilePhotoFileId: SCROLITHA_OFFICIAL_PROFILE_PHOTO_FILE_ID,
-  coverPhotoFileId: SCROLITHA_OFFICIAL_COVER_PHOTO_FILE_ID,
-  assetVersion: SCROLITHA_ASSET_VERSION,
-  isVerified: true,
-  isActive: user.isActive !== false,
-  role: String(user.role || 'USER'),
-  isScrolitha: true,
-  systemLabel: SCROLITHA_SYSTEM_LABEL,
-  disclosure: SCROLITHA_DISCLOSURE,
-  identityType: 'system_ai',
-  official: true
-});
+}): ScrolithaPlatformUser => {
+  const managedAvatar = String(user.avatar || '').trim();
+  const managedFileId = String(user.profilePhotoFileId || '').trim();
+  // Prefer admin-managed photo when set; fall back to canonical official assets.
+  const avatar =
+    managedAvatar ||
+    (managedFileId
+      ? `https://api.scrolith.com/api/files/content/${encodeURIComponent(managedFileId)}`
+      : SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL);
+  return {
+    id: user.id,
+    username: String(user.username || SCROLITHA_PLATFORM_USERNAME).toLowerCase(),
+    name: user.name || SCROLITHA_PLATFORM_DISPLAY_NAME,
+    avatar: withScrolithaAssetVersion(avatar),
+    coverPhotoUrl: withScrolithaAssetVersion(SCROLITHA_OFFICIAL_COVER_PHOTO_URL),
+    profilePhotoFileId: managedFileId || SCROLITHA_OFFICIAL_PROFILE_PHOTO_FILE_ID,
+    coverPhotoFileId: SCROLITHA_OFFICIAL_COVER_PHOTO_FILE_ID,
+    assetVersion: SCROLITHA_ASSET_VERSION,
+    isVerified: user.isVerified !== false,
+    isActive: user.isActive !== false,
+    role: String(user.role || 'USER'),
+    isScrolitha: true,
+    systemLabel: SCROLITHA_SYSTEM_LABEL,
+    disclosure: SCROLITHA_DISCLOSURE,
+    identityType: 'system_ai',
+    official: true
+  };
+};
+
+/** Clear in-memory identity cache after admin updates Scrolitha profile fields. */
+export const clearScrolithaPlatformIdentityCache = () => {
+  identityCache = null;
+};
 
 /**
  * Find or create the reserved Scrolitha platform user.
@@ -105,6 +120,7 @@ export const ensureScrolithaPlatformUser = async (): Promise<ScrolithaPlatformUs
       username: true,
       name: true,
       avatar: true,
+      profilePhotoFileId: true,
       isVerified: true,
       isActive: true,
       role: true,
@@ -113,28 +129,60 @@ export const ensureScrolithaPlatformUser = async (): Promise<ScrolithaPlatformUs
   });
 
   if (existing) {
-    // Keep identity fields authoritative without blocking if concurrent updates fail.
+    // Soft-heal only missing/broken identity fields.
+    // Admin may manage display name, email, avatar, and verification — never overwrite those.
     try {
-      const patched = await prisma.user.update({
-        where: { id: existing.id },
-        data: {
-          username: SCROLITHA_PLATFORM_USERNAME,
-          name: SCROLITHA_PLATFORM_DISPLAY_NAME,
-          avatar: SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL,
-          isVerified: true,
-          // Keep active so FK/comment author relations work; login is blocked by missing password + email domain.
-          isActive: true
-        },
-        select: {
-          id: true,
-          username: true,
-          name: true,
-          avatar: true,
-          isVerified: true,
-          isActive: true,
-          role: true
-        }
-      });
+      const heal: Record<string, any> = {};
+      if (String(existing.username || '').toLowerCase() !== SCROLITHA_PLATFORM_USERNAME) {
+        heal.username = SCROLITHA_PLATFORM_USERNAME;
+      }
+      if (!String(existing.name || '').trim()) {
+        heal.name = SCROLITHA_PLATFORM_DISPLAY_NAME;
+      }
+      if (!String(existing.avatar || '').trim()) {
+        heal.avatar = SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL;
+      }
+      // Keep active so FK/comment author relations work; login is blocked by missing password + email domain.
+      if (existing.isActive === false) {
+        heal.isActive = true;
+      }
+
+      const patched =
+        Object.keys(heal).length > 0
+          ? await prisma.user.update({
+              where: { id: existing.id },
+              data: heal,
+              select: {
+                id: true,
+                username: true,
+                name: true,
+                avatar: true,
+                profilePhotoFileId: true,
+                isVerified: true,
+                isActive: true,
+                role: true
+              }
+            })
+          : await prisma.user.findUnique({
+              where: { id: existing.id },
+              select: {
+                id: true,
+                username: true,
+                name: true,
+                avatar: true,
+                profilePhotoFileId: true,
+                isVerified: true,
+                isActive: true,
+                role: true
+              }
+            });
+
+      if (!patched) {
+        const identity = toPublicIdentity(existing);
+        identityCache = { expiresAt: Date.now() + IDENTITY_CACHE_TTL_MS, value: identity };
+        return identity;
+      }
+
       const identity = toPublicIdentity(patched);
       identityCache = { expiresAt: Date.now() + IDENTITY_CACHE_TTL_MS, value: identity };
       return identity;
@@ -247,8 +295,4 @@ export const isReservedScrolithaUsername = (username: string | null | undefined)
     normalized === 'scrolitha-bot' ||
     normalized === 'official_scrolitha'
   );
-};
-
-export const clearScrolithaPlatformIdentityCache = () => {
-  identityCache = null;
 };
