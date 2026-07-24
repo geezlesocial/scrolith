@@ -388,18 +388,36 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
         fallback
     );
 
+  const isScrolithaAccount = (userLike?: Partial<UserType> | EditableUser | null) => {
+    if (!userLike) return false;
+    const username = String(userLike.username || '')
+      .trim()
+      .toLowerCase()
+      .replace(/^@/, '');
+    const email = String(userLike.email || '').trim().toLowerCase();
+    return (
+      username === 'scrolitha' ||
+      email === 'scrolitha@system.scrolith.internal' ||
+      email.endsWith('@system.scrolith.internal') ||
+      Boolean((userLike as any).isScrolitha || (userLike as any).is_scrolitha)
+    );
+  };
+
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser || !editingUser.id) return;
 
     setIsSaving(true);
     try {
-      // Backend PUT /admin/users/:id only accepts a whitelist. Sending KYC/isVerified
-      // is blocked (403 KYC_SIDE_CHANNEL) and previously prevented all profile saves.
+      const scrolitha = isScrolithaAccount(editingUser);
+      // Backend PUT whitelist only. Human KYC isVerified is blocked (403).
+      // Scrolitha platform identity allows isVerified (public badge control).
       const payload: Record<string, any> = {};
       if (typeof editingUser.name === 'string') payload.name = editingUser.name.trim();
       if (typeof editingUser.email === 'string') payload.email = editingUser.email.trim();
-      if (typeof editingUser.username === 'string') {
+      if (scrolitha) {
+        payload.username = 'scrolitha';
+      } else if (typeof editingUser.username === 'string') {
         const nextUsername = editingUser.username.trim();
         if (nextUsername) payload.username = nextUsername;
       }
@@ -409,7 +427,18 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
       if (editingUser.profilePhotoFileId) {
         payload.profilePhotoFileId = editingUser.profilePhotoFileId;
       }
-      if (editingUser.role) payload.role = editingUser.role;
+      if (editingUser.role && !scrolitha) payload.role = editingUser.role;
+
+      if (scrolitha) {
+        const verification = String(
+          editingUser.kycStatus ||
+            editingUser.kyc_status ||
+            (editingUser.isVerified ? 'verified' : 'pending')
+        )
+          .trim()
+          .toLowerCase();
+        payload.isVerified = verification === 'verified';
+      }
 
       const nextStatus = String(editingUser.status || '').trim().toLowerCase();
       if (nextStatus) {
@@ -420,12 +449,11 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
       await AdminService.updateUserDetail(editingUser.id, payload as Partial<UserType>, adminId);
 
       const password = String(editingUser.password || '').trim();
-      if (password) {
+      if (password && !scrolitha) {
         await AdminService.updateUserPassword(editingUser.id, password, adminId);
       }
 
-      // Status also applied via dedicated endpoint so list filters stay authoritative.
-      if (nextStatus) {
+      if (nextStatus && !scrolitha) {
         try {
           await AdminService.updateUserStatus(editingUser.id, nextStatus, adminId);
         } catch {
@@ -433,7 +461,13 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
         }
       }
 
-      showNotification('success', 'User Updated', 'Profile, role, and status changes were saved.');
+      showNotification(
+        'success',
+        scrolitha ? 'Scrolitha Updated' : 'User Updated',
+        scrolitha
+          ? 'Scrolitha email, profile photo, and verification badge were saved.'
+          : 'Profile, role, and status changes were saved.'
+      );
       setIsEditModalOpen(false);
       await loadData();
       if (onUserUpdated) onUserUpdated();
@@ -670,7 +704,20 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
   };
 
   const handleFileSelect = (file: any) => {
-    setEditingUser(prev => prev ? { ...prev, avatar: file.url, profilePhotoFileId: file.id } : null);
+    const fileId = String(file?.id || file?.fileId || '').trim();
+    const rawUrl = String(file?.url || file?.contentUrl || file?.downloadUrl || '').trim();
+    const contentUrl = fileId
+      ? `/api/files/content/${encodeURIComponent(fileId)}`
+      : rawUrl;
+    setEditingUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            avatar: contentUrl || rawUrl || prev.avatar,
+            profilePhotoFileId: fileId || prev.profilePhotoFileId
+          }
+        : null
+    );
     setIsFilePickerOpen(false);
   };
 
@@ -1582,6 +1629,13 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
             </div>
             <form onSubmit={handleSaveUser}>
               <div className="space-y-4">
+                {isScrolithaAccount(editingUser) ? (
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs text-indigo-900">
+                    <strong className="font-semibold">Official Scrolitha AI identity.</strong>{' '}
+                    You can update display name, email, profile photo, and the public verified badge.
+                    Username stays reserved as <code className="font-mono">scrolitha</code> for mentions and messaging.
+                  </div>
+                ) : null}
                 <div className="flex items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
                   <button
                     type="button"
@@ -1601,7 +1655,9 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-semibold text-gray-900">Profile photo</div>
                     <div className="text-xs text-gray-500">
-                      Update the account avatar and profile photo file reference.
+                      {isScrolithaAccount(editingUser)
+                        ? 'Upload Scrolitha’s official photo used across messages, feed, and AI surfaces.'
+                        : 'Update the account avatar and profile photo file reference.'}
                     </div>
                     <button
                       type="button"
@@ -1627,11 +1683,22 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <label className="block text-sm font-medium mb-1">Username</label>
                   <input
                     type="text"
-                    className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className={`w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                      isScrolithaAccount(editingUser) ? 'bg-gray-50 text-gray-600' : ''
+                    }`}
                     value={editingUser.username || ''}
                     onChange={e => setEditingUser({ ...editingUser, username: e.target.value })}
                     placeholder="demo.username"
+                    readOnly={isScrolithaAccount(editingUser)}
+                    title={
+                      isScrolithaAccount(editingUser)
+                        ? 'Reserved system username — cannot be changed'
+                        : undefined
+                    }
                   />
+                  {isScrolithaAccount(editingUser) ? (
+                    <p className="text-xs text-gray-500 mt-1">Reserved for @scrolitha / AI assistant routing.</p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Email</label>
@@ -1643,6 +1710,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     placeholder="user@example.com"
                   />
                 </div>
+                {!isScrolithaAccount(editingUser) ? (
+                  <>
                 <div>
                   <label className="block text-sm font-medium mb-1">Role</label>
                   <select
@@ -1654,6 +1723,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     <option value="employer">Employer</option>
                     <option value="admin">Admin</option>
                     <option value="guest">Guest</option>
+                    <option value="user">User</option>
                   </select>
                 </div>
                 <div>
@@ -1670,14 +1740,40 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     <option value="banned">Banned</option>
                   </select>
                 </div>
+                  </>
+                ) : null}
                 <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-900 mb-1">Verification Status</label>
+                    <label className="block text-sm font-medium text-gray-900 mb-1">
+                      {isScrolithaAccount(editingUser) ? 'Platform verified badge' : 'Verification Status'}
+                    </label>
                     <select
-                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
-                      value={String(editingUser.kycStatus || editingUser.kyc_status || (editingUser.isVerified ? 'verified' : 'pending')).toLowerCase()}
-                      disabled
-                      title="KYC decisions use the dedicated KYC workflow"
+                      className={`w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                        isScrolithaAccount(editingUser) ? '' : 'bg-gray-50'
+                      }`}
+                      value={String(
+                        editingUser.kycStatus ||
+                          editingUser.kyc_status ||
+                          (editingUser.isVerified ? 'verified' : 'pending')
+                      ).toLowerCase()}
+                      disabled={!isScrolithaAccount(editingUser)}
+                      onChange={(e) => {
+                        if (!isScrolithaAccount(editingUser)) return;
+                        const nextStatus = e.target.value;
+                        const nextVerified = nextStatus === 'verified';
+                        setEditingUser({
+                          ...editingUser,
+                          kycStatus: nextStatus as any,
+                          kyc_status: nextStatus as any,
+                          isVerified: nextVerified,
+                          is_verified: nextVerified
+                        } as EditableUser);
+                      }}
+                      title={
+                        isScrolithaAccount(editingUser)
+                          ? 'Controls the public verified badge for Scrolitha'
+                          : 'KYC decisions use the dedicated KYC workflow'
+                      }
                     >
                       <option value="pending">Pending</option>
                       <option value="under_review">Under review</option>
@@ -1685,8 +1781,14 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                       <option value="rejected">Rejected</option>
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
-                      Profile, role, status, password, and wallet are saved here. Final KYC decisions are applied in{' '}
-                      <strong>Admin → KYC Verification</strong> (side-channel KYC edits are blocked by policy).
+                      {isScrolithaAccount(editingUser)
+                        ? 'Sets Scrolitha’s public verified badge across the platform. Apply Changes to save.'
+                        : (
+                          <>
+                            Profile, role, status, password, and wallet are saved here. Final KYC decisions are applied in{' '}
+                            <strong>Admin → KYC Verification</strong>.
+                          </>
+                        )}
                     </p>
                   </div>
                   <div className="flex items-center justify-between rounded-lg border border-white/80 bg-white px-3 py-2">
