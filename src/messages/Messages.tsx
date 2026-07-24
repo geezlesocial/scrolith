@@ -49,6 +49,7 @@ import {
   type AppearanceInput
 } from '../services/messaging/chatTextColorEngine';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
+import { extractStoryMessageReference } from '../utils/storyMessageMedia';
 import {
   formatMultiRecorderLabel,
   formatMultiTyperLabel,
@@ -57,6 +58,7 @@ import {
 import MessageDeliveryTicks from '../components/messaging/MessageDeliveryTicks';
 import MessagingPrivacySettingsPanel from '../components/messaging/MessagingPrivacySettingsPanel';
 import ConversationActionsMenu from '../components/messaging/ConversationActionsMenu';
+import StoryMessageMediaThumb from '../components/messaging/StoryMessageMediaThumb';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
 import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
@@ -620,7 +622,11 @@ const Messages = () => {
               priority: 'high'
           });
           const avatarUrls = (convo?.participants || [])
-              .map((p: any) => String(p?.avatar || p?.avatarUrl || '').trim())
+              .map((p: any) =>
+                  resolveUserAvatarUrl(p) ||
+                  String(p?.avatar || p?.avatarUrl || p?.profilePhotoFileId || '').trim()
+              )
+              .map((url: string) => resolveUserAvatarUrl(url) || url)
               .filter(Boolean);
           preloadConversationAvatars(avatarUrls);
       }
@@ -1483,22 +1489,7 @@ const Messages = () => {
       };
   };
 
-  const extractStoryReference = (message: Message) => {
-      const metadata = message?.metadata && typeof message.metadata === 'object' ? message.metadata : null;
-      const storyReference = metadata?.storyReference && typeof metadata.storyReference === 'object'
-          ? metadata.storyReference
-          : null;
-      const storyId = String(storyReference?.storyId || metadata?.storyId || '').trim();
-      if (!storyId) return null;
-      return {
-          storyId,
-          mediaPreview: String(storyReference?.mediaPreview || '').trim(),
-          caption: String(storyReference?.caption || '').trim(),
-          reactionType: String(storyReference?.reactionType || metadata?.reactionType || '').trim(),
-          category: String(metadata?.category || '').trim(),
-          actionUrl: String(metadata?.actionUrl || metadata?.action_url || `/community?story=${encodeURIComponent(storyId)}`).trim()
-      };
-  };
+  const extractStoryReference = (message: Message) => extractStoryMessageReference(message);
 
   const normalizeBriefFromEvent = (event: any): ProjectBrief | null => {
       const brief = event?.brief && typeof event.brief === 'object' ? event.brief : event;
@@ -3916,7 +3907,7 @@ const Messages = () => {
                                                               ? { ...participant, isScrolitha: true }
                                                               : participant
                                                           ) ||
-                                                          participant?.avatar ||
+                                                          resolveUserAvatarUrl(participant) ||
                                                           (isScrolithaConvo
                                                             ? getScrolithaProfilePhotoUrl()
                                                             : null)
@@ -4095,7 +4086,7 @@ const Messages = () => {
                                                   ? { ...otherParticipant, isScrolitha: true }
                                                   : otherParticipant
                                               ) ||
-                                              otherParticipant?.avatar ||
+                                              resolveUserAvatarUrl(otherParticipant) ||
                                               (isActiveScrolithaConversation ? getScrolithaProfilePhotoUrl() : null)
                                         }
                                         name={
@@ -4461,20 +4452,17 @@ const Messages = () => {
                                                 }`}
                                                 aria-label="Open referenced story"
                                             >
-                                                {storyReference.mediaPreview ? (
-                                                    <img
-                                                        src={storyReference.mediaPreview}
-                                                        alt=""
-                                                        className="h-12 w-9 shrink-0 rounded-lg object-cover"
-                                                        loading="lazy"
-                                                    />
-                                                ) : (
-                                                    <span className={`flex h-12 w-9 shrink-0 items-center justify-center rounded-lg text-base ${
-                                                        msg.senderId === user?.id ? 'bg-white/15' : 'bg-gray-200'
-                                                    }`}>
-                                                        {storyReference.reactionType || 'S'}
-                                                    </span>
-                                                )}
+                                                <StoryMessageMediaThumb
+                                                    candidates={
+                                                        storyReference.mediaCandidates?.length
+                                                            ? storyReference.mediaCandidates
+                                                            : storyReference.mediaPreview
+                                                              ? [storyReference.mediaPreview]
+                                                              : []
+                                                    }
+                                                    reactionType={storyReference.reactionType}
+                                                    outgoing={msg.senderId === user?.id}
+                                                />
                                                 <span className="min-w-0">
                                                     <span className="block text-xs font-semibold">
                                                         {storyReference.reactionType ? 'Story reaction' : 'Story message'}

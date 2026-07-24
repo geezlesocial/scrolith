@@ -53,10 +53,9 @@ export const resolveProfilePhotoCandidates = (input?: {
   const out: string[] = [];
   const seen = new Set<string>();
 
-  pushCandidate(out, seen, src);
-
   if (user && typeof user === 'object') {
     // Prefer file-id based content URLs first (most reliable for uploaded photos).
+    // Platform content URLs work without bearer tokens for identity photos.
     const fileIds = [
       user.profilePhotoFileId,
       user.profile_photo_file_id,
@@ -75,10 +74,15 @@ export const resolveProfilePhotoCandidates = (input?: {
       }
     }
 
+    // Explicit src after durable file ids so stale OAuth/GCS src does not block them.
+    pushCandidate(out, seen, src);
+
     const directKeys = [
       user.avatarUrl,
       user.avatar_url,
       typeof user.avatar === 'string' ? user.avatar : null,
+      user.fallbackAvatar,
+      user.fallback_avatar,
       user.profilePhotoUrl,
       user.profile_photo_url,
       user.profilePhoto,
@@ -123,6 +127,9 @@ export const resolveProfilePhotoCandidates = (input?: {
     }
   } else if (typeof user === 'string') {
     pushCandidate(out, seen, user);
+  } else {
+    // No user object — still honor explicit src
+    pushCandidate(out, seen, src);
   }
 
   // Bare src as userLike string resolution

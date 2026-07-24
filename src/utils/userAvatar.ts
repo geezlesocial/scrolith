@@ -32,7 +32,28 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
   const scrolithaAvatar = resolveScrolithaAvatar(userLike);
   if (scrolithaAvatar) return scrolithaAvatar;
 
-  // Nested media objects first (logo/cover/avatar with url + fileId + storagePath).
+  // Prefer durable platform file ids first — they serve as public identity photos
+  // without bearer tokens. Stale OAuth/GCS avatar strings often fail in <img>.
+  const identityFileId = pickFirstString(
+    userLike.profilePhotoFileId,
+    userLike.profile_photo_file_id,
+    userLike.clientProfilePhotoFileId,
+    userLike.client_profile_photo_file_id,
+    userLike.freelancerProfilePhotoFileId,
+    userLike.freelancer_profile_photo_file_id,
+    userLike.avatarFileId,
+    userLike.avatar_file_id,
+    userLike.authorAvatarFileId,
+    userLike.userAvatarFileId,
+    typeof userLike.avatar === 'object' ? userLike.avatar?.fileId || userLike.avatar?.file_id || userLike.avatar?.id : '',
+    typeof userLike.logo === 'object' ? userLike.logo?.fileId || userLike.logo?.file_id || userLike.logo?.id : ''
+  );
+  if (identityFileId && looksLikeFileId(identityFileId)) {
+    const fromFileId = resolvePostAttachmentMediaUrl({ fileId: identityFileId });
+    if (fromFileId) return fromFileId;
+  }
+
+  // Nested media objects (logo/cover/avatar with url + fileId + storagePath).
   const nestedCandidates = [
     userLike.logo && typeof userLike.logo === 'object' ? userLike.logo : null,
     userLike.avatar && typeof userLike.avatar === 'object' ? userLike.avatar : null,
@@ -45,12 +66,20 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
     if (resolved) return resolved;
   }
 
-  // Composite descriptor from common identity fields.
+  // Composite descriptor from string identity fields.
   const composite = resolveMediaDescriptor({
     url: pickFirstString(
+      typeof userLike.avatar === 'string' && String(userLike.avatar).includes('/api/files/content/')
+        ? userLike.avatar
+        : '',
+      typeof userLike.avatarUrl === 'string' && String(userLike.avatarUrl).includes('/api/files/content/')
+        ? userLike.avatarUrl
+        : '',
       userLike.avatarUrl,
       userLike.avatar_url,
       typeof userLike.avatar === 'string' ? userLike.avatar : '',
+      userLike.fallbackAvatar,
+      userLike.fallback_avatar,
       userLike.logoUrl,
       userLike.logo_url,
       typeof userLike.logo === 'string' ? userLike.logo : '',
@@ -66,34 +95,7 @@ export const resolveUserAvatarUrl = (userLike: any): string => {
       userLike.cover_url,
       typeof userLike.cover === 'string' ? userLike.cover : ''
     ),
-    fileId: pickFirstString(
-      userLike.profilePhotoFileId,
-      userLike.profile_photo_file_id,
-      userLike.clientProfilePhotoFileId,
-      userLike.client_profile_photo_file_id,
-      userLike.freelancerProfilePhotoFileId,
-      userLike.freelancer_profile_photo_file_id,
-      userLike.avatarFileId,
-      userLike.avatar_file_id,
-      userLike.authorAvatarFileId,
-      userLike.userAvatarFileId,
-      userLike.logoFileId,
-      userLike.logo_file_id,
-      userLike.coverFileId,
-      userLike.cover_file_id,
-      userLike.imageFileId,
-      userLike.image_file_id,
-      userLike.profileImageFileId,
-      userLike.profile_image_file_id,
-      userLike.logo?.fileId,
-      userLike.logo?.file_id,
-      userLike.logo?.id,
-      userLike.cover?.fileId,
-      userLike.cover?.file_id,
-      userLike.avatar?.fileId,
-      userLike.avatar?.file_id,
-      userLike.avatar?.id
-    ),
+    fileId: identityFileId,
     storagePath: pickFirstString(
       userLike.storagePath,
       userLike.storage_path,

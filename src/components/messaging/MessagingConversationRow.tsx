@@ -52,7 +52,15 @@ const MessagingConversationRow: React.FC<MessagingConversationRowProps> = ({
     ? groupAvatarFileId
       ? resolveUserAvatarUrl(groupAvatarFileId)
       : undefined
-    : other?.avatar || other?.avatarUrl || other?.profilePhotoFileId;
+    : resolveUserAvatarUrl(other) ||
+      resolveUserAvatarUrl({
+        avatar: (other as any)?.avatar,
+        avatarUrl: (other as any)?.avatarUrl,
+        profilePhotoFileId:
+          (other as any)?.profilePhotoFileId || (other as any)?.profile_photo_file_id,
+        fallbackAvatar: (other as any)?.fallbackAvatar || (other as any)?.fallback_avatar
+      }) ||
+      undefined;
   const hasAttachmentHint =
     /image|photo|video|audio|voice|pdf|document|file|attachment/i.test(preview);
 
