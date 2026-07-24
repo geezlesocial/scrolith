@@ -50,4 +50,29 @@ describe('/metrics endpoint security', () => {
     const res = await request(app).get('/metrics').set('X-Forwarded-For', '127.0.0.1');
     expect([200, 404]).toContain(res.status);
   });
+
+  test('production fails closed when metrics auth not configured', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.METRICS_USERNAME;
+    delete process.env.METRICS_PASSWORD;
+    delete process.env.METRICS_ALLOW_IPS;
+    delete process.env.METRICS_PUBLIC;
+    process.env.K_SERVICE = 'scrolith-backend';
+
+    const res = await request(app).get('/metrics');
+    expect(res.status).toBe(403);
+    expect(res.body.code).toBe('METRICS_ACCESS_DENIED');
+  });
+
+  test('METRICS_PUBLIC is ignored in production', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.K_SERVICE = 'scrolith-backend';
+    process.env.METRICS_PUBLIC = 'true';
+    delete process.env.METRICS_USERNAME;
+    delete process.env.METRICS_PASSWORD;
+    delete process.env.METRICS_ALLOW_IPS;
+
+    const res = await request(app).get('/metrics');
+    expect(res.status).toBe(403);
+  });
 });

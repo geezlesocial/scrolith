@@ -4245,13 +4245,27 @@ app.get('/metrics', async (req: Request, res: Response) => {
     };
 
     const ipAllowed = allowList.length === 0 ? false : allowList.some(entry => cidrMatch(clientIp, entry));
-    const requireAuth = Boolean(metricsUser && metricsPass) || allowList.length > 0;
+    const hasBasic = Boolean(metricsUser && metricsPass);
+    const hasAllowlist = allowList.length > 0;
+    const isProdRuntime =
+      String(process.env.NODE_ENV || '').toLowerCase() === 'production' || Boolean(process.env.K_SERVICE);
+    // Fail closed in production/Cloud Run unless Basic auth and/or IP allowlist is configured.
+    // METRICS_PUBLIC=true is ignored when isProdRuntime (never open Prometheus to the world).
+    const allowOpenMetrics =
+      !isProdRuntime && String(process.env.METRICS_PUBLIC || '').toLowerCase() === 'true';
 
-    if (requireAuth) {
+    if (!hasBasic && !hasAllowlist && !allowOpenMetrics) {
+      return res.status(403).json({
+        error: 'Metrics access not configured',
+        code: 'METRICS_ACCESS_DENIED'
+      });
+    }
+
+    if (hasBasic || hasAllowlist) {
       // allow if IP is allowlisted
       if (ipAllowed) {
         // proceed
-      } else if (metricsUser && metricsPass) {
+      } else if (hasBasic) {
         const auth = (req.headers.authorization || '').toString();
         if (!auth.startsWith('Basic ')) {
           res.setHeader('WWW-Authenticate', 'Basic realm="metrics"');
@@ -4266,6 +4280,7 @@ app.get('/metrics', async (req: Request, res: Response) => {
           return res.status(403).json({ error: 'Forbidden' });
         }
       } else {
+        // allowlist configured but client IP not allowed
         return res.status(403).json({ error: 'Forbidden' });
       }
     }
