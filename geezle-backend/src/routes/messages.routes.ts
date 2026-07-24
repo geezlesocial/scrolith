@@ -67,7 +67,14 @@ import {
   discoverGroups,
   getGroupHealth
 } from '../controllers/groupIntelligence.controller';
-import { getVoiceRuntimeConfig, listVoiceCalls, postVoiceNoteMessage } from '../controllers/messenger.voice.controller';
+import {
+  getVoiceRuntimeConfig,
+  getVoiceIceServers,
+  getConversationCallPolicy,
+  patchConversationCallPolicy,
+  listVoiceCalls,
+  postVoiceNoteMessage
+} from '../controllers/messenger.voice.controller';
 import { postConversationReceipts } from '../controllers/messageReceipts.controller';
 import {
   getPresenceBatch,
@@ -100,6 +107,9 @@ router.post('/scrolitha/turn/stream', authMiddleware, postScrolithaUnifiedTurnSt
 router.get('/search', authMiddleware, searchMessages);
 router.get('/conversations', authMiddleware, listConversations);
 router.get('/voice/config', authMiddleware, getVoiceRuntimeConfig);
+router.get('/voice/ice-servers', authMiddleware, getVoiceIceServers);
+router.get('/conversations/:id/call-policy', authMiddleware, getConversationCallPolicy);
+router.patch('/conversations/:id/call-policy', authMiddleware, patchConversationCallPolicy);
 // Phase 22.2 — group invites accept (before :id routes)
 router.post('/invites/:code/accept', authMiddleware, acceptGroupInvite);
 

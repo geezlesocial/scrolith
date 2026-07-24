@@ -124,6 +124,11 @@ import {
   isVoiceBlockedForUser,
   MAX_MESSENGER_VOICE_PARTICIPANTS
 } from './services/messengerVoice.service';
+import {
+  authorizeCallAction,
+  resolveGroupCallPolicy,
+  type GroupCallPolicy
+} from './services/messaging/messengerCallPolicy.service';
 import { appendLiveDiagnosticsEvent } from './services/liveDiagnostics.service';
 import {
   recordPresenceLease,
@@ -880,14 +885,42 @@ const resolveParticipantOptionsByIds = async (userIds: string[]) => {
 const loadConversationForVoice = async (conversationId: string, userId: string) => {
   const conversation = await prisma.conversation.findUnique({
     where: { id: conversationId },
-    include: { participants: true }
+    include: {
+      participants: true,
+      groupSettings: true
+    }
   });
-  if (!conversation) return { conversation: null, participantIds: [] as string[] };
-  const participantIds = Array.isArray(conversation.participants)
-    ? conversation.participants.map((entry: any) => String(entry.userId || '').trim()).filter(Boolean)
+  if (!conversation) {
+    return {
+      conversation: null,
+      participantIds: [] as string[],
+      actorParticipant: null as any,
+      groupPolicy: resolveGroupCallPolicy({}) as GroupCallPolicy
+    };
+  }
+  const activeParticipants = Array.isArray(conversation.participants)
+    ? conversation.participants.filter((entry: any) => !entry?.deletedAt)
     : [];
-  if (!participantIds.includes(userId)) return { conversation: null, participantIds: [] as string[] };
-  return { conversation, participantIds };
+  const participantIds = activeParticipants
+    .map((entry: any) => String(entry.userId || '').trim())
+    .filter(Boolean);
+  if (!participantIds.includes(userId)) {
+    return {
+      conversation: null,
+      participantIds: [] as string[],
+      actorParticipant: null as any,
+      groupPolicy: resolveGroupCallPolicy({})
+    };
+  }
+  const actorParticipant =
+    activeParticipants.find((entry: any) => String(entry.userId || '').trim() === userId) || null;
+  const settings = (conversation as any).groupSettings || null;
+  const groupPolicy = resolveGroupCallPolicy({
+    allowVoice: settings?.allowVoice,
+    policyJson: settings?.policyJson,
+    permissionOverrides: (conversation as any).permissionOverrides
+  });
+  return { conversation, participantIds, actorParticipant, groupPolicy };
 };
 
 const loadVoiceCallForUser = async (callId: string, userId: string) => {
@@ -1905,17 +1938,6 @@ communityNs.on('connection', (socket) => {
           if (ack) ack(error);
           return;
         }
-        if (!config.enabledVoiceCalls) {
-          const error = { success: false, error: 'Voice calls are disabled by admin.', code: 'VOICE_CALLS_DISABLED' };
-          if (ack) ack(error);
-          return;
-        }
-        if (isVoiceBlockedForUser(config, userId)) {
-          const error = { success: false, error: 'Voice features are blocked for this account.', code: 'VOICE_BLOCKED' };
-          if (ack) ack(error);
-          return;
-        }
-
         const conversationId = String(payload?.conversationId || '').trim();
         if (!conversationId) {
           const error = { success: false, error: 'conversationId is required.', code: 'CONVERSATION_REQUIRED' };
@@ -1936,9 +1958,14 @@ communityNs.on('connection', (socket) => {
         const conversationType = String((convo.conversation as any)?.type || '').trim().toUpperCase();
         const isDirectConversation = conversationType === 'DIRECT';
         const defaultTargetIds = convo.participantIds.filter((id) => id && id !== userId);
+        // Group calls ring eligible active members; direct stays 1:1.
         const targetIds = isDirectConversation
           ? (requestedIds.length ? requestedIds.slice(0, 1) : defaultTargetIds.slice(0, 1))
-          : Array.from(new Set([...requestedIds, ...defaultTargetIds].filter(Boolean)));
+          : Array.from(
+              new Set(
+                (requestedIds.length ? requestedIds : defaultTargetIds).filter((id) => Boolean(id) && id !== userId)
+              )
+            );
 
         if (!targetIds.length) {
           const error = {
@@ -1950,19 +1977,59 @@ communityNs.on('connection', (socket) => {
           return;
         }
 
-        const participantLimit = resolveVoiceParticipantLimit(config);
-        const totalParticipants = new Set([userId, ...targetIds]).size;
-        if (totalParticipants > participantLimit) {
+        // Filter platform-blocked targets (do not ring blocked accounts).
+        const blockedSet = new Set(
+          (Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []).map((id: any) =>
+            String(id || '').trim()
+          )
+        );
+        const filteredTargets = targetIds.filter((id) => !blockedSet.has(id));
+        if (!filteredTargets.length) {
           const error = {
             success: false,
-            error: `Maximum ${participantLimit} participants allowed.`,
-            code: 'MAX_PARTICIPANTS_EXCEEDED'
+            error: 'No callable participants available (blocked or restricted).',
+            code: 'NO_CALLABLE_PARTICIPANTS'
           };
           if (ack) ack(error);
           return;
         }
 
-        const busyEntry = await findBusyCallParticipant([userId, ...targetIds]);
+        const participantLimit = resolveVoiceParticipantLimit(config);
+        const totalParticipants = new Set([userId, ...filteredTargets]).size;
+        const isConferenceRequested =
+          String(payload?.callType || '').toLowerCase() === 'conference' ||
+          totalParticipants > 2 ||
+          (!isDirectConversation && filteredTargets.length > 1);
+
+        const startAuth = authorizeCallAction({
+          action: 'start',
+          platform: {
+            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
+            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
+            maxParticipants: participantLimit,
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+          },
+          actorUserId: userId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType,
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isConference: isConferenceRequested,
+          participantCount: totalParticipants
+        });
+        if (!startAuth.allowed) {
+          if (ack) {
+            ack({
+              success: false,
+              error: startAuth.error,
+              code: startAuth.code
+            });
+          }
+          return;
+        }
+
+        const busyEntry = await findBusyCallParticipant([userId, ...filteredTargets]);
         if (busyEntry) {
           const busyUserId = String(busyEntry?.userId || '').trim();
           const busyUserName =
@@ -2010,19 +2077,6 @@ communityNs.on('connection', (socket) => {
           return;
         }
 
-        const isConferenceRequested =
-          !isDirectConversation &&
-          (String(payload?.callType || '').toLowerCase() === 'conference' || totalParticipants > 2);
-        if (isConferenceRequested && !config.enabledConferenceCalls) {
-          const error = {
-            success: false,
-            error: 'Conference calls are disabled by admin.',
-            code: 'CONFERENCE_DISABLED'
-          };
-          if (ack) ack(error);
-          return;
-        }
-
         const call = await (prisma as any).voiceCall.create({
           data: {
             conversationId,
@@ -2031,12 +2085,15 @@ communityNs.on('connection', (socket) => {
             callType: isConferenceRequested ? 'CONFERENCE' : 'DIRECT',
             metadata: {
               initiatedVia: 'socket',
-              requestedParticipantIds: targetIds
+              requestedParticipantIds: filteredTargets,
+              initiatorRole: startAuth.role,
+              groupCallPolicySnapshot: startAuth.policy,
+              policyVersion: Number((convo.conversation as any)?.settingsVersion || 1)
             }
           }
         });
 
-        const participantRows = Array.from(new Set([userId, ...targetIds])).map((id) => ({
+        const participantRows = Array.from(new Set([userId, ...filteredTargets])).map((id) => ({
           callId: call.id,
           userId: id,
           status: id === userId ? 'JOINED' : 'INVITED',
@@ -2062,10 +2119,11 @@ communityNs.on('connection', (socket) => {
           participants: participantUsers,
           callType: isConferenceRequested ? 'conference' : 'direct',
           status: 'ringing',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
+          groupCallPolicy: startAuth.policy
         };
 
-        emitVoiceEventToUsers(targetIds, 'call:ringing', eventPayload);
+        emitVoiceEventToUsers(filteredTargets, 'call:ringing', eventPayload);
         emitVoiceEventToUsers([userId], 'call:initiate', eventPayload);
         emitVoiceEventToUsers(participantRows.map((entry) => entry.userId), 'messenger:call_started', eventPayload);
 
@@ -2120,6 +2178,47 @@ communityNs.on('connection', (socket) => {
         }
         if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
           if (ack) ack({ success: false, error: 'This call is no longer active.' });
+          return;
+        }
+
+        // Re-validate live membership + group policy before joining media.
+        const convo = await loadConversationForVoice(String(call.conversationId || ''), userId);
+        if (!convo.conversation) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'You are no longer a member of this conversation.',
+              code: 'MEMBERSHIP_REVOKED'
+            });
+          }
+          return;
+        }
+        const acceptAuth = authorizeCallAction({
+          action: 'accept',
+          platform: {
+            enabledVoiceCalls: true,
+            enabledConferenceCalls: true,
+            maxParticipants: MAX_MESSENGER_VOICE_PARTICIPANTS,
+            blockedUserIds: []
+          },
+          actorUserId: userId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isConference: String(call.callType || '').toUpperCase() === 'CONFERENCE',
+          isInvited: Array.isArray(call.participants)
+            ? call.participants.some(
+                (entry: any) =>
+                  String(entry.userId || '') === userId &&
+                  ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
+              )
+            : false,
+          isInitiator: String(call.initiatorId || '') === userId
+        });
+        if (!acceptAuth.allowed) {
+          if (ack) ack({ success: false, error: acceptAuth.error, code: acceptAuth.code });
           return;
         }
 
@@ -2413,43 +2512,27 @@ communityNs.on('connection', (socket) => {
           return;
         }
 
-        const conversation = await prisma.conversation.findUnique({
-          where: { id: call.conversationId },
-          include: { participants: true }
-        });
-        if (!conversation) {
-          if (ack) ack({ success: false, error: 'Conversation not found for this call.' });
-          return;
-        }
-
-        let conversationParticipantIds = Array.isArray(conversation?.participants)
-          ? conversation!.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
-
-        if (!conversationParticipantIds.includes(targetUserId)) {
-          await prisma.conversationParticipant.upsert({
-            where: {
-              conversationId_userId: {
-                conversationId: call.conversationId,
-                userId: targetUserId
-              }
-            },
-            update: {
-              deletedAt: null,
-              isArchived: false
-            },
-            create: {
-              conversationId: call.conversationId,
-              userId: targetUserId
-            }
-          });
-          conversationParticipantIds = Array.from(new Set([...conversationParticipantIds, targetUserId]));
-          if (conversationParticipantIds.length > 2 && String(conversation.type || '').toUpperCase() === 'DIRECT') {
-            await prisma.conversation.update({
-              where: { id: call.conversationId },
-              data: { type: 'GROUP' as any }
+        // Only invite active conversation members — never auto-add outsiders (privacy harden).
+        const convo = await loadConversationForVoice(String(call.conversationId || ''), callerId);
+        if (!convo.conversation) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'Conversation not found or access denied.',
+              code: 'CONVERSATION_ACCESS_DENIED'
             });
           }
+          return;
+        }
+        if (!convo.participantIds.includes(targetUserId)) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'Only active conversation members can be invited to this call.',
+              code: 'TARGET_NOT_A_MEMBER'
+            });
+          }
+          return;
         }
 
         const existingParticipants = Array.isArray(call.participants) ? call.participants : [];
@@ -2457,6 +2540,39 @@ communityNs.on('connection', (socket) => {
           ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
         ).length;
         const participantLimit = resolveVoiceParticipantLimit(config);
+        const inviteAuth = authorizeCallAction({
+          action: 'invite',
+          platform: {
+            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
+            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
+            maxParticipants: participantLimit,
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+          },
+          actorUserId: callerId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isConference:
+            String(call.callType || '').toUpperCase() === 'CONFERENCE' || activeCount + 1 > 2,
+          isInitiator: String(call.initiatorId || '') === callerId,
+          participantCount: activeCount + 1
+        });
+        if (!inviteAuth.allowed) {
+          if (ack) ack({ success: false, error: inviteAuth.error, code: inviteAuth.code });
+          return;
+        }
+        if (isVoiceBlockedForUser(config, targetUserId)) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'This user is blocked from voice features.',
+              code: 'TARGET_VOICE_BLOCKED'
+            });
+          }
+          return;
+        }
         if (activeCount >= participantLimit) {
           if (ack) ack({ success: false, error: `Maximum ${participantLimit} participants allowed.` });
           return;
@@ -2589,6 +2705,48 @@ communityNs.on('connection', (socket) => {
           leftAt: new Date().toISOString()
         };
         communityNs.to(`call:${callId}`).emit('call:participant:left', eventPayload);
+
+        // Last joined participant leaving ends the call for remaining invitees.
+        const remainingJoined = await (prisma as any).voiceCallParticipant.count({
+          where: { callId, status: 'JOINED' }
+        });
+        if (
+          !remainingJoined &&
+          VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())
+        ) {
+          const endedAt = new Date();
+          await (prisma as any).voiceCall.updateMany({
+            where: { id: callId, status: { in: VOICE_CALL_ACTIVE_STATUSES } },
+            data: { status: 'ENDED', endedAt }
+          });
+          const endPayload = {
+            callId,
+            conversationId: call.conversationId,
+            status: 'ended',
+            reason: 'last_participant_left',
+            endedAt: endedAt.toISOString()
+          };
+          communityNs.to(`call:${callId}`).emit('call:end', endPayload);
+          const participantIds = Array.isArray(call.participants)
+            ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+            : [];
+          emitVoiceEventToUsers(participantIds, 'call:end', endPayload);
+          emitVoiceEventToUsers(participantIds, 'messenger:call_ended', endPayload);
+          await persistVoiceCallSummaryMessage({
+            conversationId: call.conversationId,
+            senderId: userId,
+            callId,
+            status: 'ended',
+            text: buildCallSummaryText('ended', {
+              durationMs: resolveVoiceCallDurationMs(call, endedAt),
+              participantCount: participantIds.length
+            }),
+            durationMs: resolveVoiceCallDurationMs(call, endedAt),
+            participantCount: participantIds.length,
+            metadata: { reason: 'last_participant_left' }
+          });
+        }
+
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:participant:left error', error);

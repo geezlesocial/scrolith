@@ -7,6 +7,11 @@ import {
   isVoiceBlockedForUser,
   isMessengerVoiceSchemaMissingError
 } from '../services/messengerVoice.service';
+import { getMessengerIceClientPayload } from '../services/messaging/messengerCallIce.service';
+import {
+  mergeCallPolicyIntoPolicyJson,
+  resolveGroupCallPolicy
+} from '../services/messaging/messengerCallPolicy.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -248,6 +253,7 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const config = await getOrCreateMessengerVoiceConfig();
     const blocked = userId ? isVoiceBlockedForUser(config, userId) : false;
+    const ice = getMessengerIceClientPayload();
     return res.json({
       success: true,
       data: {
@@ -256,7 +262,11 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
         enabledVoiceNotes: Boolean(config.enabledVoiceNotes),
         maxParticipants: Number(config.maxParticipants || 20),
         maxVoiceNoteDurationSeconds: Number(config.maxVoiceNoteDurationSeconds || 180),
-        blockedForCurrentUser: blocked
+        blockedForCurrentUser: blocked,
+        // ICE/TURN for WebRTC — clients must not hardcode STUN-only.
+        iceServers: ice.iceServers,
+        iceTransportPolicy: ice.iceTransportPolicy,
+        hasTurn: ice.hasTurn
       }
     });
   } catch (error: any) {
@@ -268,6 +278,105 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
       });
     }
     return res.status(500).json({ success: false, error: error?.message || 'Failed to load voice runtime config.' });
+  }
+};
+
+/** Dedicated ICE payload (same data as runtime config.iceServers). */
+export const getVoiceIceServers = async (_req: Request, res: Response) => {
+  try {
+    const ice = getMessengerIceClientPayload();
+    return res.json({ success: true, data: ice });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load ICE servers.' });
+  }
+};
+
+/**
+ * GET group call policy for a conversation (from ConversationSettings.policyJson.callPolicy).
+ */
+export const getConversationCallPolicy = async (req: Request, res: Response) => {
+  try {
+    const conversationId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    if (!conversationId) return res.status(400).json({ success: false, error: 'Conversation ID is required.' });
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const { conversation } = await ensureConversationMember(conversationId, userId);
+    if (!conversation) {
+      return res.status(403).json({ success: false, error: 'Conversation not found or access denied.' });
+    }
+
+    const settings = await (prisma as any).conversationSettings
+      .findUnique({ where: { conversationId } })
+      .catch(() => null);
+    const policy = resolveGroupCallPolicy({
+      allowVoice: settings?.allowVoice,
+      policyJson: settings?.policyJson,
+      permissionOverrides: (conversation as any)?.permissionOverrides
+    });
+    return res.json({
+      success: true,
+      data: {
+        conversationId,
+        conversationType: conversation.type,
+        policy
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to load call policy.' });
+  }
+};
+
+/**
+ * PATCH group call policy — owner/admin only. Stored in policyJson.callPolicy (no schema break).
+ */
+export const patchConversationCallPolicy = async (req: Request, res: Response) => {
+  try {
+    const conversationId = String(req.params.id || '').trim();
+    const userId = resolveUserId(req);
+    const role = resolveRole(req);
+    if (!conversationId) return res.status(400).json({ success: false, error: 'Conversation ID is required.' });
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationId },
+      include: { participants: true, groupSettings: true }
+    });
+    if (!conversation) return res.status(404).json({ success: false, error: 'Conversation not found.' });
+
+    const actor = (conversation.participants || []).find(
+      (entry: any) => String(entry.userId || '') === userId && !entry.deletedAt
+    );
+    const actorRole = String((actor as any)?.role || '').toUpperCase();
+    const canManage =
+      isAdminRole(role) || actorRole === 'OWNER' || actorRole === 'ADMIN';
+    if (!canManage) {
+      return res.status(403).json({
+        success: false,
+        error: 'Only group owners and administrators can change call privacy settings.'
+      });
+    }
+
+    const existing = (conversation as any).groupSettings || null;
+    const nextPolicyJson = mergeCallPolicyIntoPolicyJson(existing?.policyJson, req.body?.callPolicy || req.body || {});
+    const settings = await (prisma as any).conversationSettings.upsert({
+      where: { conversationId },
+      create: {
+        conversationId,
+        policyJson: nextPolicyJson
+      },
+      update: {
+        policyJson: nextPolicyJson
+      }
+    });
+
+    const policy = resolveGroupCallPolicy({
+      allowVoice: settings?.allowVoice,
+      policyJson: settings?.policyJson
+    });
+    return res.json({ success: true, data: { conversationId, policy } });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error?.message || 'Failed to update call policy.' });
   }
 };
 
