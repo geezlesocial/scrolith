@@ -195,6 +195,28 @@
         }, 4500);
         window.addEventListener('error', markError);
         window.addEventListener('unhandledrejection', markError);
+
+        // If a hashed asset 404s (poisoned cache from multi-revision canary), hard-reload once.
+        window.addEventListener(
+          'error',
+          function (ev) {
+            try {
+              var t = ev && (ev.target || ev.srcElement);
+              if (!t || !t.tagName) return;
+              var tag = String(t.tagName).toLowerCase();
+              if (tag !== 'script' && tag !== 'link') return;
+              var href = t.src || t.href || '';
+              if (!/\/assets\//.test(href)) return;
+              var key = 'scrolith:asset-404-reload';
+              if (sessionStorage.getItem(key) === '1') return;
+              sessionStorage.setItem(key, '1');
+              window.__scrolithHardReload();
+            } catch (e) {
+              /* ignore */
+            }
+          },
+          true
+        );
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>

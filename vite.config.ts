@@ -147,9 +147,13 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
+        // Force ALL JS chunk content hashes to rotate after the 2026-07-24 canary
+        // poisoned browsers with immutable 404 responses for prior asset URLs.
+        banner: '/* scrolith-asset-bust-20260724c */',
         manualChunks: resolveManualChunk
       }
     }
   }
 })
+
 
