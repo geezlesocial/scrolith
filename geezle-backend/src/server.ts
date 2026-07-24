@@ -127,8 +127,18 @@ import {
 import {
   authorizeCallAction,
   resolveGroupCallPolicy,
+  canModerateCall,
   type GroupCallPolicy
 } from './services/messaging/messengerCallPolicy.service';
+import {
+  createJoinRequest,
+  expireStaleJoinRequests,
+  findApprovedRequest,
+  findPendingRequest,
+  listJoinRequests,
+  resolveJoinRequest,
+  upsertJoinRequestsInMetadata
+} from './services/messaging/messengerCallJoinRequest.service';
 import { appendLiveDiagnosticsEvent } from './services/liveDiagnostics.service';
 import {
   recordPresenceLease,
@@ -2193,6 +2203,15 @@ communityNs.on('connection', (socket) => {
           }
           return;
         }
+        const joinRequests = expireStaleJoinRequests(listJoinRequests(call.metadata));
+        const approvedJoin = Boolean(findApprovedRequest(joinRequests, userId));
+        const isInvited = Array.isArray(call.participants)
+          ? call.participants.some(
+              (entry: any) =>
+                String(entry.userId || '') === userId &&
+                ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
+            )
+          : false;
         const acceptAuth = authorizeCallAction({
           action: 'accept',
           platform: {
@@ -2208,14 +2227,9 @@ communityNs.on('connection', (socket) => {
           memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
           groupPolicy: convo.groupPolicy,
           isConference: String(call.callType || '').toUpperCase() === 'CONFERENCE',
-          isInvited: Array.isArray(call.participants)
-            ? call.participants.some(
-                (entry: any) =>
-                  String(entry.userId || '') === userId &&
-                  ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
-              )
-            : false,
-          isInitiator: String(call.initiatorId || '') === userId
+          isInvited,
+          isInitiator: String(call.initiatorId || '') === userId,
+          isJoinApproved: approvedJoin
         });
         if (!acceptAuth.allowed) {
           if (ack) {
@@ -2791,6 +2805,358 @@ communityNs.on('connection', (socket) => {
       }
     };
     void handleCallJoin();
+  });
+
+  // REQUEST / ADMIN_APPROVAL join-request lifecycle (idempotent, membership-gated).
+  socket.on('call:join-request', (payload: any, ack?: (result: any) => void) => {
+    const handleJoinRequest = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.', code: 'CALL_ID_REQUIRED' });
+          return;
+        }
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.', code: 'CALL_ACCESS_DENIED' });
+          return;
+        }
+        if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
+          if (ack) ack({ success: false, error: 'This call is no longer active.', code: 'CALL_ENDED' });
+          return;
+        }
+        const convo = await loadConversationForVoice(String(call.conversationId || ''), userId);
+        if (!convo.conversation) {
+          if (ack) ack({ success: false, error: 'Membership revoked.', code: 'MEMBERSHIP_REVOKED' });
+          return;
+        }
+        const config = await getOrCreateMessengerVoiceConfig();
+        const participantLimit = resolveVoiceParticipantLimit(config);
+        const activeCount = Array.isArray(call.participants)
+          ? call.participants.filter((entry: any) =>
+              ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
+            ).length
+          : 0;
+        const auth = authorizeCallAction({
+          action: 'request_join',
+          platform: {
+            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
+            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
+            maxParticipants: participantLimit,
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+          },
+          actorUserId: userId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isConference: String(call.callType || '').toUpperCase() === 'CONFERENCE',
+          participantCount: activeCount + 1
+        });
+        if (!auth.allowed) {
+          if (ack) {
+            ack({
+              success: false,
+              error: (auth as { error: string }).error,
+              code: (auth as { code: string }).code
+            });
+          }
+          return;
+        }
+        if (activeCount >= participantLimit) {
+          if (ack) {
+            ack({
+              success: false,
+              error: `Maximum ${participantLimit} participants allowed.`,
+              code: 'MAX_PARTICIPANTS_EXCEEDED'
+            });
+          }
+          return;
+        }
+        let requests = expireStaleJoinRequests(listJoinRequests(call.metadata));
+        const alreadyJoined = Array.isArray(call.participants)
+          ? call.participants.some(
+              (entry: any) =>
+                String(entry.userId || '') === userId &&
+                String(entry.status || '').toUpperCase() === 'JOINED'
+            )
+          : false;
+        if (alreadyJoined) {
+          if (ack) ack({ success: false, error: 'Already joined.', code: 'ALREADY_JOINED' });
+          return;
+        }
+        const existingPending = findPendingRequest(requests, userId);
+        if (existingPending) {
+          if (ack) ack({ success: true, data: { request: existingPending, duplicate: true } });
+          return;
+        }
+        if (findApprovedRequest(requests, userId)) {
+          if (ack) {
+            ack({
+              success: true,
+              data: {
+                request: findApprovedRequest(requests, userId),
+                alreadyApproved: true
+              }
+            });
+          }
+          return;
+        }
+        const created = createJoinRequest({
+          callId,
+          conversationId: String(call.conversationId || ''),
+          requesterId: userId
+        });
+        requests = [...requests, created];
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: { metadata: upsertJoinRequestsInMetadata(call.metadata, requests) }
+        });
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          request: created
+        };
+        communityNs.to(`call:${callId}`).emit('call:join-requested', eventPayload);
+        // Notify moderators / owner / initiator for approval UI.
+        const participantIds = Array.isArray(call.participants)
+          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        emitVoiceEventToUsers(participantIds, 'call:join-requested', eventPayload);
+        if (ack) ack({ success: true, data: { request: created } });
+      } catch (error: any) {
+        console.error('call:join-request error', error);
+        if (ack) ack(toVoiceSocketError(error, 'Failed to request join.'));
+      }
+    };
+    void handleJoinRequest();
+  });
+
+  socket.on('call:join-approve', (payload: any, ack?: (result: any) => void) => {
+    const handleApprove = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        const requestId = String(payload?.requestId || '').trim();
+        if (!userId || !callId || !requestId) {
+          if (ack) ack({ success: false, error: 'callId and requestId are required.' });
+          return;
+        }
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+        const convo = await loadConversationForVoice(String(call.conversationId || ''), userId);
+        if (!convo.conversation) {
+          if (ack) ack({ success: false, error: 'Membership revoked.' });
+          return;
+        }
+        const config = await getOrCreateMessengerVoiceConfig();
+        const auth = authorizeCallAction({
+          action: 'approve_join',
+          platform: {
+            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
+            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
+            maxParticipants: resolveVoiceParticipantLimit(config),
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+          },
+          actorUserId: userId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isInitiator: String(call.initiatorId || '') === userId
+        });
+        if (!auth.allowed && !canModerateCall(auth.role) && String(call.initiatorId || '') !== userId) {
+          if (ack) {
+            ack({
+              success: false,
+              error: (auth as any).error || 'Not authorized to approve join requests.',
+              code: (auth as any).code || 'GROUP_CALL_APPROVE_DENIED'
+            });
+          }
+          return;
+        }
+        let requests = expireStaleJoinRequests(listJoinRequests(call.metadata));
+        const { next, resolved } = resolveJoinRequest(requests, requestId, 'approved', userId);
+        if (!resolved) {
+          if (ack) ack({ success: false, error: 'Join request not pending.', code: 'REQUEST_NOT_PENDING' });
+          return;
+        }
+        // Capacity re-check at approval time.
+        const participantLimit = resolveVoiceParticipantLimit(config);
+        const activeCount = Array.isArray(call.participants)
+          ? call.participants.filter((entry: any) =>
+              ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
+            ).length
+          : 0;
+        if (activeCount >= participantLimit) {
+          const limited = resolveJoinRequest(listJoinRequests(call.metadata), requestId, 'rejected', userId, 'limit_reached');
+          await (prisma as any).voiceCall.update({
+            where: { id: callId },
+            data: { metadata: upsertJoinRequestsInMetadata(call.metadata, limited.next) }
+          });
+          if (ack) {
+            ack({
+              success: false,
+              error: `Maximum ${participantLimit} participants allowed.`,
+              code: 'MAX_PARTICIPANTS_EXCEEDED'
+            });
+          }
+          return;
+        }
+        await (prisma as any).voiceCallParticipant.upsert({
+          where: { callId_userId: { callId, userId: resolved.requesterId } },
+          update: { status: 'INVITED', invitedAt: new Date(), leftAt: null },
+          create: {
+            callId,
+            userId: resolved.requesterId,
+            status: 'INVITED',
+            invitedAt: new Date()
+          }
+        });
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: { metadata: upsertJoinRequestsInMetadata(call.metadata, next) }
+        });
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          request: resolved,
+          approvedBy: userId
+        };
+        communityNs.to(`call:${callId}`).emit('call:join-approved', eventPayload);
+        emitVoiceEventToUsers([resolved.requesterId], 'call:join-approved', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:join-approve error', error);
+        if (ack) ack(toVoiceSocketError(error, 'Failed to approve join request.'));
+      }
+    };
+    void handleApprove();
+  });
+
+  socket.on('call:join-reject', (payload: any, ack?: (result: any) => void) => {
+    const handleReject = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        const requestId = String(payload?.requestId || '').trim();
+        const reason = String(payload?.reason || '').trim().slice(0, 200) || 'rejected';
+        if (!userId || !callId || !requestId) {
+          if (ack) ack({ success: false, error: 'callId and requestId are required.' });
+          return;
+        }
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+        const convo = await loadConversationForVoice(String(call.conversationId || ''), userId);
+        if (!convo.conversation) {
+          if (ack) ack({ success: false, error: 'Membership revoked.' });
+          return;
+        }
+        const config = await getOrCreateMessengerVoiceConfig();
+        const auth = authorizeCallAction({
+          action: 'approve_join',
+          platform: {
+            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
+            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
+            maxParticipants: resolveVoiceParticipantLimit(config),
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+          },
+          actorUserId: userId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isInitiator: String(call.initiatorId || '') === userId
+        });
+        if (!auth.allowed && String(call.initiatorId || '') !== userId && !canModerateCall(auth.role)) {
+          if (ack) ack({ success: false, error: 'Not authorized to reject join requests.' });
+          return;
+        }
+        const requests = expireStaleJoinRequests(listJoinRequests(call.metadata));
+        const { next, resolved } = resolveJoinRequest(requests, requestId, 'rejected', userId, reason);
+        if (!resolved) {
+          if (ack) ack({ success: false, error: 'Join request not pending.', code: 'REQUEST_NOT_PENDING' });
+          return;
+        }
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: { metadata: upsertJoinRequestsInMetadata(call.metadata, next) }
+        });
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          request: resolved,
+          rejectedBy: userId
+        };
+        communityNs.to(`call:${callId}`).emit('call:join-rejected', eventPayload);
+        emitVoiceEventToUsers([resolved.requesterId], 'call:join-rejected', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:join-reject error', error);
+        if (ack) ack(toVoiceSocketError(error, 'Failed to reject join request.'));
+      }
+    };
+    void handleReject();
+  });
+
+  socket.on('call:join-cancel', (payload: any, ack?: (result: any) => void) => {
+    const handleCancel = async () => {
+      try {
+        const userId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        const requestId = String(payload?.requestId || '').trim();
+        if (!userId || !callId) {
+          if (ack) ack({ success: false, error: 'callId is required.' });
+          return;
+        }
+        const call = await loadVoiceCallForUser(callId, userId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.' });
+          return;
+        }
+        let requests = expireStaleJoinRequests(listJoinRequests(call.metadata));
+        const pending =
+          (requestId
+            ? requests.find((entry) => entry.requestId === requestId && entry.requesterId === userId)
+            : findPendingRequest(requests, userId)) || null;
+        if (!pending || pending.status !== 'pending') {
+          if (ack) ack({ success: false, error: 'No pending join request.', code: 'REQUEST_NOT_PENDING' });
+          return;
+        }
+        const { next, resolved } = resolveJoinRequest(
+          requests,
+          pending.requestId,
+          'cancelled',
+          userId,
+          'cancelled_by_requester'
+        );
+        await (prisma as any).voiceCall.update({
+          where: { id: callId },
+          data: { metadata: upsertJoinRequestsInMetadata(call.metadata, next) }
+        });
+        const eventPayload = {
+          callId,
+          conversationId: call.conversationId,
+          request: resolved
+        };
+        communityNs.to(`call:${callId}`).emit('call:join-cancel', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:join-cancel error', error);
+        if (ack) ack(toVoiceSocketError(error, 'Failed to cancel join request.'));
+      }
+    };
+    void handleCancel();
   });
 
   socket.on('call:signal', (payload: any, ack?: (result: any) => void) => {

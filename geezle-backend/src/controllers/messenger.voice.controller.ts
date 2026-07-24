@@ -253,7 +253,7 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const config = await getOrCreateMessengerVoiceConfig();
     const blocked = userId ? isVoiceBlockedForUser(config, userId) : false;
-    const ice = getMessengerIceClientPayload();
+    const ice = getMessengerIceClientPayload({ userId });
     return res.json({
       success: true,
       data: {
@@ -266,7 +266,9 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
         // ICE/TURN for WebRTC — clients must not hardcode STUN-only.
         iceServers: ice.iceServers,
         iceTransportPolicy: ice.iceTransportPolicy,
-        hasTurn: ice.hasTurn
+        hasTurn: ice.hasTurn,
+        turnCredentialMode: ice.turnCredentialMode,
+        turnExpiresAt: ice.turnExpiresAt || null
       }
     });
   } catch (error: any) {
@@ -281,10 +283,12 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
   }
 };
 
-/** Dedicated ICE payload (same data as runtime config.iceServers). */
-export const getVoiceIceServers = async (_req: Request, res: Response) => {
+/** Dedicated ICE payload (same data as runtime config.iceServers). Auth required. */
+export const getVoiceIceServers = async (req: Request, res: Response) => {
   try {
-    const ice = getMessengerIceClientPayload();
+    const userId = resolveUserId(req);
+    if (!userId) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const ice = getMessengerIceClientPayload({ userId });
     return res.json({ success: true, data: ice });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error?.message || 'Failed to load ICE servers.' });

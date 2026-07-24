@@ -59,7 +59,8 @@ export type CallAction =
   | 'mute_other'
   | 'remove'
   | 'signal'
-  | 'approve_join';
+  | 'approve_join'
+  | 'request_join';
 
 const DEFAULT_POLICY: GroupCallPolicy = {
   whoCanStart: 'ALL_MEMBERS',
@@ -253,6 +254,8 @@ export const authorizeCallAction = (params: {
   isInvited?: boolean;
   isInitiator?: boolean;
   participantCount?: number;
+  /** True when requester has an approved join request for this call. */
+  isJoinApproved?: boolean;
 }): AuthorizeCallResult => {
   const role = normalizeRole(params.memberRole);
   const policy = params.groupPolicy || DEFAULT_POLICY;
@@ -392,12 +395,50 @@ export const authorizeCallAction = (params: {
         (policy.participationMode === 'INVITE_ONLY' || policy.participationMode === 'ADMIN_APPROVAL') &&
         !params.isInvited &&
         !params.isInitiator &&
+        !params.isJoinApproved &&
         !canModerateCall(effectiveRole)
       ) {
         return {
           allowed: false,
           code: 'GROUP_CALL_JOIN_MODE_DENIED',
           error: 'This group call requires an invitation or approval.',
+          role,
+          policy
+        };
+      }
+      // REQUEST mode: members must have an approved join request (or be invited/host/mod).
+      if (
+        policy.participationMode === 'REQUEST' &&
+        !params.isInvited &&
+        !params.isInitiator &&
+        !params.isJoinApproved &&
+        !canModerateCall(effectiveRole)
+      ) {
+        return {
+          allowed: false,
+          code: 'GROUP_CALL_JOIN_REQUEST_REQUIRED',
+          error: 'You must request to join this call and wait for approval.',
+          role,
+          policy
+        };
+      }
+      return { allowed: true, role: effectiveRole, policy };
+
+    case 'request_join':
+      if (policy.participationMode !== 'REQUEST' && policy.participationMode !== 'ADMIN_APPROVAL') {
+        return {
+          allowed: false,
+          code: 'GROUP_CALL_REQUEST_NOT_REQUIRED',
+          error: 'This call does not use join-request mode.',
+          role,
+          policy
+        };
+      }
+      if (!roleMeetsJoinScope(effectiveRole, policy.whoCanJoin)) {
+        return {
+          allowed: false,
+          code: 'GROUP_CALL_JOIN_DENIED',
+          error: 'Your role cannot join calls in this group.',
           role,
           policy
         };
