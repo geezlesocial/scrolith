@@ -2022,8 +2022,8 @@ communityNs.on('connection', (socket) => {
           if (ack) {
             ack({
               success: false,
-              error: startAuth.error,
-              code: startAuth.code
+              error: (startAuth as { error: string }).error,
+              code: (startAuth as { code: string }).code
             });
           }
           return;
@@ -2218,7 +2218,13 @@ communityNs.on('connection', (socket) => {
           isInitiator: String(call.initiatorId || '') === userId
         });
         if (!acceptAuth.allowed) {
-          if (ack) ack({ success: false, error: acceptAuth.error, code: acceptAuth.code });
+          if (ack) {
+            ack({
+              success: false,
+              error: (acceptAuth as { error: string }).error,
+              code: (acceptAuth as { code: string }).code
+            });
+          }
           return;
         }
 
@@ -2560,7 +2566,13 @@ communityNs.on('connection', (socket) => {
           participantCount: activeCount + 1
         });
         if (!inviteAuth.allowed) {
-          if (ack) ack({ success: false, error: inviteAuth.error, code: inviteAuth.code });
+          if (ack) {
+            ack({
+              success: false,
+              error: (inviteAuth as { error: string }).error,
+              code: (inviteAuth as { code: string }).code
+            });
+          }
           return;
         }
         if (isVoiceBlockedForUser(config, targetUserId)) {
@@ -2640,7 +2652,9 @@ communityNs.on('connection', (socket) => {
           conversationId: call.conversationId,
           addedBy: callerId,
           userId: targetUserId,
-          participantIds: Array.from(new Set([...conversationParticipantIds, callerId])),
+          participantIds: Array.from(
+            new Set([...nextActiveParticipantIds, callerId, ...convo.participantIds].filter(Boolean))
+          ),
           participant: targetProfile
             ? {
                 id: targetProfile.id,
