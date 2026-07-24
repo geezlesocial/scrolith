@@ -142,7 +142,9 @@ export default defineConfig({
     modulePreload: {
       polyfill: true,
       resolveDependencies: (_filename, deps) =>
-        deps.filter((dep) => !/(^|\/)(maps|capacitor|realtime)-[^/]+\.js$/.test(dep))
+        deps.filter(
+          (dep) => !/(^|\/)(maps|capacitor|realtime)(-b24c)?-[^/]+\.js$/.test(dep)
+        )
     },
     cssCodeSplit: true,
     reportCompressedSize: false,
