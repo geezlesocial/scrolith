@@ -16,6 +16,7 @@ import FollowButton from '../../community/components/FollowButton';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import EnterpriseImage from '../common/EnterpriseImage';
 import ScrollVideoPreview from './ScrollVideoPreview';
+import { useUser } from '../../context/UserContext';
 import {
   SafeDate,
   SafeLocation,
@@ -96,6 +97,7 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
   sourcePosition
 }) => {
   const navigate = useNavigate();
+  const { user } = useUser();
   const data = entry?.data || {};
   const why = SafeText(entry?.raw?.why || data?.why || data?.whyRecommended || '');
 
@@ -521,18 +523,48 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
             ) : null}
 
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <span className="inline-flex min-h-[32px] items-center rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+              {/* CTA must be a real control — never nested inside a parent Link with Follow. */}
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (card.disabledNav || !card.href || card.href === '#') return;
+                  if (isScroll) emitScrollClick();
+                  if (card.external) {
+                    window.open(card.href, '_blank', 'noopener,noreferrer');
+                    return;
+                  }
+                  navigate(card.href);
+                }}
+                className="inline-flex min-h-[36px] items-center rounded-full bg-slate-900 px-3.5 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-800 active:scale-[0.98]"
+                data-testid="feed-mixed-card-cta"
+              >
                 {card.cta}
-              </span>
+              </button>
               {card.followId && card.followType ? (
-                <span
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
+                <div
+                  className="inline-flex"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
                   }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  data-testid="feed-mixed-card-follow"
                 >
-                  <FollowButton targetType={card.followType} targetUserId={card.followId} />
-                </span>
+                  <FollowButton
+                    targetType={card.followType}
+                    targetUserId={card.followId}
+                    currentUserId={user?.id}
+                    initialIsFollowing={Boolean(
+                      data?.isFollowing ??
+                        data?.viewer?.isFollowing ??
+                        data?.account?.isFollowing
+                    )}
+                    onRequireLogin={() => navigate('/auth/login')}
+                    className="min-h-[36px] rounded-full border border-slate-300 bg-white px-3.5 text-xs font-semibold text-slate-800 shadow-none hover:bg-slate-50"
+                  />
+                </div>
               ) : null}
               {isMarketplaceLike ? (
                 <>
@@ -547,18 +579,10 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
     </article>
   );
 
-  if (card.external) {
-    return (
-      <a
-        href={card.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
-      >
-        {body}
-      </a>
-    );
-  }
+  // Cards with Follow must NOT be wrapped in <Link>/<a> — nested interactive
+  // controls inside links cause full navigation / "page reload" on mobile WebView.
+  const hasFollowAction = Boolean(card.followId && card.followType);
+  const interactiveShell = hasFollowAction || card.kind === 'person' || card.kind === 'page';
 
   if (card.disabledNav || !card.href || card.href === '#') {
     return (
@@ -574,6 +598,31 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
           </p>
         ) : null}
       </div>
+    );
+  }
+
+  if (interactiveShell) {
+    return (
+      <div
+        className="block focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-slate-400"
+        data-testid="feed-mixed-card-interactive"
+        data-feed-kind={card.kind}
+      >
+        {body}
+      </div>
+    );
+  }
+
+  if (card.external) {
+    return (
+      <a
+        href={card.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-400"
+      >
+        {body}
+      </a>
     );
   }
 
