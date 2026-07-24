@@ -12,11 +12,13 @@ COPY geezle-backend/scripts ./scripts
 COPY geezle-backend/tsconfig*.json ./
 
 RUN npm run prisma:generate
+RUN npm run build:prod
 
 ENV NODE_ENV=production
 
-EXPOSE 5000
+EXPOSE 8080
 
-# Ensure DB schema is up-to-date in production before booting the server.
-# Safe for additive migrations; Prisma uses locking to avoid concurrent apply.
-CMD ["sh", "-c", "npm run migrate:apply && node -r ts-node/register/transpile-only src/server.ts"]
+# SECURITY: Production runtime must NOT run migrations on boot.
+# Migrations are an explicit release step (see docs/DATABASE_MIGRATIONS.md).
+# Concurrent Cloud Run scale-out previously failed when migrate ran at startup.
+CMD ["node", "dist/server.js"]

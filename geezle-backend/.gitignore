@@ -1,8 +1,22 @@
-# Ignore environment files with secrets
+# Ignore environment files with secrets (including backups / exports)
 .env
+.env.*
+*.env
+*.env.*
+!.env.example
+!.env.*.example
 .env.local
 .env.test
 .env.*.local
+*.bak
+*.backup
+*.old
+*.localbackup
+.env.localbackup
+*credentials*.json
+*service-account*.json
+secrets/
+**/secrets/
 
 # Node
 node_modules

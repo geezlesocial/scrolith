@@ -24,6 +24,13 @@ import {
 } from '../controllers/admin2fa.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { createRateLimiter } from '../middlewares/rateLimit';
+import {
+  admin2faVerifyRateLimiter,
+  forgotPasswordRateLimiter,
+  loginRateLimiter,
+  registerRateLimiter,
+  resetPasswordRateLimiter
+} from '../middleware/authRateLimit.middleware';
 
 const router = express.Router();
 
@@ -32,16 +39,12 @@ router.get('/health', (_req, res) => {
   res.json({ success: true, service: 'auth' });
 });
 
-// Public routes
-router.post('/register', register);
-router.post('/login', login);
-router.post(
-  '/2fa/verify',
-  createRateLimiter({ windowMs: 60 * 1000, max: 20 }),
-  verify2FALogin
-);
-router.post('/forgot-password', createRateLimiter({ windowMs: 60 * 1000, max: 5 }), forgotPassword);
-router.post('/reset-password', createRateLimiter({ windowMs: 60 * 1000, max: 10 }), resetPassword);
+// Public routes — dedicated auth rate limits (no client header bypass)
+router.post('/register', registerRateLimiter, register);
+router.post('/login', loginRateLimiter, login);
+router.post('/2fa/verify', admin2faVerifyRateLimiter, verify2FALogin);
+router.post('/forgot-password', forgotPasswordRateLimiter, forgotPassword);
+router.post('/reset-password', resetPasswordRateLimiter, resetPassword);
 router.get('/oauth/:provider', startOAuth);
 router.get('/oauth/:provider/callback', handleOAuthCallback);
 // Phase 25B — exchange one-time OAuth completion code for session JWT (never in URL).

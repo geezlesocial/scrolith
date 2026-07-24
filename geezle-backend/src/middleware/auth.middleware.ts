@@ -128,8 +128,16 @@ export const authMiddleware = async (
       return;
     }
 
-    // Optional dev bypass (explicit opt-in only)
+    // Optional dev bypass (explicit opt-in only) — hard refuse in production / Cloud Run
     if (process.env.ALLOW_DEV_AUTH_BYPASS === 'true') {
+      const nodeEnv = String(process.env.NODE_ENV || '')
+        .trim()
+        .toLowerCase();
+      if (nodeEnv === 'production' || process.env.K_SERVICE) {
+        console.error('[auth] ALLOW_DEV_AUTH_BYPASS rejected in production runtime');
+        sendAuthFailure(res, 401, 'Authentication failed');
+        return;
+      }
       const fullPath = `${req.baseUrl || ''}${req.path || ''}`;
       const explicitDevRole =
         (req.headers['x-dev-role'] as string | undefined) ||

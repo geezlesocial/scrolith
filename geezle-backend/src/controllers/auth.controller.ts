@@ -294,7 +294,19 @@ export const register = async (req: Request, res: Response) => {
         });
       }
     } catch (regGateErr) {
-      console.warn('[auth.register] registration gate check failed open', (regGateErr as any)?.message);
+      console.error(
+        JSON.stringify({
+          severity: 'ERROR',
+          time: new Date().toISOString(),
+          message: 'security.registration_gate_failed_closed',
+          component: 'auth.register'
+        })
+      );
+      return res.status(503).json({
+        success: false,
+        error: 'Registration is temporarily unavailable. Please try again shortly.',
+        code: 'REGISTRATION_GATE_UNAVAILABLE'
+      });
     }
 
     // Validate role - only allow known roles for self-registration
@@ -474,7 +486,7 @@ export const login = async (req: Request, res: Response) => {
       console.warn('Failed to update lastLoginAt for user', user.id, e);
     }
 
-    // Admin 2FA gate (Google Authenticator) when General Settings → Admin 2FA is on
+    // Admin / enrolled-user 2FA gate — MUST fail closed on any error (never issue session JWT)
     try {
       const full2fa = await prisma.user.findUnique({
         where: { id: user.id },
@@ -500,7 +512,21 @@ export const login = async (req: Request, res: Response) => {
         });
       }
     } catch (twoFaErr) {
-      console.warn('[auth.login] 2FA gate failed open', (twoFaErr as any)?.message);
+      console.error(
+        JSON.stringify({
+          severity: 'ERROR',
+          time: new Date().toISOString(),
+          message: 'security.2fa_gate_failed_closed',
+          component: 'auth.login',
+          userId: user.id
+          // never log secrets / codes
+        })
+      );
+      return res.status(503).json({
+        success: false,
+        error: 'Unable to complete security verification. Please try again shortly.',
+        code: '2FA_GATE_UNAVAILABLE'
+      });
     }
 
     // Generate JWT token

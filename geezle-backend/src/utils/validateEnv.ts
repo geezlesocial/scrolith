@@ -76,6 +76,33 @@ export function validateEnv() {
   const missingCritical: string[] = [];
   const missingOptional: string[] = [];
 
+  // Production hard-reject for development security bypasses
+  const nodeEnv = String(process.env.NODE_ENV || '')
+    .trim()
+    .toLowerCase();
+  const isProd = nodeEnv === 'production' || Boolean(process.env.K_SERVICE && nodeEnv !== 'development' && nodeEnv !== 'test');
+  if (isProd) {
+    const prohibited = [
+      'ALLOW_DEV_AUTH_BYPASS',
+      'ALLOW_DEV_ADMIN_BYPASS',
+      'ALLOW_RATE_LIMIT_SKIP',
+      'SOCKET_ALLOW_TEST_JOIN'
+    ];
+    const enabled = prohibited.filter((key) => {
+      const v = String(process.env[key] || '')
+        .trim()
+        .toLowerCase();
+      return ['1', 'true', 'yes', 'on'].includes(v);
+    });
+    if (enabled.length > 0) {
+      console.error(
+        'Prohibited development security flags are enabled in production:',
+        enabled.join(', ')
+      );
+      process.exit(1);
+    }
+  }
+
   for (const k of REQUIRED_KEYS) {
     if (!process.env[k.key] || process.env[k.key]!.trim() === '') {
       if (k.requiredInProd === false) {

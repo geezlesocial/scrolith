@@ -7,8 +7,15 @@ export const adminMiddleware = (req: Request, res: Response, next: NextFunction)
   // Get user from request (added by authMiddleware)
   const user = req.user;
 
-  // Optional dev bypass (explicit opt-in only)
+  // Optional dev bypass (explicit opt-in only) — hard refuse in production / Cloud Run
   if (process.env.ALLOW_DEV_ADMIN_BYPASS === 'true') {
+    const nodeEnv = String(process.env.NODE_ENV || '')
+      .trim()
+      .toLowerCase();
+    if (nodeEnv === 'production' || process.env.K_SERVICE) {
+      console.error('[admin] ALLOW_DEV_ADMIN_BYPASS rejected in production runtime');
+      return res.status(403).json({ error: 'Admin access denied' });
+    }
     console.log('Admin bypass enabled via ALLOW_DEV_ADMIN_BYPASS');
     return next();
   }

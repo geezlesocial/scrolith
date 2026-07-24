@@ -131,6 +131,10 @@ import {
   type GroupCallPolicy
 } from './services/messaging/messengerCallPolicy.service';
 import {
+  getMessengerVideoPlatformFlags,
+  normalizeMediaMode
+} from './services/messaging/messengerVideoConfig.service';
+import {
   createJoinRequest,
   expireStaleJoinRequests,
   findApprovedRequest,
@@ -641,8 +645,39 @@ const emitVoiceEventToUsers = (userIds: string[], event: string, payload: Record
 
 const resolveSocketUserId = (socket: any) => String(socket?.data?.user?.id || '').trim();
 const resolveSocketRole = (socket: any) => String(socket?.data?.user?.role || '').trim().toLowerCase();
-const isAdminRoleValue = (role: string) =>
-  role.includes('admin') || role.includes('moderator') || role.includes('superadmin');
+/** Admin from authenticated DB principal only — never client query.role / headers. */
+const isAdminRoleValue = (role: string) => {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { isAuthoritativeAdminRole } = require('./utils/security/isProductionRuntime');
+    return isAuthoritativeAdminRole(role);
+  } catch {
+    const r = String(role || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_');
+    return r === 'admin' || r === 'superadmin' || r === 'super_admin' || r === 'platform_admin';
+  }
+};
+
+const logDeniedAdminSocket = (socket: any, reason: string) => {
+  try {
+    console.warn(
+      JSON.stringify({
+        severity: 'WARNING',
+        time: new Date().toISOString(),
+        message: 'security.socket_admin_denied',
+        component: 'socket',
+        reason,
+        socketId: socket?.id || null,
+        userId: resolveSocketUserId(socket) || null
+        // never log tokens or client role hints
+      })
+    );
+  } catch {
+    // noop
+  }
+};
 
 const authenticateSocketFromHandshake = async (socket: any) => {
   const hs = socket.handshake as any;
@@ -652,7 +687,8 @@ const authenticateSocketFromHandshake = async (socket: any) => {
     : tokenRaw;
   if (!token) return null;
 
-  const secret = process.env.JWT_SECRET || 'dev_jwt_secret';
+  const secret = process.env.JWT_SECRET;
+  if (!secret) return null;
   const decoded = jwt.verify(token, secret) as any;
   if (!decoded || !decoded.id) return null;
 
@@ -663,6 +699,7 @@ const authenticateSocketFromHandshake = async (socket: any) => {
   if (!user || !user.isActive) return null;
 
   (socket as any).data = (socket as any).data || {};
+  // Authoritative principal only — never copy handshake.query.role
   (socket as any).data.user = { id: user.id, role: user.role, email: user.email };
   return (socket as any).data.user;
 };
@@ -786,6 +823,31 @@ const persistVoiceCallSummaryMessage = async (params: {
       ...(params.metadata || {})
     }
   };
+
+  // Observability: terminal call outcomes (never throws into message path)
+  try {
+    const { recordCallMetric } = require('./utils/observability/metricsRegistry');
+    const status = String(params.status || 'ended').toLowerCase();
+    const mediaMode = String((params.metadata as any)?.mediaMode || 'audio').toLowerCase();
+    const callType =
+      Number(params.participantCount || 0) > 2 ? 'conference' : 'direct';
+    recordCallMetric({
+      event: 'outcome',
+      outcome: status,
+      callType,
+      mediaMode
+    });
+    if (params.durationMs && params.durationMs > 0) {
+      recordCallMetric({
+        event: 'duration',
+        seconds: Math.max(0, Number(params.durationMs) / 1000),
+        callType,
+        mediaMode
+      });
+    }
+  } catch {
+    // ignore telemetry failures
+  }
 
   const message = await prisma.directMessage.create({
     data: {
@@ -1036,7 +1098,11 @@ const markExpiredRingingCallsAsMissed = async () => {
 
 communityNs.use(async (socket, next) => {
   try {
-    await authenticateSocketFromHandshake(socket);
+    const user = await authenticateSocketFromHandshake(socket);
+    if (!user) {
+      logDeniedAdminSocket(socket, 'unauthenticated');
+      return next(new Error('unauthorized'));
+    }
     return next();
   } catch (error) {
     console.warn('communityNs JWT verify failed:', (error as any)?.message ?? String(error));
@@ -1084,19 +1150,33 @@ communityNs.on('connection', (socket) => {
   }
 
   // Auto-join stable per-user rooms to avoid race conditions when clients emit join events
-  // immediately after connect.
+  // immediately after connect. Admin rooms only when DB role is admin — never query.role.
   try {
-    const requested = String((socket.handshake as any)?.query?.userId || '').trim();
     const identity = String((socket as any).data?.user?.id || '').trim();
-    const tokenRole = normalizeRole((socket as any).data?.user?.role);
-    const roleHint = normalizeRole((socket.handshake as any)?.query?.role);
-    const isAdmin = tokenRole.includes('admin') || roleHint.includes('admin');
-    const allowDevJoin = process.env.NODE_ENV === 'development' && !identity;
-    if (requested && (identity === requested || allowDevJoin)) {
-      joinCommunityRooms(requested, isAdmin);
+    const isAdmin = isAdminRoleValue(String((socket as any).data?.user?.role || ''));
+    // Prefer authenticated identity; ignore client-supplied userId unless it matches identity
+    // or the principal is a verified admin (support tooling).
+    const requested = String((socket.handshake as any)?.query?.userId || '').trim();
+    let joinUserId = identity;
+    if (requested && requested !== identity) {
+      if (isAdmin && identity) {
+        joinUserId = requested;
+      } else if (requested !== identity) {
+        logDeniedAdminSocket(socket, 'auto_join_user_mismatch');
+        joinUserId = identity;
+      }
+    }
+    if (joinUserId) {
+      joinCommunityRooms(joinUserId, isAdmin);
       socket.emit('joined', {
         auto: true,
-        rooms: ['community:global', 'community:ads', `community:user:${requested}`, `wallet:${requested}`, requested]
+        rooms: [
+          'community:global',
+          'community:ads',
+          `community:user:${joinUserId}`,
+          `wallet:${joinUserId}`,
+          joinUserId
+        ]
       });
       if (identity && !(socket as any).data?.presenceMarked) {
         (socket as any).data.presenceUserId = identity;
@@ -1492,12 +1572,12 @@ communityNs.on('connection', (socket) => {
       try {
         const requested = payload?.userId;
         const identity = (socket as any).data?.user?.id || null;
-        const role = normalizeRole((socket as any).data?.user?.role);
-        const roleHint = normalizeRole((socket.handshake as any)?.query?.role);
-        const isAdmin = role.includes('admin') || roleHint.includes('admin');
+        // Never trust handshake.query.role for authorization
+        const isAdmin = isAdminRoleValue(String((socket as any).data?.user?.role || ''));
         if (!requested) { socket.emit('error', { code: 'MISSING_USERID', message: 'userId required' }); return; }
         const allowDevJoin = process.env.NODE_ENV === 'development' && !identity;
         if (identity !== requested && !isAdmin && !allowDevJoin) {
+          logDeniedAdminSocket(socket, 'community_join_forbidden');
           socket.emit('error', { code: 'FORBIDDEN', message: 'Not authorized to join user room' });
           return;
         }
@@ -2010,6 +2090,18 @@ communityNs.on('connection', (socket) => {
           String(payload?.callType || '').toLowerCase() === 'conference' ||
           totalParticipants > 2 ||
           (!isDirectConversation && filteredTargets.length > 1);
+        const mediaMode = normalizeMediaMode(payload?.mediaMode ?? payload?.media);
+        const videoFlags = getMessengerVideoPlatformFlags();
+        try {
+          const { recordCallMetric } = await import('./utils/observability/metricsRegistry');
+          recordCallMetric({
+            event: 'attempt',
+            callType: isConferenceRequested ? 'conference' : 'direct',
+            mediaMode
+          });
+        } catch {
+          // telemetry must never block calls
+        }
 
         const startAuth = authorizeCallAction({
           action: 'start',
@@ -2017,7 +2109,10 @@ communityNs.on('connection', (socket) => {
             enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
             enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
             maxParticipants: participantLimit,
-            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
+            enabledVideoCalls: videoFlags.enabledVideoCalls,
+            enabledScreenSharing: videoFlags.enabledScreenSharing,
+            maxVideoParticipants: videoFlags.maxVideoParticipants
           },
           actorUserId: userId,
           isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
@@ -2026,9 +2121,21 @@ communityNs.on('connection', (socket) => {
           memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
           groupPolicy: convo.groupPolicy,
           isConference: isConferenceRequested,
-          participantCount: totalParticipants
+          participantCount: totalParticipants,
+          mediaMode
         });
         if (!startAuth.allowed) {
+          try {
+            const { recordCallMetric } = await import('./utils/observability/metricsRegistry');
+            recordCallMetric({
+              event: 'outcome',
+              outcome: String((startAuth as { code?: string }).code || 'denied').toLowerCase(),
+              callType: isConferenceRequested ? 'conference' : 'direct',
+              mediaMode
+            });
+          } catch {
+            // ignore
+          }
           if (ack) {
             ack({
               success: false,
@@ -2084,6 +2191,17 @@ communityNs.on('connection', (socket) => {
               data: busyPayload
             });
           }
+          try {
+            const { recordCallMetric } = await import('./utils/observability/metricsRegistry');
+            recordCallMetric({
+              event: 'outcome',
+              outcome: 'busy',
+              callType: isConferenceRequested ? 'conference' : 'direct',
+              mediaMode
+            });
+          } catch {
+            // ignore
+          }
           return;
         }
 
@@ -2098,7 +2216,9 @@ communityNs.on('connection', (socket) => {
               requestedParticipantIds: filteredTargets,
               initiatorRole: startAuth.role,
               groupCallPolicySnapshot: startAuth.policy,
-              policyVersion: Number((convo.conversation as any)?.settingsVersion || 1)
+              policyVersion: Number((convo.conversation as any)?.settingsVersion || 1),
+              mediaMode,
+              screenShare: { active: false, presenterId: null }
             }
           }
         });
@@ -2128,6 +2248,7 @@ communityNs.on('connection', (socket) => {
           participantIds: participantRows.map((entry) => entry.userId),
           participants: participantUsers,
           callType: isConferenceRequested ? 'conference' : 'direct',
+          mediaMode,
           status: 'ringing',
           createdAt: new Date().toISOString(),
           groupCallPolicy: startAuth.policy
@@ -3203,6 +3324,132 @@ communityNs.on('connection', (socket) => {
     void handleSignal();
   });
 
+  /**
+   * Phase 1 video media control: camera / screen-share state (authorized).
+   * Does not replace WebRTC renegotiation (still via call:signal).
+   * Payload: { callId, kind: 'camera'|'screen', action: 'start'|'stop'|'toggle', enabled?: boolean }
+   */
+  socket.on('call:media', (payload: any, ack?: (result: any) => void) => {
+    const handleMedia = async () => {
+      try {
+        const fromUserId = resolveSocketUserId(socket);
+        const callId = String(payload?.callId || '').trim();
+        const kind = String(payload?.kind || '')
+          .trim()
+          .toLowerCase();
+        const action = String(payload?.action || '')
+          .trim()
+          .toLowerCase();
+        if (!fromUserId || !callId || !kind || !action) {
+          if (ack) {
+            ack({ success: false, error: 'callId, kind and action are required.', code: 'MEDIA_PAYLOAD_INVALID' });
+          }
+          return;
+        }
+        if (!['camera', 'screen', 'microphone'].includes(kind)) {
+          if (ack) ack({ success: false, error: 'Unsupported media kind.', code: 'MEDIA_KIND_INVALID' });
+          return;
+        }
+        if (!['start', 'stop', 'toggle', 'state'].includes(action)) {
+          if (ack) ack({ success: false, error: 'Unsupported media action.', code: 'MEDIA_ACTION_INVALID' });
+          return;
+        }
+
+        const call = await loadVoiceCallForUser(callId, fromUserId);
+        if (!call) {
+          if (ack) ack({ success: false, error: 'Call not found or access denied.', code: 'CALL_NOT_FOUND' });
+          return;
+        }
+
+        const config = await getOrCreateMessengerVoiceConfig();
+        const videoFlags = getMessengerVideoPlatformFlags();
+        const mediaMode = normalizeMediaMode((call as any)?.metadata?.mediaMode || 'video');
+        const callAction = kind === 'screen' ? 'screen_share' : kind === 'camera' ? 'toggle_video' : 'mute_self';
+
+        const convo = await loadConversationForVoice(String(call.conversationId || ''), fromUserId);
+        const auth = authorizeCallAction({
+          action: callAction as any,
+          platform: {
+            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
+            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
+            maxParticipants: resolveVoiceParticipantLimit(config),
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
+            enabledVideoCalls: videoFlags.enabledVideoCalls,
+            enabledScreenSharing: videoFlags.enabledScreenSharing,
+            maxVideoParticipants: videoFlags.maxVideoParticipants
+          },
+          actorUserId: fromUserId,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy || resolveGroupCallPolicy({}),
+          isInitiator: String(call.initiatorId || '') === fromUserId,
+          isInvited: true,
+          mediaMode: kind === 'camera' || kind === 'screen' ? 'video' : mediaMode
+        });
+        if (!auth.allowed) {
+          if (ack) {
+            ack({
+              success: false,
+              error: (auth as { error: string }).error,
+              code: (auth as { code: string }).code
+            });
+          }
+          return;
+        }
+
+        const enabled =
+          action === 'stop'
+            ? false
+            : action === 'start'
+              ? true
+              : payload?.enabled === undefined
+                ? true
+                : Boolean(payload.enabled);
+
+        const prevMeta =
+          call.metadata && typeof call.metadata === 'object' ? { ...(call.metadata as any) } : {};
+        if (kind === 'screen') {
+          prevMeta.screenShare = {
+            active: enabled,
+            presenterId: enabled ? fromUserId : null,
+            updatedAt: new Date().toISOString()
+          };
+          try {
+            await (prisma as any).voiceCall.update({
+              where: { id: callId },
+              data: { metadata: prevMeta }
+            });
+          } catch {
+            // non-fatal: still broadcast
+          }
+        }
+
+        const participantIds = Array.isArray(call.participants)
+          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
+          : [];
+        const eventPayload = {
+          callId,
+          userId: fromUserId,
+          kind,
+          action,
+          enabled,
+          mediaMode: prevMeta.mediaMode || mediaMode,
+          screenShare: prevMeta.screenShare || null,
+          emittedAt: new Date().toISOString()
+        };
+        communityNs.to(`call:${callId}`).emit('call:media', eventPayload);
+        emitVoiceEventToUsers(participantIds, 'call:media', eventPayload);
+        if (ack) ack({ success: true, data: eventPayload });
+      } catch (error: any) {
+        console.error('call:media error', error);
+        if (ack) ack(toVoiceSocketError(error, 'Failed to update call media state.'));
+      }
+    };
+    void handleMedia();
+  });
+
   socket.on('disconnect', (reason) => {
     traceMessages('socket.disconnected', {
       socketId: socket.id,
@@ -3393,6 +3640,16 @@ app.use((req, res, next) => {
   next();
 });
 
+// Phase 1 observability: enrich correlation headers + HTTP metrics (no behavior change)
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { correlationMiddleware, httpMetricsMiddleware } = require('./middleware/observability.middleware');
+  app.use(correlationMiddleware);
+  app.use(httpMetricsMiddleware);
+} catch (e) {
+  console.warn('[observability] middleware not loaded', (e as any)?.message || e);
+}
+
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
@@ -3432,24 +3689,42 @@ const limiter = rateLimit({
     if (!rawIp) return 'unknown';
     return ipKeyGenerator(rawIp);
   },
-  // Skip rate limiting for socket.io and local/dev requests to make local testing reliable.
+  // Skip rate limiting only for non-production local/dev — never via client headers.
   skip: (req) => {
     try {
       if (req.path.includes('/socket.io/')) return true;
-      // Allow bypass when running in development mode
-      if (!process.env.NODE_ENV || process.env.NODE_ENV === 'development') return true;
-      // Allow requests that carry a developer override header
-      if (req.headers['x-dev-role'] || req.headers['x-skip-ratelimit']) return true;
-      // Allow local requests
-      const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
-      const ip = (req.ip || (conn && conn.remoteAddress) || '').toString();
-      if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.0.0.1')) return true;
+      // Client-supplied bypass headers are IGNORED in all environments (defense in depth).
+      // Production / Cloud Run: never skip based on headers.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { isProductionRuntime } = require('./utils/security/isProductionRuntime');
+        if (isProductionRuntime()) return false;
+      } catch {
+        if (String(process.env.NODE_ENV || '').toLowerCase() === 'production') return false;
+      }
+      // Non-production only: skip for local loopback to keep tests usable
+      if (process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test' || !process.env.NODE_ENV) {
+        const conn = req.connection as unknown as { remoteAddress?: string } | undefined;
+        const ip = (req.ip || (conn && conn.remoteAddress) || '').toString();
+        if (ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.0.0.1')) return true;
+        // Explicit server-side test flag only (not a request header)
+        if (process.env.ALLOW_RATE_LIMIT_SKIP === 'true' && process.env.NODE_ENV === 'test') return true;
+      }
     } catch (e) {
-      // If anything goes wrong, do not skip by default
+      // Fail closed: do not skip
     }
     return false;
   }
 });
+
+// Ignore / log production attempts to send security-bypass headers
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { rejectSecurityBypassHeadersMiddleware } = require('./middleware/authRateLimit.middleware');
+  app.use(rejectSecurityBypassHeadersMiddleware);
+} catch {
+  // optional
+}
 
 app.use('/api/', limiter);
 
@@ -3894,6 +4169,47 @@ app.head('/api/readyz', readinessHandler);
 app.get('/api/readyz', readinessHandler);
 app.head('/api/health/ready', readinessHandler);
 app.get('/api/health/ready', readinessHandler);
+
+// Deep component health (additive; does not change /api/health contract)
+app.get('/api/health/components', async (req: Request, res: Response) => {
+  try {
+    res.setHeader('Cache-Control', 'no-store');
+    const { runDeepHealthChecks } = await import('./utils/observability/healthComponents');
+    const report = await runDeepHealthChecks({
+      socketConnected: Number(io.engine?.clientsCount || 0)
+    });
+    const httpStatus = report.status === 'ERROR' ? 503 : 200;
+    return res.status(httpStatus).json({
+      ...report,
+      requestId: (req as any).requestId || null,
+      correlationId: (req as any).correlationId || null
+    });
+  } catch (error) {
+    console.error('Deep health check error:', error);
+    return res.status(503).json({
+      status: 'ERROR',
+      error: 'Deep health check failed',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Metrics catalog (JSON metadata for operators; protected same as /metrics when auth set)
+app.get('/api/observability/metrics-catalog', async (req: Request, res: Response) => {
+  try {
+    const { METRICS_CATALOG } = await import('./utils/observability/metricsRegistry');
+    return res.json({
+      success: true,
+      data: {
+        scrapePath: '/metrics',
+        catalog: METRICS_CATALOG,
+        docs: 'docs/PRODUCTION_OBSERVABILITY_PHASE1.md'
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: 'Catalog unavailable' });
+  }
+});
 
 // Prometheus metrics endpoint (optional)
 app.get('/metrics', async (req: Request, res: Response) => {
