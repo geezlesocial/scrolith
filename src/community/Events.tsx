@@ -162,16 +162,20 @@ const Events = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+    <div className="relative z-0 space-y-6" data-testid="community-events-page">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold text-gray-900">Upcoming Events</h1>
-          <p className="text-sm text-gray-600">Join live sessions, workshops, and community meetups in real time.</p>
+          <p className="mt-1 text-sm text-gray-600">
+            Join live sessions, workshops, and community meetups in real time.
+          </p>
         </div>
         {isAdmin ? (
           <button
+            type="button"
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+            className="relative z-10 inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+            data-testid="community-create-event"
           >
             <Plus className="h-4 w-4" />
             Create Event

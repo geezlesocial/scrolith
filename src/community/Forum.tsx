@@ -198,17 +198,20 @@ const Forum = () => {
     };
 
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
+        <div className="relative z-0 space-y-6" data-testid="community-forum-page">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0 flex-1">
                     <h1 className="text-2xl font-bold text-gray-900">Community Forum</h1>
-                    <p className="text-sm text-gray-500">Ask questions, share knowledge, and connect.</p>
+                    <p className="mt-1 text-sm text-gray-500">Ask questions, share knowledge, and connect.</p>
                 </div>
-                <button 
+                <button
+                    type="button"
                     onClick={() => setIsCreateModalOpen(true)}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-indigo-700 transition shadow-sm"
+                    className="relative z-10 inline-flex shrink-0 items-center justify-center gap-2 self-start rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+                    data-testid="community-start-discussion"
                 >
-                    <Plus className="w-4 h-4 mr-2" /> Start Discussion
+                    <Plus className="h-4 w-4" />
+                    Start Discussion
                 </button>
             </div>
 
@@ -289,7 +292,7 @@ const Forum = () => {
 
             {/* Create Modal */}
             {isCreateModalOpen && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 backdrop-blur-sm animate-fade-in">
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in">
                     <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl p-6 flex flex-col max-h-[90vh]">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-gray-900">Start a Discussion</h3>

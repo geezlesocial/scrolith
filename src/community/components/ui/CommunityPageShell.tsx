@@ -27,7 +27,10 @@ const CommunityPageShell: React.FC<{
       </header>
     )}
     {sticky ? (
-      <div className="sticky top-[calc(env(safe-area-inset-top,0px)+3.5rem)] z-20 border-b border-slate-200/80 bg-slate-50/95 py-2 backdrop-blur supports-[backdrop-filter]:bg-slate-50/80 sm:top-[calc(env(safe-area-inset-top,0px)+4rem)]">
+      <div
+        className="sticky z-10 border-b border-slate-200/80 bg-slate-50 py-2"
+        style={{ top: 'calc(var(--scrolith-header-height, 4.25rem) + 3.5rem)' }}
+      >
         <div className={communitySpacing.pageX}>{sticky}</div>
       </div>
     ) : null}
