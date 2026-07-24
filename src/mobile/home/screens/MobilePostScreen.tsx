@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useOutletContext, useSearchParams } from 'rea
 import { CommunityService } from '../../../services/community';
 import { useNotification } from '../../../context/NotificationContext';
 import { useUser } from '../../../context/UserContext';
-import { UploadedFile } from '../../../types';
+import type { UploadedFile } from '../../../types';
 import MentionHashtagTextarea from '../../../community/components/MentionHashtagTextarea';
 import { AIService, type PostEnhanceMode } from '../../../services/ai/ai.service';
 import { FileService } from '../../../services/files';
@@ -18,13 +18,18 @@ import {
   type PostAiInsightPreference
 } from '../../../utils/postAiControls';
 import { MOBILE_MODAL_CARD_CLASS, MOBILE_PAGE_SECTION_CLASS } from '../mobileShellLayout';
-
-const getMimeType = (file: any) =>
-  String(file?.mime_type || file?.mimeType || file?.mimetype || file?.mime || '').toLowerCase();
-const getFileType = (file: any) => String(file?.type || '').toLowerCase();
-const isVideo = (file: any) => getFileType(file) === 'video' || getMimeType(file).startsWith('video/');
-const isImage = (file: any) => getFileType(file) === 'image' || getMimeType(file).startsWith('image/');
-const POST_UPLOAD_ACCEPT = 'image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar';
+import {
+  canPublishWithAttachments,
+  COMPOSER_UPLOAD_ACCEPT,
+  COMPOSER_UPLOAD_MAX_RETRIES,
+  createLocalAttachment,
+  generateLocalVideoPoster,
+  revokeAttachmentPreviews,
+  validateComposerFile,
+  type ComposerAttachmentPreview
+} from '../../../components/composer/composerAttachments';
+import ComposerMediaPreviewGrid from '../../../components/composer/ComposerMediaPreviewGrid';
+import AIComposerAssist from '../../../components/ai/AIComposerAssist';
 
 const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'grammar', label: 'Improve Grammar' },
@@ -48,10 +53,11 @@ export default function MobilePostScreen({
   const { showNotification } = useNotification();
   const { user } = useUser();
   const [content, setContent] = useState('');
-  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
+  const [media, setMedia] = useState<ComposerAttachmentPreview[]>([]);
+  const mediaRef = useRef(media);
+  mediaRef.current = media;
+  const mediaCountRef = useRef(0);
   const [busy, setBusy] = useState(false);
-  const [uploadingAttachmentCount, setUploadingAttachmentCount] = useState(0);
-  const [uploadingAttachmentLabel, setUploadingAttachmentLabel] = useState('');
   const [loadingPost, setLoadingPost] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRunningMode, setAiRunningMode] = useState<PostEnhanceMode | null>(null);
@@ -61,6 +67,7 @@ export default function MobilePostScreen({
   const [aiSuggestionWarning, setAiSuggestionWarning] = useState<string | null>(null);
   const [aiOriginalText, setAiOriginalText] = useState('');
   const [aiCompareView, setAiCompareView] = useState<'compare' | 'ai'>('compare');
+  const [statusMessage, setStatusMessage] = useState('');
 
   const layout = mobileLayout ?? ctx?.mobileLayout ?? null;
   const composer = (layout?.postComposer || layout?.post_composer || {}) as Record<string, any>;
@@ -70,16 +77,19 @@ export default function MobilePostScreen({
   const visibilityEnabled = composer.visibilityEnabled !== false;
   const allowedVisibilities = useMemo(() => {
     const raw = composer.allowedVisibilities || composer.allowed_visibilities;
-    const list = Array.isArray(raw) ? raw.map((v: any) => String(v || '').trim().toLowerCase()).filter(Boolean) : [];
+    const list = Array.isArray(raw)
+      ? raw.map((v: any) => String(v || '').trim().toLowerCase()).filter(Boolean)
+      : [];
     const fallback = ['public', 'network', 'friends', 'private'];
-    const merged = Array.from(new Set((list.length ? list : fallback).filter(Boolean)));
-    return merged;
+    return Array.from(new Set((list.length ? list : fallback).filter(Boolean)));
   }, [composer.allowedVisibilities, composer.allowed_visibilities]);
   const defaultVisibility = String(composer.defaultVisibility || composer.default_visibility || 'public')
     .trim()
     .toLowerCase();
   const graphicWarningEnabled = composer.graphicWarningEnabled !== false;
-  const graphicWarningLabel = String(composer.graphicWarningLabel || composer.graphic_warning_label || 'Graphic warning').trim();
+  const graphicWarningLabel = String(
+    composer.graphicWarningLabel || composer.graphic_warning_label || 'Graphic warning'
+  ).trim();
 
   const [visibility, setVisibility] = useState<string>(defaultVisibility);
   const [graphicWarning, setGraphicWarning] = useState(false);
@@ -116,38 +126,64 @@ export default function MobilePostScreen({
   }, [routerLocation.state]);
 
   useEffect(() => {
-    // Keep composer defaults in sync if admin changes settings while user is on this screen.
-    setVisibility((prev) => (allowedVisibilities.includes(prev) ? prev : (allowedVisibilities[0] || defaultVisibility || 'public')));
+    setVisibility((prev) =>
+      allowedVisibilities.includes(prev) ? prev : allowedVisibilities[0] || defaultVisibility || 'public'
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allowedVisibilities.join('|'), defaultVisibility]);
+
+  useEffect(() => {
+    return () => {
+      mediaRef.current.forEach((item) => revokeAttachmentPreviews(item));
+    };
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
-  const canPost = (content.trim().length >= 1 || attachments.length > 0) && uploadingAttachmentCount === 0;
+  const uploadingCount = media.filter((m) => m.uploading).length;
+  const canPost =
+    (content.trim().length >= 1 || media.some((m) => m.id)) &&
+    canPublishWithAttachments(media).ok;
 
   const attachmentIds = useMemo(
-    () => Array.from(new Set(attachments.map((f) => String(f.id || '').trim()).filter(Boolean))),
-    [attachments]
+    () => Array.from(new Set(media.map((f) => String(f.id || '').trim()).filter(Boolean))),
+    [media]
   );
 
-  const removeAttachment = (id: string) => {
-    setAttachments((prev) => prev.filter((f) => String(f.id) !== String(id)));
-  };
+  const updateMedia = useCallback((localId: string, patch: Partial<ComposerAttachmentPreview>) => {
+    setMedia((prev) =>
+      prev.map((item) => {
+        if (item.localId !== localId) return item;
+        return { ...item, ...patch };
+      })
+    );
+  }, []);
+
+  const removeAttachment = useCallback((localId: string) => {
+    setMedia((prev) => {
+      const target = prev.find((m) => m.localId === localId);
+      if (target) revokeAttachmentPreviews(target);
+      const next = prev.filter((m) => m.localId !== localId);
+      mediaCountRef.current = next.length;
+      return next;
+    });
+    setStatusMessage('Attachment removed.');
+  }, []);
 
   const handleAttachmentDownload = useCallback(
-    async (file: UploadedFile) => {
-      const url = String(file?.url || '').trim();
-      if (!url) {
-        showNotification('warning', 'Download', 'Attachment URL is not available.');
+    async (item: ComposerAttachmentPreview) => {
+      const url = String(item?.url || item?.localPreviewUrl || '').trim();
+      if (!url || url.startsWith('blob:')) {
+        showNotification('warning', 'Download', 'Attachment is still uploading or URL is unavailable.');
         return;
       }
       try {
         const result = await downloadToDevice({
           url,
-          fileName: file?.name,
-          mimeType: String(file?.mimeType || file?.mime_type || '')
+          fileName: item?.name,
+          mimeType: String(item?.mimeType || '')
         });
         showNotification(
           'success',
@@ -161,54 +197,110 @@ export default function MobilePostScreen({
     [showNotification]
   );
 
-  const appendAttachment = useCallback((file: UploadedFile) => {
-    setAttachments((prev) => {
-      if (prev.some((entry) => String(entry.id) === String(file.id))) return prev;
-      return [...prev, file];
-    });
-  }, []);
+  const uploadOneFile = useCallback(
+    async (file: File, opts?: { existingLocalId?: string; retryCount?: number }) => {
+      if (!user) {
+        showNotification('warning', 'Attachments', 'Sign in to upload files.');
+        return;
+      }
+      const existingLocalId = opts?.existingLocalId;
+      const retryCount = opts?.retryCount ?? 0;
 
-  const uploadFilesFromDevice = useCallback(
-    async (files: File[]) => {
-      if (!files.length) return;
-      setUploadingAttachmentCount(files.length);
-      try {
-        for (let index = 0; index < files.length; index += 1) {
-          const file = files[index];
-          setUploadingAttachmentLabel(`Uploading ${index + 1} of ${files.length}: ${file.name}`);
-          const uploaded = await FileService.uploadFile(file, 'community' as any, {
-            role: user?.role,
-            visibility: visibility === 'private' ? 'private' : 'public',
-            userId: user?.id,
-            onRetry: (attempt) => {
-              setUploadingAttachmentLabel(
-                `Retrying ${file.name} after a temporary network issue (${attempt}/${2})`
-              );
-            }
-          });
-          appendAttachment(uploaded);
+      if (!existingLocalId) {
+        const validation = validateComposerFile(file, { currentCount: mediaCountRef.current });
+        if (validation.ok === false) {
+          showNotification('warning', 'Attachments', validation.reason);
+          return;
         }
+        mediaCountRef.current += 1;
+        const localItem = createLocalAttachment(file, validation.kind);
+        setMedia((prev) => [...prev, localItem]);
+        if (validation.kind === 'video') {
+          void generateLocalVideoPoster(file).then((poster) => {
+            if (poster) updateMedia(localItem.localId, { localPosterUrl: poster, thumbnailUrl: poster });
+          });
+        }
+        return uploadOneFile(file, { existingLocalId: localItem.localId, retryCount: 0 });
+      }
+
+      const localId = existingLocalId;
+      updateMedia(localId, { uploading: true, progress: 0, error: undefined, retryCount, file });
+      setStatusMessage(
+        retryCount > 0 ? `Retrying ${file.name}…` : `Uploading ${file.name}…`
+      );
+
+      try {
+        const uploaded = await FileService.uploadFile(file, 'community' as any, {
+          role: user?.role,
+          visibility: visibility === 'private' ? 'private' : 'public',
+          userId: user?.id,
+          onProgress: (percent: number) => {
+            updateMedia(localId, { progress: percent, uploading: true });
+            setStatusMessage(`Uploading ${file.name}: ${percent}%`);
+          },
+          onRetry: (attempt: number) => {
+            setStatusMessage(`Retrying ${file.name} after network issue (${attempt})…`);
+          }
+        });
+        const remoteUrl = String(uploaded.url || '').trim();
+        updateMedia(localId, {
+          id: String(uploaded.id || ''),
+          ...(remoteUrl ? { url: remoteUrl } : {}),
+          type:
+            uploaded.type === 'video'
+              ? 'video'
+              : uploaded.type === 'image'
+                ? 'image'
+                : 'document',
+          mimeType: uploaded.mimeType || uploaded.mime_type,
+          thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url,
+          duration: uploaded.duration,
+          uploading: false,
+          progress: 100,
+          error: undefined,
+          file: undefined
+        });
+        setStatusMessage(`${file.name} ready.`);
       } catch (error: any) {
-        showNotification(
-          'error',
-          'Attachments',
-          getRecoverableActionMessage('Attachment upload', error)
-        );
-      } finally {
-        setUploadingAttachmentCount(0);
-        setUploadingAttachmentLabel('');
+        const message = getRecoverableActionMessage('Attachment upload', error);
+        if (retryCount < COMPOSER_UPLOAD_MAX_RETRIES) {
+          window.setTimeout(() => {
+            void uploadOneFile(file, { existingLocalId: localId, retryCount: retryCount + 1 });
+          }, 450 * (retryCount + 1));
+          return;
+        }
+        updateMedia(localId, { uploading: false, error: message, progress: 0 });
+        setStatusMessage(`${file.name} failed.`);
+        showNotification('error', 'Attachments', message);
       }
     },
-    [appendAttachment, showNotification, user?.id, user?.role, visibility]
+    [showNotification, updateMedia, user, visibility]
+  );
+
+  const retryAttachment = useCallback(
+    (localId: string) => {
+      const item = mediaRef.current.find((m) => m.localId === localId);
+      if (!item?.file) {
+        showNotification('warning', 'Attachments', 'Original file is no longer available. Please re-add it.');
+        return;
+      }
+      void uploadOneFile(item.file, {
+        existingLocalId: localId,
+        retryCount: Number(item.retryCount || 0)
+      });
+    },
+    [showNotification, uploadOneFile]
   );
 
   const handleInputFiles = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(event.target.files || []);
       event.currentTarget.value = '';
-      void uploadFilesFromDevice(files);
+      files.forEach((file) => {
+        void uploadOneFile(file);
+      });
     },
-    [uploadFilesFromDevice]
+    [uploadOneFile]
   );
 
   const applyPostToDraft = (post: any) => {
@@ -216,35 +308,44 @@ export default function MobilePostScreen({
     setVisibility(String(post?.visibility || defaultVisibility || 'public').toLowerCase());
     setGraphicWarning(Boolean(post?.graphicWarning ?? post?.graphic_warning ?? false));
     setIsAIEnhanced(Boolean(post?.isAIEnhanced ?? post?.is_ai_enhanced ?? false));
-    setAiInsightPreference(resolveStoredPostAiInsightPreference(post?.aiInsightEnabled ?? post?.ai_insight_enabled));
+    setAiInsightPreference(
+      resolveStoredPostAiInsightPreference(post?.aiInsightEnabled ?? post?.ai_insight_enabled)
+    );
     setTopic(String(post?.topic || '').trim());
     setPlace(String(post?.location || '').trim());
 
     const postAttachments = Array.isArray(post?.attachments) ? post.attachments : [];
-    const normalized: UploadedFile[] = postAttachments
+    const normalized: ComposerAttachmentPreview[] = postAttachments
       .map((att: any) => {
         const id = String(att?.id || '').trim();
         if (!id) return null;
         const url = String(att?.url || att?.downloadUrl || att?.download_url || '').trim();
         const name = String(att?.name || att?.originalName || att?.original_name || url || 'Attachment').trim();
         const mimeType = String(att?.mimeType || att?.mime_type || '').trim();
-        const type = String(att?.type || '').trim() || (mimeType.startsWith('video/') ? 'video' : mimeType.startsWith('image/') ? 'image' : 'file');
+        const typeRaw = String(att?.type || '').trim().toLowerCase();
+        const type =
+          typeRaw === 'video' || mimeType.startsWith('video/')
+            ? 'video'
+            : typeRaw === 'image' || mimeType.startsWith('image/')
+              ? 'image'
+              : 'document';
         return {
+          localId: `existing-${id}`,
           id,
-          user_id: String(post?.authorId || post?.authorUserId || post?.author_id || post?.userId || ''),
+          url,
           name,
           type,
+          mimeType,
           size: Number(att?.size || 0) || 0,
-          url,
-          category: (att?.category || 'other') as any,
-          created_at: String(att?.created_at || att?.createdAt || post?.createdAt || new Date().toISOString()),
-          mime_type: mimeType,
-          mimeType
-        } as UploadedFile;
+          uploading: false,
+          progress: 100
+        } as ComposerAttachmentPreview;
       })
-      .filter(Boolean) as UploadedFile[];
+      .filter(Boolean) as ComposerAttachmentPreview[];
 
-    setAttachments(normalized);
+    mediaRef.current.forEach((item) => revokeAttachmentPreviews(item));
+    mediaCountRef.current = normalized.length;
+    setMedia(normalized);
   };
 
   useEffect(() => {
@@ -314,7 +415,8 @@ export default function MobilePostScreen({
       setAiCompareView('compare');
       if (result.fallbackUsed || result.usedFallback || result.warning) {
         setAiSuggestionWarning(
-          result.warning || 'Scrolitha used backup processing for this suggestion. Please review before applying.'
+          result.warning ||
+            'Scrolitha used backup processing for this suggestion. Please review before applying.'
         );
       } else {
         setAiSuggestionWarning(null);
@@ -324,7 +426,10 @@ export default function MobilePostScreen({
       showNotification(
         'error',
         'Scrolitha',
-        error?.response?.data?.error || error?.response?.data?.message || error?.message || 'Unable to enhance text right now.'
+        error?.response?.data?.error ||
+          error?.response?.data?.message ||
+          error?.message ||
+          'Unable to enhance text right now.'
       );
     } finally {
       setAiLoading(false);
@@ -335,6 +440,7 @@ export default function MobilePostScreen({
   const applyAiSuggestionReplace = () => {
     if (!aiSuggestion) return;
     setContent(aiSuggestion);
+    setIsAIEnhanced(true);
     closeAiSuggestionModal();
   };
 
@@ -342,13 +448,15 @@ export default function MobilePostScreen({
     if (!aiSuggestion) return;
     const base = String(content || '').trim();
     setContent(base ? `${base}\n\n${aiSuggestion}` : aiSuggestion);
+    setIsAIEnhanced(true);
     closeAiSuggestionModal();
   };
 
   const submit = async () => {
     if (!canPost || busy) return;
-    if (uploadingAttachmentCount > 0) {
-      showNotification('warning', 'Attachments', 'Wait for attachment uploads to finish before posting.');
+    const attachGate = canPublishWithAttachments(media);
+    if (!attachGate.ok) {
+      showNotification('warning', 'Attachments', attachGate.reason);
       return;
     }
     setBusy(true);
@@ -361,12 +469,13 @@ export default function MobilePostScreen({
           visibility: visibilityEnabled ? visibility : defaultVisibility,
           graphicWarning: graphicWarningEnabled ? graphicWarning : false,
           isAIEnhanced,
-          aiInsightEnabled: postAiInsightPreferenceToBoolean(resolvePostAiInsightPreference(aiInsightPreference, 'off')),
+          aiInsightEnabled: postAiInsightPreferenceToBoolean(
+            resolvePostAiInsightPreference(aiInsightPreference, 'off')
+          ),
           topic: topic.trim() || undefined,
           location: place.trim() || undefined
         } as any);
 
-        // Ensure immediate local refresh even if realtime is delayed.
         window.dispatchEvent(new CustomEvent('community:post_updated', { detail: { post: updated } }));
 
         showNotification('success', 'Saved', 'Post updated.');
@@ -388,13 +497,16 @@ export default function MobilePostScreen({
 
       window.dispatchEvent(new CustomEvent('community:post_created', { detail: { post: created } }));
 
+      media.forEach((item) => revokeAttachmentPreviews(item));
+      mediaCountRef.current = 0;
       setContent('');
-      setAttachments([]);
+      setMedia([]);
       setGraphicWarning(false);
       setIsAIEnhanced(false);
       setAiInsightPreference('auto');
       setTopic('');
       setPlace('');
+      setStatusMessage('');
       showNotification('success', 'Posted', 'Your update is live.');
       if (onClose) closeComposer();
     } catch (e: any) {
@@ -480,7 +592,9 @@ export default function MobilePostScreen({
             <select
               value={aiInsightPreference}
               onChange={(e) =>
-                setAiInsightPreference(resolvePostAiInsightPreference(e.target.value, isEditing ? 'off' : 'auto'))
+                setAiInsightPreference(
+                  resolvePostAiInsightPreference(e.target.value, isEditing ? 'off' : 'auto')
+                )
               }
               className="mt-1 w-full bg-transparent text-xs font-semibold text-slate-900 outline-none"
               disabled={busy || loadingPost}
@@ -533,7 +647,8 @@ export default function MobilePostScreen({
             className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
           />
           <div className="mt-2 text-[11px] text-slate-500">
-            {hashtagsEnabled ? '#tags' : '#tags (disabled)'} and {mentionsEnabled ? '@mentions' : '@mentions (disabled)'} supported
+            {hashtagsEnabled ? '#tags' : '#tags (disabled)'} and{' '}
+            {mentionsEnabled ? '@mentions' : '@mentions (disabled)'} supported
           </div>
           <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
             <div className="flex flex-wrap gap-2">
@@ -549,52 +664,50 @@ export default function MobilePostScreen({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[11px] text-slate-500">When AI is used, content remains user-authored.</p>
+            <div className="mt-3">
+              <AIComposerAssist
+                value={content}
+                surface="post-mobile"
+                compact
+                disabled={busy || loadingPost || aiLoading}
+                onApplyDraft={(draft, meta) => {
+                  if (meta?.replace === false) {
+                    const base = String(content || '').trim();
+                    setContent(base ? `${base}\n\n${draft}` : draft);
+                  } else {
+                    setContent(draft);
+                  }
+                  setIsAIEnhanced(true);
+                }}
+              />
+            </div>
+            <p className="mt-2 text-[11px] text-slate-500">
+              AI drafts never auto-post. Review every suggestion before applying.
+            </p>
           </div>
         </div>
 
-        {attachments.length ? (
-          <div className="mt-3 grid gap-2">
-            {attachments.slice(0, 6).map((file) => (
-              <div key={file.id} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                <button
-                  type="button"
-                  onClick={() => removeAttachment(file.id)}
-                  className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-500 hover:text-slate-700"
-                  aria-label="Remove attachment"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void handleAttachmentDownload(file)}
-                  className="absolute left-2 top-2 z-10 rounded-full bg-white/90 p-1 text-slate-500 hover:text-slate-700"
-                  aria-label="Download attachment"
-                >
-                  <Download className="h-4 w-4" />
-                </button>
-                {isVideo(file) ? (
-                  <video src={file.url} className="h-44 w-full object-cover" controls preload="metadata" />
-                ) : isImage(file) ? (
-                  <img src={file.url} alt={file.name} className="h-44 w-full object-cover" />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void handleAttachmentDownload(file)}
-                    className="block w-full p-4 text-left text-sm font-semibold text-slate-700 hover:underline"
-                  >
-                    {file.name}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : null}
+        <div className="mt-3">
+          <ComposerMediaPreviewGrid
+            media={media}
+            onRemove={removeAttachment}
+            onRetry={retryAttachment}
+            onOpenPreview={(item) => {
+              if (item.id && item.url && !String(item.url).startsWith('blob:')) {
+                void handleAttachmentDownload(item);
+              }
+            }}
+            emptyLabel="Add photos, videos, or files — previews appear while uploading."
+          />
+        </div>
 
-        {uploadingAttachmentCount > 0 ? (
+        {uploadingCount > 0 || statusMessage ? (
           <div className="mt-3 flex items-center gap-2 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <span>{uploadingAttachmentLabel || 'Uploading attachments...'}</span>
+            {uploadingCount > 0 ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+            <span className="sr-only" role="status" aria-live="polite">
+              {statusMessage}
+            </span>
+            <span>{statusMessage || `Uploading ${uploadingCount} attachment(s)…`}</span>
           </div>
         ) : null}
 
@@ -603,7 +716,7 @@ export default function MobilePostScreen({
             ref={fileInputRef}
             type="file"
             multiple
-            accept={POST_UPLOAD_ACCEPT}
+            accept={COMPOSER_UPLOAD_ACCEPT}
             className="hidden"
             onChange={handleInputFiles}
           />
@@ -628,7 +741,7 @@ export default function MobilePostScreen({
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              disabled={busy || loadingPost || uploadingAttachmentCount > 0}
+              disabled={busy || loadingPost}
             >
               <Paperclip className="h-4 w-4" />
               Files
@@ -637,7 +750,7 @@ export default function MobilePostScreen({
               type="button"
               onClick={() => mediaInputRef.current?.click()}
               className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              disabled={busy || loadingPost || uploadingAttachmentCount > 0}
+              disabled={busy || loadingPost}
             >
               <ImageIcon className="h-4 w-4" />
               Photos & Videos
@@ -646,7 +759,7 @@ export default function MobilePostScreen({
               type="button"
               onClick={() => cameraInputRef.current?.click()}
               className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              disabled={busy || loadingPost || uploadingAttachmentCount > 0}
+              disabled={busy || loadingPost}
             >
               <Camera className="h-4 w-4" />
               Camera
@@ -665,15 +778,29 @@ export default function MobilePostScreen({
         </div>
       </div>
 
+      <datalist id="mobile_post_topics">
+        {suggestedTopics.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+      <datalist id="mobile_post_locations">
+        {suggestedLocations.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+
       {aiSuggestionOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-3">
           <div className={MOBILE_MODAL_CARD_CLASS}>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-base font-semibold text-slate-900">AI Draft Suggestion</h3>
                 <p className="text-[11px] text-slate-500">
                   {aiSuggestionMode
-                    ? `Mode: ${postAiActions.find((entry) => entry.mode === aiSuggestionMode)?.label || aiSuggestionMode}`
+                    ? `Mode: ${
+                        postAiActions.find((entry) => entry.mode === aiSuggestionMode)?.label ||
+                        aiSuggestionMode
+                      }`
                     : 'Review before applying'}
                 </p>
               </div>
@@ -691,10 +818,12 @@ export default function MobilePostScreen({
                 type="button"
                 onClick={() => setAiCompareView('compare')}
                 className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                  aiCompareView === 'compare' ? 'bg-slate-900 text-white' : 'border border-slate-200 text-slate-700'
+                  aiCompareView === 'compare'
+                    ? 'bg-slate-900 text-white'
+                    : 'border border-slate-200 text-slate-700'
                 }`}
               >
-                Compare version
+                Compare
               </button>
               <button
                 type="button"
@@ -708,27 +837,27 @@ export default function MobilePostScreen({
             </div>
 
             {aiSuggestionWarning ? (
-              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                 {aiSuggestionWarning}
-              </div>
+              </p>
             ) : null}
 
-            {aiCompareView === 'compare' ? (
-              <div className="mt-3 grid gap-2">
+            <div className="mt-3 max-h-[50vh] space-y-3 overflow-y-auto">
+              {aiCompareView === 'compare' ? (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Original</div>
-                  <pre className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{aiOriginalText || '(empty)'}</pre>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    Original
+                  </div>
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{aiOriginalText}</p>
                 </div>
-                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">AI Version</div>
-                  <pre className="mt-1 whitespace-pre-wrap text-sm text-emerald-900">{aiSuggestion || '(empty)'}</pre>
+              ) : null}
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+                  AI suggestion
                 </div>
+                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{aiSuggestion}</p>
               </div>
-            ) : (
-              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                <pre className="whitespace-pre-wrap text-sm text-emerald-900">{aiSuggestion || '(empty)'}</pre>
-              </div>
-            )}
+            </div>
 
             <div className="mt-4 flex flex-wrap justify-end gap-2">
               <button
@@ -736,38 +865,26 @@ export default function MobilePostScreen({
                 onClick={closeAiSuggestionModal}
                 className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
               >
-                Cancel
+                Discard
               </button>
               <button
                 type="button"
                 onClick={applyAiSuggestionInsert}
                 className="rounded-full border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-700"
               >
-                Insert Below
+                Insert below
               </button>
               <button
                 type="button"
                 onClick={applyAiSuggestionReplace}
-                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold uppercase text-white"
+                className="rounded-full bg-slate-900 px-4 py-2 text-xs font-semibold text-white"
               >
-                Replace
+                Replace text
               </button>
             </div>
           </div>
         </div>
       ) : null}
-
-      <datalist id="mobile_post_topics">
-        {suggestedTopics.slice(0, 500).map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
-      <datalist id="mobile_post_locations">
-        {suggestedLocations.slice(0, 500).map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
-
     </div>
   );
 }

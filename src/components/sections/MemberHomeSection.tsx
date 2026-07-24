@@ -194,11 +194,20 @@ import {
 } from '../composer/composerDraftStore';
 import {
   canPublishWithAttachments,
+  COMPOSER_UPLOAD_ACCEPT,
+  COMPOSER_UPLOAD_MAX_RETRIES,
+  createLocalAttachment,
+  filesFromDataTransfer,
+  generateLocalVideoPoster,
+  revokeAttachmentPreviews,
   revokePreviewUrl,
-  validateComposerFile
+  validateComposerFile,
+  type ComposerAttachmentPreview
 } from '../composer/composerAttachments';
 import { createPublishGuard } from '../composer/composerPublishGuard';
 import ComposerShell from '../composer/ComposerShell';
+import ComposerMediaPreviewGrid from '../composer/ComposerMediaPreviewGrid';
+import AIComposerAssist from '../ai/AIComposerAssist';
 
 const LocationPicker = React.lazy(() => import('../common/LocationPicker'));
 const RepostModal = React.lazy(() => import('../../community/components/RepostModal'));
@@ -401,19 +410,7 @@ type SidebarAdCard = {
   placement?: string;
 };
 
-type PostMediaItem = {
-  localId: string;
-  id?: string;
-  url: string;
-  name?: string;
-  type?: 'image' | 'video' | 'document';
-  mimeType?: string;
-  thumbnailUrl?: string | null;
-  duration?: number | null;
-  progress?: number;
-  uploading?: boolean;
-  error?: string;
-};
+type PostMediaItem = ComposerAttachmentPreview;
 
 type PostDraft = {
   title: string;
@@ -2277,7 +2274,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   // Revoke any remaining blob previews on unmount (navigation / teardown).
   useEffect(() => {
     return () => {
-      postMediaItemsRef.current.forEach((item) => revokePreviewUrl(item.url));
+      postMediaItemsRef.current.forEach((item) => revokeAttachmentPreviews(item));
     };
   }, []);
   const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
@@ -4467,7 +4464,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setPostDraft((prev) => {
       const target = prev.media.find((item) => item.localId === localId);
       if (!target) return prev;
-      if (target.url) revokePreviewUrl(target.url);
+      revokeAttachmentPreviews(target);
       const nextMedia = prev.media.filter((item) => item.localId !== localId);
       postMediaCountRef.current = nextMedia.length;
       postMediaItemsRef.current = nextMedia;
@@ -4479,74 +4476,138 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setComposerStatusMessage('Attachment removed.');
   }, []);
 
-  const uploadPostFile = useCallback(async (file: File) => {
-    if (!user) return;
-    const validation = validateComposerFile(file, {
-      currentCount: postMediaCountRef.current
-    });
-    if (!validation.ok) {
-      showNotification('warning', 'Attachments', validation.reason);
-      setComposerStatusMessage(validation.reason);
-      return;
-    }
-    // Reserve a slot immediately so concurrent multi-file picks cannot exceed the limit.
-    postMediaCountRef.current += 1;
-    const localId = `media-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    const inferred = validation.kind;
-    const previewUrl = URL.createObjectURL(file);
-    addPostMediaItem({
-      localId,
-      url: previewUrl,
-      name: file.name,
-      type: inferred,
-      uploading: true,
-      progress: 0
-    });
-    setComposerStatusMessage(`Uploading ${file.name}…`);
-    try {
-      const uploaded = await FileService.uploadFile(file, 'community', {
-        role: user.role,
-        visibility: postDraft.visibility === 'private' ? 'private' : 'public',
-        userId: user.id,
-        onProgress: (percent) => {
-          updatePostMedia(localId, { progress: percent });
-          setComposerStatusMessage(`Uploading ${file.name}: ${percent}%`);
-        }
-      });
-      updatePostMedia(localId, {
-        id: uploaded.id,
-        url: uploaded.url,
-        type: uploaded.type === 'video' ? 'video' : uploaded.type === 'image' ? 'image' : 'document',
-        mimeType: uploaded.mimeType || uploaded.mime_type,
-        thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url,
-        duration: uploaded.duration,
-        uploading: false,
-        progress: 100,
-        error: undefined
-      });
-      setComposerStatusMessage(`${file.name} uploaded.`);
-    } catch (error: any) {
-      console.error('Upload failed', error);
-      const message = error?.message || 'Upload failed';
-      updatePostMedia(localId, { uploading: false, error: message });
-      setComposerStatusMessage(`${file.name} failed: ${message}`);
-    }
-  }, [addPostMediaItem, postDraft.visibility, showNotification, updatePostMedia, user]);
+  const uploadPostFile = useCallback(
+    async (file: File, opts?: { existingLocalId?: string; retryCount?: number }) => {
+      if (!user) return;
+      const existingLocalId = opts?.existingLocalId;
+      const retryCount = opts?.retryCount ?? 0;
 
-  const handlePostMedia = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files || []);
-    if (!files.length) return;
-    files.forEach((file) => {
-      void uploadPostFile(file);
-    });
-    if (postMediaInputRef.current) postMediaInputRef.current.value = '';
-  }, [uploadPostFile]);
+      if (!existingLocalId) {
+        const validation = validateComposerFile(file, {
+          currentCount: postMediaCountRef.current
+        });
+        if (validation.ok === false) {
+          showNotification('warning', 'Attachments', validation.reason);
+          setComposerStatusMessage(validation.reason);
+          return;
+        }
+        // Reserve a slot immediately so concurrent multi-file picks cannot exceed the limit.
+        postMediaCountRef.current += 1;
+        const localItem = createLocalAttachment(file, validation.kind);
+        addPostMediaItem(localItem);
+        if (validation.kind === 'video') {
+          void generateLocalVideoPoster(file).then((poster) => {
+            if (poster) updatePostMedia(localItem.localId, { localPosterUrl: poster, thumbnailUrl: poster });
+          });
+        }
+        setComposerStatusMessage(`Uploading ${file.name}…`);
+        return uploadPostFile(file, { existingLocalId: localItem.localId, retryCount: 0 });
+      }
+
+      const localId = existingLocalId;
+      updatePostMedia(localId, {
+        uploading: true,
+        progress: 0,
+        error: undefined,
+        retryCount,
+        file
+      });
+      setComposerStatusMessage(
+        retryCount > 0 ? `Retrying ${file.name} (attempt ${retryCount + 1})…` : `Uploading ${file.name}…`
+      );
+
+      try {
+        const uploaded = await FileService.uploadFile(file, 'community', {
+          role: user.role,
+          visibility: postDraft.visibility === 'private' ? 'private' : 'public',
+          userId: user.id,
+          onProgress: (percent) => {
+            updatePostMedia(localId, { progress: percent, uploading: true });
+            setComposerStatusMessage(`Uploading ${file.name}: ${percent}%`);
+          },
+          onRetry: (attempt) => {
+            setComposerStatusMessage(`Network hiccup — retrying ${file.name} (${attempt})…`);
+          }
+        });
+        const remoteUrl = String(uploaded.url || '').trim();
+        updatePostMedia(localId, {
+          id: uploaded.id,
+          ...(remoteUrl ? { url: remoteUrl } : {}),
+          type: uploaded.type === 'video' ? 'video' : uploaded.type === 'image' ? 'image' : 'document',
+          mimeType: uploaded.mimeType || uploaded.mime_type,
+          thumbnailUrl: uploaded.thumbnailUrl || uploaded.thumbnail_url,
+          duration: uploaded.duration,
+          uploading: false,
+          progress: 100,
+          error: undefined,
+          file: undefined
+        });
+        // Revoke local blob only after remote URL is available (keeps preview stable).
+        if (remoteUrl) {
+          setPostDraft((prev) => {
+            const item = prev.media.find((m) => m.localId === localId);
+            if (item?.localPreviewUrl && item.localPreviewUrl !== remoteUrl) {
+              revokePreviewUrl(item.localPreviewUrl);
+              return {
+                ...prev,
+                media: prev.media.map((m) =>
+                  m.localId === localId ? { ...m, localPreviewUrl: undefined, url: remoteUrl } : m
+                )
+              };
+            }
+            return prev;
+          });
+        }
+        setComposerStatusMessage(`${file.name} ready.`);
+      } catch (error: any) {
+        console.error('Upload failed', error);
+        const message = error?.message || 'Upload failed';
+        if (retryCount < COMPOSER_UPLOAD_MAX_RETRIES) {
+          const delay = 400 * (retryCount + 1);
+          setComposerStatusMessage(`Retrying ${file.name} in ${delay}ms…`);
+          window.setTimeout(() => {
+            void uploadPostFile(file, { existingLocalId: localId, retryCount: retryCount + 1 });
+          }, delay);
+          return;
+        }
+        updatePostMedia(localId, { uploading: false, error: message, progress: 0 });
+        setComposerStatusMessage(`${file.name} failed: ${message}`);
+        showNotification('error', 'Attachments', `${file.name}: ${message}`);
+      }
+    },
+    [addPostMediaItem, postDraft.visibility, showNotification, updatePostMedia, user]
+  );
+
+  const retryPostMedia = useCallback(
+    (localId: string) => {
+      const item = postMediaItemsRef.current.find((m) => m.localId === localId);
+      const file = item?.file;
+      if (!file) {
+        showNotification('warning', 'Attachments', 'Original file is no longer available. Please re-add it.');
+        return;
+      }
+      void uploadPostFile(file, { existingLocalId: localId, retryCount: Number(item?.retryCount || 0) });
+    },
+    [showNotification, uploadPostFile]
+  );
+
+  const handlePostMedia = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files || []);
+      if (!files.length) return;
+      files.forEach((file) => {
+        void uploadPostFile(file);
+      });
+      if (postMediaInputRef.current) postMediaInputRef.current.value = '';
+    },
+    [uploadPostFile]
+  );
 
   const handleComposerDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault();
       event.stopPropagation();
-      const files = Array.from(event.dataTransfer?.files || []);
+      const files = filesFromDataTransfer(event.dataTransfer);
       if (!files.length) return;
       files.forEach((file) => {
         void uploadPostFile(file);
@@ -4557,13 +4618,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   const handleComposerPaste = useCallback(
     (event: React.ClipboardEvent) => {
-      const items = Array.from(event.clipboardData?.items || []);
-      const imageItems = items.filter((item) => item.kind === 'file' && String(item.type || '').startsWith('image/'));
-      if (!imageItems.length) return;
+      const files = filesFromDataTransfer(event.clipboardData as unknown as DataTransfer);
+      if (!files.length) return;
       event.preventDefault();
-      imageItems.forEach((item) => {
-        const file = item.getAsFile();
-        if (file) void uploadPostFile(file);
+      files.forEach((file) => {
+        void uploadPostFile(file);
       });
     },
     [uploadPostFile]
@@ -4772,7 +4831,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         offerTags: postDraft.offerTags
       });
       // Clear blob previews before wiping draft.
-      postDraft.media.forEach((item) => revokePreviewUrl(item.url));
+      postDraft.media.forEach((item) => revokeAttachmentPreviews(item));
       postMediaCountRef.current = 0;
       postMediaItemsRef.current = [];
       setPostDraft(createEmptyPostDraft());
@@ -7014,7 +7073,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   const discardComposerDraft = useCallback(() => {
     if (posting || publishGuardRef.current.isBusy()) return;
-    postDraft.media.forEach((item) => revokePreviewUrl(item.url));
+    postDraft.media.forEach((item) => revokeAttachmentPreviews(item));
     postMediaCountRef.current = 0;
     postMediaItemsRef.current = [];
     setPostDraft(createEmptyPostDraft());
@@ -7260,7 +7319,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 hashtagsEnabled={hashtagsEnabled}
                 className={composerEditor}
               />
-              <div className="mt-3">
+              <div className="mt-3 space-y-3">
                 <div className="flex flex-wrap gap-2">
                   {postAiActions.map((action) => (
                     <button
@@ -7275,10 +7334,25 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     </button>
                   ))}
                 </div>
-                <p className="mt-3 text-[11px] text-slate-500">
+                <AIComposerAssist
+                  value={postDraft.content}
+                  surface="post-member-home"
+                  disabled={posting || aiLoading}
+                  onApplyDraft={(draft, meta) => {
+                    if (meta?.replace === false) {
+                      setPostDraft((prev) => {
+                        const base = String(prev.content || '').trim();
+                        return { ...prev, content: base ? `${base}\n\n${draft}` : draft, isAIEnhanced: true };
+                      });
+                      return;
+                    }
+                    setPostDraft((prev) => ({ ...prev, content: draft, isAIEnhanced: true }));
+                  }}
+                />
+                <p className="text-[11px] text-slate-500">
                   {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
-                  {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI suggestions never
-                  publish without your approval. Drag and drop or paste images to attach.
+                  {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI never publishes
+                  without your approval. Drag, drop, or paste photos, videos, and files — previews appear instantly.
                 </p>
               </div>
             </div>
@@ -7464,117 +7538,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         </label>
                       </div>
 
-                      {postDraft.media.length > 0 ? (
-                        <div className="grid gap-3">
-                          {postDraft.media.map((media) => {
-                            const type = media.type || inferMediaType(media);
-                            const durationLabel = formatMediaDuration(media.duration);
-                            return (
-                              <div
-                                key={media.localId}
-                                className={composerAttachmentTile}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => handlePostMediaRemove(media.localId)}
-                                  className="absolute right-3 top-3 z-10 rounded-full bg-white/90 p-1.5 text-slate-500 shadow-sm hover:text-slate-700"
-                                  aria-label={`Remove attachment ${media.name || ''}`.trim()}
-                                >
-                                  <X className="h-4 w-4" aria-hidden="true" />
-                                </button>
-                                {type === 'video' ? (
-                                  <div
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter' || event.key === ' ') {
-                                        event.preventDefault();
-                                        setPreviewMedia(toPreviewMedia(media));
-                                      }
-                                    }}
-                                    className="relative block h-48 w-full cursor-pointer overflow-hidden"
-                                  >
-                                    <InlineAutoplayVideo
-                                      src={
-                                        // Prefer local blob preview while uploading / before durable URL is ready.
-                                        (String(media.url || '').startsWith('blob:') ||
-                                        String(media.url || '').startsWith('data:')
-                                          ? media.url
-                                          : resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || media.url) ||
-                                        ''
-                                      }
-                                      poster={
-                                        resolvePostAttachmentPosterUrl(media) ||
-                                        resolveAssetUrl(media.thumbnailUrl) ||
-                                        undefined
-                                      }
-                                      className="h-48 w-full object-cover"
-                                      controls={false}
-                                      loop
-                                      eagerLoad
-                                      autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
-                                      preload="auto"
-                                      loadingLabel="Video preview loading"
-                                    />
-                                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/70 via-slate-950/10 to-transparent px-4 pb-3 pt-10">
-                                      <div className="inline-flex rounded-full bg-white/90 px-3 py-1 text-[11px] font-semibold text-slate-900 shadow-sm">
-                                        Autoplay preview
-                                      </div>
-                                    </div>
-                                    {durationLabel ? (
-                                      <span className="absolute bottom-3 right-3 rounded bg-black/75 px-2 py-1 text-[10px] font-semibold text-white">
-                                        {durationLabel}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                ) : type === 'image' ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="block h-48 w-full"
-                                  >
-                                    <OptimizedImage
-                                      src={resolvePostAttachmentPosterUrl(media) || resolveAssetUrl(media.thumbnailUrl || media.url) || ''}
-                                      fallbackSrc={resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media.url) || ''}
-                                      alt={media.name || 'Post media'}
-                                      width={960}
-                                      height={540}
-                                      sizes="(max-width: 1280px) 100vw, 420px"
-                                      className="h-48 w-full object-cover"
-                                      loading="lazy"
-                                      decoding="async"
-                                    />
-                                  </button>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setPreviewMedia(toPreviewMedia(media))}
-                                    className="flex h-40 w-full flex-col items-center justify-center p-4 text-xs text-slate-500"
-                                  >
-                                    <FileText className="mb-2 h-6 w-6 text-slate-400" />
-                                    {media.name || 'Attachment'}
-                                  </button>
-                                )}
-                                {media.uploading ? (
-                                  <div className="absolute inset-0 flex items-center justify-center bg-white/75 text-xs font-semibold text-slate-600">
-                                    Uploading {media.progress ?? 0}%
-                                  </div>
-                                ) : null}
-                                {media.error ? (
-                                  <div className="absolute inset-x-0 bottom-0 bg-red-50 px-3 py-2 text-[10px] text-red-600">
-                                    {media.error}
-                                  </div>
-                                ) : null}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50/80 p-6 text-center text-sm text-slate-500">
-                          Add media to make your post richer across desktop and mobile.
-                        </div>
-                      )}
+                      <ComposerMediaPreviewGrid
+                        media={postDraft.media}
+                        onRemove={handlePostMediaRemove}
+                        onRetry={retryPostMedia}
+                        onOpenPreview={(item) => setPreviewMedia(toPreviewMedia(item))}
+                        emptyLabel="Add photos, videos, or files — previews appear instantly while uploading."
+                      />
                     </div>
                   </div>
 
@@ -7610,6 +7580,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     handlePostAuthorScopeChange,
     handlePostLocationDetailsChange,
     handlePostMediaRemove,
+    retryPostMedia,
     hashtagsEnabled,
     mentionsEnabled,
     openDesktopComposer,
@@ -10410,7 +10381,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         ref={postMediaInputRef}
         type="file"
         multiple
-        accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar"
+        accept={COMPOSER_UPLOAD_ACCEPT}
         className="hidden"
         onChange={handlePostMedia}
       />
