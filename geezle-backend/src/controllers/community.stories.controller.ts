@@ -68,6 +68,61 @@ const resolveUserProfilePhotoUrl = async (
   return directAvatarUrl;
 };
 
+/**
+ * Browser-loadable story media reference for inbox / DM story cards.
+ * Never store a bare file id as mediaPreview — <img> cannot load it.
+ * Prefer thumbnail/poster for video; durable content URL for images.
+ */
+const buildStoryMessageMediaReference = async (
+  story: { id?: string | null; content?: string | null; mediaFileId?: string | null; mediaPreview?: string | null },
+  req?: Request
+) => {
+  const storyId = String(story?.id || '').trim();
+  const caption = String(story?.content || '').trim();
+  const mediaFileId = String(story?.mediaFileId || '').trim() || null;
+  const baseUrl = getBaseFileUrl(req);
+
+  let mediaPreview = '';
+  let thumbnailUrl: string | null = null;
+  let mimeType: string | null = null;
+
+  if (mediaFileId) {
+    const media = await resolveStoryMedia(mediaFileId, req);
+    mimeType = media?.mimeType ? String(media.mimeType) : null;
+    const isVideo = Boolean(mimeType && mimeType.startsWith('video/'));
+    thumbnailUrl = media?.thumbnailUrl ? String(media.thumbnailUrl) : null;
+    if (isVideo) {
+      mediaPreview =
+        thumbnailUrl ||
+        buildFileContentUrl(mediaFileId, baseUrl) ||
+        '';
+    } else {
+      mediaPreview =
+        String(media?.url || '').trim() ||
+        buildFileContentUrl(mediaFileId, baseUrl) ||
+        thumbnailUrl ||
+        '';
+    }
+  }
+
+  // Explicit preview field (rare) — only when it is already a URL/path.
+  if (!mediaPreview) {
+    const explicit = String((story as any)?.mediaPreview || '').trim();
+    if (explicit && (explicit.startsWith('http') || explicit.startsWith('/') || explicit.includes('/'))) {
+      mediaPreview = resolveDirectMediaUrl(explicit, baseUrl) || explicit;
+    }
+  }
+
+  return {
+    storyId,
+    caption,
+    mediaFileId,
+    mediaPreview: mediaPreview || '',
+    thumbnailUrl: thumbnailUrl || undefined,
+    mimeType: mimeType || undefined
+  };
+};
+
 const getStoryExpiryHours = async () => {
   const cfg = await prisma.communityConfig.findFirst();
   return cfg?.storyExpiryHours ?? 24;
@@ -954,11 +1009,7 @@ export const engageStory = async (req: Request, res: Response) => {
           inboxMetadata: {
             category: `story_${type}`,
             storyId,
-            storyReference: {
-              storyId,
-              caption: String(story.content || ''),
-              mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
-            },
+            storyReference: await buildStoryMessageMediaReference(story, req),
             storyUrl: storyLink
           },
           notificationMetadata: {
@@ -1030,11 +1081,7 @@ export const sendStoryDirectMessage = async (req: Request, res: Response) => {
       inboxMetadata: {
         category: notificationType === 'story_reaction' ? 'story_reaction' : 'story_message',
         storyId,
-        storyReference: {
-          storyId,
-          caption: String(story.content || ''),
-          mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
-        },
+        storyReference: await buildStoryMessageMediaReference(story, req),
         messagePreview: bodyText || undefined,
         reactionType: reactionType || undefined
       },

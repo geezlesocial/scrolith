@@ -280,17 +280,36 @@ const formatParticipant = (participant: any) => {
     : `/profile/${participant.user.id}`;
   const profilePhotoFileId = String(participant.user?.profilePhotoFileId || '').trim() || null;
   const avatarRaw = String(participant.user?.avatar || '').trim();
-  // Prefer content URL from profilePhotoFileId when avatar string is empty.
+  // Prefer durable platform content URL when profilePhotoFileId is set.
+  // Stale OAuth/GCS avatar strings often fail in <img> (no bearer / expired signature).
+  // Keep raw avatar as secondary so clients can fall back via multi-candidate resolution.
+  const contentFromFileId = profilePhotoFileId
+    ? `/api/files/content/${encodeURIComponent(profilePhotoFileId)}`
+    : '';
+  const avatarIsBareFileId =
+    Boolean(avatarRaw) &&
+    !/^https?:\/\//i.test(avatarRaw) &&
+    !avatarRaw.startsWith('/') &&
+    !avatarRaw.includes('://') &&
+    /^[a-z0-9_-]{12,}$/i.test(avatarRaw);
+  const avatarFromRaw =
+    avatarIsBareFileId
+      ? `/api/files/content/${encodeURIComponent(avatarRaw)}`
+      : avatarRaw;
   const avatarResolved = isScrolitha
     ? withScrolithaAssetVersion(SCROLITHA_OFFICIAL_PROFILE_PHOTO_URL)
-    : avatarRaw ||
-      (profilePhotoFileId ? `/api/files/content/${encodeURIComponent(profilePhotoFileId)}` : '');
+    : contentFromFileId || avatarFromRaw || '';
 
   return {
     id: participant.user.id,
     name: isScrolitha ? 'Scrolitha' : participant.user.name || participant.user.email || 'User',
     avatar: avatarResolved,
     avatarUrl: avatarResolved,
+    // Secondary candidate for FE multi-source avatar loading (when primary content URL fails).
+    fallbackAvatar:
+      !isScrolitha && avatarFromRaw && avatarFromRaw !== avatarResolved ? avatarFromRaw : null,
+    fallback_avatar:
+      !isScrolitha && avatarFromRaw && avatarFromRaw !== avatarResolved ? avatarFromRaw : null,
     profilePhotoFileId: isScrolitha ? null : profilePhotoFileId,
     profile_photo_file_id: isScrolitha ? null : profilePhotoFileId,
     username: participant.user.username || '',

@@ -253,7 +253,11 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
           storyReference: {
             storyId,
             caption: String((story as any)?.content || ''),
-            mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
+            mediaFileId: String(story.mediaFileId || '').trim() || null,
+            // Prefer durable content path so messaging clients can resolve without SPA host.
+            mediaPreview: story.mediaFileId
+              ? `/api/files/content/${encodeURIComponent(String(story.mediaFileId))}`
+              : ''
           },
           storyUrl: storyLink,
           snippet
@@ -286,7 +290,10 @@ export const createStoryReplyController = async (req: Request, res: Response) =>
           storyReference: {
             storyId,
             caption: String((story as any)?.content || ''),
-            mediaPreview: String((story as any)?.mediaPreview || story.mediaFileId || '')
+            mediaFileId: String(story.mediaFileId || '').trim() || null,
+            mediaPreview: story.mediaFileId
+              ? `/api/files/content/${encodeURIComponent(String(story.mediaFileId))}`
+              : ''
           },
           storyUrl: storyLink,
           snippet
