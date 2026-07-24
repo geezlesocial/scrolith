@@ -9,6 +9,8 @@ html {
 }
 
 :root {
+  /* Force CSS filename rotation for clients with poisoned 404 caches */
+  --scrolith-asset-bust: 20260724c;
   --font-sans: 'Space Grotesk', 'Segoe UI', system-ui, sans-serif;
   --font-display: 'Fraunces', 'Times New Roman', serif;
   --color-ink: #0b0b0a;

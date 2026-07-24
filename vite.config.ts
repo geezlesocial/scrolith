@@ -4,37 +4,39 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import getBackendTarget from './scripts/getBackendTarget'
 
+// Chunk name suffix rotates after 2026-07-24 canary (immutable 404 cache poison).
+const CHUNK_BUST = 'b24c'
 const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
   {
-    name: 'react-core',
+    name: `react-core-${CHUNK_BUST}`,
     patterns: ['/node_modules/react/', '/node_modules/react-dom/', '/node_modules/scheduler/']
   },
   {
-    name: 'router',
+    name: `router-${CHUNK_BUST}`,
     patterns: ['/node_modules/react-router/', '/node_modules/react-router-dom/']
   },
   {
-    name: 'realtime',
+    name: `realtime-${CHUNK_BUST}`,
     patterns: ['/node_modules/socket.io-client/', '/node_modules/engine.io-client/']
   },
   {
-    name: 'charts',
+    name: `charts-${CHUNK_BUST}`,
     patterns: ['/node_modules/recharts/', '/node_modules/d3-']
   },
   {
-    name: 'icons',
+    name: `icons-${CHUNK_BUST}`,
     patterns: ['/node_modules/lucide-react/']
   },
   {
-    name: 'payments',
+    name: `payments-${CHUNK_BUST}`,
     patterns: ['/node_modules/stripe/']
   },
   {
-    name: 'maps',
+    name: `maps-${CHUNK_BUST}`,
     patterns: ['/node_modules/maplibre-gl/']
   },
   {
-    name: 'capacitor',
+    name: `capacitor-${CHUNK_BUST}`,
     patterns: ['/node_modules/@capacitor/']
   }
 ]
@@ -147,9 +149,6 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
       output: {
-        // Force ALL JS chunk content hashes to rotate after the 2026-07-24 canary
-        // poisoned browsers with immutable 404 responses for prior asset URLs.
-        banner: '/* scrolith-asset-bust-20260724c */',
         manualChunks: resolveManualChunk
       }
     }
