@@ -38,6 +38,7 @@ import { CMSService } from "../services/cms";
 import { HeaderConfig, ActivityConfig, UserRole, HeroSearchConfig } from "../types";
 import SearchInput from "./SearchInput";
 import EnterpriseAvatar from "./common/EnterpriseAvatar";
+import { PREFETCH_LOADERS, prefetchRouteModule } from "../utils/routePrefetch";
 import { getNotificationActionUrl, getNotificationBucket, isExternalNotificationUrl } from "../utils/notificationRouting";
 import { resolveOptimizedStaticImageUrl, resolveResponsiveAssetUrl } from "../utils/assetUrl";
 import { HeaderMessagesPopover } from "./messaging";
@@ -1308,6 +1309,8 @@ const Navbar = () => {
             <Link
               to="/messages"
               className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              onMouseEnter={() => prefetchRouteModule('messages', PREFETCH_LOADERS.messages)}
+              onFocus={() => prefetchRouteModule('messages', PREFETCH_LOADERS.messages)}
               onClick={() => setShowMessagesDropdown(false)}
             >
               Go to Messages
@@ -1334,12 +1337,14 @@ const Navbar = () => {
       const next = !showNotifications;
       closeAllHeaderPopovers();
       setShowNotifications(next);
+      if (next) prefetchRouteModule('notifications', PREFETCH_LOADERS.notifications);
       return;
     }
     if (actionType === "messages") {
       const next = !showMessagesDropdown;
       closeAllHeaderPopovers();
       setShowMessagesDropdown(next);
+      if (next) prefetchRouteModule('messages', PREFETCH_LOADERS.messages);
       return;
     }
     if (actionType === "profile") {

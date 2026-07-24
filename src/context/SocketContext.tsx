@@ -1,5 +1,5 @@
 // C:\Projects\Scrolith\src\context\SocketContext.tsx
-import React, { createContext, useContext, useEffect, useState, useRef } from 'react'
+import React, { createContext, useContext, useEffect, useState, useRef, useMemo } from 'react'
 import type { Socket } from 'socket.io-client'
 import { useUser } from './UserContext'
 import { useNetworkStatus } from './NetworkStatusContext'
@@ -430,8 +430,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     void connectSocket()
   }, [user?.id, user?.role, isAuthenticated, isLoading, shouldAttemptLiveConnections, recoveryTick])
 
+  // Stable context value — avoid new object identity on every parent re-render.
+  const value = useMemo<SocketContextType>(
+    () => ({ socket, isConnected, connectionHealth }),
+    [socket, isConnected, connectionHealth]
+  );
+
   return (
-    <SocketContext.Provider value={{ socket, isConnected, connectionHealth }}>
+    <SocketContext.Provider value={value}>
       {children}
     </SocketContext.Provider>
   )

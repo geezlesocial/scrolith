@@ -9,6 +9,8 @@
   "scripts": {
     "dev": "vite --config ./vite.config.ts",
     "build": "vite build",
+    "build:budget": "vite build && node scripts/check-bundle-budget.mjs",
+    "check:bundle-budget": "node scripts/check-bundle-budget.mjs",
     "preview": "vite preview",
     "desktop:dist": "npm run desktop:dist:nsis && npm run desktop:dist:portable",
     "desktop:dist:nsis": "electron-builder --win nsis --x64 -c.win.artifactName=Scrolith-Desktop-Setup-${version}-${arch}.${ext}",

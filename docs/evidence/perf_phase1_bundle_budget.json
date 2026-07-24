@@ -1,0 +1,1333 @@
+{
+  "generatedAt": "2026-07-24T00:54:08.765Z",
+  "budgets": {
+    "indexJsMaxKb": 650,
+    "indexCssMaxKb": 320,
+    "anyAppChunkMaxKb": 320,
+    "mapsJsMaxKb": 1100,
+    "totalJsMaxKb": 8200,
+    "totalCssMaxKb": 400
+  },
+  "violations": [],
+  "files": [
+    {
+      "name": "maps-HbWMXEf1.js",
+      "kb": 1023.1
+    },
+    {
+      "name": "index-Cw8s9Lau.js",
+      "kb": 562.5
+    },
+    {
+      "name": "index-CTH-zRWS.css",
+      "kb": 260.2
+    },
+    {
+      "name": "MemberHomeSection-BbFbbCGF.js",
+      "kb": 238.4
+    },
+    {
+      "name": "Messages-jwU_YJRH.js",
+      "kb": 197.2
+    },
+    {
+      "name": "react-core-BtmlxoXT.js",
+      "kb": 188.1
+    },
+    {
+      "name": "HomepageSettings-DiU8Gl4u.js",
+      "kb": 166.4
+    },
+    {
+      "name": "SystemSettings-DXkdQblK.js",
+      "kb": 147
+    },
+    {
+      "name": "CommunityManagement-BkKtzStc.js",
+      "kb": 136.1
+    },
+    {
+      "name": "MobileFeedScreen-4jPLTu31.js",
+      "kb": 122.6
+    },
+    {
+      "name": "InsightsQuickPanel-DFXMxM7V.js",
+      "kb": 115.8
+    },
+    {
+      "name": "CMSPages-eypfylqj.js",
+      "kb": 102.9
+    },
+    {
+      "name": "MyAds-D75VC0Az.js",
+      "kb": 99.6
+    },
+    {
+      "name": "LiveViewer-CslT-On0.js",
+      "kb": 95.7
+    },
+    {
+      "name": "CommunityDashboard-BBwG9HwH.js",
+      "kb": 94.6
+    },
+    {
+      "name": "ScrollFeed-ctmqms4o.js",
+      "kb": 93.3
+    },
+    {
+      "name": "CommunityHome-CJtqvi3Q.js",
+      "kb": 92.2
+    },
+    {
+      "name": "GuestSections-CgkTsEqP.js",
+      "kb": 91.5
+    },
+    {
+      "name": "GroupsWorkspace-PFiNgGrF.js",
+      "kb": 88.1
+    },
+    {
+      "name": "MarketplacePage-DJJHRBC0.js",
+      "kb": 80.3
+    },
+    {
+      "name": "GigsJobs-BvasgWHk.js",
+      "kb": 72.3
+    },
+    {
+      "name": "icons-COA029TU.js",
+      "kb": 66.6
+    },
+    {
+      "name": "PostComments-DOupntFE.js",
+      "kb": 61.7
+    },
+    {
+      "name": "GigDetail-U9jAQYUg.js",
+      "kb": 61.3
+    },
+    {
+      "name": "feedMediaPrefetch-ByTQkqsP.js",
+      "kb": 59
+    },
+    {
+      "name": "FreelancerProfile-FjYI517K.js",
+      "kb": 54.2
+    },
+    {
+      "name": "ManagePagesModule-DeKj_I56.js",
+      "kb": 53.4
+    },
+    {
+      "name": "CompanyPage-BHSVKWiR.js",
+      "kb": 52.8
+    },
+    {
+      "name": "ScrolithaManagement-CXlhwpAA.js",
+      "kb": 50.4
+    },
+    {
+      "name": "Users-C08aGclI.js",
+      "kb": 48.8
+    },
+    {
+      "name": "SettingsModule-DpmPEq9t.js",
+      "kb": 48.1
+    },
+    {
+      "name": "MobileHome-DXE_WA9N.js",
+      "kb": 45.4
+    },
+    {
+      "name": "FinancePayouts-CkGDyZDX.js",
+      "kb": 44.3
+    },
+    {
+      "name": "SafeMessageText-yRSZGFKf.js",
+      "kb": 43.7
+    },
+    {
+      "name": "PostAiCoachCard-NBj942dF.js",
+      "kb": 43.4
+    },
+    {
+      "name": "realtime-C8j23utF.js",
+      "kb": 41
+    },
+    {
+      "name": "PostDetailView-Cjhr7vnz.js",
+      "kb": 40.6
+    },
+    {
+      "name": "capacitor-C4uX3hp3.js",
+      "kb": 40.4
+    },
+    {
+      "name": "Marketing-DNiuroG6.js",
+      "kb": 39.5
+    },
+    {
+      "name": "GoogleSettings-Dl7klfYF.js",
+      "kb": 38.4
+    },
+    {
+      "name": "TalentCloudCenter-Boan0ET1.js",
+      "kb": 37.5
+    },
+    {
+      "name": "CreateGig-roNAlPfL.js",
+      "kb": 36.2
+    },
+    {
+      "name": "InsightsGrowth-RkhVUMDQ.js",
+      "kb": 36
+    },
+    {
+      "name": "MarketplaceManagement-DDZlOX-s.js",
+      "kb": 35.9
+    },
+    {
+      "name": "http-B9ygI19o.js",
+      "kb": 35.4
+    },
+    {
+      "name": "router-yHRZoFfa.js",
+      "kb": 35.4
+    },
+    {
+      "name": "SupportDisputes--cDWC5Mn.js",
+      "kb": 35.4
+    },
+    {
+      "name": "SupportWidget-B5h6wPHe.js",
+      "kb": 35.1
+    },
+    {
+      "name": "WalletModule-DE7Rsg50.js",
+      "kb": 33.6
+    },
+    {
+      "name": "CreateJob-QX5WV8iR.js",
+      "kb": 33
+    },
+    {
+      "name": "MyPosts-ol3ZxA4t.js",
+      "kb": 31.8
+    },
+    {
+      "name": "DesktopMessagingDock-CM5hHuuC.js",
+      "kb": 31.1
+    },
+    {
+      "name": "DashboardRouter-B_xbSyQs.js",
+      "kb": 30.8
+    },
+    {
+      "name": "Landing-B4KGQJFh.js",
+      "kb": 29.9
+    },
+    {
+      "name": "DeveloperPortal-CFLn4zTR.js",
+      "kb": 29.6
+    },
+    {
+      "name": "Blog-DRH1Zv7A.js",
+      "kb": 29.5
+    },
+    {
+      "name": "EditProfile-NneiZiCK.js",
+      "kb": 29.5
+    },
+    {
+      "name": "SystemBackup-DQTVVvj5.js",
+      "kb": 28.9
+    },
+    {
+      "name": "ContractList-RSY48GFq.js",
+      "kb": 28.2
+    },
+    {
+      "name": "AdminDashboard-BaxX9onw.js",
+      "kb": 27.4
+    },
+    {
+      "name": "MessagingGroupsAdmin-DSws7FYy.js",
+      "kb": 26.5
+    },
+    {
+      "name": "WorkspaceStatusStrip-Dw30qoQV.js",
+      "kb": 26.2
+    },
+    {
+      "name": "AdminLivePlatform-DSWY5lMi.js",
+      "kb": 25.7
+    },
+    {
+      "name": "FeatureControlCenter-jJJi-nH7.js",
+      "kb": 24.8
+    },
+    {
+      "name": "Languages-LnW7fkJR.js",
+      "kb": 24.6
+    },
+    {
+      "name": "FollowOnboarding-DJJJDXiX.js",
+      "kb": 24.4
+    },
+    {
+      "name": "ScrollCreateModal-Ba6i3OyC.js",
+      "kb": 23.7
+    },
+    {
+      "name": "NotificationOperationsCenter-CHmqg4xn.js",
+      "kb": 23.5
+    },
+    {
+      "name": "AppManagement-DBfvjXcz.js",
+      "kb": 23.3
+    },
+    {
+      "name": "user-CxUytRNl.js",
+      "kb": 23.3
+    },
+    {
+      "name": "ContactPage-BbtrU-vv.js",
+      "kb": 22.7
+    },
+    {
+      "name": "NotificationSettings-BAJaNKn6.js",
+      "kb": 22.7
+    },
+    {
+      "name": "KYCVerification-P10lfUDD.js",
+      "kb": 22.6
+    },
+    {
+      "name": "LiveStudio-Cu3F8fT3.js",
+      "kb": 22.6
+    },
+    {
+      "name": "KYCVerification-hpHa1bnu.js",
+      "kb": 22.4
+    },
+    {
+      "name": "NotificationJourneyCenter-B2ITb_Pk.js",
+      "kb": 22
+    },
+    {
+      "name": "RealtimeOpsCenter-BDD7oUJ8.js",
+      "kb": 21.2
+    },
+    {
+      "name": "MonetizationManagement-C38wYdU8.js",
+      "kb": 19.5
+    },
+    {
+      "name": "ScrolithaAssistantPage-CK0JTyKQ.js",
+      "kb": 19.5
+    },
+    {
+      "name": "ModerationTrustCenter-BkdZCFj_.js",
+      "kb": 19.4
+    },
+    {
+      "name": "ReactionSummaryButton-D73cfZwZ.js",
+      "kb": 19.4
+    },
+    {
+      "name": "ScrollAdminPanel-Ba0Q1mKG.js",
+      "kb": 19.3
+    },
+    {
+      "name": "feedSessionStability-Pq8dJKII.js",
+      "kb": 19.2
+    },
+    {
+      "name": "PolicyCenter-BU81O9Z-.js",
+      "kb": 19
+    },
+    {
+      "name": "SuggestedCard-DmUjdVBS.js",
+      "kb": 18.5
+    },
+    {
+      "name": "NotificationCenter-Bk6XzEGD.js",
+      "kb": 17.9
+    },
+    {
+      "name": "DiscoveryStudio-DpB5GIZp.js",
+      "kb": 17.8
+    },
+    {
+      "name": "ResumeBuilder-BwXh0lYf.js",
+      "kb": 17.5
+    },
+    {
+      "name": "MobilePostScreen-GTbWhgeF.js",
+      "kb": 17.4
+    },
+    {
+      "name": "AdminDeveloperPlatform-D7BrFpeW.js",
+      "kb": 17
+    },
+    {
+      "name": "ProposalsOffers-CSMP-9We.js",
+      "kb": 17
+    },
+    {
+      "name": "AcceptProposalContractModal-BM3kKwQr.js",
+      "kb": 16.7
+    },
+    {
+      "name": "StaticPage-kdJT8GB2.js",
+      "kb": 15.9
+    },
+    {
+      "name": "FormBuilder-DGQzlSr3.js",
+      "kb": 15.8
+    },
+    {
+      "name": "ConfigRollback-B8Wx2--G.js",
+      "kb": 15.3
+    },
+    {
+      "name": "ResumeReviewer-Df42DFx1.js",
+      "kb": 15.3
+    },
+    {
+      "name": "push-Dw6XLIvo.js",
+      "kb": 15.2
+    },
+    {
+      "name": "OpportunityStudioPanel-BEC1RTdq.js",
+      "kb": 14.9
+    },
+    {
+      "name": "Overview-BDlRvHxg.js",
+      "kb": 14.3
+    },
+    {
+      "name": "Overview-lHwvYxH7.js",
+      "kb": 14.3
+    },
+    {
+      "name": "Signup-L2WqgeFz.js",
+      "kb": 14
+    },
+    {
+      "name": "StaffManagement-Deci11wd.js",
+      "kb": 13.6
+    },
+    {
+      "name": "MemberHomeHighlightsBoard-CsxFKW_m.js",
+      "kb": 13.5
+    },
+    {
+      "name": "MobileHomepage-Bnu3SPTE.js",
+      "kb": 13.3
+    },
+    {
+      "name": "NavigationManager-LFi9yAx8.js",
+      "kb": 13.2
+    },
+    {
+      "name": "FilePickerModal-DkdbHQby.js",
+      "kb": 12.8
+    },
+    {
+      "name": "ScrolithaAIFoundation-B87CTO94.js",
+      "kb": 12.5
+    },
+    {
+      "name": "PersonalizedDiscovery-DAxznTVg.js",
+      "kb": 12.3
+    },
+    {
+      "name": "Support-DXG8Sg0c.js",
+      "kb": 12.3
+    },
+    {
+      "name": "messagingMedia-DWdaCu2i.js",
+      "kb": 12.2
+    },
+    {
+      "name": "Login-B2jtZkSw.js",
+      "kb": 11.9
+    },
+    {
+      "name": "AISettings-S4WyNXye.js",
+      "kb": 11.8
+    },
+    {
+      "name": "PaymentGateways-CI7b3BfJ.js",
+      "kb": 11.1
+    },
+    {
+      "name": "GigCard-CoOQIIqR.js",
+      "kb": 11
+    },
+    {
+      "name": "AffiliateDashboardModule-DKgqpIiR.js",
+      "kb": 10.6
+    },
+    {
+      "name": "Forum-DTQ8wwYS.js",
+      "kb": 10.5
+    },
+    {
+      "name": "ScrolithaOfficialProfile-CYbQoDZL.js",
+      "kb": 10.5
+    },
+    {
+      "name": "ThreadDetail-8djqQRp5.js",
+      "kb": 10.4
+    },
+    {
+      "name": "MyProposals-Cg23JPoL.js",
+      "kb": 10.3
+    },
+    {
+      "name": "SearchResults-CnfCQ1vd.js",
+      "kb": 10.2
+    },
+    {
+      "name": "JobDetail-CLajBTyX.js",
+      "kb": 10.1
+    },
+    {
+      "name": "RecommendationManagement-D5q4QrJv.js",
+      "kb": 10
+    },
+    {
+      "name": "Events-Bo41fVPN.js",
+      "kb": 9.8
+    },
+    {
+      "name": "MobileNotificationsScreen-C8eeV3xR.js",
+      "kb": 9.7
+    },
+    {
+      "name": "Cart-DEwtkAUa.js",
+      "kb": 9.4
+    },
+    {
+      "name": "Favorites-nzigTvuV.js",
+      "kb": 9.2
+    },
+    {
+      "name": "Messages-CpOPOixP.js",
+      "kb": 9.2
+    },
+    {
+      "name": "Orders-DJN2qP7Z.js",
+      "kb": 9.2
+    },
+    {
+      "name": "ATMTrackerModule-T9HlQe6d.js",
+      "kb": 9.1
+    },
+    {
+      "name": "MarketIntelligence-CGx2812R.js",
+      "kb": 8.9
+    },
+    {
+      "name": "MessageRecords-DSHbHwHc.js",
+      "kb": 8.9
+    },
+    {
+      "name": "kyc-DkwpNesJ.js",
+      "kb": 8.5
+    },
+    {
+      "name": "RoleManagement-jj1rLZwY.js",
+      "kb": 8.4
+    },
+    {
+      "name": "GuidesPage-S5rWm9_W.js",
+      "kb": 8.3
+    },
+    {
+      "name": "wallet-COuXg4Gx.js",
+      "kb": 8.3
+    },
+    {
+      "name": "KnowledgeHub-CxlBnphI.js",
+      "kb": 8.2
+    },
+    {
+      "name": "AuthSocialButtons-C1lXROBE.js",
+      "kb": 8
+    },
+    {
+      "name": "GcoinPanel-CoRMHQ8L.js",
+      "kb": 8
+    },
+    {
+      "name": "FreelancerPage-CFsQhlIO.js",
+      "kb": 7.7
+    },
+    {
+      "name": "LocationPicker-5og6A6jK.js",
+      "kb": 7.7
+    },
+    {
+      "name": "MentionHashtagTextarea-B9hG-lCU.js",
+      "kb": 7.7
+    },
+    {
+      "name": "SupportCenter-Cm-eWp2m.js",
+      "kb": 7.7
+    },
+    {
+      "name": "AffiliateProgram-B0_BXe8n.js",
+      "kb": 7.6
+    },
+    {
+      "name": "UploadedFilesManager-CL3FzHdG.js",
+      "kb": 7.6
+    },
+    {
+      "name": "Overview-C86XzF2k.js",
+      "kb": 7.5
+    },
+    {
+      "name": "ProcurementCenter-utKMJBUe.js",
+      "kb": 7.5
+    },
+    {
+      "name": "Membership-DpzdpTqR.js",
+      "kb": 7.4
+    },
+    {
+      "name": "UploadedFiles-DLyGEFim.js",
+      "kb": 7.4
+    },
+    {
+      "name": "HirePage-CWSKjq2N.js",
+      "kb": 7.3
+    },
+    {
+      "name": "MarketplaceAnalytics-CqN1edBB.js",
+      "kb": 7.3
+    },
+    {
+      "name": "staticPageContent-CdrpJ1Po.js",
+      "kb": 7.2
+    },
+    {
+      "name": "StoryReplySheet-CsdbtBZ8.js",
+      "kb": 7.2
+    },
+    {
+      "name": "insights-BMmqDnr5.js",
+      "kb": 7.1
+    },
+    {
+      "name": "AnswersPage-Bzc4vh6E.js",
+      "kb": 7
+    },
+    {
+      "name": "DynamicFooter-LY3JCcQ0.js",
+      "kb": 7
+    },
+    {
+      "name": "InteractionBar-Dmr1SWnA.js",
+      "kb": 7
+    },
+    {
+      "name": "CommerceEngagement-GGq3YwRt.js",
+      "kb": 6.8
+    },
+    {
+      "name": "InlineAutoplayVideo-_Soquj80.js",
+      "kb": 6.8
+    },
+    {
+      "name": "dealFlow-B0VDe39e.js",
+      "kb": 6.7
+    },
+    {
+      "name": "ModeratorConsole-3jMxguF4.js",
+      "kb": 6.7
+    },
+    {
+      "name": "Profile-ByX_495s.js",
+      "kb": 6.6
+    },
+    {
+      "name": "ads-ugh5hwgC.js",
+      "kb": 6.5
+    },
+    {
+      "name": "gcoin-DQh8wd2o.js",
+      "kb": 6.5
+    },
+    {
+      "name": "MyJobs-BXUVd5qJ.js",
+      "kb": 6.5
+    },
+    {
+      "name": "ScrolithaManagedCenter-7NiM--Ed.js",
+      "kb": 6.4
+    },
+    {
+      "name": "PostExpandModal-o3mKxwJD.js",
+      "kb": 6.3
+    },
+    {
+      "name": "PostVideoActionBar-DwXs275b.js",
+      "kb": 6.3
+    },
+    {
+      "name": "scrollRecommendationAnalytics-HcpC3tnz.js",
+      "kb": 6.2
+    },
+    {
+      "name": "ComplianceCenter-CXcknybQ.js",
+      "kb": 6.1
+    },
+    {
+      "name": "ProjectBriefs-Dj-exDuv.js",
+      "kb": 6.1
+    },
+    {
+      "name": "MobileNetworkScreen-BczPmLCJ.js",
+      "kb": 6
+    },
+    {
+      "name": "MyGigs-BB2dmqUI.js",
+      "kb": 6
+    },
+    {
+      "name": "usePerformanceProfile-C9wbMuwL.js",
+      "kb": 6
+    },
+    {
+      "name": "IntegrationsManager-BfdpGxLV.js",
+      "kb": 5.8
+    },
+    {
+      "name": "Chat-D49ZLX3y.js",
+      "kb": 5.6
+    },
+    {
+      "name": "intelligenceFeedback-Dsu_mZE7.js",
+      "kb": 5.6
+    },
+    {
+      "name": "AppDistributionPrompt-CQQwQwtj.js",
+      "kb": 5.5
+    },
+    {
+      "name": "AuditLogs-Co_xTMcE.js",
+      "kb": 5.5
+    },
+    {
+      "name": "AIOverviewSection-DtHED4yV.js",
+      "kb": 5.4
+    },
+    {
+      "name": "MarketingPopups-DDxeBbRt.js",
+      "kb": 5.3
+    },
+    {
+      "name": "notificationSync-1i97pOhj.js",
+      "kb": 5.3
+    },
+    {
+      "name": "scrolitha-B9y0KrXT.js",
+      "kb": 5.3
+    },
+    {
+      "name": "ScrolithHumanVerification-B4bqf4WP.js",
+      "kb": 5.3
+    },
+    {
+      "name": "BrowseJobs-0q_ISwzb.js",
+      "kb": 5.2
+    },
+    {
+      "name": "PeopleYouMayKnowRail-DJFE0MCC.js",
+      "kb": 5.2
+    },
+    {
+      "name": "CommunityLayout-v8Q7RzPa.js",
+      "kb": 5
+    },
+    {
+      "name": "LiveFeaturedRail-CO4KVWkc.js",
+      "kb": 5
+    },
+    {
+      "name": "ResetPassword-DnN9J5Pj.js",
+      "kb": 5
+    },
+    {
+      "name": "HeroAISection-FbdkXMx4.js",
+      "kb": 4.9
+    },
+    {
+      "name": "ApprovalPolicies-CzGO25bm.js",
+      "kb": 4.8
+    },
+    {
+      "name": "MediaPreviewModal-DoobV5uw.js",
+      "kb": 4.7
+    },
+    {
+      "name": "AdCard-DU2OyW_m.js",
+      "kb": 4.6
+    },
+    {
+      "name": "ContentOfferTags-B0GLbekJ.js",
+      "kb": 4.6
+    },
+    {
+      "name": "GrowthPulseCard-vrN3oOce.js",
+      "kb": 4.6
+    },
+    {
+      "name": "FeedLoadSkeleton-1-e_Iv6p.js",
+      "kb": 4.5
+    },
+    {
+      "name": "ForgotPassword-V651lIY-.js",
+      "kb": 4.5
+    },
+    {
+      "name": "Reviews-COamEGgI.js",
+      "kb": 4.5
+    },
+    {
+      "name": "SecurityAlerts-_DLl9mge.js",
+      "kb": 4.5
+    },
+    {
+      "name": "SendGcoinModal-ClM8fAWP.js",
+      "kb": 4.5
+    },
+    {
+      "name": "developerPlatform-CvpF9CDc.js",
+      "kb": 4.3
+    },
+    {
+      "name": "AIProjectBriefGenerator-BtliHBJf.js",
+      "kb": 4.2
+    },
+    {
+      "name": "FollowButton-CfVz1GEx.js",
+      "kb": 4.2
+    },
+    {
+      "name": "scroll-CHOXB2EV.js",
+      "kb": 4.2
+    },
+    {
+      "name": "supportedLanguages-BM1h-88U.js",
+      "kb": 4.2
+    },
+    {
+      "name": "AccessControlCenter-C7eC0KaZ.js",
+      "kb": 4.1
+    },
+    {
+      "name": "OfferTagSelector-suUNYaRk.js",
+      "kb": 4.1
+    },
+    {
+      "name": "contentOffers-BX7mB1EA.js",
+      "kb": 4
+    },
+    {
+      "name": "governance.service-DCqYJ883.js",
+      "kb": 3.9
+    },
+    {
+      "name": "Reviews-Bw-t7HFz.js",
+      "kb": 3.9
+    },
+    {
+      "name": "Leaderboard-CN0zZIvS.js",
+      "kb": 3.8
+    },
+    {
+      "name": "Recommendations-rwpsKD81.js",
+      "kb": 3.8
+    },
+    {
+      "name": "scrolithaResponseFormat-DZaiEAgM.js",
+      "kb": 3.6
+    },
+    {
+      "name": "AIIntelligence-rfH47red.js",
+      "kb": 3.5
+    },
+    {
+      "name": "AISkillMatchBar-CPzDR-Bc.js",
+      "kb": 3.5
+    },
+    {
+      "name": "BlogPost-NGt6--VW.js",
+      "kb": 3.5
+    },
+    {
+      "name": "Reviews-BBX6JSPd.js",
+      "kb": 3.5
+    },
+    {
+      "name": "DeveloperDocsPage-ClnWJNCL.js",
+      "kb": 3.4
+    },
+    {
+      "name": "Favorites-CMmLrdnK.js",
+      "kb": 3.4
+    },
+    {
+      "name": "Likes-DV611y3P.js",
+      "kb": 3.4
+    },
+    {
+      "name": "RichTextEditor-Bz8SvEUu.js",
+      "kb": 3.4
+    },
+    {
+      "name": "AIGigCreationCTA-DNkTCRX9.js",
+      "kb": 3.3
+    },
+    {
+      "name": "LanguageMultiSelect-ByEL6D7I.js",
+      "kb": 3.3
+    },
+    {
+      "name": "GcoinDash-Cjd_7d7T.js",
+      "kb": 3.2
+    },
+    {
+      "name": "GrowthForecasterSection-B2ecx6ob.js",
+      "kb": 3.2
+    },
+    {
+      "name": "PostHeader-DU6kjOvK.js",
+      "kb": 3.2
+    },
+    {
+      "name": "mediaDownloadEngine-Bn942XCK.js",
+      "kb": 3.1
+    },
+    {
+      "name": "RealtimeProvider-BqAbl4vV.js",
+      "kb": 3.1
+    },
+    {
+      "name": "proposals-Ch59y7nF.js",
+      "kb": 3
+    },
+    {
+      "name": "AnomalyMonitorSection-zqXL-SfC.js",
+      "kb": 2.9
+    },
+    {
+      "name": "Blog-BUlhqrjN.js",
+      "kb": 2.9
+    },
+    {
+      "name": "briefs-Dtwctgnw.js",
+      "kb": 2.9
+    },
+    {
+      "name": "MaintenancePage-MMjoxsUa.js",
+      "kb": 2.9
+    },
+    {
+      "name": "MobileJobsScreen-BY1WXnEZ.js",
+      "kb": 2.9
+    },
+    {
+      "name": "support-B5Ge7dZ5.js",
+      "kb": 2.9
+    },
+    {
+      "name": "AutoOptimizerSection-CFrdQdQP.js",
+      "kb": 2.8
+    },
+    {
+      "name": "ChurnPredictionSection-CTRklX7g.js",
+      "kb": 2.8
+    },
+    {
+      "name": "deviceDownload-BBq89hNQ.js",
+      "kb": 2.7
+    },
+    {
+      "name": "MobileDialog-3ncgcv64.js",
+      "kb": 2.7
+    },
+    {
+      "name": "scrolithaCareer-Bfv0kzVo.js",
+      "kb": 2.7
+    },
+    {
+      "name": "TrendingOpportunities-DE4eYy6f.js",
+      "kb": 2.7
+    },
+    {
+      "name": "FraudGuardSection-nRufB5Dg.js",
+      "kb": 2.6
+    },
+    {
+      "name": "ProfessionalIntegrationStrip-r3lPbMEI.js",
+      "kb": 2.6
+    },
+    {
+      "name": "ai.config-DsebaEZ7.js",
+      "kb": 2.5
+    },
+    {
+      "name": "StatusBadge-CNh06BXR.js",
+      "kb": 2.5
+    },
+    {
+      "name": "GovernancePanelSection-eDI3KnB6.js",
+      "kb": 2.4
+    },
+    {
+      "name": "scrolithaErrors-BbrwnmqR.js",
+      "kb": 2.4
+    },
+    {
+      "name": "verification-Cf29IrRQ.js",
+      "kb": 2.4
+    },
+    {
+      "name": "OAuthCallback-DzLjNaKP.js",
+      "kb": 2.2
+    },
+    {
+      "name": "RepostModal-3K6ZL66p.js",
+      "kb": 2.2
+    },
+    {
+      "name": "Table-DSm0-5LE.js",
+      "kb": 2.2
+    },
+    {
+      "name": "ConfirmModal-26ZwCfxh.js",
+      "kb": 2.1
+    },
+    {
+      "name": "liveRealtimeConfig-CzosFSF1.js",
+      "kb": 2.1
+    },
+    {
+      "name": "phase2-CnRqbsng.js",
+      "kb": 2.1
+    },
+    {
+      "name": "contract-_zAjpKV8.js",
+      "kb": 2
+    },
+    {
+      "name": "FreelancerGrowthDashboard-CIOYbJl5.js",
+      "kb": 2
+    },
+    {
+      "name": "payment-BoyRyA5i.js",
+      "kb": 2
+    },
+    {
+      "name": "Skeleton-6mx0WaPC.js",
+      "kb": 2
+    },
+    {
+      "name": "TopProServices-BwCQ24P3.js",
+      "kb": 2
+    },
+    {
+      "name": "jobs-DGMfrvk2.js",
+      "kb": 1.9
+    },
+    {
+      "name": "reco-BZ4t3aoQ.js",
+      "kb": 1.9
+    },
+    {
+      "name": "TrustSecurity-DG8QxYk5.js",
+      "kb": 1.9
+    },
+    {
+      "name": "AdVideoPlayer-Mw3bi0or.js",
+      "kb": 1.8
+    },
+    {
+      "name": "EnterpriseImage-DeQivwdg.js",
+      "kb": 1.8
+    },
+    {
+      "name": "MobileAppRouteFrame-CgIV2Ywv.js",
+      "kb": 1.8
+    },
+    {
+      "name": "orders-r7iBHe9z.js",
+      "kb": 1.8
+    },
+    {
+      "name": "ProfessionalDiscoveryRail-BkgC5y86.js",
+      "kb": 1.8
+    },
+    {
+      "name": "scrolithaAi-dokxiO9v.js",
+      "kb": 1.8
+    },
+    {
+      "name": "commerce-Ci27uFo3.js",
+      "kb": 1.7
+    },
+    {
+      "name": "contentTranslation-Dj23NSFL.js",
+      "kb": 1.7
+    },
+    {
+      "name": "humanVerification-2-NBVgAo.js",
+      "kb": 1.7
+    },
+    {
+      "name": "mobileObservability-NQMUOZ21.js",
+      "kb": 1.7
+    },
+    {
+      "name": "ScrolithaResponseCard-BL-2JPtI.js",
+      "kb": 1.7
+    },
+    {
+      "name": "gigs-CcLOGo8b.js",
+      "kb": 1.6
+    },
+    {
+      "name": "market.service-tXbGSR2G.js",
+      "kb": 1.6
+    },
+    {
+      "name": "mobileTelemetry-bCT4NHFB.js",
+      "kb": 1.6
+    },
+    {
+      "name": "MoneyDisplay-CusZAOZc.js",
+      "kb": 1.6
+    },
+    {
+      "name": "reviews-VnDQeCX6.js",
+      "kb": 1.6
+    },
+    {
+      "name": "biometrics-BE1yMVmQ.js",
+      "kb": 1.5
+    },
+    {
+      "name": "BrowseTalent-ByX4Z6Z-.js",
+      "kb": 1.5
+    },
+    {
+      "name": "location-B1mQgUfw.js",
+      "kb": 1.5
+    },
+    {
+      "name": "MarketplaceInsights-DawEleiu.js",
+      "kb": 1.5
+    },
+    {
+      "name": "appDistribution-BbuRraG7.js",
+      "kb": 1.4
+    },
+    {
+      "name": "GraphicWarningGate-CLZCqROJ.js",
+      "kb": 1.4
+    },
+    {
+      "name": "deeplinks-CYnZxLZY.js",
+      "kb": 1.3
+    },
+    {
+      "name": "inlineMedia-Dd1inYaB.js",
+      "kb": 1.3
+    },
+    {
+      "name": "storyStyles-B_5OH9mJ.js",
+      "kb": 1.3
+    },
+    {
+      "name": "EmptyState-CkeugiPW.js",
+      "kb": 1.2
+    },
+    {
+      "name": "scrolithaDiscovery-B2pdtWei.js",
+      "kb": 1.2
+    },
+    {
+      "name": "advisor.service-BOEyOaZl.js",
+      "kb": 1.1
+    },
+    {
+      "name": "professionalDiscovery-WQJCCpqi.js",
+      "kb": 1.1
+    },
+    {
+      "name": "ReputationBadge--ggtIEWd.js",
+      "kb": 1.1
+    },
+    {
+      "name": "ProBadge-B0IWd_EB.js",
+      "kb": 1
+    },
+    {
+      "name": "communityLearningEngine-DAbwj1_X.js",
+      "kb": 0.9
+    },
+    {
+      "name": "deviceLocation-D4GMN7Kd.js",
+      "kb": 0.9
+    },
+    {
+      "name": "EmptyState-B8iVr2ZN.js",
+      "kb": 0.9
+    },
+    {
+      "name": "KYCVerification-CI7fuWe0.js",
+      "kb": 0.9
+    },
+    {
+      "name": "MentionText-BRyjwGtX.js",
+      "kb": 0.9
+    },
+    {
+      "name": "PostOriginPreview-lF_J4i8T.js",
+      "kb": 0.9
+    },
+    {
+      "name": "scrolithaDrafts-z2gKQjMd.js",
+      "kb": 0.9
+    },
+    {
+      "name": "scrolithaRewrite-pKbjdPGH.js",
+      "kb": 0.9
+    },
+    {
+      "name": "Clubs-B3SDQQ7n.js",
+      "kb": 0.8
+    },
+    {
+      "name": "communitySessionStability-B-6-4sNG.js",
+      "kb": 0.8
+    },
+    {
+      "name": "Contracts-BEu7CPeu.js",
+      "kb": 0.8
+    },
+    {
+      "name": "EditJob-B9sBacfQ.js",
+      "kb": 0.8
+    },
+    {
+      "name": "MessagesPanel-B7XjdnWl.js",
+      "kb": 0.8
+    },
+    {
+      "name": "scrolithaDisplayText-BYPSILGy.js",
+      "kb": 0.8
+    },
+    {
+      "name": "Contracts-CZnOqZ5j.js",
+      "kb": 0.7
+    },
+    {
+      "name": "scrolithaBranding-Cmce190D.js",
+      "kb": 0.7
+    },
+    {
+      "name": "VerifiedBadge-CvpqJPs-.js",
+      "kb": 0.7
+    },
+    {
+      "name": "AdDisclosureBadge-OtuCIonD.js",
+      "kb": 0.6
+    },
+    {
+      "name": "plans-BvU4epgQ.js",
+      "kb": 0.6
+    },
+    {
+      "name": "scrolithaLaunch-DZzqpi3K.js",
+      "kb": 0.6
+    },
+    {
+      "name": "AuthenticatedRuntimeProviders-BjuAqxzj.js",
+      "kb": 0.5
+    },
+    {
+      "name": "communityTokens-DmNcu9Ya.js",
+      "kb": 0.5
+    },
+    {
+      "name": "deepLinkUtils-DEmBIWdp.js",
+      "kb": 0.5
+    },
+    {
+      "name": "MobileBriefsScreen-Dv5bLfon.js",
+      "kb": 0.5
+    },
+    {
+      "name": "postAiControls-DAem_AzN.js",
+      "kb": 0.5
+    },
+    {
+      "name": "UploadedFiles-B2lga-hy.js",
+      "kb": 0.5
+    },
+    {
+      "name": "UploadedFiles-BrM52ZXk.js",
+      "kb": 0.5
+    },
+    {
+      "name": "categories-GIW3RM7E.js",
+      "kb": 0.4
+    },
+    {
+      "name": "paymentGatewayDisplay-Slpi9d9N.js",
+      "kb": 0.4
+    },
+    {
+      "name": "recaptcha-BcwoJ325.js",
+      "kb": 0.4
+    },
+    {
+      "name": "resourceHints-VmaeYdoZ.js",
+      "kb": 0.4
+    },
+    {
+      "name": "DeveloperDocs-Cmu5ODmv.js",
+      "kb": 0.3
+    },
+    {
+      "name": "forms-D4wuqAk8.js",
+      "kb": 0.2
+    },
+    {
+      "name": "useT-_V3WwU3Z.js",
+      "kb": 0.2
+    },
+    {
+      "name": "userRoles-BH2xX6u8.js",
+      "kb": 0.1
+    },
+    {
+      "name": "icons",
+      "kb": 0
+    },
+    {
+      "name": "vendor-l0sNRNKZ.js",
+      "kb": 0
+    }
+  ],
+  "totalJsKb": 7213.8,
+  "totalCssKb": 260.2,
+  "pass": true
+}

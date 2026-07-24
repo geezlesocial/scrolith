@@ -1,0 +1,128 @@
+{
+  "totalJsKb": 7536.1,
+  "totalCssKb": 262.6,
+  "top": [
+    {
+      "name": "maps-akG00iM8.js",
+      "kb": 1024.2
+    },
+    {
+      "name": "index-KK5hANtv.js",
+      "kb": 601.1
+    },
+    {
+      "name": "index-CUR-KIIE.css",
+      "kb": 262.6
+    },
+    {
+      "name": "MemberHomeSection-BB75N2PV.js",
+      "kb": 257.3
+    },
+    {
+      "name": "Messages-BNpGFqyt.js",
+      "kb": 210.2
+    },
+    {
+      "name": "react-core-DOKuZkji.js",
+      "kb": 189.2
+    },
+    {
+      "name": "HomepageSettings-fUe0xhSN.js",
+      "kb": 170.6
+    },
+    {
+      "name": "SystemSettings-DVpj7T2L.js",
+      "kb": 151.0
+    },
+    {
+      "name": "MobileFeedScreen-Zj4ZqOB_.js",
+      "kb": 139.6
+    },
+    {
+      "name": "CommunityManagement-HU_TwBJw.js",
+      "kb": 139.3
+    },
+    {
+      "name": "InsightsQuickPanel-BGq_xFGK.js",
+      "kb": 122.7
+    },
+    {
+      "name": "icons-DGe6nQ2p.js",
+      "kb": 112.0
+    },
+    {
+      "name": "CMSPages-DM5D06n6.js",
+      "kb": 105.2
+    },
+    {
+      "name": "MyAds-pvRCpC3q.js",
+      "kb": 104.1
+    },
+    {
+      "name": "CommunityHome-Dj9L3iLt.js",
+      "kb": 102.6
+    },
+    {
+      "name": "ScrollFeed-BNq3CKZK.js",
+      "kb": 100.3
+    },
+    {
+      "name": "LiveViewer-liJvN0IS.js",
+      "kb": 99.5
+    },
+    {
+      "name": "CommunityDashboard-CxQyS7ee.js",
+      "kb": 98.6
+    },
+    {
+      "name": "GuestSections-foodxeuo.js",
+      "kb": 96.0
+    },
+    {
+      "name": "GroupsWorkspace-8Vhk3JSN.js",
+      "kb": 90.2
+    },
+    {
+      "name": "MarketplacePage-ClvrZ1N9.js",
+      "kb": 84.0
+    },
+    {
+      "name": "GigsJobs-aG_L4IZ7.js",
+      "kb": 74.4
+    },
+    {
+      "name": "GigDetail-Te3G0qj9.js",
+      "kb": 65.0
+    },
+    {
+      "name": "ExpandablePreviewText-BgHD1pKp.js",
+      "kb": 64.3
+    },
+    {
+      "name": "feedMediaPrefetch-DZlvhOCM.js",
+      "kb": 63.8
+    },
+    {
+      "name": "FreelancerProfile-C-Z0WNxc.js",
+      "kb": 57.8
+    },
+    {
+      "name": "CompanyPage-BA8AW2Ne.js",
+      "kb": 57.1
+    },
+    {
+      "name": "ManagePagesModule-BD8b3xo5.js",
+      "kb": 55.0
+    },
+    {
+      "name": "ScrolithaManagement-CZuzchDS.js",
+      "kb": 51.4
+    },
+    {
+      "name": "PostAiCoachCard-eZO2fC3a.js",
+      "kb": 50.2
+    }
+  ],
+  "indexKb": 601.1,
+  "mapsKb": 1024.2
+}

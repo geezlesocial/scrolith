@@ -18,6 +18,10 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
     patterns: ['/node_modules/socket.io-client/', '/node_modules/engine.io-client/']
   },
   {
+    name: 'http',
+    patterns: ['/node_modules/axios/']
+  },
+  {
     name: 'charts',
     patterns: ['/node_modules/recharts/', '/node_modules/d3-']
   },
@@ -35,7 +39,11 @@ const FRONTEND_CHUNK_RULES: Array<{ name: string; patterns: string[] }> = [
   },
   {
     name: 'capacitor',
-    patterns: ['/node_modules/@capacitor/']
+    patterns: ['/node_modules/@capacitor/', '/node_modules/@aparajita/']
+  },
+  {
+    name: 'virtual',
+    patterns: ['/node_modules/@tanstack/react-virtual/', '/node_modules/@tanstack/virtual-core/']
   }
 ]
 
@@ -136,20 +144,36 @@ export default defineConfig({
   css: {
     postcss: './postcss.config.cjs',
   },
+  // Modern browsers + Capacitor WebViews; skip legacy polyfill bloat.
   build: {
+    target: 'es2020',
+    cssTarget: 'chrome90',
+    assetsInlineLimit: 2048,
     modulePreload: {
       polyfill: true,
+      // Do not preload heavy optional vendors on critical path.
       resolveDependencies: (_filename, deps) =>
-        deps.filter((dep) => !/(^|\/)(maps|capacitor|realtime)-[^/]+\.js$/.test(dep))
+        deps.filter(
+          (dep) =>
+            !/(^|\/)(maps|capacitor|realtime|charts|payments|icons|virtual)-[^/]+\.js$/.test(dep)
+        )
     },
     cssCodeSplit: true,
     reportCompressedSize: false,
-    chunkSizeWarningLimit: 1200,
+    // Soft warning; hard budget enforced by scripts/check-bundle-budget.mjs
+    chunkSizeWarningLimit: 700,
+    sourcemap: false,
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: resolveManualChunk
       }
     }
+  },
+  esbuild: {
+    // Drop debug noise from production bundles.
+    drop: process.env.NODE_ENV === 'production' ? ['debugger'] : [],
+    legalComments: 'none'
   }
 })
 

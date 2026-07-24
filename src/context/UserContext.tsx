@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
 import { User, UserRole } from '../types';
 import { AuthService } from '../services/authService';
 import { resolveAuthenticatedEntryPath } from '../utils/authRedirect';
@@ -331,41 +331,42 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.location.assign('/auth/login');
   };
 
-  const updateUser = (updates: Partial<User>) => {
+  const updateUser = useCallback((updates: Partial<User>) => {
     setUser(prev => {
       if (!prev) return null;
       const updated = { ...prev, ...updates };
       localStorage.setItem('user', JSON.stringify(updated));
       return updated;
     });
-  };
+  }, []);
 
-  const switchRole = () => {
-    if (!user) return;
-    // Prevent admins from using this toggle which is intended for freelancers/employers.
-    // Admins should use explicit view-as navigation (admin header buttons) that do not mutate their true role.
-    if (user.role === UserRole.ADMIN) {
-      console.warn('switchRole() called for admin user — operation ignored. Use view-as links instead.');
-      return;
-    }
+  const switchRole = useCallback(() => {
+    setUser((current) => {
+      if (!current) return current;
+      // Prevent admins from using this toggle which is intended for freelancers/employers.
+      // Admins should use explicit view-as navigation (admin header buttons) that do not mutate their true role.
+      if (current.role === UserRole.ADMIN) {
+        console.warn('switchRole() called for admin user — operation ignored. Use view-as links instead.');
+        return current;
+      }
 
-    const newRole = user.role === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
+      const newRole = current.role === UserRole.FREELANCER ? UserRole.EMPLOYER : UserRole.FREELANCER;
+      const updatedUser = { ...current, role: newRole };
+      localStorage.setItem('user', JSON.stringify(updatedUser));
+      try {
+        sessionStorage.setItem('activeRole', String(newRole));
+      } catch {
+        /* ignore */
+      }
+      // Defer navigation so state commit lands first.
+      window.setTimeout(() => redirectAfterAuth(updatedUser), 0);
+      return updatedUser;
+    });
+  }, []);
 
-    // Update user in state
-    const updatedUser = { ...user, role: newRole };
-    setUser(updatedUser);
-
-    // Update localStorage
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-    try {
-      sessionStorage.setItem('activeRole', String(newRole));
-    } catch {}
-
-    redirectAfterAuth(updatedUser);
-  };
-
-  return (
-    <UserContext.Provider value={{
+  // Stable identity when only parent providers re-render (e.g. NetworkStatus).
+  const value = useMemo<UserContextType>(
+    () => ({
       user,
       isAuthenticated,
       isLoading,
@@ -376,7 +377,12 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
       register,
       updateUser,
       switchRole
-    }}>
+    }),
+    [user, isAuthenticated, isLoading, updateUser, switchRole]
+  );
+
+  return (
+    <UserContext.Provider value={value}>
       {children}
     </UserContext.Provider>
   );

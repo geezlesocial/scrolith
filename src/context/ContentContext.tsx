@@ -206,8 +206,13 @@ export const ContentProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [socket, fetchSettings]);
 
+  const value = React.useMemo(
+    () => ({ settings, loading, updateSettings, mergeHeaderConfig }),
+    [settings, loading, updateSettings, mergeHeaderConfig]
+  );
+
   return (
-    <ContentContext.Provider value={{ settings, loading, updateSettings, mergeHeaderConfig }}>
+    <ContentContext.Provider value={value}>
       {children}
     </ContentContext.Provider>
   );

@@ -46,7 +46,8 @@ const EnterpriseAvatar: React.FC<EnterpriseAvatarProps> = ({
   className = '',
   rounded = 'full',
   alt,
-  loading = 'eager'
+  // Default lazy for feed/list density; pass loading="eager" for headers/chat chrome.
+  loading = 'lazy'
 }) => {
   const displayName = SafeAvatarName(
     name || user,
