@@ -371,6 +371,9 @@ export const MessagingService = {
     const data = extractData<any>(response) || {};
     return {
       enabledVoiceCalls: Boolean(data.enabledVoiceCalls ?? true),
+      iceServers: Array.isArray(data.iceServers) ? data.iceServers : undefined,
+      iceTransportPolicy: data.iceTransportPolicy === 'relay' ? 'relay' : 'all',
+      hasTurn: Boolean(data.hasTurn),
       enabledConferenceCalls: Boolean(data.enabledConferenceCalls ?? true),
       enabledVoiceNotes: Boolean(data.enabledVoiceNotes ?? true),
       maxParticipants: Number(data.maxParticipants ?? 20),
@@ -378,6 +381,24 @@ export const MessagingService = {
       blockedUserIds: [],
       blockedForCurrentUser: Boolean(data.blockedForCurrentUser ?? false)
     };
+  },
+
+  getConversationCallPolicy: async (conversationId: string) => {
+    const response = await api.get(
+      `/messages/conversations/${encodeURIComponent(conversationId)}/call-policy`
+    );
+    return extractData<any>(response);
+  },
+
+  patchConversationCallPolicy: async (
+    conversationId: string,
+    callPolicy: Record<string, any>
+  ) => {
+    const response = await api.patch(
+      `/messages/conversations/${encodeURIComponent(conversationId)}/call-policy`,
+      { callPolicy }
+    );
+    return extractData<any>(response);
   },
 
   getAllConversations: async (

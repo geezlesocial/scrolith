@@ -42,8 +42,18 @@ type VoiceCallContextValue = {
 
 const VoiceCallContext = createContext<VoiceCallContextValue | undefined>(undefined);
 
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+const DEFAULT_RTC_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+
+const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1
 };
 
 const emitWithAck = (socket: Socket | null, event: string, payload: any): Promise<any> => {
@@ -134,6 +144,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const ringIntervalRef = useRef<number | null>(null);
   const resetTimerRef = useRef<number | null>(null);
   const permissionNoticeShownRef = useRef(false);
+  const rtcConfigRef = useRef<RTCConfiguration>(DEFAULT_RTC_CONFIG);
+  const iceRestartingRef = useRef<Set<string>>(new Set());
+  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   useEffect(() => {
     callIdRef.current = callState?.callId || '';
@@ -223,22 +236,59 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     clearLocalStream();
   }, [clearLocalStream, clearPeers, clearResetTimer, stopRingingAlert]);
 
+  // Load ICE/TURN from runtime voice config (admin/platform env on backend).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { MessagingService } = await import('../services/messaging');
+        const config = await MessagingService.getVoiceRuntimeConfig();
+        if (cancelled || !config) return;
+        const servers = Array.isArray((config as any).iceServers)
+          ? (config as any).iceServers
+          : null;
+        if (servers?.length) {
+          rtcConfigRef.current = {
+            iceServers: servers,
+            iceTransportPolicy:
+              (config as any).iceTransportPolicy === 'relay' ? 'relay' : 'all'
+          };
+        }
+      } catch {
+        // Keep default STUN.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const ensureLocalAudio = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: AUDIO_CONSTRAINTS,
+        video: false
+      });
       localStreamRef.current = stream;
       return stream;
     } catch (error: any) {
-      const name = String(error?.name || '').toLowerCase();
-      const denied =
-        name.includes('notallowed') ||
-        name.includes('permissiondenied') ||
-        name.includes('securityerror');
-      if (denied) {
-        throw new Error('Microphone permission denied. Enable microphone access and try again.');
+      // Fallback if advanced constraints rejected by device.
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        localStreamRef.current = stream;
+        return stream;
+      } catch (fallbackError: any) {
+        const name = String(fallbackError?.name || error?.name || '').toLowerCase();
+        const denied =
+          name.includes('notallowed') ||
+          name.includes('permissiondenied') ||
+          name.includes('securityerror');
+        if (denied) {
+          throw new Error('Microphone permission denied. Enable microphone access and try again.');
+        }
+        throw new Error(String(fallbackError?.message || error?.message || 'Unable to access microphone.'));
       }
-      throw new Error(String(error?.message || 'Unable to access microphone.'));
     }
   }, []);
 
@@ -268,7 +318,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
           });
         }
       }
-      const peer = new RTCPeerConnection(RTC_CONFIG);
+      const peer = new RTCPeerConnection(rtcConfigRef.current || DEFAULT_RTC_CONFIG);
 
       if (stream) {
         stream.getTracks().forEach((track) => {
@@ -289,13 +339,47 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
       peer.onconnectionstatechange = () => {
         const state = peer.connectionState;
-        if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+        if (state === 'failed' || state === 'disconnected') {
+          // Enterprise recovery: ICE restart once per peer.
+          if (!iceRestartingRef.current.has(remoteUserId)) {
+            iceRestartingRef.current.add(remoteUserId);
+            void (async () => {
+              try {
+                const offer = await peer.createOffer({
+                  iceRestart: true,
+                  offerToReceiveAudio: true,
+                  offerToReceiveVideo: false
+                });
+                await peer.setLocalDescription(offer);
+                await sendSignal(remoteUserId, { type: 'offer', sdp: offer, iceRestart: true });
+                emitVoiceLifecycleEvent('reconnecting', {
+                  callId: callIdRef.current,
+                  peerUserId: remoteUserId
+                });
+              } catch {
+                setRemoteStreams((prev) => {
+                  if (!prev[remoteUserId]) return prev;
+                  const next = { ...prev };
+                  delete next[remoteUserId];
+                  return next;
+                });
+              } finally {
+                window.setTimeout(() => iceRestartingRef.current.delete(remoteUserId), 8000);
+              }
+            })();
+          }
+        }
+        if (state === 'closed') {
           setRemoteStreams((prev) => {
             if (!prev[remoteUserId]) return prev;
             const next = { ...prev };
             delete next[remoteUserId];
             return next;
           });
+        }
+        if (state === 'connected' || state === 'completed') {
+          iceRestartingRef.current.delete(remoteUserId);
+          setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
         }
       };
 
@@ -355,14 +439,39 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const signalType = String(signal?.type || '').toLowerCase();
       if (signalType === 'offer' && signal?.sdp) {
         await peer.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        // Flush queued ICE candidates after remote description is set.
+        const queued = pendingCandidatesRef.current.get(fromUserId) || [];
+        for (const candidate of queued) {
+          try {
+            await peer.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch {
+            // ignore race
+          }
+        }
+        pendingCandidatesRef.current.delete(fromUserId);
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
         await sendSignal(fromUserId, { type: 'answer', sdp: answer });
       } else if (signalType === 'answer' && signal?.sdp) {
         await peer.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        const queued = pendingCandidatesRef.current.get(fromUserId) || [];
+        for (const candidate of queued) {
+          try {
+            await peer.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch {
+            // ignore race
+          }
+        }
+        pendingCandidatesRef.current.delete(fromUserId);
       } else if (signalType === 'candidate' && signal?.candidate) {
         try {
-          await peer.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          if (!peer.remoteDescription) {
+            const queue = pendingCandidatesRef.current.get(fromUserId) || [];
+            queue.push(signal.candidate);
+            pendingCandidatesRef.current.set(fromUserId, queue);
+          } else {
+            await peer.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          }
         } catch {
           // candidate race; ignore
         }
@@ -706,10 +815,20 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
   const endCall = useCallback(async () => {
     if (socket && callState?.callId) {
-      await emitWithAck(socket, 'call:end', { callId: callState.callId });
+      const joinedCount = participants.filter(
+        (entry) => String(entry.status || '').toLowerCase() === 'joined'
+      ).length;
+      const isConference =
+        String(callState.callType || '').toLowerCase() === 'conference' || joinedCount > 2;
+      // Multi-party: leave individually so others can continue; 1:1 ends the call.
+      if (isConference && joinedCount > 2) {
+        await emitWithAck(socket, 'call:participant:left', { callId: callState.callId });
+      } else {
+        await emitWithAck(socket, 'call:end', { callId: callState.callId });
+      }
     }
     resetCallState();
-  }, [socket, callState?.callId, resetCallState]);
+  }, [socket, callState?.callId, callState?.callType, participants, resetCallState]);
 
   const addParticipant = useCallback(
     async (targetUserId: string) => {
