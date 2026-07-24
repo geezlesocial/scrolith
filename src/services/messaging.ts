@@ -561,6 +561,8 @@ export const MessagingService = {
     const maxAttempts = isScrolitha && !clientMessageId ? 0 : WRITE_RETRY_ATTEMPTS;
     for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
       try {
+        // senderId is informational for idempotency keys only — server always
+        // attributes the message to the authenticated session user.
         const response = await api.post(
           `/messages/conversations/${conversationId}/messages`,
           {
