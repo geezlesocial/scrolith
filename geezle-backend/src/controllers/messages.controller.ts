@@ -556,7 +556,10 @@ const buildConversationPayload = (
   viewerId?: string,
   options?: { hiddenMessageIds?: Set<string> }
 ) => {
-  const participants = conversation.participants.map(formatParticipant);
+  // Exclude soft-left participants so DIRECT pair keys stay stable and inbox merge collapses duplicates.
+  const participants = (Array.isArray(conversation.participants) ? conversation.participants : [])
+    .filter((participant: any) => !participant?.deletedAt)
+    .map(formatParticipant);
   const viewer = viewerId
     ? conversation.participants.find((p: any) => p.userId === viewerId)
     : null;
@@ -720,13 +723,38 @@ const buildConversationPayloadWithAttachments = async (
 
 const getDirectConversationKey = (conversation: any) => {
   if (!conversation || String(conversation.type || '').toUpperCase() !== 'DIRECT') return '';
-  const participantIds = Array.isArray(conversation.participants)
-    ? conversation.participants
-        .map((participant: any) => String(participant?.userId || participant?.id || '').trim())
-        .filter(Boolean)
-    : [];
-  const uniqueIds = Array.from(new Set(participantIds));
-  if (uniqueIds.length !== 2) return '';
+  const rawParticipants = Array.isArray(conversation.participants) ? conversation.participants : [];
+  // Prefer active members so soft-left rows do not block pair merge (duplicate inbox root cause).
+  const activeIds = rawParticipants
+    .filter((participant: any) => !participant?.deletedAt && !participant?.deleted_at)
+    .map((participant: any) => String(participant?.userId || participant?.id || '').trim())
+    .filter(Boolean);
+  let uniqueIds = Array.from(new Set(activeIds));
+  if (uniqueIds.length !== 2) {
+    const allIds = rawParticipants
+      .map((participant: any) => String(participant?.userId || participant?.id || '').trim())
+      .filter(Boolean);
+    uniqueIds = Array.from(new Set(allIds));
+  }
+  // Still not a clean pair: try message sender/receiver peers (legacy incomplete rows).
+  if (uniqueIds.length !== 2) {
+    const messagePeerIds = new Set<string>();
+    (Array.isArray(conversation.messages) ? conversation.messages : []).forEach((message: any) => {
+      const sender = String(message?.senderId || message?.sender_id || '').trim();
+      const receiver = String(message?.receiverId || message?.receiver_id || '').trim();
+      if (sender) messagePeerIds.add(sender);
+      if (receiver) messagePeerIds.add(receiver);
+    });
+    const peers = Array.from(messagePeerIds);
+    if (peers.length === 2) {
+      uniqueIds = peers;
+    } else if (uniqueIds.length > 2) {
+      // Stable fallback so two bloated DIRECT rows with the same first peers still collapse.
+      uniqueIds = uniqueIds.sort().slice(0, 2);
+    } else {
+      return '';
+    }
+  }
   return uniqueIds.sort().join(':');
 };
 
