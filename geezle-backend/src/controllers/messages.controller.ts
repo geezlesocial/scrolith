@@ -52,16 +52,45 @@ const summarizeMessagePayload = (payload: any) => {
   };
 };
 
+/**
+ * Authoritative identity from auth middleware only.
+ * Never trust query/body userId for authorization or message attribution.
+ */
 const resolveUserId = (req: Request) => {
   const userId = req.user?.id;
   if (typeof userId === 'string' && userId.length > 0) return userId;
-  return (req.query.userId as string) || '';
+  return '';
 };
 
 const resolveRole = (req: Request) => {
   const role = req.user?.role;
   if (typeof role === 'string' && role.length > 0) return role.toLowerCase();
-  return ((req.query.role as string) || '').toLowerCase();
+  return '';
+};
+
+/** Reject body identity spoofing (senderId/userId) that does not match the session. */
+const rejectIdentitySpoof = (
+  req: Request,
+  res: Response,
+  claimed: unknown,
+  fieldName = 'senderId'
+): boolean => {
+  const authenticated = resolveUserId(req);
+  const claimedId = String(claimed || '').trim();
+  if (!claimedId) return false;
+  if (!authenticated) {
+    res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    return true;
+  }
+  if (claimedId !== authenticated) {
+    res.status(403).json({
+      success: false,
+      error: `${fieldName} must match the authenticated user`,
+      code: 'IDENTITY_SPOOF_DENIED'
+    });
+    return true;
+  }
+  return false;
 };
 
 const isAdminRole = (role: string) =>
@@ -1614,13 +1643,20 @@ export const postMessage = async (req: Request, res: Response) => {
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
     const conversationId = req.params.id;
-    const senderId = req.body?.senderId || userId || '';
+    // Authorship is always the authenticated principal — never trust body.senderId.
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+    if (rejectIdentitySpoof(req, res, req.body?.senderId ?? req.body?.sender_id, 'senderId')) {
+      return res;
+    }
+    const senderId = userId;
     const text = (req.body?.text || '').toString().trim();
     const attachments = normalizeAttachmentIds(req.body?.attachments);
     const replyToMessageId = req.body?.replyToMessageId ? String(req.body.replyToMessageId).trim() : '';
     const clientMessageId = parseClientMessageId(req.body, req.headers as any);
-    if (!senderId || (!text && attachments.length === 0)) {
-      return res.status(400).json({ success: false, error: 'Sender and message content are required' });
+    if (!text && attachments.length === 0) {
+      return res.status(400).json({ success: false, error: 'Message content is required' });
     }
     traceMessageEvent('api.post_message.request', {
       conversationId,
@@ -1640,13 +1676,15 @@ export const postMessage = async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: 'Conversation not found' });
     }
 
+    // Only participants (or admins acting as themselves) may send into a conversation.
     const senderParticipant = conversation.participants.find((p) => p.userId === senderId);
     const isParticipant = Boolean(senderParticipant && !(senderParticipant as any).deletedAt);
     if (!isParticipant && !admin) {
-      return res.status(403).json({ success: false, error: 'Not authorized' });
+      return res.status(403).json({ success: false, error: 'Not authorized', code: 'NOT_CONVERSATION_PARTICIPANT' });
     }
 
     if (!isParticipant && admin) {
+      // Admin may post only as themselves (never as another user).
       await prisma.conversationParticipant.create({
         data: { conversationId: conversation.id, userId: senderId }
       });
@@ -2946,10 +2984,16 @@ export const reportBlockConversation = async (req: Request, res: Response) => {
 
 export const toggleReaction = async (req: Request, res: Response) => {
   try {
-    const userId = req.body?.userId || resolveUserId(req);
+    const userId = resolveUserId(req);
     const emoji = (req.body?.emoji || '').toString();
-    if (!userId || !emoji) {
-      return res.status(400).json({ success: false, error: 'User and emoji are required' });
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
+    if (rejectIdentitySpoof(req, res, req.body?.userId ?? req.body?.user_id, 'userId')) {
+      return res;
+    }
+    if (!emoji) {
+      return res.status(400).json({ success: false, error: 'Emoji is required' });
     }
     traceMessageEvent('api.toggle_reaction.request', {
       conversationId: req.params?.id,
@@ -2959,12 +3003,14 @@ export const toggleReaction = async (req: Request, res: Response) => {
     });
 
     const messageId = req.params.messageId;
+    // Ensure reaction target belongs to the claimed conversation path param.
+    const conversationIdParam = String(req.params?.id || '').trim();
     const message = await prisma.directMessage.findUnique({
       where: { id: messageId },
       include: {
         conversation: {
           include: {
-            participants: { select: { userId: true } }
+            participants: { select: { userId: true, deletedAt: true } }
           }
         }
       }
@@ -2972,10 +3018,15 @@ export const toggleReaction = async (req: Request, res: Response) => {
     if (!message || message.deletedAt) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }
+    if (conversationIdParam && String(message.conversationId) !== conversationIdParam) {
+      return res.status(404).json({ success: false, error: 'Message not found in conversation' });
+    }
 
-    const isParticipant = message.conversation.participants.some((entry) => entry.userId === userId);
+    const isParticipant = message.conversation.participants.some(
+      (entry) => entry.userId === userId && !entry.deletedAt
+    );
     if (!isParticipant) {
-      return res.status(403).json({ success: false, error: 'Not authorized' });
+      return res.status(403).json({ success: false, error: 'Not authorized', code: 'NOT_CONVERSATION_PARTICIPANT' });
     }
 
     // Phase 29.2 — block between reactor and participants
@@ -3113,7 +3164,11 @@ export const editMessage = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
     const messageId = req.params.messageId;
+    const conversationIdParam = String(req.params?.id || '').trim();
     const nextText = String(req.body?.text || '').trim();
     traceMessageEvent('api.edit_message.request', {
       conversationId: req.params?.id,
@@ -3140,8 +3195,16 @@ export const editMessage = async (req: Request, res: Response) => {
     if (!message) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }
+    if (conversationIdParam && String(message.conversationId) !== conversationIdParam) {
+      return res.status(404).json({ success: false, error: 'Message not found in conversation' });
+    }
+    const isParticipant = message.conversation.participants.some((entry) => entry.userId === userId);
+    if (!admin && !isParticipant) {
+      return res.status(403).json({ success: false, error: 'Not authorized', code: 'NOT_CONVERSATION_PARTICIPANT' });
+    }
+    // Only the original sender (or admin) may edit a message.
     if (!admin && message.senderId !== userId) {
-      return res.status(403).json({ success: false, error: 'Not authorized' });
+      return res.status(403).json({ success: false, error: 'Only the sender can edit this message', code: 'NOT_MESSAGE_SENDER' });
     }
     if (message.deletedAt) {
       return res.status(400).json({ success: false, error: 'Deleted messages cannot be edited' });
@@ -3240,14 +3303,18 @@ export const copyMessage = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
     const messageId = req.params.messageId;
+    const conversationIdParam = String(req.params?.id || '').trim();
 
     const message = await prisma.directMessage.findUnique({
       where: { id: messageId },
       include: {
         conversation: {
           include: {
-            participants: { select: { userId: true } }
+            participants: { select: { userId: true, deletedAt: true } }
           }
         }
       }
@@ -3256,10 +3323,15 @@ export const copyMessage = async (req: Request, res: Response) => {
     if (!message) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }
+    if (conversationIdParam && String(message.conversationId) !== conversationIdParam) {
+      return res.status(404).json({ success: false, error: 'Message not found in conversation' });
+    }
 
-    const isParticipant = message.conversation.participants.some((entry) => entry.userId === userId);
+    const isParticipant = message.conversation.participants.some(
+      (entry) => entry.userId === userId && !entry.deletedAt
+    );
     if (!admin && !isParticipant) {
-      return res.status(403).json({ success: false, error: 'Not authorized' });
+      return res.status(403).json({ success: false, error: 'Not authorized', code: 'NOT_CONVERSATION_PARTICIPANT' });
     }
 
     await writeMessageRecord({
@@ -3289,7 +3361,11 @@ export const deleteMessage = async (req: Request, res: Response) => {
     const role = resolveRole(req);
     const userId = resolveUserId(req);
     const admin = isAdminRole(role);
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' });
+    }
     const messageId = req.params.messageId;
+    const conversationIdParam = String(req.params?.id || '').trim();
     const deleteScopeRaw = String(req.query?.scope || req.body?.scope || 'everyone').trim().toLowerCase();
     const deleteScope: 'me' | 'everyone' = deleteScopeRaw === 'me' ? 'me' : 'everyone';
     traceMessageEvent('api.delete_message.request', {
@@ -3311,11 +3387,14 @@ export const deleteMessage = async (req: Request, res: Response) => {
     if (!message) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }
+    if (conversationIdParam && String(message.conversationId) !== conversationIdParam) {
+      return res.status(404).json({ success: false, error: 'Message not found in conversation' });
+    }
     const isParticipant = message.conversation.participants.some(
       (entry) => entry.userId === userId && !entry.deletedAt
     );
     if (!admin && !isParticipant) {
-      return res.status(403).json({ success: false, error: 'Not authorized' });
+      return res.status(403).json({ success: false, error: 'Not authorized', code: 'NOT_CONVERSATION_PARTICIPANT' });
     }
 
     if (deleteScope === 'me') {
