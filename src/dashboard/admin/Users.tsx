@@ -380,40 +380,70 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     }
   };
 
+  const extractAdminError = (error: any, fallback: string) =>
+    String(
+      error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        error?.message ||
+        fallback
+    );
+
   const handleSaveUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser || !editingUser.id) return;
 
     setIsSaving(true);
     try {
-      const { password, ...userPayload } = editingUser;
-      const payload: Record<string, any> = { ...userPayload };
-      if (typeof payload.name === 'string') payload.name = payload.name.trim();
-      if (typeof payload.email === 'string') payload.email = payload.email.trim();
-      if (typeof payload.username === 'string') {
-        const nextUsername = payload.username.trim();
+      // Backend PUT /admin/users/:id only accepts a whitelist. Sending KYC/isVerified
+      // is blocked (403 KYC_SIDE_CHANNEL) and previously prevented all profile saves.
+      const payload: Record<string, any> = {};
+      if (typeof editingUser.name === 'string') payload.name = editingUser.name.trim();
+      if (typeof editingUser.email === 'string') payload.email = editingUser.email.trim();
+      if (typeof editingUser.username === 'string') {
+        const nextUsername = editingUser.username.trim();
         if (nextUsername) payload.username = nextUsername;
-        else delete payload.username;
       }
-      if (typeof payload.avatar === 'string') {
-        const nextAvatar = payload.avatar.trim();
-        if (nextAvatar) payload.avatar = nextAvatar;
-        else delete payload.avatar;
+      if (typeof editingUser.avatar === 'string' && editingUser.avatar.trim()) {
+        payload.avatar = editingUser.avatar.trim();
       }
-      if (payload.profilePhotoFileId === undefined || payload.profilePhotoFileId === null || payload.profilePhotoFileId === '') {
-        delete payload.profilePhotoFileId;
+      if (editingUser.profilePhotoFileId) {
+        payload.profilePhotoFileId = editingUser.profilePhotoFileId;
       }
+      if (editingUser.role) payload.role = editingUser.role;
+
+      const nextStatus = String(editingUser.status || '').trim().toLowerCase();
+      if (nextStatus) {
+        payload.status = nextStatus;
+        payload.isActive = nextStatus === 'active' || nextStatus === 'restricted';
+      }
+
       await AdminService.updateUserDetail(editingUser.id, payload as Partial<UserType>, adminId);
-      if (password && password.trim()) {
-        await AdminService.updateUserPassword(editingUser.id, password.trim(), adminId);
+
+      const password = String(editingUser.password || '').trim();
+      if (password) {
+        await AdminService.updateUserPassword(editingUser.id, password, adminId);
       }
-      showNotification('success', 'User Updated', 'User details saved successfully.');
+
+      // Status also applied via dedicated endpoint so list filters stay authoritative.
+      if (nextStatus) {
+        try {
+          await AdminService.updateUserStatus(editingUser.id, nextStatus, adminId);
+        } catch {
+          // Non-fatal if PUT already applied isActive.
+        }
+      }
+
+      showNotification('success', 'User Updated', 'Profile, role, and status changes were saved.');
       setIsEditModalOpen(false);
-      loadData();
+      await loadData();
       if (onUserUpdated) onUserUpdated();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update user:', error);
-      showNotification('error', 'Update Error', 'Failed to update user details.');
+      showNotification(
+        'error',
+        'Update Error',
+        extractAdminError(error, 'Failed to update user details.')
+      );
     } finally {
       setIsSaving(false);
     }
@@ -560,12 +590,30 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
   const handleUpdateDemoConfig = async (patch: Partial<NonNullable<DemoAutomationOverview['config']>>) => {
     setDemoBusy(true);
+    // Optimistic UI so admin sees Apply immediately without waiting for refresh.
+    setDemoOverview((prev) =>
+      prev
+        ? {
+            ...prev,
+            config: {
+              ...(prev.config || {}),
+              ...patch
+            }
+          }
+        : prev
+    );
     try {
       await AdminService.updateSystemDemoAccountsConfig(patch);
+      showNotification('success', 'Demo Automation', 'Automation settings saved.');
       await loadData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to update demo config:', error);
-      showNotification('error', 'Update Failed', 'Unable to update demo automation settings.');
+      showNotification(
+        'error',
+        'Update Failed',
+        extractAdminError(error, 'Unable to update demo automation settings.')
+      );
+      await loadData();
     } finally {
       setDemoBusy(false);
     }
@@ -573,12 +621,36 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
 
   const handleToggleDemoAccount = async (accountId: string, enabled: boolean) => {
     setDemoBusy(true);
+    setDemoOverview((prev) => {
+      if (!prev?.accounts) return prev;
+      const accounts = prev.accounts.map((entry) =>
+        entry.id === accountId ? { ...entry, automationEnabled: enabled } : entry
+      );
+      const automationEnabledAccounts = accounts.filter((entry) => entry.automationEnabled).length;
+      return {
+        ...prev,
+        accounts,
+        stats: {
+          ...(prev.stats || {}),
+          automationEnabledAccounts
+        }
+      };
+    });
     try {
       await AdminService.toggleSystemDemoAccountAutomation(accountId, enabled);
-      await loadData();
-    } catch (error) {
+      showNotification(
+        'success',
+        'Demo Account',
+        `Automation ${enabled ? 'enabled' : 'disabled'} for this account.`
+      );
+    } catch (error: any) {
       console.error('Failed to toggle demo account automation:', error);
-      showNotification('error', 'Update Failed', 'Unable to toggle demo account automation state.');
+      showNotification(
+        'error',
+        'Update Failed',
+        extractAdminError(error, 'Unable to toggle demo account automation state.')
+      );
+      await loadData();
     } finally {
       setDemoBusy(false);
     }
@@ -869,13 +941,19 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-4 text-sm">
+            <div className="flex flex-wrap items-end gap-4 text-sm">
               <label className="inline-flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={Boolean(demoOverview?.config?.enabled)}
-                  onChange={(event) => handleUpdateDemoConfig({ enabled: event.target.checked })}
-                  disabled={demoBusy}
+                  onChange={(event) =>
+                    setDemoOverview((prev) =>
+                      prev
+                        ? { ...prev, config: { ...(prev.config || {}), enabled: event.target.checked } }
+                        : prev
+                    )
+                  }
+                  disabled={demoBusy || !demoOverview}
                 />
                 Enable Automation
               </label>
@@ -883,8 +961,14 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                 <input
                   type="checkbox"
                   checked={Boolean(demoOverview?.config?.aiEnabled)}
-                  onChange={(event) => handleUpdateDemoConfig({ aiEnabled: event.target.checked })}
-                  disabled={demoBusy}
+                  onChange={(event) =>
+                    setDemoOverview((prev) =>
+                      prev
+                        ? { ...prev, config: { ...(prev.config || {}), aiEnabled: event.target.checked } }
+                        : prev
+                    )
+                  }
+                  disabled={demoBusy || !demoOverview}
                 />
                 Use Scrolitha for Post Drafting
               </label>
@@ -894,76 +978,117 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   type="number"
                   min={1}
                   max={120}
-                  defaultValue={Number(demoOverview?.config?.cadenceMinutes || 15)}
-                  onBlur={(event) =>
-                    handleUpdateDemoConfig({ cadenceMinutes: Number(event.target.value || 15) })
-                  }
+                  value={Number(demoOverview?.config?.cadenceMinutes || 15)}
+                  onChange={(event) => {
+                    const cadenceMinutes = Math.max(1, Math.min(120, Number(event.target.value || 15)));
+                    setDemoOverview((prev) =>
+                      prev
+                        ? { ...prev, config: { ...(prev.config || {}), cadenceMinutes } }
+                        : prev
+                    );
+                  }}
                   className="w-20 px-2 py-1 border border-gray-300 rounded"
-                  disabled={demoBusy}
+                  disabled={demoBusy || !demoOverview}
                 />
               </label>
+              <button
+                type="button"
+                disabled={demoBusy || !demoOverview}
+                onClick={() =>
+                  handleUpdateDemoConfig({
+                    enabled: Boolean(demoOverview?.config?.enabled),
+                    aiEnabled: Boolean(demoOverview?.config?.aiEnabled),
+                    cadenceMinutes: Number(demoOverview?.config?.cadenceMinutes || 15)
+                  })
+                }
+                className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {demoBusy ? 'Saving…' : 'Apply Automation Settings'}
+              </button>
             </div>
 
             {Array.isArray(demoOverview?.accounts) && demoOverview!.accounts!.length > 0 && (
               <div className="rounded-lg border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-gray-600">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Demo Account</th>
-                      <th className="px-3 py-2 text-left">Username</th>
-                      <th className="px-3 py-2 text-left">Profession</th>
-                      <th className="px-3 py-2 text-left">Country</th>
-                      <th className="px-3 py-2 text-left">Automation</th>
-                      <th className="px-3 py-2 text-left">Profile</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {demoOverview!.accounts!.slice(0, 20).map((entry) => (
-                      <tr key={entry.id} className="border-t border-gray-100">
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-3">
-                            <img
-                              src={entry.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(entry.name || 'Demo')}&background=0D8ABC&color=fff`}
-                              alt={entry.name || 'Demo account'}
-                              className="h-10 w-10 rounded-full border border-gray-200 object-cover"
-                            />
-                            <div>
-                              <div className="font-medium text-gray-900">{entry.name || 'Unnamed'}</div>
-                              <div className="text-xs text-gray-500">{entry.email}</div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-3 py-2 text-gray-700">{entry.username || '-'}</td>
-                        <td className="px-3 py-2 text-gray-700">{entry.profession || '-'}</td>
-                        <td className="px-3 py-2 text-gray-700">{entry.country || '-'}</td>
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            disabled={demoBusy || !entry.isActive}
-                            onClick={() => handleToggleDemoAccount(entry.id, !Boolean(entry.automationEnabled))}
-                            className={`px-2.5 py-1 rounded text-xs font-medium ${
-                              entry.automationEnabled
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-gray-100 text-gray-700'
-                            }`}
-                          >
-                            {entry.automationEnabled ? 'Enabled' : 'Disabled'}
-                          </button>
-                        </td>
-                        <td className="px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => handleEditDemoAccount(entry)}
-                            className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-                          >
-                            <Edit3 className="h-3.5 w-3.5" />
-                            Edit
-                          </button>
-                        </td>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2">
+                  <div className="text-xs font-semibold text-gray-600">
+                    Showing all {demoOverview!.accounts!.length} managed demo account(s)
+                  </div>
+                  <input
+                    type="search"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Filter demo accounts…"
+                    className="w-full max-w-xs rounded border border-gray-300 px-2 py-1 text-xs"
+                  />
+                </div>
+                <div className="max-h-[28rem] overflow-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-3 py-2 text-left">Demo Account</th>
+                        <th className="px-3 py-2 text-left">Username</th>
+                        <th className="px-3 py-2 text-left">Profession</th>
+                        <th className="px-3 py-2 text-left">Country</th>
+                        <th className="px-3 py-2 text-left">Automation</th>
+                        <th className="px-3 py-2 text-left">Profile</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {demoOverview!.accounts!
+                        .filter((entry) => {
+                          const q = searchTerm.trim().toLowerCase();
+                          if (!q) return true;
+                          return [entry.name, entry.email, entry.username, entry.profession, entry.country]
+                            .map((v) => String(v || '').toLowerCase())
+                            .some((v) => v.includes(q));
+                        })
+                        .map((entry) => (
+                        <tr key={entry.id} className="border-t border-gray-100">
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={entry.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(entry.name || 'Demo')}&background=0D8ABC&color=fff`}
+                                alt={entry.name || 'Demo account'}
+                                className="h-10 w-10 rounded-full border border-gray-200 object-cover"
+                              />
+                              <div>
+                                <div className="font-medium text-gray-900">{entry.name || 'Unnamed'}</div>
+                                <div className="text-xs text-gray-500">{entry.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">{entry.username || '-'}</td>
+                          <td className="px-3 py-2 text-gray-700">{entry.profession || '-'}</td>
+                          <td className="px-3 py-2 text-gray-700">{entry.country || '-'}</td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              disabled={demoBusy || !entry.isActive}
+                              onClick={() => handleToggleDemoAccount(entry.id, !Boolean(entry.automationEnabled))}
+                              className={`px-2.5 py-1 rounded text-xs font-medium ${
+                                entry.automationEnabled
+                                  ? 'bg-green-100 text-green-800'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}
+                            >
+                              {entry.automationEnabled ? 'Enabled' : 'Disabled'}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => handleEditDemoAccount(entry)}
+                              className="inline-flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                            >
+                              <Edit3 className="h-3.5 w-3.5" />
+                              Edit
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -1068,16 +1193,6 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                           <div className="text-xs text-gray-500">{u.email}</div>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col">
-                          <span className="font-bold text-gray-900">
-                            {formatGcoin(gcoinWallet?.balance)}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {gcoinWallet?.recipientId || gcoinWallet?.recipient_id || 'No wallet'}
-                          </span>
-                        </div>
-                      </td>
                       <td className="px-6 py-4 capitalize">
                         <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           u.role === 'admin' ? 'bg-purple-100 text-purple-700' :
@@ -1114,6 +1229,16 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                               <Lock className="w-3 h-3 mr-1" /> {formatPrice(wallet.escrowBalance, wallet.currency)} Escrow
                             </span>
                           )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col">
+                          <span className="font-bold text-gray-900">
+                            {formatGcoin(gcoinWallet?.balance)}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {gcoinWallet?.recipientId || gcoinWallet?.recipient_id || 'No wallet'}
+                          </span>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-gray-500 text-sm">
@@ -1549,19 +1674,10 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <div>
                     <label className="block text-sm font-medium text-gray-900 mb-1">Verification Status</label>
                     <select
-                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
                       value={String(editingUser.kycStatus || editingUser.kyc_status || (editingUser.isVerified ? 'verified' : 'pending')).toLowerCase()}
-                      onChange={e => {
-                        const nextStatus = e.target.value;
-                        const nextVerified = nextStatus === 'verified';
-                        setEditingUser({
-                          ...editingUser,
-                          kycStatus: nextStatus as any,
-                          kyc_status: nextStatus as any,
-                          isVerified: nextVerified,
-                          is_verified: nextVerified
-                        } as EditableUser);
-                      }}
+                      disabled
+                      title="KYC decisions use the dedicated KYC workflow"
                     >
                       <option value="pending">Pending</option>
                       <option value="under_review">Under review</option>
@@ -1569,7 +1685,8 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                       <option value="rejected">Rejected</option>
                     </select>
                     <p className="text-xs text-gray-500 mt-1">
-                      Standard verification is controlled here. Business and Pro badge variants are still derived from account role and active plans.
+                      Profile, role, status, password, and wallet are saved here. Final KYC decisions are applied in{' '}
+                      <strong>Admin → KYC Verification</strong> (side-channel KYC edits are blocked by policy).
                     </p>
                   </div>
                   <div className="flex items-center justify-between rounded-lg border border-white/80 bg-white px-3 py-2">
@@ -1809,20 +1926,21 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   </div>
                 </div>
               </div>
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="flex justify-end gap-3 mt-6 border-t border-gray-100 pt-4">
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 font-semibold shadow-sm"
+                  data-testid="admin-user-save-changes"
                 >
-                  {isSaving ? 'Saving...' : 'Save Changes'}
+                  {isSaving ? 'Applying…' : 'Apply Changes'}
                 </button>
               </div>
             </form>

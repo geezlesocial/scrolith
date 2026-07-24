@@ -1,10 +1,25 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { StaffMember, StaffRole, StaffStatus } from '../../types';
 import { AdminService } from '../../services/admin';
 import { useNotification } from '../../context/NotificationContext';
 import { useUser } from '../../context/UserContext';
-import { UserPlus, Edit2, Trash2, Shield, X, Lock, CheckCircle, AlertOctagon, User, Key, Mail } from 'lucide-react';
+import { UserPlus, Edit2, Trash2, Shield, X, Lock, CheckCircle, AlertOctagon, User, Key, Mail, RefreshCw, Search } from 'lucide-react';
+
+const extractAdminError = (error: any, fallback: string) =>
+  String(
+    error?.response?.data?.error ||
+      error?.response?.data?.message ||
+      error?.message ||
+      fallback
+  );
+
+const isSuperAdminRole = (roleName?: string | null) =>
+  String(roleName || '').trim().toLowerCase() === 'super admin';
+
+const staffAvatar = (member: Partial<StaffMember>) =>
+  String(member.avatar || '').trim() ||
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(member.name || member.username || 'Staff')}&background=4F46E5&color=fff`;
 
 const StaffManagementTab = () => {
     const { user: currentUser } = useUser();
@@ -13,6 +28,9 @@ const StaffManagementTab = () => {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'all' | StaffStatus | string>('all');
     const { showNotification } = useNotification();
 
     // Extended Form State
@@ -39,21 +57,34 @@ const StaffManagementTab = () => {
         setIsLoading(true);
         try {
             const [s, r] = await Promise.all([AdminService.getStaff(), AdminService.getRoles()]);
-            setStaff(s);
+            setStaff(Array.isArray(s) ? s : []);
             // Sort roles by level (Higher level = higher authority)
-            setRoles(r.sort((a, b) => (b.level || 0) - (a.level || 0)));
-        } catch (error) {
-            showNotification('alert', 'Error', 'Failed to load staff data.');
+            setRoles((Array.isArray(r) ? r : []).sort((a, b) => (b.level || 0) - (a.level || 0)));
+        } catch (error: any) {
+            showNotification('alert', 'Error', extractAdminError(error, 'Failed to load staff data.'));
         } finally {
             setIsLoading(false);
         }
     };
 
+    const filteredStaff = useMemo(() => {
+      const q = searchTerm.trim().toLowerCase();
+      return staff.filter((member) => {
+        if (statusFilter !== 'all' && String(member.status || '').toLowerCase() !== String(statusFilter).toLowerCase()) {
+          return false;
+        }
+        if (!q) return true;
+        return [member.name, member.email, member.username, member.roleName]
+          .map((v) => String(v || '').toLowerCase())
+          .some((v) => v.includes(q));
+      });
+    }, [staff, searchTerm, statusFilter]);
+
     const handleAdd = () => {
         setCurrentStaff({
             status: 'active',
             avatar: `https://ui-avatars.com/api/?name=New+Staff&background=random`,
-            roleId: roles.find(r => r.level < 100)?.id || '', // Default to non-super admin
+            roleId: roles.find(r => !isSuperAdminRole(r.name) && r.level < 100)?.id || roles[0]?.id || '',
             twoFactorEnabled: false,
             forcePasswordReset: true
         });
@@ -64,18 +95,13 @@ const StaffManagementTab = () => {
     };
 
     const handleEdit = (member: StaffMember) => {
-        // Find user's role object to check levels
-        // Assuming Admin is managing, but we can't edit someone with higher or equal role unless Super Admin
-        const myRoleLevel = 100; // Mock current user as Super Admin for now since context doesn't store level
-        // In real app: const myRoleLevel = roles.find(r => r.id === currentUser.roleId)?.level || 0;
-
-        if (member.roleName === 'Super Admin') {
+        if (isSuperAdminRole(member.roleName)) {
             showNotification('alert', 'Restricted', 'Super Admin accounts cannot be modified here.');
             return;
         }
 
         setCurrentStaff({ ...member });
-        setPassword(''); // Reset password fields
+        setPassword('');
         setConfirmPassword('');
         setFormErrors({});
         setIsModalOpen(true);
@@ -112,69 +138,123 @@ const StaffManagementTab = () => {
                 roleId: currentStaff.roleId!,
                 roleName: role?.name || 'Staff',
                 roleLevel: role?.level || 0,
-                avatar: currentStaff.avatar || `https://ui-avatars.com/api/?name=${currentStaff.name}&background=random`,
+                avatar: currentStaff.avatar || staffAvatar(currentStaff),
                 status: currentStaff.status || 'active',
-                twoFactorEnabled: currentStaff.twoFactorEnabled || false,
-                forcePasswordReset: currentStaff.forcePasswordReset || false,
+                twoFactorEnabled: Boolean(currentStaff.twoFactorEnabled),
+                forcePasswordReset: Boolean(currentStaff.forcePasswordReset),
                 // Only send password if changed
                 password: password ? password : undefined 
             };
 
             const savedStaff = await AdminService.saveStaff(staffData);
             
-            showNotification('success', 'Staff Saved', `${savedStaff.name} has been ${currentStaff.id ? 'updated' : 'added'}.`);
+            showNotification(
+              'success',
+              'Staff Saved',
+              `${savedStaff.name || staffData.name} has been ${currentStaff.id ? 'updated' : 'added'}. Changes apply immediately.`
+            );
             setIsModalOpen(false);
-            loadData();
+            await loadData();
         } catch (error: any) {
-            showNotification('alert', 'Save Failed', error.message || 'An unexpected error occurred.');
+            showNotification('alert', 'Save Failed', extractAdminError(error, 'An unexpected error occurred.'));
         } finally {
             setIsSaving(false);
         }
     };
 
     const handleStatusChange = async (member: StaffMember, newStatus: StaffMember['status']) => {
-        if (member.roleName === 'Super Admin') {
+        if (isSuperAdminRole(member.roleName)) {
             showNotification('alert', 'Restricted', 'Cannot change status of Super Admin.');
             return;
         }
+        if (member.status === newStatus) return;
         
+        setStatusBusyId(member.id);
+        const previous = member.status;
+        // Optimistic apply so admin control is immediate.
+        setStaff(prev => prev.map(s => s.id === member.id ? { ...s, status: newStatus } : s));
         try {
             const updated = { ...member, status: newStatus };
             await AdminService.saveStaff(updated);
-            setStaff(prev => prev.map(s => s.id === member.id ? updated : s));
-            showNotification('info', 'Status Updated', `${member.name} is now ${newStatus}.`);
-        } catch (error) {
-            showNotification('alert', 'Error', 'Failed to update status.');
+            showNotification('success', 'Status Updated', `${member.name} is now ${newStatus}.`);
+        } catch (error: any) {
+            setStaff(prev => prev.map(s => s.id === member.id ? { ...s, status: previous } : s));
+            showNotification('alert', 'Error', extractAdminError(error, 'Failed to update status.'));
+        } finally {
+            setStatusBusyId(null);
         }
     };
 
     const handleDelete = async (id: string, roleName: string) => {
-        if (roleName === 'Super Admin') {
+        if (isSuperAdminRole(roleName)) {
             showNotification('alert', 'Restricted', 'Cannot delete Super Admin account.');
             return;
         }
 
-        if(confirm("Are you sure you want to remove this staff member? This action cannot be undone.")) {
+        if(confirm("Are you sure you want to remove this staff member? This deactivates their admin access.")) {
             try {
                 await AdminService.deleteStaff(id);
                 setStaff(prev => prev.filter(s => s.id !== id));
-                showNotification('success', 'Staff Removed', 'Staff member deleted successfully.');
-            } catch (error) {
-                showNotification('alert', 'Error', 'Failed to delete staff member.');
+                showNotification('success', 'Staff Removed', 'Staff member deactivated successfully.');
+                await loadData();
+            } catch (error: any) {
+                showNotification('alert', 'Error', extractAdminError(error, 'Failed to delete staff member.'));
             }
         }
     };
 
+    const selectedRole = roles.find((r) => r.id === currentStaff.roleId);
+
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-3">
                 <div>
                     <h2 className="text-xl font-bold text-gray-900">Staff & Permissions</h2>
-                    <p className="text-sm text-gray-500">Manage administrative access and roles.</p>
+                    <p className="text-sm text-gray-500">
+                      Full admin control: create, edit credentials, assign roles, change status, and deactivate staff.
+                      {currentUser?.email ? ` Signed in as ${currentUser.email}.` : ''}
+                    </p>
                 </div>
-                <button onClick={handleAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700 transition-colors shadow-sm">
-                    <UserPlus className="w-4 h-4 mr-2" /> Add Staff
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadData()}
+                    disabled={isLoading}
+                    className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-2"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                  <button onClick={handleAdd} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center hover:bg-blue-700 transition-colors shadow-sm">
+                      <UserPlus className="w-4 h-4 mr-2" /> Add Staff
+                  </button>
+                </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                <input
+                  type="search"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search staff…"
+                  className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm w-64 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="all">All statuses</option>
+                <option value="active">Active</option>
+                <option value="suspended">Suspended</option>
+                <option value="inactive">Inactive</option>
+              </select>
+              <div className="text-xs text-gray-500">
+                {filteredStaff.length} of {staff.length} staff
+              </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -192,11 +272,13 @@ const StaffManagementTab = () => {
                     <tbody className="divide-y divide-gray-100">
                         {isLoading ? (
                             <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">Loading staff data...</td></tr>
-                        ) : staff.map(s => (
+                        ) : filteredStaff.length === 0 ? (
+                            <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-500">No staff members match your filters.</td></tr>
+                        ) : filteredStaff.map(s => (
                             <tr key={s.id} className="hover:bg-gray-50 transition-colors group">
                                 <td className="px-6 py-4">
                                     <div className="flex items-center">
-                                        <img src={s.avatar} className="w-10 h-10 rounded-full mr-3 border border-gray-200" alt="" />
+                                        <img src={staffAvatar(s)} className="w-10 h-10 rounded-full mr-3 border border-gray-200 object-cover" alt="" />
                                         <div>
                                             <div className="font-bold text-gray-900">{s.name}</div>
                                             <div className="text-xs text-gray-500">{s.email}</div>
@@ -218,12 +300,12 @@ const StaffManagementTab = () => {
                                     <select 
                                         value={s.status}
                                         onChange={(e) => handleStatusChange(s, e.target.value as any as StaffStatus)}
-                                        disabled={s.roleName === 'Super Admin'}
+                                        disabled={isSuperAdminRole(s.roleName) || statusBusyId === s.id}
                                         className={`text-xs font-bold px-2 py-1 rounded border-0 cursor-pointer focus:ring-2 focus:ring-offset-1 transition-colors ${
                                             s.status === 'active' ? 'bg-green-100 text-green-700 focus:ring-green-500' : 
                                             s.status === 'suspended' ? 'bg-red-100 text-red-700 focus:ring-red-500' : 
                                             'bg-gray-100 text-gray-700 focus:ring-gray-500'
-                                        } ${s.roleName === 'Super Admin' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        } ${isSuperAdminRole(s.roleName) ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     >
                                         <option value="active">Active</option>
                                         <option value="suspended">Suspended</option>
@@ -238,7 +320,7 @@ const StaffManagementTab = () => {
                                     )}
                                 </td>
                                 <td className="px-6 py-4 text-right space-x-2">
-                                    {s.roleName !== 'Super Admin' && (
+                                    {!isSuperAdminRole(s.roleName) && (
                                         <>
                                             <button onClick={() => handleEdit(s)} className="text-blue-600 hover:bg-blue-50 p-2 rounded transition-colors" title="Edit Credentials">
                                                 <Edit2 className="w-4 h-4" />
@@ -248,7 +330,7 @@ const StaffManagementTab = () => {
                                             </button>
                                         </>
                                     )}
-                                    {s.roleName === 'Super Admin' && (
+                                    {isSuperAdminRole(s.roleName) && (
                                         <Lock className="w-4 h-4 text-gray-400 inline-block mr-2" />
                                     )}
                                 </td>
@@ -351,7 +433,7 @@ const StaffManagementTab = () => {
                                         <label className="flex items-center space-x-2 cursor-pointer">
                                             <input 
                                                 type="checkbox"
-                                                checked={currentStaff.forcePasswordReset}
+                                                checked={Boolean(currentStaff.forcePasswordReset)}
                                                 onChange={e => setCurrentStaff({...currentStaff, forcePasswordReset: e.target.checked})}
                                                 className="rounded text-blue-600 focus:ring-blue-500"
                                             />
@@ -374,11 +456,15 @@ const StaffManagementTab = () => {
                                         >
                                             <option value="">Select a Role</option>
                                             {roles.map(r => (
-                                                <option key={r.id} value={r.id} disabled={r.name === 'Super Admin' && !currentStaff.id}>
+                                                <option key={r.id} value={r.id} disabled={isSuperAdminRole(r.name) && !currentStaff.id}>
                                                     {r.name}
                                                 </option>
                                             ))}
                                         </select>
+                                        {formErrors.roleId && <p className="text-xs text-red-600 mt-1">{formErrors.roleId}</p>}
+                                        {selectedRole?.description ? (
+                                          <p className="text-xs text-gray-500 mt-1">{selectedRole.description}</p>
+                                        ) : null}
                                     </div>
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -397,7 +483,7 @@ const StaffManagementTab = () => {
                                     <label className="flex items-center space-x-2 cursor-pointer">
                                         <input 
                                             type="checkbox"
-                                            checked={currentStaff.twoFactorEnabled}
+                                            checked={Boolean(currentStaff.twoFactorEnabled)}
                                             onChange={e => setCurrentStaff({...currentStaff, twoFactorEnabled: e.target.checked})}
                                             className="rounded text-blue-600 focus:ring-blue-500"
                                         />
@@ -410,7 +496,7 @@ const StaffManagementTab = () => {
                             <div className="bg-blue-50 p-4 rounded-lg flex items-start">
                                 <AlertOctagon className="w-5 h-5 text-blue-600 mr-3 flex-shrink-0 mt-0.5" />
                                 <p className="text-sm text-blue-800">
-                                    Changes to roles or status will take effect immediately. If you change a password, the user will be logged out of all active sessions.
+                                    Changes to roles or status take effect immediately after you apply them. Password changes log the user out of active sessions.
                                 </p>
                             </div>
 
@@ -420,8 +506,9 @@ const StaffManagementTab = () => {
                                     type="submit" 
                                     disabled={isSaving}
                                     className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium shadow-lg shadow-blue-600/20 transition-all flex items-center disabled:opacity-70 disabled:cursor-not-allowed"
+                                    data-testid="admin-staff-apply-changes"
                                 >
-                                    {isSaving ? 'Saving...' : 'Update Credentials'}
+                                    {isSaving ? 'Applying…' : currentStaff.id ? 'Apply Changes' : 'Create Staff'}
                                     {!isSaving && <CheckCircle className="w-4 h-4 ml-2" />}
                                 </button>
                             </div>
