@@ -1,13 +1,19 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Expand, X } from 'lucide-react';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
 import {
   formatMessagingBadgeCount,
+  isDesktopMessagingViewport,
   type MessagingInboxTab,
   MESSAGING_PREVIEW_LIMIT
 } from '../../services/messagingSurfaces';
+import {
+  buildMessagesConversationPath,
+  buildMessagingSoftOpenState,
+  prefetchMessagesWorkspace
+} from '../../services/messagingSoftOpen';
 import MessagingTabs from './MessagingTabs';
 import MessagingSearch from './MessagingSearch';
 import MessagingConversationList from './MessagingConversationList';
@@ -17,14 +23,21 @@ type HeaderMessagesPopoverProps = {
   onClose: () => void;
   triggerRef?: React.RefObject<HTMLElement | null>;
   id?: string;
+  /**
+   * Soft-open conversation without full platform remount (web mobile).
+   * When provided, used instead of SPA /messages navigation on compact viewports.
+   */
+  onSoftOpenConversation?: (conversationId: string) => void;
 };
 
 const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
   open,
   onClose,
   triggerRef,
-  id
+  id,
+  onSoftOpenConversation
 }) => {
+  const navigate = useNavigate();
   const { user } = useUser();
   const {
     unreadCount,
@@ -37,10 +50,14 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
     searchLoading,
     searchError,
     openConversationInDock,
-    setDockExpanded
+    setDockExpanded,
+    ensureThreadLoaded
   } = useMessages();
 
   const [activeTab, setActiveTab] = useState<MessagingInboxTab>('all');
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' ? isDesktopMessagingViewport(window.innerWidth) : true
+  );
   const panelRef = useRef<HTMLDivElement>(null);
   const autoId = useId();
   const panelId = id || autoId;
@@ -49,6 +66,14 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
     () => getPreviewConversations(activeTab, MESSAGING_PREVIEW_LIMIT),
     [getPreviewConversations, activeTab]
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResize = () => setIsDesktop(isDesktopMessagingViewport(window.innerWidth));
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -66,14 +91,39 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
 
   useEffect(() => {
     if (!open) return;
-    // Opening the popup alone must not mark conversations read.
-    // Prefetch is safe.
+    // Soft refresh only — opening the popup must not thrash the inbox or mark read.
     void refreshMessages({ force: false });
   }, [open, refreshMessages]);
 
   if (!open) return null;
 
   const badge = formatMessagingBadgeCount(unreadCount);
+
+  const openConversation = (conversationId: string) => {
+    const idSafe = String(conversationId || '').trim();
+    if (!idSafe) return;
+    onClose();
+
+    // Desktop: floating dock chat — host page stays mounted.
+    if (isDesktop) {
+      openConversationInDock(idSafe, { expandDock: true });
+      return;
+    }
+
+    // Mobile host provided soft overlay (e.g. future shell) — prefer it.
+    if (onSoftOpenConversation) {
+      void ensureThreadLoaded(idSafe);
+      onSoftOpenConversation(idSafe);
+      return;
+    }
+
+    // Web mobile (Navbar): soft SPA navigate with prefetch — no hard reload.
+    prefetchMessagesWorkspace();
+    void ensureThreadLoaded(idSafe);
+    navigate(buildMessagesConversationPath(idSafe), {
+      state: buildMessagingSoftOpenState({ fromHeaderMessages: true })
+    });
+  };
 
   return (
     <div
@@ -84,8 +134,11 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
       aria-modal="false"
       className={[
         'absolute right-0 z-[70] mt-2 flex w-[min(420px,calc(100vw-1.5rem))] max-h-[min(680px,calc(100vh-5rem))]',
-        'flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl'
+        'flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl',
+        // Mobile: wider, taller sheet so name/avatar list is fully usable.
+        !isDesktop ? 'left-2 right-2 w-auto max-h-[min(78vh,720px)]' : ''
       ].join(' ')}
+      data-testid="header-messages-popover"
     >
       <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
         <div className="min-w-0">
@@ -95,18 +148,20 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => {
-              setDockExpanded(true);
-              onClose();
-            }}
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-white hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-            aria-label="Open messaging dock"
-            title="Open messaging dock"
-          >
-            <Expand className="h-4 w-4" />
-          </button>
+          {isDesktop ? (
+            <button
+              type="button"
+              onClick={() => {
+                setDockExpanded(true);
+                onClose();
+              }}
+              className="rounded-lg p-1.5 text-slate-500 hover:bg-white hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+              aria-label="Open messaging dock"
+              title="Open messaging dock"
+            >
+              <Expand className="h-4 w-4" />
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -147,17 +202,16 @@ const HeaderMessagesPopover: React.FC<HeaderMessagesPopoverProps> = ({
           error={searchError || error}
           activeTab={activeTab}
           onRetry={() => void refreshMessages({ force: true })}
-          onSelect={(conversationId) => {
-            openConversationInDock(conversationId, { expandDock: true });
-            onClose();
-          }}
+          onSelect={openConversation}
         />
       </div>
 
       <div className="border-t border-slate-100 bg-white px-3 py-2.5">
         <Link
           to="/messages"
+          state={buildMessagingSoftOpenState({ fromHeaderMessages: true })}
           onClick={() => {
+            prefetchMessagesWorkspace();
             onClose();
           }}
           className="flex w-full items-center justify-center rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"

@@ -1290,42 +1290,16 @@ const Navbar = () => {
 
   const messagesPopoverId = "scrolith-header-messages-popover";
 
-  const renderMessagesDropdown = () => {
-    // Compact non-desktop: keep a lightweight sheet that routes to /messages
-    if (!isDesktopNav) {
-      return showMessagesDropdown ? (
-        <div className="absolute right-0 z-50 mt-2 w-72 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg animate-fade-in-up">
-          <div className="flex items-center justify-between border-b border-gray-50 bg-gray-50 px-4 py-3">
-            <h3 className="text-sm font-bold text-gray-700">Messages</h3>
-            {messagesUnreadCount > 0 ? (
-              <span className="text-xs font-semibold text-blue-600">
-                {formatBadgeCount(messagesUnreadCount)} unread
-              </span>
-            ) : null}
-          </div>
-          <div className="p-4 text-sm text-gray-600">
-            <p className="mb-3">Open your inbox to view conversations.</p>
-            <Link
-              to="/messages"
-              className="inline-flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-              onClick={() => setShowMessagesDropdown(false)}
-            >
-              Go to Messages
-            </Link>
-          </div>
-        </div>
-      ) : null;
-    }
-
-    return (
-      <HeaderMessagesPopover
-        open={showMessagesDropdown}
-        onClose={() => setShowMessagesDropdown(false)}
-        triggerRef={msgRef}
-        id={messagesPopoverId}
-      />
-    );
-  };
+  const renderMessagesDropdown = () => (
+    // Desktop + web mobile: full conversation list. Selecting a name/row soft-opens
+    // chat (dock on desktop, SPA soft navigate on mobile) — no platform hard reload.
+    <HeaderMessagesPopover
+      open={showMessagesDropdown}
+      onClose={() => setShowMessagesDropdown(false)}
+      triggerRef={msgRef}
+      id={messagesPopoverId}
+    />
+  );
 
   const handleActivityIconClick = (icon: any) => {
     const actionType = icon.actionType || icon.type;

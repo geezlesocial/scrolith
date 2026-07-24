@@ -1,4 +1,5 @@
 export { default as HeaderMessagesPopover } from './HeaderMessagesPopover';
+export { default as MobileMessagingOverlay } from './MobileMessagingOverlay';
 export { default as DesktopMessagingDock } from './DesktopMessagingDock';
 export {
   useBlockingOverlayActive,

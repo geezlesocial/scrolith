@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import api from '../services/api';
 import {
   MessagingService,
@@ -236,6 +236,7 @@ const Messages = () => {
     inviteCode?: string;
   }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user, isAuthenticated, isLoading: authLoading } = useUser();
   const { showNotification } = useNotification();
@@ -637,15 +638,22 @@ const Messages = () => {
   useEffect(() => {
       if (!user) return;
       let cancelled = false;
+      const softOpen = Boolean((location.state as { softOpen?: boolean } | null)?.softOpen);
       (async () => {
           try {
               // Best-effort ensure before list so the pinned assistant appears.
-              await MessagingService.ensureScrolithaConversation().catch(() => null);
+              // Soft header opens skip ensure to open faster (assistant already usually present).
+              if (!softOpen) {
+                  await MessagingService.ensureScrolithaConversation().catch(() => null);
+              }
           } catch {
               // ignore — assistant may be rollout-gated
           }
           if (cancelled) return;
-          const list = await MessagingService.getAllConversations(user.id, user.role, { force: true });
+          // Soft open reuses cache when warm; force only on cold / hard entry.
+          const list = await MessagingService.getAllConversations(user.id, user.role, {
+              force: !softOpen
+          });
           if (!cancelled) setConversations(mergeDirectConversations(list));
       })().catch(() => undefined);
       return () => {

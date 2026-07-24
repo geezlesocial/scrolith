@@ -23,6 +23,15 @@ import MobileNotificationsScreen from './screens/MobileNotificationsScreen';
 import MobileJobsScreen from './screens/MobileJobsScreen';
 import ScrollFeed from '../../features/scroll/ScrollFeed';
 import MobileHomeSheets from './components/MobileHomeSheets';
+import {
+  buildMessagingSoftOpenState,
+  prefetchMessagesWorkspace
+} from '../../services/messagingSoftOpen';
+
+// Lazy: soft chat chrome must not inflate mobile home initial bundle.
+const MobileMessagingOverlay = React.lazy(
+  () => import('../../components/messaging/MobileMessagingOverlay')
+);
 import { MOBILE_PAGE_CONTAINER_CLASS, shouldUseMobileShellViewport } from './mobileShellLayout';
 
 type MobileHomeLayoutConfig = {
@@ -250,7 +259,8 @@ const MobileHome = () => {
     conversations: messageConversations,
     loading: messagesLoading,
     error: messagesError,
-    refreshMessages
+    refreshMessages,
+    ensureThreadLoaded
   } = useMessages();
   const { notifications, refreshNotifications, showNotification } = useNotification();
 
@@ -258,6 +268,8 @@ const MobileHome = () => {
   const [profileOpen, setProfileOpen] = useState(false);
   const [quickMenuOpen, setQuickMenuOpen] = useState(false);
   const [messagesOpen, setMessagesOpen] = useState(false);
+  /** Soft-open conversation overlay — keeps MobileHome feed mounted (no platform reload). */
+  const [softConversationId, setSoftConversationId] = useState<string | null>(null);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const routeTab = resolveActiveTab(location.pathname);
   const [activePanelTab, setActivePanelTab] = useState<Exclude<MobileTabKey, 'home' | 'messages'> | null>(
@@ -362,6 +374,7 @@ const MobileHome = () => {
     setCurrencyOpen(false);
     setActivePanelTab(null);
     setScrollOverlay(null);
+    setSoftConversationId(null);
   }, []);
 
   const shellLayerKey = useMemo(() => {
@@ -373,13 +386,22 @@ const MobileHome = () => {
         scrollOverlay.key
       }`;
     }
+    if (softConversationId) return `conversation:${softConversationId}`;
     if (searchOpen) return 'search';
     if (messagesOpen) return 'messages';
     if (quickMenuOpen) return 'quick-menu';
     if (profileOpen) return 'profile';
     if (currencyOpen) return 'currency';
     return null;
-  }, [currencyOpen, messagesOpen, profileOpen, quickMenuOpen, scrollOverlay, searchOpen]);
+  }, [
+    currencyOpen,
+    messagesOpen,
+    profileOpen,
+    quickMenuOpen,
+    scrollOverlay,
+    searchOpen,
+    softConversationId
+  ]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -457,6 +479,17 @@ const MobileHome = () => {
     [dismissShellLayers, location.pathname]
   );
 
+  const closeSoftConversation = useCallback(() => {
+    if (typeof window !== 'undefined' && window.history.state?.__scrolithMobileShellLayer) {
+      const marker = String(window.history.state.__scrolithMobileShellLayer || '');
+      if (marker.startsWith('conversation:')) {
+        window.history.back();
+        return;
+      }
+    }
+    setSoftConversationId(null);
+  }, []);
+
   const openPanelFromShell = useCallback(
     (tab: Exclude<MobileTabKey, 'home' | 'messages'>) => {
       dismissShellLayers();
@@ -483,9 +516,11 @@ const MobileHome = () => {
     }
     if (tab === 'messages') {
       flushSync(() => {
+        setSoftConversationId(null);
         setMessagesOpen(true);
       });
-      void refreshMessages({ force: true });
+      // Soft refresh only — force thrash makes inbox open feel like a full reload.
+      void refreshMessages({ force: false });
       return;
     }
     if (tab === 'home') {
@@ -714,9 +749,11 @@ const MobileHome = () => {
         }}
         onOpenMessages={() => {
           flushSync(() => {
+            setSoftConversationId(null);
             setMessagesOpen(true);
           });
-          void refreshMessages({ force: true });
+          // Soft inbox preview refresh — avoid force thrash that feels like a reload.
+          void refreshMessages({ force: false });
         }}
         onOpenQuickMenu={() => {
           flushSync(() => {
@@ -801,6 +838,21 @@ const MobileHome = () => {
         </div>
       ) : null}
 
+      {softConversationId ? (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-[920] flex items-center justify-center bg-white text-sm font-medium text-slate-600">
+              Opening conversation…
+            </div>
+          }
+        >
+          <MobileMessagingOverlay
+            conversationId={softConversationId}
+            onClose={closeSoftConversation}
+          />
+        </Suspense>
+      ) : null}
+
       {anySheetOpen ? (
         <MobileHomeSheets
           profileOpen={profileOpen}
@@ -828,12 +880,31 @@ const MobileHome = () => {
           currentUserId={user?.id ? String(user.id) : null}
           userName={user?.name || null}
           userAvatar={resolvedUserAvatar || null}
-          onRefreshMessages={() => void refreshMessages({ force: true })}
+          onRefreshMessages={() => void refreshMessages({ force: false })}
           onOpenConversation={(conversationId: string) => {
-            if (conversationId) navigateFromShell(`/messages/${encodeURIComponent(conversationId)}`);
+            const id = String(conversationId || '').trim();
+            if (!id) return;
+            // Soft in-place chat: home feed stays mounted (web mobile + Android).
+            void ensureThreadLoaded(id);
+            prefetchMessagesWorkspace();
+            flushSync(() => {
+              setMessagesOpen(false);
+              setSoftConversationId(id);
+            });
+          }}
+          onOpenParticipantProfile={(profilePath: string) => {
+            const path = String(profilePath || '').trim();
+            if (!path) return;
+            navigateFromShell(path);
           }}
           onOpenAllMessages={() => {
-            navigateFromShell('/messages');
+            prefetchMessagesWorkspace();
+            navigateFromShell('/messages', {
+              state: buildMessagingSoftOpenState({
+                fromHeaderMessages: true,
+                fromMobileHome: true
+              })
+            });
           }}
           onOpenNotifications={() => {
             openPanelFromShell('notifications');

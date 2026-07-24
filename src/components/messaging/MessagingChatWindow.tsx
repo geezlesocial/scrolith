@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
+  ArrowLeft,
   ExternalLink,
   Minus,
   X,
@@ -57,6 +58,11 @@ type MessagingChatWindowProps = {
   onMinimize: () => void;
   onRestore: () => void;
   style?: React.CSSProperties;
+  /**
+   * `dock` — floating desktop chat chrome.
+   * `fullscreen` — mobile soft-open overlay (keeps host shell mounted).
+   */
+  presentation?: 'dock' | 'fullscreen';
 };
 
 const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
@@ -65,8 +71,10 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
   onClose,
   onMinimize,
   onRestore,
-  style
+  style,
+  presentation = 'dock'
 }) => {
+  const isFullscreen = presentation === 'fullscreen';
   const navigate = useNavigate();
   const { user } = useUser();
   const {
@@ -288,7 +296,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
     if (nearBottom) setHasNewBelow(false);
   };
 
-  if (minimized) {
+  if (minimized && !isFullscreen) {
     return (
       <div
         className="pointer-events-auto w-[280px] overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-xl"
@@ -340,12 +348,32 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
 
   return (
     <div
-      className="pointer-events-auto flex h-[520px] w-[380px] max-h-[min(620px,75vh)] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl"
+      className={
+        isFullscreen
+          ? 'pointer-events-auto flex h-full w-full flex-col overflow-hidden bg-white'
+          : 'pointer-events-auto flex h-[520px] w-[380px] max-h-[min(620px,75vh)] flex-col overflow-hidden rounded-t-xl border border-slate-200 bg-white shadow-2xl'
+      }
       style={style}
       role="dialog"
       aria-label={`Conversation with ${title}`}
+      data-messaging-presentation={presentation}
     >
-      <div className="flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
+      <div
+        className={`flex items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 ${
+          isFullscreen ? 'pt-[max(0.5rem,env(safe-area-inset-top))]' : ''
+        }`}
+      >
+        {isFullscreen ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="mr-0.5 rounded-full p-1.5 text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            aria-label="Back to inbox preview"
+            title="Back"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        ) : null}
         {/* Avatar → profile; title stays in-thread (does not navigate away). */}
         {(() => {
           const otherAny = other as any;
@@ -432,28 +460,37 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         </button>
         <Link
           to={`/messages/${encodeURIComponent(conversationId)}`}
+          state={{ softOpen: true, fromHeaderMessages: true }}
           className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
           aria-label="Open full conversation"
           title="Open full conversation"
+          onClick={() => {
+            // Prefetch full workspace before SPA transition (no hard reload).
+            void import('../../messages/Messages').catch(() => undefined);
+          }}
         >
           <ExternalLink className="h-4 w-4" />
         </Link>
-        <button
-          type="button"
-          onClick={onMinimize}
-          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-          aria-label="Minimize conversation"
-        >
-          <Minus className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-          aria-label="Close conversation"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        {!isFullscreen ? (
+          <button
+            type="button"
+            onClick={onMinimize}
+            className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            aria-label="Minimize conversation"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+        ) : null}
+        {!isFullscreen ? (
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+            aria-label="Close conversation"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -884,6 +921,13 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         </div>
       ) : null}
 
+      <div
+        className={
+          isFullscreen
+            ? 'shrink-0 border-t border-slate-100 pb-[max(0.25rem,env(safe-area-inset-bottom))]'
+            : undefined
+        }
+      >
       <InlineMessageComposer
         conversationId={conversationId}
         value={draft}
@@ -958,6 +1002,7 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
           }
         }}
       />
+      </div>
 
       <ChatAppearancePanel
         conversationId={conversationId}

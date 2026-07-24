@@ -69,6 +69,8 @@ type MobileHomeSheetsProps = {
   userAvatar?: string | null;
   onRefreshMessages: () => void;
   onOpenConversation: (conversationId: string) => void;
+  /** Avatar-only profile open (soft SPA shell navigation). */
+  onOpenParticipantProfile?: (profilePath: string) => void;
   onOpenAllMessages: () => void;
   onOpenNotifications: () => void;
   normalizedRole: string;
@@ -309,6 +311,7 @@ export default function MobileHomeSheets({
   userAvatar,
   onRefreshMessages,
   onOpenConversation,
+  onOpenParticipantProfile,
   onOpenAllMessages,
   onOpenNotifications,
   normalizedRole,
@@ -643,22 +646,70 @@ export default function MobileHomeSheets({
               const lastAt = conversation?.lastMessageAt || conversation?.last_message_at || null;
               const unread = Number(conversation?.unreadCount ?? conversation?.unread_count ?? 0) || 0;
               const starred = Boolean(conversation?.isStarred ?? conversation?.is_starred ?? false);
+              const isScrolitha = Boolean(
+                conversation?.isScrolitha ||
+                  conversation?.is_scrolitha ||
+                  other?.isScrolitha ||
+                  other?.is_scrolitha
+              );
+              const username = String(other?.username || '').trim().replace(/^@+/, '');
+              const profilePath =
+                !isScrolitha && other
+                  ? username
+                    ? `/u/${encodeURIComponent(username)}`
+                    : other?.profileUrl || other?.profile_url
+                      ? String(other.profileUrl || other.profile_url)
+                      : other?.id
+                        ? `/profile/${encodeURIComponent(String(other.id))}`
+                        : null
+                  : null;
 
               return (
-                <button
+                <div
                   key={convoId || `${name}-${lastAt || 'time'}`}
-                  type="button"
-                  onClick={() => onOpenConversation(convoId)}
-                  className="flex w-full items-center justify-between gap-3 rounded-3xl border border-slate-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
+                  className="flex w-full items-center gap-2 rounded-3xl border border-slate-200 bg-white px-3 py-3 shadow-sm transition hover:border-indigo-200 hover:bg-slate-50"
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <EnterpriseAvatar
-                      src={avatarUrl}
-                      name={name}
-                      size="lg"
-                      className="!h-11 !w-11 border border-slate-200"
-                      alt={name}
-                    />
+                  {/* Avatar → profile; name/preview → soft-open inbox conversation. */}
+                  {profilePath && onOpenParticipantProfile ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenParticipantProfile(profilePath)}
+                      className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                      aria-label={`View ${name} profile`}
+                      title="View profile"
+                    >
+                      <EnterpriseAvatar
+                        src={avatarUrl}
+                        name={name}
+                        user={other}
+                        size="lg"
+                        className="!h-11 !w-11 border border-slate-200"
+                        alt={name}
+                      />
+                    </button>
+                  ) : (
+                    <div className="shrink-0">
+                      <EnterpriseAvatar
+                        src={avatarUrl}
+                        name={name}
+                        user={other}
+                        size="lg"
+                        className="!h-11 !w-11 border border-slate-200"
+                        alt={name}
+                      />
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => onOpenConversation(convoId)}
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500/30"
+                    aria-label={
+                      unread > 0
+                        ? `Open conversation with ${name}, ${unread} unread`
+                        : `Open conversation with ${name}`
+                    }
+                  >
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <div className="truncate text-sm font-semibold text-slate-900">{name}</div>
@@ -668,17 +719,17 @@ export default function MobileHomeSheets({
                         {lastMessage || 'Tap to open conversation'}
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <div className="text-[10px] font-semibold text-slate-400">{relativeTime(lastAt) || ''}</div>
-                    {unread > 0 ? (
-                      <span className="min-w-[18px] rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white">
-                        {unread > 99 ? '99+' : unread}
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <div className="text-[10px] font-semibold text-slate-400">{relativeTime(lastAt) || ''}</div>
+                      {unread > 0 ? (
+                        <span className="min-w-[18px] rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      ) : null}
+                    </div>
+                  </button>
+                </div>
               );
             })}
           </div>
