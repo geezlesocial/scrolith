@@ -758,30 +758,114 @@ const CommunityHome = () => {
       return;
     }
     if (pageFollowBusy[pageId]) return;
-    const wasFollowing = Boolean(page?.isFollowing);
+    const wasFollowing = Boolean(page?.isFollowing || followStateMap[pageId]);
+    const nextFollowing = !wasFollowing;
     setPageFollowBusy((prev) => ({ ...prev, [pageId]: true }));
+    // Instant optimistic UI — remain on the card without reloading /community.
     setRecommendedCommunityPages((prev) =>
-      prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: !wasFollowing } : item))
+      prev.map((item) =>
+        String(item?.id || '') === pageId
+          ? {
+              ...item,
+              isFollowing: nextFollowing,
+              followersCount: Math.max(
+                0,
+                Number(item?.followersCount || 0) + (wasFollowing ? -1 : 1)
+              )
+            }
+          : item
+      )
     );
     try {
-      if (wasFollowing && page?.followId) {
-        await CommunityService.unfollowTarget(String(page.followId));
-      } else if (!wasFollowing) {
+      window.dispatchEvent(
+        new CustomEvent('community:follow_updated', {
+          detail: {
+            actorUserId: user.id,
+            targetUserId: pageId,
+            targetType: 'page',
+            targetId: pageId,
+            isFollowing: nextFollowing,
+            action: nextFollowing ? 'follow' : 'unfollow',
+            optimistic: true
+          }
+        })
+      );
+    } catch {
+      // ignore
+    }
+    try {
+      if (wasFollowing) {
+        // Accept follow-record id OR page id (same as FollowButton / platform API).
+        await CommunityService.unfollowTarget(String(page?.followId || pageId));
+        setRecommendedCommunityPages((prev) =>
+          prev.map((item) =>
+            String(item?.id || '') === pageId ? { ...item, isFollowing: false, followId: null } : item
+          )
+        );
+      } else {
         const response = await CommunityService.followTarget({ targetType: 'page', targetId: pageId });
         const followId = response?.id || response?.followId || response?.data?.id || null;
         setRecommendedCommunityPages((prev) =>
-          prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: true, followId } : item))
+          prev.map((item) =>
+            String(item?.id || '') === pageId ? { ...item, isFollowing: true, followId } : item
+          )
         );
+      }
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: user.id,
+              targetUserId: pageId,
+              targetType: 'page',
+              targetId: pageId,
+              isFollowing: nextFollowing,
+              action: nextFollowing ? 'follow' : 'unfollow',
+              optimistic: false
+            }
+          })
+        );
+      } catch {
+        // ignore
       }
     } catch (error) {
       setRecommendedCommunityPages((prev) =>
-        prev.map((item) => (String(item?.id || '') === pageId ? { ...item, isFollowing: wasFollowing } : item))
+        prev.map((item) =>
+          String(item?.id || '') === pageId
+            ? {
+                ...item,
+                isFollowing: wasFollowing,
+                followersCount: Math.max(
+                  0,
+                  Number(item?.followersCount || 0) + (wasFollowing ? 1 : -1)
+                )
+              }
+            : item
+        )
       );
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: user.id,
+              targetUserId: pageId,
+              targetType: 'page',
+              targetId: pageId,
+              isFollowing: wasFollowing,
+              action: wasFollowing ? 'follow' : 'unfollow',
+              optimistic: false,
+              rolledBack: true
+            }
+          })
+        );
+      } catch {
+        // ignore
+      }
       console.error('Failed to update page follow status', error);
     } finally {
       setPageFollowBusy((prev) => ({ ...prev, [pageId]: false }));
     }
-  }, [pageFollowBusy, user?.id]);
+  }, [pageFollowBusy, user?.id, followStateMap]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1956,9 +2040,42 @@ const CommunityHome = () => {
 
   useEffect(() => {
     if (!user?.id) return;
+    // Local follow state only — never reload the whole community feed/rails.
     const onFollowUpdated = (event: Event) => {
       const payload = (event as CustomEvent).detail;
       applyFollowUpdatePayload(payload, user.id);
+      const targetId = String(payload?.targetUserId || payload?.targetId || '').trim();
+      if (!targetId) return;
+      const explicit = payload?.isFollowing;
+      const isFollowing =
+        typeof explicit === 'boolean'
+          ? explicit
+          : String(payload?.action || '').toLowerCase() === 'follow';
+      const targetType = String(payload?.targetType || 'user').toLowerCase();
+      if (targetType === 'page') {
+        setRecommendedCommunityPages((prev) =>
+          prev.map((item) => {
+            if (String(item?.id || '') !== targetId) return item;
+            if (Boolean(item?.isFollowing) === isFollowing) return item;
+            return {
+              ...item,
+              isFollowing,
+              followersCount: Math.max(
+                0,
+                Number(item?.followersCount || 0) + (isFollowing ? 1 : -1)
+              )
+            };
+          })
+        );
+      } else {
+        setRecommendedCommunityPeople((prev) =>
+          prev.map((item) =>
+            String(item?.id || '') === targetId
+              ? { ...item, isFollowing }
+              : item
+          )
+        );
+      }
     };
     window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
     return () => window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
@@ -4010,16 +4127,17 @@ const CommunityHome = () => {
                             <div className="truncate text-xs text-gray-500">{page.tagline || `${page.followersCount || 0} followers`}</div>
                           </div>
                         </Link>
-                        <button
-                          type="button"
+                        <FollowButton
+                          targetUserId={page.id}
+                          targetType="page"
+                          currentUserId={user?.id}
+                          initialIsFollowing={Boolean(page.isFollowing || followStateMap[page.id])}
                           disabled={Boolean(pageFollowBusy[page.id])}
-                          onClick={() => handleCommunityPageFollow(page)}
-                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase ${
-                            page.isFollowing ? 'border-gray-300 text-gray-700' : 'border-blue-200 text-blue-600'
-                          } disabled:cursor-not-allowed disabled:opacity-60`}
-                        >
-                          {pageFollowBusy[page.id] ? '...' : page.isFollowing ? 'Following' : 'Follow'}
-                        </button>
+                          onRequireLogin={() => {
+                            if (confirm('Log in to follow pages?')) window.location.href = '/auth/login';
+                          }}
+                          className="h-7 px-2 text-[11px] uppercase"
+                        />
                       </div>
                     );
                   })}

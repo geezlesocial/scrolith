@@ -3594,12 +3594,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     return [];
   }, []);
 
-  const loadSidebar = useCallback(async () => {
+  const loadSidebar = useCallback(async (options?: { soft?: boolean }) => {
     if (!user) return;
-    setViewersLoading(true);
-    setMarketplacePreviewLoading(true);
-    setGroupPreviewLoading(true);
-    setProfessionalDiscoveryLoading(true);
+    // Soft refresh keeps existing rails visible (no skeleton flash / layout jump).
+    if (!options?.soft) {
+      setViewersLoading(true);
+      setMarketplacePreviewLoading(true);
+      setGroupPreviewLoading(true);
+      setProfessionalDiscoveryLoading(true);
+    }
     try {
       const tasks: Promise<any>[] = [];
       tasks.push(
@@ -3827,7 +3830,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           [...employerMap.values(), ...freelancerMap.values()].map((profile) => [profile.id, profile])
         ).values()
       ).slice(0, maxProfiles);
-      setProfiles(nextProfiles.length ? nextProfiles : fallbackProfiles);
+      // Soft-safe list replace: never blank existing rails on empty/failed fetches.
+      setProfiles((prev) => {
+        const incoming = nextProfiles.length ? nextProfiles : fallbackProfiles;
+        return !incoming.length && prev.length ? prev : incoming;
+      });
 
       const nextPages =
         pagesRes.status === 'fulfilled' && Array.isArray(pagesRes.value)
@@ -3836,7 +3843,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               .filter(Boolean)
               .slice(0, maxPagesRecommendations) as RecommendedPageCard[]
           : [];
-      setRecommendedPages(nextPages);
+      setRecommendedPages((prev: RecommendedPageCard[]) => {
+        if (!nextPages.length && prev.length) return prev;
+        const prevById = new Map<string, RecommendedPageCard>(
+          prev.map((entry) => [entry.id, entry])
+        );
+        return nextPages.map((page) => {
+          const prior = prevById.get(page.id);
+          if (!prior) return page;
+          // Prefer local optimistic follow state over a stale server snapshot.
+          if (typeof prior.isFollowing === 'boolean' && prior.isFollowing !== page.isFollowing) {
+            return {
+              ...page,
+              isFollowing: prior.isFollowing,
+              followId: prior.followId ?? page.followId,
+              followersCount: prior.followersCount ?? page.followersCount
+            };
+          }
+          return page;
+        });
+      });
 
       const normalizedAds =
         adsRes.status === 'fulfilled' && Array.isArray(adsRes.value)
@@ -3958,9 +3984,10 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (sidebarRefreshTimeoutRef.current) {
       window.clearTimeout(sidebarRefreshTimeoutRef.current);
     }
+    // Soft by default so background reco updates never feel like a full-page refresh.
     sidebarRefreshTimeoutRef.current = window.setTimeout(() => {
-      loadSidebar();
-    }, 120);
+      void loadSidebar({ soft: true });
+    }, 350);
   }, [loadSidebar]);
 
   const buildGroupRecommendationPath = useCallback((group: CommunityClub) => {
@@ -6259,14 +6286,47 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
   useEffect(() => {
     if (!user?.id) return;
+    // Follow/unfollow must stay on-card: update local state only.
+    // Full sidebar reload (loadSidebar) reshuffles rails and feels like a page refresh.
     const onFollowUpdated = (event: Event) => {
       const payload = (event as CustomEvent).detail;
       applyFollowUpdatePayload(payload, user.id);
-      scheduleSidebarRefresh();
+      const targetId = String(payload?.targetUserId || payload?.targetId || '').trim();
+      if (!targetId) return;
+      const explicit = payload?.isFollowing;
+      const isFollowing =
+        typeof explicit === 'boolean'
+          ? explicit
+          : String(payload?.action || '').toLowerCase() === 'follow';
+      const targetType = String(payload?.targetType || 'user').toLowerCase();
+
+      setFollowingIds((prev) => {
+        const has = prev.has(targetId);
+        if (isFollowing && has) return prev;
+        if (!isFollowing && !has) return prev;
+        const next = new Set(prev);
+        if (isFollowing) next.add(targetId);
+        else next.delete(targetId);
+        return next;
+      });
+
+      if (targetType === 'page') {
+        setRecommendedPages((current) =>
+          current.map((entry) => {
+            if (entry.id !== targetId) return entry;
+            if (Boolean(entry.isFollowing) === isFollowing) return entry;
+            return {
+              ...entry,
+              isFollowing,
+              followersCount: Math.max(0, (entry.followersCount || 0) + (isFollowing ? 1 : -1))
+            };
+          })
+        );
+      }
     };
     window.addEventListener('community:follow_updated', onFollowUpdated as EventListener);
     return () => window.removeEventListener('community:follow_updated', onFollowUpdated as EventListener);
-  }, [user?.id, scheduleSidebarRefresh]);
+  }, [user?.id]);
 
   useEffect(() => {
     const onPostMetricsUpdated = (event: Event) => {
@@ -6454,24 +6514,82 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       if (confirm('Log in to follow people?')) window.location.href = '/auth/login';
       return;
     }
-    if (followingIds.has(target.id)) return;
-    setFollowingIds((prev) => new Set(prev).add(target.id));
+    if (followingIds.has(target.id) || pagesFollowBusy[target.id]) return;
+    const targetId = String(target.id || '').trim();
+    if (!targetId) return;
+
+    // Instant optimistic UI — stay on the card, no page/sidebar reload.
+    setPagesFollowBusy((prev) => ({ ...prev, [targetId]: true }));
+    setFollowingIds((prev) => new Set(prev).add(targetId));
     try {
-      await CommunityService.followTarget({ targetType: 'user', targetId: target.id });
+      window.dispatchEvent(
+        new CustomEvent('community:follow_updated', {
+          detail: {
+            actorUserId: user.id,
+            targetUserId: targetId,
+            targetType: 'user',
+            targetId,
+            isFollowing: true,
+            action: 'follow',
+            optimistic: true
+          }
+        })
+      );
+    } catch {
+      // ignore
+    }
+
+    try {
+      await CommunityService.followTarget({ targetType: 'user', targetId });
       void RecoService.submitFeedback({
         surface: 'who_to_follow',
         entityType: target.entityType || 'freelancer',
-        entityId: target.id,
+        entityId: targetId,
         action: 'follow'
       }).catch(() => null);
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: user.id,
+              targetUserId: targetId,
+              targetType: 'user',
+              targetId,
+              isFollowing: true,
+              action: 'follow',
+              optimistic: false
+            }
+          })
+        );
+      } catch {
+        // ignore
+      }
       showNotification('success', 'Following', `You are now following ${target.name}.`);
     } catch (error: any) {
       console.error('Follow failed', error);
       setFollowingIds((prev) => {
         const next = new Set(prev);
-        next.delete(target.id);
+        next.delete(targetId);
         return next;
       });
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: user.id,
+              targetUserId: targetId,
+              targetType: 'user',
+              targetId,
+              isFollowing: false,
+              action: 'unfollow',
+              optimistic: false,
+              rolledBack: true
+            }
+          })
+        );
+      } catch {
+        // ignore
+      }
       if (isUnauthorizedError(error)) {
         if (confirm('Your session has expired. Log in to continue following users?')) {
           window.location.href = '/auth/login';
@@ -6479,6 +6597,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         return;
       }
       showNotification('error', 'Follow failed', getApiErrorMessage(error, 'Unable to follow this profile.'));
+    } finally {
+      setPagesFollowBusy((prev) => {
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
     }
   };
 
@@ -6492,33 +6616,43 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     const pageId = page.id;
     const wasFollowing = Boolean(page.isFollowing);
     const previousFollowId = page.followId || null;
+    const nextFollowing = !wasFollowing;
 
     setPagesFollowBusy((prev) => ({ ...prev, [pageId]: true }));
+    // Instant optimistic toggle — remain in place on the card.
     setRecommendedPages((current) =>
       current.map((entry) =>
         entry.id === pageId
           ? {
               ...entry,
-              isFollowing: !wasFollowing,
+              isFollowing: nextFollowing,
               followersCount: Math.max(0, (entry.followersCount || 0) + (wasFollowing ? -1 : 1))
             }
           : entry
       )
     );
+    try {
+      window.dispatchEvent(
+        new CustomEvent('community:follow_updated', {
+          detail: {
+            actorUserId: user.id,
+            targetUserId: pageId,
+            targetType: 'page',
+            targetId: pageId,
+            isFollowing: nextFollowing,
+            action: nextFollowing ? 'follow' : 'unfollow',
+            optimistic: true
+          }
+        })
+      );
+    } catch {
+      // ignore
+    }
 
     try {
       if (wasFollowing) {
-        let followId = previousFollowId;
-        if (!followId) {
-          const followingData = await CommunityService.listFollowing('me');
-          const pages = Array.isArray(followingData?.pages) ? followingData.pages : [];
-          const match = pages.find((entry: any) => String(entry?.id || '') === pageId);
-          followId = match?.followId || match?.follow_id || null;
-        }
-        if (!followId) {
-          throw new Error('Unable to locate page follow record.');
-        }
-        await CommunityService.unfollowTarget(followId);
+        // DELETE accepts follow-record id OR page id for the current user.
+        await CommunityService.unfollowTarget(String(previousFollowId || pageId));
         setRecommendedPages((current) =>
           current.map((entry) => (entry.id === pageId ? { ...entry, followId: null, isFollowing: false } : entry))
         );
@@ -6539,6 +6673,23 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         );
         showNotification('success', 'Pages', `Now following ${page.name}.`);
       }
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: user.id,
+              targetUserId: pageId,
+              targetType: 'page',
+              targetId: pageId,
+              isFollowing: nextFollowing,
+              action: nextFollowing ? 'follow' : 'unfollow',
+              optimistic: false
+            }
+          })
+        );
+      } catch {
+        // ignore
+      }
     } catch (error: any) {
       setRecommendedPages((current) =>
         current.map((entry) =>
@@ -6552,6 +6703,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             : entry
         )
       );
+      try {
+        window.dispatchEvent(
+          new CustomEvent('community:follow_updated', {
+            detail: {
+              actorUserId: user.id,
+              targetUserId: pageId,
+              targetType: 'page',
+              targetId: pageId,
+              isFollowing: wasFollowing,
+              action: wasFollowing ? 'follow' : 'unfollow',
+              optimistic: false,
+              rolledBack: true
+            }
+          })
+        );
+      } catch {
+        // ignore
+      }
       if (isUnauthorizedError(error)) {
         if (confirm('Your session has expired. Log in to continue following pages?')) {
           window.location.href = '/auth/login';
@@ -9962,18 +10131,35 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             <p className="truncate text-sm text-slate-500">{page.tagline || page.industry || 'Business page'}</p>
                             <p className="text-xs text-slate-400">{page.followersCount || 0} followers</p>
                           </div>
-                          <button
-                            type="button"
+                          <FollowButton
+                            targetUserId={page.id}
+                            targetType="page"
+                            currentUserId={user?.id}
+                            initialIsFollowing={Boolean(page.isFollowing || followStateMap[page.id])}
                             disabled={Boolean(pagesFollowBusy[page.id])}
-                            onClick={() => handlePageFollow(page)}
-                            className={`min-h-10 shrink-0 rounded-full border px-3.5 py-2 text-xs font-semibold uppercase ${
-                              page.isFollowing
-                                ? 'border-slate-300 text-slate-600'
-                                : 'border-blue-200 text-blue-600'
-                            } disabled:cursor-not-allowed disabled:opacity-60`}
-                          >
-                            {pagesFollowBusy[page.id] ? 'Please wait...' : page.isFollowing ? 'Following' : 'Follow'}
-                          </button>
+                            onRequireLogin={() => {
+                              if (confirm('Log in to follow pages?')) window.location.href = '/auth/login';
+                            }}
+                            onSuccess={(isFollowingNow) => {
+                              void RecoService.submitFeedback({
+                                surface: 'member_home',
+                                entityType: 'page',
+                                entityId: page.id,
+                                action: isFollowingNow ? 'follow' : 'dismiss'
+                              }).catch(() => null);
+                              showNotification(
+                                'success',
+                                'Pages',
+                                isFollowingNow
+                                  ? `Now following ${page.name}.`
+                                  : `Unfollowed ${page.name}.`
+                              );
+                            }}
+                            onError={(message) =>
+                              showNotification('error', 'Pages', message || 'Unable to update page follow status.')
+                            }
+                            className="min-h-10 shrink-0 uppercase"
+                          />
                         </div>
                         <RecoSignalChips reasons={page.reasons} whyRecommended={page.whyRecommended} />
                       </div>
@@ -10070,13 +10256,37 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             </div>
                           </Link>
                           <div className="flex gap-2">
+                            <FollowButton
+                              targetUserId={profile.id}
+                              targetType="user"
+                              currentUserId={user?.id}
+                              initialIsFollowing={
+                                followingIds.has(profile.id) || followStateMap[profile.id] === true
+                              }
+                              onRequireLogin={() => {
+                                if (confirm('Log in to follow people?')) window.location.href = '/auth/login';
+                              }}
+                              onSuccess={(isFollowingNow) => {
+                                if (!isFollowingNow) return;
+                                void RecoService.submitFeedback({
+                                  surface: 'who_to_follow',
+                                  entityType: profile.entityType || 'freelancer',
+                                  entityId: profile.id,
+                                  action: 'follow'
+                                }).catch(() => null);
+                                showNotification(
+                                  'success',
+                                  'Following',
+                                  `You are now following ${profile.name}.`
+                                );
+                              }}
+                              onError={(message) =>
+                                showNotification('error', 'Follow failed', message || 'Unable to follow this profile.')
+                              }
+                              className="min-h-10 uppercase"
+                            />
                             <button
-                              onClick={() => handleFollow(profile)}
-                              className="min-h-10 rounded-full border border-slate-200 px-3.5 py-2 text-xs font-semibold uppercase text-slate-700"
-                            >
-                              {followingIds.has(profile.id) ? 'Following' : 'Follow'}
-                            </button>
-                            <button
+                              type="button"
                               onClick={() => handleMessage(profile)}
                               className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold uppercase text-white"
                             >
@@ -10169,13 +10379,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           </div>
                         </div>
                         <div className="flex gap-2">
+                          <FollowButton
+                            targetUserId={employer.id}
+                            targetType="user"
+                            currentUserId={user?.id}
+                            initialIsFollowing={
+                              followingIds.has(employer.id) || followStateMap[employer.id] === true
+                            }
+                            onRequireLogin={() => {
+                              if (confirm('Log in to follow people?')) window.location.href = '/auth/login';
+                            }}
+                            className="h-7 min-w-[5.5rem] px-2 text-[10px] uppercase"
+                          />
                           <button
-                            onClick={() => handleFollow(employer)}
-                            className="rounded-full border border-slate-200 px-3 py-1 text-[10px] font-semibold uppercase text-slate-600"
-                          >
-                            {followingIds.has(employer.id) ? 'Following' : 'Follow'}
-                          </button>
-                          <button
+                            type="button"
                             onClick={() => handleMessage(employer)}
                             className="rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold uppercase text-white"
                           >
@@ -10259,13 +10476,20 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           </div>
                         </div>
                         <div className="flex gap-2">
+                          <FollowButton
+                            targetUserId={freelancer.id}
+                            targetType="user"
+                            currentUserId={user?.id}
+                            initialIsFollowing={
+                              followingIds.has(freelancer.id) || followStateMap[freelancer.id] === true
+                            }
+                            onRequireLogin={() => {
+                              if (confirm('Log in to follow people?')) window.location.href = '/auth/login';
+                            }}
+                            className="h-7 min-w-[5.5rem] px-2 text-[10px] uppercase"
+                          />
                           <button
-                            onClick={() => handleFollow(freelancer)}
-                            className="rounded-full border border-slate-200 px-3 py-1 text-[10px] font-semibold uppercase text-slate-600"
-                          >
-                            {followingIds.has(freelancer.id) ? 'Following' : 'Follow'}
-                          </button>
-                          <button
+                            type="button"
                             onClick={() => handleMessage(freelancer)}
                             className="rounded-full bg-slate-900 px-3 py-1 text-[10px] font-semibold uppercase text-white"
                           >

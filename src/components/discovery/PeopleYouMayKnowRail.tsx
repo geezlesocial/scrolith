@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { UserPlus, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { RecoService } from '../../services/reco';
-import { CommunityService } from '../../services/community';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
+import FollowButton from '../../community/components/FollowButton';
+import { setFollowStatus } from '../../community/followState';
+import { useUser } from '../../context/UserContext';
 
 type PeopleYouMayKnowRailProps = {
   className?: string;
@@ -48,6 +50,7 @@ export default function PeopleYouMayKnowRail({
   limit = 6,
   title = 'People you may know'
 }: PeopleYouMayKnowRailProps) {
+  const { user } = useUser();
   const [items, setItems] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -81,38 +84,31 @@ export default function PeopleYouMayKnowRail({
     };
   }, [limit, retryToken]);
 
-  const handleFollow = async (person: Suggestion) => {
-    if (followingIds[person.id] || busyId) return;
-    setBusyId(person.id);
-    try {
-      await CommunityService.followTarget({ targetType: 'user', targetId: person.id });
-      setFollowingIds((prev) => ({ ...prev, [person.id]: true }));
-      void RecoService.submitFeedback({
-        surface: 'who_to_follow',
-        entityType: 'freelancer',
-        entityId: person.id,
-        action: 'follow'
-      }).catch(() => {});
-      // Dual-write intelligence fabric (collect only; does not change ranking).
-      void import('../../services/intelligenceFeedback')
-        .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
-          submitIntelligenceFeedbackEvents([
-            {
-              eventId: `pymk:follow:person:${person.id}`,
-              entityType: 'person',
-              entityId: person.id,
-              action: 'follow',
-              sourceSurface: 'people_you_may_know',
-              sessionId: getFeedbackSessionId()
-            }
-          ])
-        )
-        .catch(() => null);
-    } catch {
-      // Keep card interactive on failure
-    } finally {
-      setBusyId(null);
-    }
+  const handleFollowSuccess = (person: Suggestion, isFollowingNow: boolean) => {
+    setFollowingIds((prev) => ({ ...prev, [person.id]: isFollowingNow }));
+    setFollowStatus(person.id, isFollowingNow);
+    if (!isFollowingNow) return;
+    void RecoService.submitFeedback({
+      surface: 'who_to_follow',
+      entityType: 'freelancer',
+      entityId: person.id,
+      action: 'follow'
+    }).catch(() => {});
+    // Dual-write intelligence fabric (collect only; does not change ranking).
+    void import('../../services/intelligenceFeedback')
+      .then(({ submitIntelligenceFeedbackEvents, getFeedbackSessionId }) =>
+        submitIntelligenceFeedbackEvents([
+          {
+            eventId: `pymk:follow:person:${person.id}`,
+            entityType: 'person',
+            entityId: person.id,
+            action: 'follow',
+            sourceSurface: 'people_you_may_know',
+            sessionId: getFeedbackSessionId()
+          }
+        ])
+      )
+      .catch(() => null);
   };
 
   const handleDismiss = async (person: Suggestion) => {
@@ -197,20 +193,15 @@ export default function PeopleYouMayKnowRail({
                   </div>
                 </Link>
                 <div className="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    disabled={isFollowing || busyId === person.id}
-                    onClick={() => void handleFollow(person)}
-                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-semibold transition ${
-                      isFollowing
-                        ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
-                        : 'bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60'
-                    }`}
-                    aria-label={isFollowing ? `Following ${person.name}` : `Follow ${person.name}`}
-                  >
-                    <UserPlus className="h-3.5 w-3.5" aria-hidden="true" />
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </button>
+                  <FollowButton
+                    targetUserId={person.id}
+                    targetType="user"
+                    currentUserId={user?.id}
+                    initialIsFollowing={isFollowing}
+                    disabled={busyId === person.id}
+                    onSuccess={(isFollowingNow) => handleFollowSuccess(person, isFollowingNow)}
+                    className="h-8 min-w-[5.75rem] px-3 text-[11px]"
+                  />
                   {!isFollowing ? (
                     <button
                       type="button"
