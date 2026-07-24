@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-25  
 **Branch:** `fix/critical-security-release-gates`  
+**Commit:** `4220596b25c36e0948f501f5f30053de7a1e2649` (`4220596b`)  
 **Mode:** Narrow security release (no product features, no voice/video enablement)  
 
 ---
@@ -138,13 +139,27 @@ jest security.criticalRemediation.unit.test.ts → (see run log)
 - BE 100%: `scrolith-backend-00291-pew`  
 - FE 100%: `scrolith-frontend-00352-cez`  
 
-### Candidate
+### Candidate (deployed)
 
-- Tag: `sec-critical-*`  
-- Traffic: **0%**  
-- Runtime: `node dist/server.js`  
-- No migration  
-- No voice/video flags  
+| Field | Value |
+|-------|--------|
+| Revision | `scrolith-backend-00296-qax` |
+| Tag | `sec-critical-4220596b` |
+| Traffic | **0%** |
+| URL | https://sec-critical-4220596b---scrolith-backend-25ysnpjdda-as.a.run.app |
+| Image | `asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-backend:sec-critical-4220596b` |
+| Runtime | `node dist/server.js` (Dockerfile.storyfix.runtime) |
+| Migration | None |
+| Voice/video flags | Unchanged |
+
+### Candidate smoke (post-deploy)
+
+| Check | Result |
+|-------|--------|
+| `/api/health` | **200** OK / DB ready |
+| `/api/readyz` | **200** READY |
+| Login empty body with `x-skip-ratelimit` | **400** validation (header did not alter path) |
+| Production BE traffic | **100%** still `scrolith-backend-00291-pew` |  
 
 ### Rollback
 
