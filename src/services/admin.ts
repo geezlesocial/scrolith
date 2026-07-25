@@ -349,6 +349,7 @@ export const AdminService = {
     return {
       enabledVoiceCalls: Boolean(data?.enabledVoiceCalls ?? true),
       enabledConferenceCalls: Boolean(data?.enabledConferenceCalls ?? true),
+      enabledVideoCalls: Boolean(data?.enabledVideoCalls ?? true),
       enabledVoiceNotes: Boolean(data?.enabledVoiceNotes ?? true),
       maxParticipants: Number(data?.maxParticipants ?? 8),
       maxVoiceNoteDurationSeconds: Number(data?.maxVoiceNoteDurationSeconds ?? 180),
@@ -361,6 +362,7 @@ export const AdminService = {
     return {
       enabledVoiceCalls: Boolean(data?.enabledVoiceCalls ?? true),
       enabledConferenceCalls: Boolean(data?.enabledConferenceCalls ?? true),
+      enabledVideoCalls: Boolean(data?.enabledVideoCalls ?? true),
       enabledVoiceNotes: Boolean(data?.enabledVoiceNotes ?? true),
       maxParticipants: Number(data?.maxParticipants ?? 8),
       maxVoiceNoteDurationSeconds: Number(data?.maxVoiceNoteDurationSeconds ?? 180),

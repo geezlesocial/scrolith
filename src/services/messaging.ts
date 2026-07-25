@@ -383,7 +383,7 @@ export const MessagingService = {
       maxVoiceNoteDurationSeconds: Number(data.maxVoiceNoteDurationSeconds ?? 180),
       blockedUserIds: [],
       blockedForCurrentUser: Boolean(data.blockedForCurrentUser ?? false),
-      // Phase 1 video (env-backed platform flags)
+      platformVideoCallsEnabled: Boolean(data.platformVideoCallsEnabled ?? data.enabledVideoCalls ?? true),
       enabledVideoCalls: Boolean(data.enabledVideoCalls ?? true),
       enabledScreenSharing: Boolean(data.enabledScreenSharing ?? true),
       maxVideoParticipants: Number(data.maxVideoParticipants ?? 6),

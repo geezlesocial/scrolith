@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { Conversation, MessengerVoiceConfig, User, UserRole } from '../../types';
 import { MessagingService } from '../../services/messaging';
-import { Search, Clock, ExternalLink, Plus, Loader2 } from 'lucide-react';
+import { Search, Clock, ExternalLink, Plus, Loader2, Mic, Phone, Settings, Shield, Users as UsersIcon, Video } from 'lucide-react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
 import { AdminService } from '../../services/admin';
@@ -120,6 +120,7 @@ const AdminMessages = () => {
       const base: MessengerVoiceConfig = prev || {
         enabledVoiceCalls: true,
         enabledConferenceCalls: true,
+        enabledVideoCalls: true,
         enabledVoiceNotes: true,
         maxParticipants: 20,
         maxVoiceNoteDurationSeconds: 180,
@@ -162,16 +163,73 @@ const AdminMessages = () => {
           <h2 className="font-bold text-gray-900 mb-3">Platform Messages</h2>
           {voiceConfig && (
             <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
-              <div className="mb-2 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-900">Messenger Voice Settings</h3>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Messages Features, Tools and Settings</h3>
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    Platform-wide controls apply to web, mobile web, and Android app messaging.
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => void saveVoiceConfig()}
                   disabled={voiceSaving}
                   className="rounded-md bg-gray-900 px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
                 >
-                  {voiceSaving ? 'Saving...' : 'Save Voice Config'}
+                  {voiceSaving ? 'Saving...' : 'Save Messaging Config'}
                 </button>
+              </div>
+              <div className="mb-3 grid gap-2 md:grid-cols-3 xl:grid-cols-6">
+                {[
+                  {
+                    label: 'Voice calls',
+                    enabled: Boolean(voiceConfig.enabledVoiceCalls),
+                    icon: Phone
+                  },
+                  {
+                    label: 'Video calls',
+                    enabled: Boolean(voiceConfig.enabledVideoCalls),
+                    icon: Video
+                  },
+                  {
+                    label: 'Conference',
+                    enabled: Boolean(voiceConfig.enabledConferenceCalls),
+                    icon: UsersIcon
+                  },
+                  {
+                    label: 'Voice notes',
+                    enabled: Boolean(voiceConfig.enabledVoiceNotes),
+                    icon: Mic
+                  },
+                  {
+                    label: `${Number(voiceConfig.maxParticipants || 20)} max users`,
+                    enabled: true,
+                    icon: Settings
+                  },
+                  {
+                    label: `${Array.isArray(voiceConfig.blockedUserIds) ? voiceConfig.blockedUserIds.length : 0} blocked`,
+                    enabled: !(Array.isArray(voiceConfig.blockedUserIds) && voiceConfig.blockedUserIds.length),
+                    icon: Shield
+                  }
+                ].map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <div
+                      key={item.label}
+                      className="flex min-h-[64px] items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2"
+                    >
+                      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${item.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-semibold text-gray-900">{item.label}</span>
+                        <span className={`text-[11px] font-semibold ${item.enabled ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {item.enabled ? 'Active' : 'Off'}
+                        </span>
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 text-sm">
                 <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">
@@ -180,6 +238,17 @@ const AdminMessages = () => {
                     type="checkbox"
                     checked={Boolean(voiceConfig.enabledVoiceCalls)}
                     onChange={(event) => updateVoiceConfigState({ enabledVoiceCalls: event.target.checked })}
+                  />
+                </label>
+                <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">
+                  <span>
+                    <span className="block font-medium text-gray-900">Video calls</span>
+                    <span className="block text-[11px] text-gray-500">Turns video calling off/on across the entire platform.</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(voiceConfig.enabledVideoCalls)}
+                    onChange={(event) => updateVoiceConfigState({ enabledVideoCalls: event.target.checked })}
                   />
                 </label>
                 <label className="flex items-center justify-between rounded-md bg-white px-2 py-1.5 border border-gray-200">

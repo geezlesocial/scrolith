@@ -1474,6 +1474,7 @@ export interface VoiceCall {
 export interface MessengerVoiceConfig {
   enabledVoiceCalls: boolean;
   enabledConferenceCalls: boolean;
+  enabledVideoCalls: boolean;
   enabledVoiceNotes: boolean;
   maxParticipants: number;
   maxVoiceNoteDurationSeconds: number;
