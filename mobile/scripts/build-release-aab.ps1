@@ -1,4 +1,4 @@
-# Phase 21.1 — production Android App Bundle builder
+﻿# Phase 21.1 â€” production Android App Bundle builder
 # Usage (from C:\Projects\mobile):
 #   powershell -ExecutionPolicy Bypass -File scripts\build-release-aab.ps1
 $ErrorActionPreference = 'Stop'
@@ -6,9 +6,9 @@ $ErrorActionPreference = 'Stop'
 $MobileRoot = Split-Path -Parent $PSScriptRoot
 $GeezleRoot = Join-Path (Split-Path -Parent $MobileRoot) 'geezle'
 $AndroidRoot = Join-Path $MobileRoot 'android'
-$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.37'
-$VersionCode = 47
-$VersionName = '1.1.37'
+$OutDir = Join-Path $MobileRoot 'release-artifacts\android-1.1.41'
+$VersionCode = 51
+$VersionName = '1.1.41'
 $WebCommit = (git -C $GeezleRoot rev-parse --short HEAD 2>$null)
 if (-not $WebCommit) { $WebCommit = 'unknown' }
 
@@ -123,12 +123,37 @@ $meta = @{
   webCommit = $WebCommit
   minifyEnabled = $true
   shrinkResources = $true
-  phase = '31'
+  phase = 'calls-ringtone-production'
   targetSdk = 36
   compileSdk = 36
   minSdk = 24
+  productionBackendRevision = 'scrolith-backend-00180-wtc'
+  productionFrontendRevision = 'scrolith-frontend-00370-yut'
+  productionApi = 'https://api.scrolith.com'
+  productionAppUrl = 'https://scrolith.com'
+  googlePlayUploadPerformed = $false
 } | ConvertTo-Json -Depth 4
 Set-Content -Encoding utf8 (Join-Path $OutDir 'artifact-metadata.json') $meta
+
+# Post-build validation: require production API and reject candidate Cloud Run tags.
+# Note: bundled host-detection helpers may mention localhost/10.0.2.2 as deny-list
+# strings; that is intentional safety code, not a production API target.
+$indexJs = Get-ChildItem -Path (Join-Path $GeezleRoot 'dist\assets') -Filter 'index-*.js' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $indexJs) { throw 'dist/assets/index-*.js missing after production build' }
+$js = Get-Content -Raw -LiteralPath $indexJs.FullName
+if ($js -notmatch 'https://api\.scrolith\.com') {
+  throw "Production API host https://api.scrolith.com not found in $($indexJs.Name)"
+}
+if ($js -notmatch 'https://scrolith\.com') {
+  throw "Production app URL https://scrolith.com not found in $($indexJs.Name)"
+}
+if ($js -match 'msg-enh-|---scrolith-backend-|---scrolith-frontend-|scrolith-frontend-\d|a\.run\.app/api') {
+  throw "Forbidden candidate/run.app API endpoint marker found in $($indexJs.Name)"
+}
+if ($js -match 'VITE_ALLOW_LOCAL_API_IN_PROD["'']?\s*:\s*["'']?true') {
+  throw 'VITE_ALLOW_LOCAL_API_IN_PROD must not be true in production bundle'
+}
+Write-Host "==> Production endpoint validation PASS ($($indexJs.Name))"
 
 Write-Host "AAB: $AabDest"
 Write-Host "SHA-256: $sha256"
