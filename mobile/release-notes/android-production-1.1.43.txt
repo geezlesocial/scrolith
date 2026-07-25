@@ -1,0 +1,1 @@
+Improves uploaded video reliability in posts, stories, and Scroll, prevents broken playback for missing media, and includes the latest messaging, calls, ringtone, post background, and admin video-control updates.
