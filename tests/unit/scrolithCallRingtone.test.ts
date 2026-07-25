@@ -165,6 +165,16 @@ describe('scrolithCallRingtone lifecycle', () => {
     assert.equal(audioInstances.length, 1);
   });
 
+  it('resume restores incoming source after preload switches the shared element', async () => {
+    await ringtone.startScrolithCallTone({ callId: 'incoming-preload', role: 'incoming' });
+    await ringtone.preloadScrolithCallRingtones();
+    assert.equal(audioInstances[0].getAttribute('data-src-role'), 'outgoing');
+    const resumed = await ringtone.resumeScrolithCallToneIfPending();
+    assert.equal(resumed, true);
+    assert.equal(audioInstances[0].getAttribute('data-src-role'), 'incoming');
+    assert.match(audioInstances[0].getAttribute('data-src-value'), /you-have-call-in-scrolith-ringtone/);
+  });
+
   it('stop clears session immediately', async () => {
     await ringtone.startScrolithCallTone({ callId: 'c9', role: 'incoming' });
     ringtone.stopScrolithCallTone('answered');

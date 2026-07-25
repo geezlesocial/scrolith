@@ -227,6 +227,10 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
     >
         {/* Always attach remote audio sinks — voice-only previously never played remote media. */}
         <RemoteStreamAudioSinks remoteStreams={remoteStreams} speakerOn={speakerOn} />
+        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+          {isVideo ? <Video className="h-3.5 w-3.5 text-emerald-600" /> : <Phone className="h-3.5 w-3.5 text-blue-600" />}
+          {isVideo ? 'Video call' : 'Voice call'}
+        </div>
         {isVideo ? (
           <div className="mb-3 grid gap-2 sm:grid-cols-2">
             <div className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video">

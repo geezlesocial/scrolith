@@ -45,7 +45,8 @@ export const SCROLITH_CALL_SOURCES = [
 ] as const;
 
 export const SCROLITH_RINGBACK_SOURCES = [
-  '/sounds/scrolith-ringback.wav'
+  '/sounds/scrolith-ringback.wav',
+  '/sounds/you-have-call-in-scrolith-ringtone.mp3'
 ] as const;
 
 const PRELOAD_MARK = 'scrolith-ringtone-preloaded';
@@ -100,7 +101,6 @@ const ensureAudioElement = (): HTMLAudioElement | null => {
   el.setAttribute('playsinline', 'true');
   el.setAttribute('data-scrolith-ringtone', 'true');
   // Never mix into call media: separate element, no remote stream.
-  el.crossOrigin = 'anonymous';
   state.audio = el;
   return el;
 };
@@ -158,37 +158,75 @@ const loadSources = (role: RingtoneRole): Promise<void> => {
   const el = ensureAudioElement();
   if (!el) return Promise.resolve();
   const sources = pickSources(role);
-  const primary = sources[0];
-  if (!primary) return Promise.resolve();
+  if (!sources.length) return Promise.resolve();
 
   return new Promise((resolve) => {
-    const done = () => {
-      el.removeEventListener('canplaythrough', done);
-      el.removeEventListener('error', done);
-      resolve();
-    };
-    el.addEventListener('canplaythrough', done, { once: true });
-    el.addEventListener('error', done, { once: true });
-    // Force reload when switching roles.
-    if (el.getAttribute('data-src-role') !== role || !el.src.includes(primary)) {
+    let index = 0;
+
+    const tryNext = () => {
+      const source = sources[index++];
+      if (!source) {
+        resolve();
+        return;
+      }
+
+      let settled = false;
+      let timer: number | null = null;
+      const cleanup = () => {
+        el.removeEventListener('canplaythrough', onLoaded);
+        el.removeEventListener('loadeddata', onLoaded);
+        el.removeEventListener('error', onError);
+        if (timer != null) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
+      };
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (ok) {
+          resolve();
+        } else {
+          tryNext();
+        }
+      };
+      const onLoaded = () => finish(true);
+      const onError = () => finish(false);
+
+      el.addEventListener('canplaythrough', onLoaded, { once: true });
+      el.addEventListener('loadeddata', onLoaded, { once: true });
+      el.addEventListener('error', onError, { once: true });
+
+      timer = window.setTimeout(() => {
+        finish(Number(el.readyState || 0) >= 2);
+      }, 1500);
+      try {
+        (timer as unknown as { unref?: () => void }).unref?.();
+      } catch {
+        // browser timers have no unref
+      }
+
+      if (
+        el.getAttribute('data-src-role') === role &&
+        el.getAttribute('data-src-value') === source &&
+        Number(el.readyState || 0) >= 2
+      ) {
+        finish(true);
+        return;
+      }
+
       el.setAttribute('data-src-role', role);
-      el.src = primary;
+      el.setAttribute('data-src-value', source);
+      el.src = source;
       try {
         el.load();
       } catch {
-        // ignore
+        finish(false);
       }
-    } else {
-      done();
-    }
-    // Safety timeout so play is never blocked forever on load hang.
-    const timer = window.setTimeout(done, 1500);
-    // Avoid keeping Node test processes alive if this path is unit-tested.
-    try {
-      (timer as unknown as { unref?: () => void }).unref?.();
-    } catch {
-      // browser timers have no unref
-    }
+    };
+
+    tryNext();
   });
 };
 
@@ -321,10 +359,12 @@ export const resumeScrolithCallToneIfPending = async (): Promise<boolean> => {
   if (!isRingtonePlaybackAllowed()) return false;
   const el = ensureAudioElement();
   if (!el) return false;
-  applyVolume(state.session.role);
+  const role = state.session.role;
+  await loadSources(role);
+  applyVolume(role);
   try {
     await el.play();
-    if (state.session.role === 'incoming') startVibration();
+    if (role === 'incoming') startVibration();
     return true;
   } catch {
     return false;
@@ -376,15 +416,22 @@ export const bindScrolithCallRingtoneUnlock = (): (() => void) => {
   state.unlockBound = true;
 
   const onGesture = () => {
-    void preloadScrolithCallRingtones().then(() => {
-      void resumeScrolithCallToneIfPending();
-    });
+    void (async () => {
+      if (state.session) {
+        await resumeScrolithCallToneIfPending();
+        return;
+      }
+      await preloadScrolithCallRingtones();
+    })();
   };
 
   const opts: AddEventListenerOptions = { capture: true, passive: true };
   window.addEventListener('pointerdown', onGesture, opts);
+  window.addEventListener('pointerup', onGesture, opts);
+  window.addEventListener('click', onGesture, opts);
   window.addEventListener('keydown', onGesture, opts);
   window.addEventListener('touchstart', onGesture, opts);
+  window.addEventListener('touchend', onGesture, opts);
 
   try {
     window.addEventListener('scrolith:call-ringtone-preferences', (() => {
@@ -400,8 +447,11 @@ export const bindScrolithCallRingtoneUnlock = (): (() => void) => {
 
   return () => {
     window.removeEventListener('pointerdown', onGesture, opts as any);
+    window.removeEventListener('pointerup', onGesture, opts as any);
+    window.removeEventListener('click', onGesture, opts as any);
     window.removeEventListener('keydown', onGesture, opts as any);
     window.removeEventListener('touchstart', onGesture, opts as any);
+    window.removeEventListener('touchend', onGesture, opts as any);
     state.unlockBound = false;
   };
 };

@@ -91,29 +91,31 @@ const DockCallControls: React.FC<{
   };
 
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex flex-wrap items-center justify-end gap-1">
       <button
         type="button"
         disabled={disabled}
         onClick={() => handleStart({ conference: false, video: false })}
-        className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40"
+        className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40"
         aria-label="Start voice call"
         title="Start voice call"
         data-testid="dock-voice-call-btn"
       >
         <Phone className="h-4 w-4" />
+        <span className="text-[11px] font-semibold">Voice</span>
       </button>
       {canVideo ? (
         <button
           type="button"
           disabled={disabled}
           onClick={() => handleStart({ conference: false, video: true })}
-          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40"
+          className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40"
           aria-label="Start video call"
           title="Start video call"
           data-testid="dock-video-call-btn"
         >
           <Video className="h-4 w-4" />
+          <span className="text-[11px] font-semibold">Video call</span>
         </button>
       ) : null}
       {canConference ? (
@@ -121,12 +123,13 @@ const DockCallControls: React.FC<{
           type="button"
           disabled={disabled}
           onClick={() => handleStart({ conference: true, video: false })}
-          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40"
+          className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40"
           aria-label="Start conference call"
           title="Start conference call"
           data-testid="dock-conference-call-btn"
         >
           <Users className="h-4 w-4" />
+          <span className="text-[11px] font-semibold">Conference</span>
         </button>
       ) : null}
     </div>

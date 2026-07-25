@@ -114,10 +114,12 @@ const normalizeParticipants = (ids: string[], users: ParticipantOption[], status
   return ids.map((userId) => ({ userId, status, user: userMap.get(userId) }));
 };
 
-const statusToLabel = (status: string, incoming: boolean) => {
-  if (incoming && status === 'ringing') return 'Incoming voice call';
-  if (status === 'ringing') return 'Calling...';
-  if (status === 'active') return 'Call in progress';
+const statusToLabel = (status: string, incoming: boolean, mediaMode?: string, callType?: string) => {
+  const mediaLabel = String(mediaMode || '').toLowerCase() === 'video' ? 'video call' : 'voice call';
+  const conferenceLabel = String(callType || '').toLowerCase() === 'conference' ? 'conference ' : '';
+  if (incoming && status === 'ringing') return `Incoming ${conferenceLabel}${mediaLabel}`;
+  if (status === 'ringing') return `Calling ${conferenceLabel}${mediaLabel}...`;
+  if (status === 'active') return `${conferenceLabel}${mediaLabel.charAt(0).toUpperCase()}${mediaLabel.slice(1)} in progress`;
   if (status === 'missed') return 'Missed call';
   if (status === 'failed') return 'Call failed';
   if (status === 'busy') return 'User is busy';
@@ -1230,7 +1232,12 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   }, [resetCallState, clearResetTimer, stopRingingAlert]);
 
   const open = Boolean(callState?.callId);
-  const statusLabel = statusToLabel(String(callState?.status || ''), incoming);
+  const statusLabel = statusToLabel(
+    String(callState?.status || ''),
+    incoming,
+    callState?.mediaMode || mediaMode,
+    callState?.callType
+  );
 
   const value = useMemo<VoiceCallContextValue>(
     () => ({

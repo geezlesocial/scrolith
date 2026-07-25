@@ -20,7 +20,7 @@ import {
   VideoIcon as Video,
   XIcon as X
 } from '../icons/ShellIcons';
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Coins, Download, Repeat2, Send as SendIcon, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Coins, Download, Palette, Repeat2, Send as SendIcon, ShoppingBag } from 'lucide-react';
 import { useLiveFeature } from '../../context/LiveFeatureContext';
 import { useUser } from '../../context/UserContext';
 import { useContent } from '../../context/ContentContext';
@@ -451,7 +451,7 @@ type PostDraft = {
   textBackgroundId: string;
 };
 
-type DesktopComposerIntent = 'text' | 'photo' | 'video' | 'article';
+type DesktopComposerIntent = 'text' | 'background' | 'photo' | 'video' | 'article';
 
 type PostAuthorOption = {
   id: string;
@@ -7282,6 +7282,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           setComposerDraftNotice('Restored your unfinished draft from this session.');
         }
       }
+      if (intent === 'background') {
+        setPostDraft((prev) => ({
+          ...prev,
+          textBackgroundId:
+            prev.media.some((item) => item.id || item.uploading) ||
+            (Boolean(prev.textBackgroundId) && prev.textBackgroundId !== POST_TEXT_BG_NONE_ID)
+              ? prev.textBackgroundId
+              : 'violet'
+        }));
+      }
       composerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       setDesktopComposerIntent(intent);
       setDesktopComposerOpen(true);
@@ -7389,7 +7399,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               Start a post
             </button>
           </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <button type="button" onClick={() => openDesktopComposer('background')} className={composerEntryShortcut}>
+              <Palette className="h-4 w-4 text-violet-600" aria-hidden="true" />
+              Background
+            </button>
             <button type="button" onClick={() => openDesktopComposer('video')} className={composerEntryShortcut}>
               <Video className="h-4 w-4 text-emerald-600" aria-hidden="true" />
               Video
