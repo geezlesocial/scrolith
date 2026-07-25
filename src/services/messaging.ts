@@ -382,7 +382,19 @@ export const MessagingService = {
       maxParticipants: Number(data.maxParticipants ?? 20),
       maxVoiceNoteDurationSeconds: Number(data.maxVoiceNoteDurationSeconds ?? 180),
       blockedUserIds: [],
-      blockedForCurrentUser: Boolean(data.blockedForCurrentUser ?? false)
+      blockedForCurrentUser: Boolean(data.blockedForCurrentUser ?? false),
+      // Phase 1 video (env-backed platform flags)
+      enabledVideoCalls: Boolean(data.enabledVideoCalls ?? true),
+      enabledScreenSharing: Boolean(data.enabledScreenSharing ?? true),
+      maxVideoParticipants: Number(data.maxVideoParticipants ?? 6),
+      defaultVideoQuality: (data.defaultVideoQuality as any) || 'medium',
+      maxResolution: String(data.maxResolution || '1280x720'),
+      maxFrameRate: Number(data.maxFrameRate ?? 30),
+      cameraRecordingPolicy: String(data.cameraRecordingPolicy || 'disabled'),
+      maxBitrateKbps: Number(data.maxBitrateKbps ?? 0),
+      allowVirtualBackground: Boolean(data.allowVirtualBackground ?? false),
+      mediaTopology: data.mediaTopology || 'mesh',
+      sfuReady: Boolean(data.sfuReady ?? false)
     };
   },
 
@@ -442,6 +454,8 @@ export const MessagingService = {
       })
       .then(response => {
         const data = extractData<any>(response);
+        // Always merge with the authenticated viewer id so peer-relative / Scrolitha
+        // keys do not collapse other users' threads (admin list) into the viewer's.
         const normalized = normalizeList(data, userId);
         if (!updatedSince) {
           conversationCache.set(`${userId}:${role}`, { timestamp: Date.now(), data: normalized });

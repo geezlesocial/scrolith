@@ -30,6 +30,11 @@ import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
 import TranslatablePostText from '../../../components/translation/TranslatablePostText';
+import PostTextBackgroundBody from '../../../components/post/PostTextBackgroundBody';
+import {
+  resolvePostPresentation,
+  shouldRenderTextBackground
+} from '../../../utils/postTextBackgrounds';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
 import { resolveAssetUrl } from '../../../utils/assetUrl';
 import { normalizeContentOfferTags } from '../../../utils/contentOffers';
@@ -915,6 +920,28 @@ export default function MobileFeed({
       topic: post?.topic || null,
       location: post?.location || null,
       visibility: post?.visibility || 'public',
+      presentation: (() => {
+        const resolved = resolvePostPresentation(post);
+        return resolved
+          ? {
+              type: resolved.type,
+              themeId: resolved.themeId,
+              background: resolved.background,
+              textColor: resolved.textColor
+            }
+          : post?.presentation || null;
+      })(),
+      textBackground:
+        post?.textBackground ||
+        post?.text_background ||
+        resolvePostPresentation(post)?.background ||
+        null,
+      textColor: post?.textColor || post?.text_color || resolvePostPresentation(post)?.textColor || null,
+      textBackgroundId:
+        post?.textBackgroundId ||
+        post?.text_background_id ||
+        resolvePostPresentation(post)?.themeId ||
+        null,
       commentPolicy: post?.commentPolicy || post?.comment_policy || 'everyone',
       repostsEnabled: post?.repostsEnabled ?? post?.reposts_enabled ?? true,
       isPinned: post?.isPinned ?? post?.is_pinned ?? false,
@@ -3187,24 +3214,48 @@ export default function MobileFeed({
                 </div>
 
                 <div className={postCardSectionStackClass}>
-                  <TranslatablePostText
-                    post={post}
-                    viewerId={user?.id}
-                    viewerUsername={user?.username}
-                    expandable
-                    titleClassName={`text-left break-words [overflow-wrap:anywhere] hover:text-slate-700 ${postCardType.title}`}
-                    contentWrapperClassName={`cursor-pointer break-words [overflow-wrap:anywhere] ${postCardType.body}`}
-                    buttonClassName="text-slate-900"
-                    translationRowClassName="text-slate-500"
-                    onTitleClick={post?.title ? () => openPostCard(post) : undefined}
-                    onContentClick={(event) => openPostFromText(event, post)}
-                    onContentKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        openPostCard(post);
-                      }
-                    }}
-                  />
+                  {shouldRenderTextBackground(post) ? (
+                    <div>
+                      {post?.title ? (
+                        <button
+                          type="button"
+                          onClick={() => openPostCard(post)}
+                          className={`mb-2 block w-full text-left break-words [overflow-wrap:anywhere] hover:text-slate-700 ${postCardType.title}`}
+                        >
+                          {post.title}
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={(event) => openPostFromText(event as any, post)}
+                        className="block w-full text-left"
+                      >
+                        <PostTextBackgroundBody
+                          post={post}
+                          content={String(post?.content || post?.body || '')}
+                        />
+                      </button>
+                    </div>
+                  ) : (
+                    <TranslatablePostText
+                      post={post}
+                      viewerId={user?.id}
+                      viewerUsername={user?.username}
+                      expandable
+                      titleClassName={`text-left break-words [overflow-wrap:anywhere] hover:text-slate-700 ${postCardType.title}`}
+                      contentWrapperClassName={`cursor-pointer break-words [overflow-wrap:anywhere] ${postCardType.body}`}
+                      buttonClassName="text-slate-900"
+                      translationRowClassName="text-slate-500"
+                      onTitleClick={post?.title ? () => openPostCard(post) : undefined}
+                      onContentClick={(event) => openPostFromText(event, post)}
+                      onContentKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openPostCard(post);
+                        }
+                      }}
+                    />
+                  )}
 
                   {showHashtags && tags.length ? (
                     <div className="flex flex-wrap gap-2">

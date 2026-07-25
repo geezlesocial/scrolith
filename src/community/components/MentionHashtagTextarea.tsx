@@ -295,7 +295,10 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
           placeholder={placeholder}
           disabled={disabled}
           className={className}
-          style={style}
+          style={{
+            // Allow parent to force transparent fill for text-background composers.
+            ...(style || {})
+          }}
           role="combobox"
           aria-expanded={isOpen}
           aria-controls={isOpen ? listboxId : undefined}

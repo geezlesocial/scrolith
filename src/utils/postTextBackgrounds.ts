@@ -3,6 +3,8 @@
  * Each theme pairs background (solid or gradient) with high-contrast text color.
  */
 
+import type { CSSProperties } from 'react';
+
 export type PostTextBackgroundTheme = {
   id: string;
   label: string;
@@ -137,6 +139,36 @@ export const buildPostPresentation = (themeId?: string | null): PostPresentation
     background: theme.background,
     textColor: theme.textColor
   };
+};
+
+/**
+ * Inline styles for the live composer textarea when a text background is active.
+ * Forces transparent fill so the parent gradient shows through (Tailwind bg-white
+ * cannot reliably be overridden by appending bg-transparent alone).
+ */
+export const buildComposerTextBackgroundStyle = (
+  themeId?: string | null
+): CSSProperties | undefined => {
+  const presentation = buildPostPresentation(themeId);
+  if (!presentation) return undefined;
+  return {
+    background: 'transparent',
+    backgroundColor: 'transparent',
+    backgroundImage: 'none',
+    color: presentation.textColor,
+    caretColor: presentation.textColor,
+    WebkitTextFillColor: presentation.textColor,
+    boxShadow: 'none'
+  };
+};
+
+/** True when the composer should show the full-bleed background canvas (text-only + theme). */
+export const isComposerTextBackgroundActive = (
+  themeId?: string | null,
+  options?: { hasMedia?: boolean }
+): boolean => {
+  if (options?.hasMedia) return false;
+  return Boolean(buildPostPresentation(themeId));
 };
 
 export const resolvePostPresentation = (post: any): PostPresentation | null => {

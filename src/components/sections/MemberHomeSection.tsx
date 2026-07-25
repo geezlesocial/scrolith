@@ -127,7 +127,9 @@ import PostOriginPreview from '../post/PostOriginPreview';
 import PostTextBackgroundBody from '../post/PostTextBackgroundBody';
 import PostTextBackgroundPicker from '../composer/PostTextBackgroundPicker';
 import {
+  buildComposerTextBackgroundStyle,
   buildPostPresentation,
+  isComposerTextBackgroundActive,
   POST_TEXT_BG_NONE_ID,
   resolvePostPresentation,
   shouldRenderTextBackground
@@ -185,6 +187,7 @@ import {
   composerAttachmentTile,
   composerDraftBanner,
   composerEditor,
+  composerEditorTextBackground,
   composerEntryCard,
   composerEntryShortcut,
   composerEntryTrigger,
@@ -4522,7 +4525,12 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   }, []);
 
   const addPostMediaItem = useCallback((item: PostMediaItem) => {
-    setPostDraft((prev) => ({ ...prev, media: [...prev.media, item] }));
+    // Text backgrounds are text-only — attaching media clears the theme selection.
+    setPostDraft((prev) => ({
+      ...prev,
+      media: [...prev.media, item],
+      textBackgroundId: POST_TEXT_BG_NONE_ID
+    }));
   }, []);
 
   const handlePostMediaRemove = useCallback((localId: string) => {
@@ -7530,17 +7538,21 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
             <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
               {(() => {
+                const hasComposerMedia = postDraft.media.some((item) => item.id || item.uploading);
                 const bgTheme = buildPostPresentation(postDraft.textBackgroundId);
-                const textOnlyBackground =
-                  Boolean(bgTheme) &&
-                  !postDraft.media.some((item) => item.id || item.uploading) &&
-                  Boolean(String(postDraft.content || '').trim() || String(postDraft.title || '').trim());
+                // Activate as soon as a theme is selected (empty composer still shows canvas).
+                const textOnlyBackground = isComposerTextBackgroundActive(postDraft.textBackgroundId, {
+                  hasMedia: hasComposerMedia
+                });
+                const textareaStyle = textOnlyBackground
+                  ? buildComposerTextBackgroundStyle(postDraft.textBackgroundId)
+                  : undefined;
                 return (
                   <>
                     <div
                       className={
                         textOnlyBackground
-                          ? 'overflow-hidden rounded-2xl px-4 py-8 sm:px-6 sm:py-10'
+                          ? 'overflow-hidden rounded-2xl ring-1 ring-black/5'
                           : ''
                       }
                       style={
@@ -7548,30 +7560,28 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           ? { background: bgTheme.background, color: bgTheme.textColor }
                           : undefined
                       }
+                      data-testid="composer-text-background-surface"
+                      data-background-active={textOnlyBackground ? 'true' : 'false'}
                     >
                       <MentionHashtagTextarea
                         ref={composerInputRef}
                         value={postDraft.content}
                         onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
-                        placeholder="What do you want to talk about?"
+                        placeholder={
+                          textOnlyBackground
+                            ? 'Say something…'
+                            : 'What do you want to talk about?'
+                        }
                         mentionsEnabled={mentionsEnabled}
                         hashtagsEnabled={hashtagsEnabled}
-                        className={
-                          textOnlyBackground
-                            ? `${composerEditor} min-h-[180px] border-0 bg-transparent text-center text-xl font-semibold leading-snug shadow-none sm:min-h-[220px] sm:text-2xl`
-                            : composerEditor
-                        }
-                        style={
-                          textOnlyBackground && bgTheme
-                            ? { color: bgTheme.textColor, caretColor: bgTheme.textColor }
-                            : undefined
-                        }
+                        className={textOnlyBackground ? composerEditorTextBackground : composerEditor}
+                        style={textareaStyle}
                       />
                     </div>
                     <div className="mt-3 space-y-3">
                       <PostTextBackgroundPicker
                         value={postDraft.textBackgroundId || POST_TEXT_BG_NONE_ID}
-                        disabled={posting || postDraft.media.some((item) => Boolean(item.id || item.uploading))}
+                        disabled={posting || hasComposerMedia}
                         onChange={(themeId) =>
                           setPostDraft((prev) => ({
                             ...prev,
@@ -7579,9 +7589,13 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                           }))
                         }
                       />
-                      {postDraft.media.some((item) => Boolean(item.id || item.uploading)) ? (
+                      {hasComposerMedia ? (
                         <p className="text-[11px] text-slate-500">
                           Text backgrounds apply to text-only posts. Remove media to enable backgrounds.
+                        </p>
+                      ) : textOnlyBackground ? (
+                        <p className="text-[11px] text-slate-500">
+                          Live preview: your text is typed on the background (Facebook-style).
                         </p>
                       ) : null}
                       <div className="flex flex-wrap gap-2">

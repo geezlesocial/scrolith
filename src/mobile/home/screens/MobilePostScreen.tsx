@@ -31,8 +31,11 @@ import {
 import ComposerMediaPreviewGrid from '../../../components/composer/ComposerMediaPreviewGrid';
 import AIComposerAssist from '../../../components/ai/AIComposerAssist';
 import PostTextBackgroundPicker from '../../../components/composer/PostTextBackgroundPicker';
+import { composerEditorTextBackground } from '../../../components/composer/composerClasses';
 import {
+  buildComposerTextBackgroundStyle,
   buildPostPresentation,
+  isComposerTextBackgroundActive,
   POST_TEXT_BG_NONE_ID
 } from '../../../utils/postTextBackgrounds';
 
@@ -221,6 +224,7 @@ export default function MobilePostScreen({
         mediaCountRef.current += 1;
         const localItem = createLocalAttachment(file, validation.kind);
         setMedia((prev) => [...prev, localItem]);
+        setTextBackgroundId(POST_TEXT_BG_NONE_ID);
         if (validation.kind === 'video') {
           void generateLocalVideoPoster(file).then((poster) => {
             if (poster) updateMedia(localItem.localId, { localPosterUrl: poster, thumbnailUrl: poster });
@@ -667,15 +671,50 @@ export default function MobilePostScreen({
         </div>
 
         <div className="mt-3">
-          <MentionHashtagTextarea
-            value={content}
-            onChange={(nextValue) => setContent(nextValue)}
-            placeholder="Share an update with your network..."
-            mentionsEnabled={mentionsEnabled}
-            hashtagsEnabled={hashtagsEnabled}
-            disabled={busy || loadingPost}
-            className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
-          />
+          {(() => {
+            const hasMedia = media.some((item) => Boolean(item.id || item.uploading));
+            const bgTheme = buildPostPresentation(textBackgroundId);
+            const textOnlyBackground = isComposerTextBackgroundActive(textBackgroundId, {
+              hasMedia
+            });
+            return (
+              <div
+                className={
+                  textOnlyBackground
+                    ? 'overflow-hidden rounded-2xl ring-1 ring-black/5'
+                    : undefined
+                }
+                style={
+                  textOnlyBackground && bgTheme
+                    ? { background: bgTheme.background, color: bgTheme.textColor }
+                    : undefined
+                }
+                data-testid="composer-text-background-surface-mobile"
+                data-background-active={textOnlyBackground ? 'true' : 'false'}
+              >
+                <MentionHashtagTextarea
+                  value={content}
+                  onChange={(nextValue) => setContent(nextValue)}
+                  placeholder={
+                    textOnlyBackground ? 'Say something…' : 'Share an update with your network...'
+                  }
+                  mentionsEnabled={mentionsEnabled}
+                  hashtagsEnabled={hashtagsEnabled}
+                  disabled={busy || loadingPost}
+                  className={
+                    textOnlyBackground
+                      ? composerEditorTextBackground
+                      : 'w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400'
+                  }
+                  style={
+                    textOnlyBackground
+                      ? buildComposerTextBackgroundStyle(textBackgroundId)
+                      : undefined
+                  }
+                />
+              </div>
+            );
+          })()}
           <div className="mt-2 text-[11px] text-slate-500">
             {hashtagsEnabled ? '#tags' : '#tags (disabled)'} and{' '}
             {mentionsEnabled ? '@mentions' : '@mentions (disabled)'} supported

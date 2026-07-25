@@ -61,7 +61,12 @@ import ConversationActionsMenu from '../components/messaging/ConversationActions
 import StoryMessageMediaThumb from '../components/messaging/StoryMessageMediaThumb';
 import ScrolithaService from '../services/scrolitha';
 import { isScrolithaAuthoredMessage, normalizeScrolithaDisplayText } from '../utils/scrolithaDisplayText';
-import { getScrolithaProfilePhotoUrl, resolveScrolithaAvatar } from '../utils/scrolithaIdentity';
+import {
+  getScrolithaProfilePhotoUrl,
+  isScrolithaUsername,
+  resolveScrolithaAvatar,
+  SCROLITHA_DISPLAY_NAME
+} from '../utils/scrolithaIdentity';
 import { extractMessageAttachments, revokeMessageAttachmentMediaUrls } from '../services/messagingMedia';
 import {
   buildThreadTimeline,
@@ -417,7 +422,7 @@ const Messages = () => {
                   .filter(Boolean) as Conversation[],
               user?.id
           ),
-      [messageSearchResults, user?.id]
+      [messageSearchResults]
   );
 
   const dedupedConversations = useMemo(
@@ -796,17 +801,46 @@ const Messages = () => {
       // Phase 22.2 — /messages/join/:code is not a conversation id
       if (!conversationId || conversationId === 'join') return;
       if (dedupedConversations.length > 0) {
-          const exists = dedupedConversations.find(c => c.id === conversationId);
-          if (exists) {
-              setActiveConvoId(conversationId);
-              // Mark as read when opening
-              if (user) {
-                  MessagingService.markAsRead(conversationId, user.id).then(() => {
+          const exact = dedupedConversations.find((c) => c.id === conversationId);
+          // If this id was absorbed into a merged row, open the canonical primary id.
+          const absorbed = !exact
+              ? dedupedConversations.find((c) => {
+                    const fromIds = ((c as any)?.mergedFromIds || (c as any)?.merged_from_ids || []) as string[];
+                    return Array.isArray(fromIds) && fromIds.includes(conversationId);
+                })
+              : null;
+          const resolved = exact || absorbed;
+          if (resolved?.id) {
+              if (absorbed && absorbed.id !== conversationId) {
+                  navigate(`/messages/${absorbed.id}`, { replace: true });
+              }
+              setActiveConvoId(resolved.id);
+              // Mark as read only when the viewer is an active participant.
+              // Admin list returns all platform threads; foreign rows 404 on /read and /appearance.
+              const isPlatformAdmin = String(user?.role || '')
+                  .toLowerCase()
+                  .includes('admin');
+              const hasSelfMembership = Boolean(
+                  user?.id &&
+                      (resolved.participants || []).some(
+                          (p: any) =>
+                              String(p?.id || p?.userId || '').trim() === String(user.id) &&
+                              !p?.deletedAt &&
+                              !p?.deleted_at
+                      )
+              );
+              // Non-admin inbox is membership-scoped; always attempt. Admin: only own threads.
+              const viewerIsMember = hasSelfMembership || !isPlatformAdmin;
+              if (user && viewerIsMember) {
+                  MessagingService.markAsRead(resolved.id, user.id).then(() => {
                       refreshMessages();
-                      // Update local state to reflect read status
-                      setConversations(prev => prev.map(c => 
-                          c.id === conversationId ? { ...c, unreadCount: 0 } : c
-                      ));
+                      setConversations((prev) =>
+                          prev.map((c) =>
+                              c.id === resolved.id
+                                  ? { ...c, unreadCount: 0, unread_count: 0 }
+                                  : c
+                          )
+                      );
                   }).catch(() => {
                       // Read receipts are best-effort; conversation loading and messaging must remain stable.
                   });
@@ -817,7 +851,7 @@ const Messages = () => {
       } else {
           setActiveConvoId(conversationId);
       }
-  }, [conversationId, dedupedConversations.length, user]);
+  }, [conversationId, dedupedConversations.length, user, navigate]);
 
   // Phase 22.2 — accept group invite via /messages/join/:code or ?invite=
   useEffect(() => {
@@ -1019,10 +1053,23 @@ const Messages = () => {
       return dedupedConversations.find((conversation) => getConversationMergeKey(conversation) === mergeKey);
   }, [activeConvoId, conversations, dedupedConversations]);
 
+  const isScrolithaParticipantEntity = (participant: any) =>
+      Boolean(
+          participant?.isScrolitha ||
+              participant?.is_scrolitha ||
+              isScrolithaUsername(participant?.username) ||
+              String(participant?.systemLabel || participant?.system_label || '')
+                  .toLowerCase()
+                  .includes('ai assistant') ||
+              String(participant?.label || '').toLowerCase() === 'system' ||
+              String(participant?.label || '').toLowerCase() === 'scrolitha' ||
+              String(participant?.name || '').trim().toLowerCase() === 'scrolitha'
+      );
+
   const isActiveScrolithaConversation = Boolean(
       activeConvo?.isScrolitha ??
           activeConvo?.is_scrolitha ??
-          activeConvo?.participants?.some((p: any) => p?.isScrolitha || p?.is_scrolitha)
+          activeConvo?.participants?.some((p: any) => isScrolithaParticipantEntity(p))
   );
 
   const scrolithaPromptChips = useMemo(
@@ -1142,30 +1189,76 @@ const Messages = () => {
       [visibleConversations, conversationWindow.start, conversationWindow.end]
   );
   const otherParticipant = (() => {
-      const others = (activeConvo?.participants || []).filter((participant: any) => String(participant?.id || '') !== String(user?.id || ''));
+      const selfId = String(user?.id || '').trim();
+      const participants = Array.isArray(activeConvo?.participants) ? activeConvo!.participants : [];
+      const others = participants.filter(
+          (participant: any) => String(participant?.id || '').trim() !== selfId
+      );
+
+      // Official assistant: never fall back to the viewer (e.g. Admin) as the peer.
+      const scrolithaPeer =
+          others.find((participant: any) => isScrolithaParticipantEntity(participant)) ||
+          participants.find(
+              (participant: any) =>
+                  isScrolithaParticipantEntity(participant) &&
+                  String(participant?.id || '').trim() !== selfId
+          );
+      if (scrolithaPeer) {
+          return {
+              ...scrolithaPeer,
+              name: SCROLITHA_DISPLAY_NAME,
+              username: scrolithaPeer.username || 'scrolitha',
+              isScrolitha: true,
+              is_scrolitha: true,
+              isOnline: true,
+              is_online: true,
+              systemLabel: 'AI assistant',
+              system_label: 'AI assistant'
+          };
+      }
+      if (isActiveScrolithaConversation) {
+          return {
+              id: 'scrolitha',
+              name: SCROLITHA_DISPLAY_NAME,
+              username: 'scrolitha',
+              isScrolitha: true,
+              is_scrolitha: true,
+              isOnline: true,
+              is_online: true,
+              systemLabel: 'AI assistant',
+              system_label: 'AI assistant',
+              profileUrl: '/u/scrolitha',
+              profile_url: '/u/scrolitha'
+          };
+      }
+
       const withDisplayName = others.find((participant: any) => {
           const id = String(participant?.id || '').trim();
           const name = String(participant?.name || participant?.username || '').trim();
           return Boolean(name) && name !== id;
       });
-      return withDisplayName || others[0] || activeConvo?.participants[0];
+      // Never use the current user as the "other" party for DM headers.
+      return withDisplayName || others[0] || undefined;
   })();
   const isActiveGroupConversation = Boolean(
-      activeConvo?.type === 'group' ||
-          String((activeConvo as any)?.type || '').toUpperCase() === 'GROUP' ||
-          Boolean((activeConvo as any)?.title && (activeConvo?.participants?.length || 0) > 2)
+      !isActiveScrolithaConversation &&
+          (activeConvo?.type === 'group' ||
+              String((activeConvo as any)?.type || '').toUpperCase() === 'GROUP' ||
+              Boolean((activeConvo as any)?.title && (activeConvo?.participants?.length || 0) > 2))
   );
   const activeGroupTitle = String((activeConvo as any)?.title || '').trim();
-  const activeConversationTitle = isActiveGroupConversation
-      ? activeGroupTitle ||
-        (activeConvo?.participants || [])
-            .filter((p: any) => String(p?.id || '') !== String(user?.id || ''))
-            .map((p: any) => p?.name || p?.username)
-            .filter(Boolean)
-            .slice(0, 3)
-            .join(', ') ||
-        'Group'
-      : otherParticipant?.name || 'Conversation';
+  const activeConversationTitle = isActiveScrolithaConversation
+      ? SCROLITHA_DISPLAY_NAME
+      : isActiveGroupConversation
+        ? activeGroupTitle ||
+          (activeConvo?.participants || [])
+              .filter((p: any) => String(p?.id || '') !== String(user?.id || ''))
+              .map((p: any) => p?.name || p?.username)
+              .filter(Boolean)
+              .slice(0, 3)
+              .join(', ') ||
+          'Group'
+        : otherParticipant?.name || 'Conversation';
   const myGroupRole = String(
       (activeConvo as any)?.memberRole ||
           (activeConvo?.participants || []).find((p: any) => String(p?.id || '') === String(user?.id || ''))
@@ -1214,17 +1307,40 @@ const Messages = () => {
           } else if (!cancelled) {
               setActiveGroupProfile(null);
           }
-          try {
-              const pins = await MessagingService.listGroupPins(activeConvoId);
-              if (!cancelled) setGroupPins(Array.isArray(pins) ? pins : []);
-          } catch {
-              if (!cancelled) setGroupPins([]);
+          // Pins are group membership APIs — do not call on DIRECT/Scrolitha DMs (403 noise).
+          if (isActiveGroupConversation) {
+              try {
+                  const pins = await MessagingService.listGroupPins(activeConvoId);
+                  if (!cancelled) setGroupPins(Array.isArray(pins) ? pins : []);
+              } catch {
+                  if (!cancelled) setGroupPins([]);
+              }
+          } else if (!cancelled) {
+              setGroupPins([]);
           }
-          try {
-              const appearance = await MessagingService.getChatAppearance(activeConvoId);
-              if (!cancelled) setChatAppearance(appearance || { kind: 'none' });
-          } catch {
-              if (!cancelled) setChatAppearance({ kind: 'none' });
+          // Appearance is per-member personal state — skip foreign admin/global threads (404).
+          const isPlatformAdmin = String(user?.role || '')
+              .toLowerCase()
+              .includes('admin');
+          const hasSelfMembership = Boolean(
+              user?.id &&
+                  (activeConvo?.participants || []).some(
+                      (p: any) =>
+                          String(p?.id || p?.userId || '').trim() === String(user.id) &&
+                          !p?.deletedAt &&
+                          !p?.deleted_at
+                  )
+          );
+          const appearanceMember = hasSelfMembership || !isPlatformAdmin;
+          if (appearanceMember) {
+              try {
+                  const appearance = await MessagingService.getChatAppearance(activeConvoId);
+                  if (!cancelled) setChatAppearance(appearance || { kind: 'none' });
+              } catch {
+                  if (!cancelled) setChatAppearance({ kind: 'none' });
+              }
+          } else if (!cancelled) {
+              setChatAppearance({ kind: 'none' });
           }
       })();
       try {
@@ -1244,7 +1360,14 @@ const Messages = () => {
               /* optional */
           }
       };
-  }, [activeConvoId, isActiveGroupConversation, socket, isConnected]);
+  }, [
+      activeConvoId,
+      isActiveGroupConversation,
+      socket,
+      isConnected,
+      user?.id,
+      activeConvo?.participants
+  ]);
 
   const chatSurfaceStyle = useMemo(() => {
       const vars = paletteToCssVars(buildChatPalette(chatAppearance));
@@ -1340,12 +1463,18 @@ const Messages = () => {
       [activeConvoId, showNotification]
   );
 
-  const otherOnline = Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
-  const otherPresenceState = String(
-      (otherParticipant as any)?.presenceState ||
-          (otherOnline ? 'online' : 'offline')
-  ).toLowerCase();
-  const otherLastSeen = otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
+  const otherOnline = isActiveScrolithaConversation
+      ? true
+      : Boolean(otherParticipant?.isOnline ?? otherParticipant?.is_online);
+  const otherPresenceState = isActiveScrolithaConversation
+      ? 'online'
+      : String(
+            (otherParticipant as any)?.presenceState ||
+                (otherOnline ? 'online' : 'offline')
+        ).toLowerCase();
+  const otherLastSeen = isActiveScrolithaConversation
+      ? undefined
+      : otherParticipant?.lastSeenAt ?? otherParticipant?.last_seen_at;
   const resolveParticipantRole = (participant: any): 'freelancer' | 'employer' | null => {
       if (!participant) return null;
       const role = String(participant.role || '').toLowerCase();
@@ -1380,13 +1509,27 @@ const Messages = () => {
   );
   const resolveParticipantProfileUrl = (participant: any) => {
       if (!participant) return '/profile/edit';
-      const username = String(participant.username || '').trim();
-      if (username) return `/u/${username.replace(/^@+/, '')}`;
-      if (participant.profileUrl || participant.profile_url) {
-          return String(participant.profileUrl || participant.profile_url);
+      // Official assistant always uses the public Scrolitha handle.
+      if (
+          participant?.isScrolitha ||
+          participant?.is_scrolitha ||
+          isScrolithaUsername(participant?.username)
+      ) {
+          return '/u/scrolitha';
+      }
+      const rawUsername = String(participant.username || '').trim().replace(/^@+/, '');
+      // Never route emails (e.g. admin@scrolith.com) through /u/:username — API returns 400.
+      const usernameLooksValid =
+          Boolean(rawUsername) &&
+          !rawUsername.includes('@') &&
+          /^[a-zA-Z0-9._-]{2,64}$/.test(rawUsername);
+      if (usernameLooksValid) return `/u/${encodeURIComponent(rawUsername)}`;
+      const profileUrl = String(participant.profileUrl || participant.profile_url || '').trim();
+      if (profileUrl.startsWith('/') && !profileUrl.toLowerCase().includes('@')) {
+          return profileUrl;
       }
       const participantId = String(participant.id || '').trim();
-      return participantId ? `/profile/${participantId}` : '/profile/edit';
+      return participantId ? `/profile/${encodeURIComponent(participantId)}` : '/profile/edit';
   };
   const activeConversationState = {
       label: String(activeConvo?.label || 'other').toLowerCase() === 'jobs' ? 'jobs' : 'other',
@@ -3881,15 +4024,50 @@ const Messages = () => {
                             <li aria-hidden className="pointer-events-none border-b-0 p-0" style={{ height: conversationWindow.top }} />
                         ) : null}
                         {virtualConversations.map((convo) => {
-                            const participant = convo.participants.find(p => p.id !== user?.id) || convo.participants[0];
+                            const selfId = String(user?.id || '').trim();
+                            const peerCandidates = (convo.participants || []).filter(
+                                (p: any) => String(p?.id || '').trim() !== selfId
+                            );
+                            const scrolithaListPeer = peerCandidates.find((p: any) =>
+                                isScrolithaParticipantEntity(p)
+                            );
+                            const isScrolithaConvo = Boolean(
+                                (convo.isScrolitha ?? convo.is_scrolitha) ||
+                                    scrolithaListPeer ||
+                                    (convo.participants || []).some((p: any) => isScrolithaParticipantEntity(p))
+                            );
+                            const participant = isScrolithaConvo
+                                ? scrolithaListPeer
+                                    ? {
+                                          ...scrolithaListPeer,
+                                          name: SCROLITHA_DISPLAY_NAME,
+                                          username: scrolithaListPeer.username || 'scrolitha',
+                                          isScrolitha: true,
+                                          is_scrolitha: true
+                                      }
+                                    : {
+                                          id: 'scrolitha',
+                                          name: SCROLITHA_DISPLAY_NAME,
+                                          username: 'scrolitha',
+                                          isScrolitha: true,
+                                          is_scrolitha: true
+                                      }
+                                : peerCandidates.find((p: any) => {
+                                      const id = String(p?.id || '').trim();
+                                      const name = String(p?.name || p?.username || '').trim();
+                                      return Boolean(name) && name !== id;
+                                  }) ||
+                                  peerCandidates[0] ||
+                                  undefined;
                             const searchMeta = isMessageSearchActive ? searchResultByConversationId.get(convo.id) : null;
                             const participantRole = resolveParticipantRole(participant);
                             const participantIsPro = isParticipantPro(participant);
                             const convoStarred = Boolean(convo.isStarred ?? convo.is_starred);
                             const isGroupConvo = Boolean(
-                                convo.type === 'group' ||
-                                    String((convo as any)?.type || '').toUpperCase() === 'GROUP' ||
-                                    Boolean((convo as any)?.title && (convo.participants?.length || 0) > 2)
+                                !isScrolithaConvo &&
+                                    (convo.type === 'group' ||
+                                        String((convo as any)?.type || '').toUpperCase() === 'GROUP' ||
+                                        Boolean((convo as any)?.title && (convo.participants?.length || 0) > 2))
                             );
                             const groupDisplayName =
                                 String((convo as any)?.title || '').trim() ||
@@ -3900,15 +4078,11 @@ const Messages = () => {
                                     .slice(0, 3)
                                     .join(', ') ||
                                 'Group';
-                            const isScrolithaConvo = Boolean(
-                                convo.isScrolitha ??
-                                    convo.is_scrolitha ??
-                                    participant?.isScrolitha ??
-                                    participant?.is_scrolitha
-                            );
-                            const inboxTitle = isGroupConvo
-                                ? groupDisplayName
-                                : participant?.name || (isScrolithaConvo ? 'Scrolitha' : 'Conversation');
+                            const inboxTitle = isScrolithaConvo
+                                ? SCROLITHA_DISPLAY_NAME
+                                : isGroupConvo
+                                  ? groupDisplayName
+                                  : participant?.name || 'Conversation';
                             const previewText = String(
                                 searchMeta?.matchedMessageSnippet ||
                                 searchMeta?.lastMessage ||
@@ -4192,11 +4366,11 @@ const Messages = () => {
                                         >
                                             <Star className={`h-4 w-4 ${activeConversationState.isStarred ? 'fill-current' : ''}`} />
                                         </button>
-                                        {otherParticipantRole && (
+                                        {otherParticipantRole && !isActiveScrolithaConversation && (
                                             <ProBadge role={otherParticipantRole} isPro={otherParticipantIsPro} />
                                         )}
                                         {/* Phase 20.8.1 — gender lives on profile, not compact mobile header */}
-                                        {!isMobileViewport && otherParticipant?.gender ? (
+                                        {!isMobileViewport && !isActiveScrolithaConversation && otherParticipant?.gender ? (
                                             <span className="hidden rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600 sm:inline">
                                                 {otherParticipant.gender}
                                             </span>
@@ -4230,6 +4404,10 @@ const Messages = () => {
                                                     ? String((activeConvo as any).description).slice(0, 64)
                                                     : `${total} members`;
                                             })()}
+                                        </span>
+                                    ) : isActiveScrolithaConversation ? (
+                                        <span className="text-xs text-indigo-600 flex items-center font-medium" data-testid="messages-presence-scrolitha">
+                                            AI assistant
                                         </span>
                                     ) : otherPresenceState === 'away' ? (
                                         <span className="text-xs text-amber-600 flex items-center">Away</span>

@@ -66,6 +66,32 @@ const isActiveParticipant = (participant: any) => {
   return true;
 };
 
+const isGroupConversation = (conversation: Conversation) => {
+  const type = String(conversation?.type || '').toLowerCase();
+  if (type === 'group') return true;
+  // Never treat Scrolitha / unlabeled DMs as groups via title heuristics alone unless multi-party.
+  if (type === 'direct' || type === 'dm' || type === 'private' || !type) {
+    const count = safeArray<any>(conversation?.participants).length;
+    return Boolean((conversation as any)?.title && count > 2);
+  }
+  return false;
+};
+
+const participantUserId = (participant: any) =>
+  safeString(participant?.id ?? participant?.userId ?? participant?.user_id);
+
+const extractPeerIdsFromMessages = (conversation: Conversation, excludeId?: string): string[] => {
+  const exclude = safeString(excludeId);
+  const messagePeerIds = new Set<string>();
+  safeArray<any>(conversation.messages).forEach((message) => {
+    const sender = safeString(message?.senderId ?? message?.sender_id);
+    const receiver = safeString(message?.receiverId ?? message?.receiver_id);
+    if (sender && sender !== exclude) messagePeerIds.add(sender);
+    if (receiver && receiver !== exclude) messagePeerIds.add(receiver);
+  });
+  return Array.from(messagePeerIds);
+};
+
 /**
  * Collect stable participant user ids for DIRECT merge keys.
  * Prefers active participants; falls back to message sender/receiver pair when the
@@ -77,12 +103,12 @@ const collectDirectParticipantIds = (
   conversation: Conversation,
   selfUserId?: string
 ): string[] => {
-  if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return [];
+  if (!conversation || isGroupConversation(conversation)) return [];
   const selfId = safeString(selfUserId);
 
   const fromParticipants = safeArray<any>(conversation.participants)
     .filter(isActiveParticipant)
-    .map((participant) => safeString(participant?.id ?? participant?.userId ?? participant?.user_id))
+    .map(participantUserId)
     .filter(Boolean);
 
   let uniqueIds = Array.from(new Set(fromParticipants));
@@ -90,11 +116,7 @@ const collectDirectParticipantIds = (
   // Soft-deleted rows may leave only the deleted set on participants — use full list as fallback.
   if (uniqueIds.length === 0) {
     uniqueIds = Array.from(
-      new Set(
-        safeArray<any>(conversation.participants)
-          .map((participant) => safeString(participant?.id ?? participant?.userId ?? participant?.user_id))
-          .filter(Boolean)
-      )
+      new Set(safeArray<any>(conversation.participants).map(participantUserId).filter(Boolean))
     );
   }
 
@@ -103,14 +125,9 @@ const collectDirectParticipantIds = (
 
   // More than 2 active on a DIRECT row is legacy noise — keep the two most recent message peers if possible.
   if (uniqueIds.length > 2) {
-    const messagePeerIds = new Set<string>();
-    safeArray<any>(conversation.messages).forEach((message) => {
-      const sender = safeString(message?.senderId ?? message?.sender_id);
-      const receiver = safeString(message?.receiverId ?? message?.receiver_id);
-      if (sender) messagePeerIds.add(sender);
-      if (receiver) messagePeerIds.add(receiver);
-    });
-    const peersFromMessages = Array.from(messagePeerIds).filter((id) => uniqueIds.includes(id));
+    const peersFromMessages = extractPeerIdsFromMessages(conversation).filter((id) =>
+      uniqueIds.includes(id)
+    );
     if (peersFromMessages.length === 2) return peersFromMessages.sort();
     // Prefer self + one peer when self is present.
     if (selfId && uniqueIds.includes(selfId)) {
@@ -124,38 +141,32 @@ const collectDirectParticipantIds = (
   // Single participant (other user only) — augment from last message peers, then self.
   if (uniqueIds.length === 1) {
     const known = uniqueIds[0];
-    const messages = safeArray<any>(conversation.messages);
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const message = messages[i];
-      const sender = safeString(message?.senderId ?? message?.sender_id);
-      const receiver = safeString(message?.receiverId ?? message?.receiver_id);
-      const other =
-        sender && sender !== known ? sender : receiver && receiver !== known ? receiver : '';
-      if (other) return [known, other].sort();
+    const messagePeers = extractPeerIdsFromMessages(conversation, known);
+    if (messagePeers[0]) return [known, messagePeers[0]].sort();
+    // Known is peer → pair with viewer only for incomplete own-inbox rows.
+    // If messages involve a third party (not self/known), this is a foreign admin row.
+    if (selfId && known !== selfId) {
+      const msgAll = extractPeerIdsFromMessages(conversation);
+      const foreignThirdParty = msgAll.some((id) => id !== known && id !== selfId);
+      if (!foreignThirdParty) return [known, selfId].sort();
+      return uniqueIds;
     }
-    // Known is peer → pair with viewer; known is self → try peer fields on conversation.
-    if (selfId && known !== selfId) return [known, selfId].sort();
     if (selfId && known === selfId) {
       const peer =
         safeString((conversation as any)?.peerUserId) ||
         safeString((conversation as any)?.otherUserId) ||
         safeString((conversation as any)?.participantUserId) ||
         safeString((conversation as any)?.peer?.id) ||
-        safeString((conversation as any)?.otherUser?.id);
+        safeString((conversation as any)?.otherUser?.id) ||
+        extractPeerIdsFromMessages(conversation, selfId)[0] ||
+        '';
       if (peer && peer !== selfId) return [selfId, peer].sort();
     }
     return uniqueIds;
   }
 
   // No participants — derive pair purely from messages, then self.
-  const messagePeerIds = new Set<string>();
-  safeArray<any>(conversation.messages).forEach((message) => {
-    const sender = safeString(message?.senderId ?? message?.sender_id);
-    const receiver = safeString(message?.receiverId ?? message?.receiver_id);
-    if (sender) messagePeerIds.add(sender);
-    if (receiver) messagePeerIds.add(receiver);
-  });
-  const fromMessages = Array.from(messagePeerIds);
+  const fromMessages = extractPeerIdsFromMessages(conversation);
   if (fromMessages.length >= 2) return fromMessages.sort().slice(0, 2);
   if (fromMessages.length === 1 && selfId && fromMessages[0] !== selfId) {
     return [fromMessages[0], selfId].sort();
@@ -163,36 +174,61 @@ const collectDirectParticipantIds = (
   return fromMessages;
 };
 
-const getConversationParticipantsKey = (conversation: Conversation, selfUserId?: string) => {
-  const uniqueIds = collectDirectParticipantIds(conversation, selfUserId);
-  if (uniqueIds.length === 0) return '';
-  // Require a real pair for DIRECT merge keys so incomplete rows don't create phantom buckets.
-  if (uniqueIds.length === 1) {
-    // Still key single-id rows by that id so multiple incomplete rows for same peer can merge,
-    // then self pairing above should upgrade when selfUserId is known.
-    return uniqueIds[0];
-  }
-  return uniqueIds.join(':');
-};
-
 /**
  * Inbox row merge key for direct chats.
- * Always participant-pair based so legacy duplicate DIRECT rows (including story reaction /
- * story comment threads that share the same pair) collapse to a single conversation row.
- * Message-level story keys remain available via getMessageMergeKey for realtime matching.
+ *
+ * When the viewer id is known, keys are **peer-relative** (`direct:peer:<peerId>`) so that:
+ * - full-pair rows (self+peer)
+ * - peer-only incomplete list rows
+ * - rows with extra legacy participants that still share the same peer
+ * all collapse to one inbox row.
+ *
+ * Without selfUserId, falls back to a sorted participant pair (admin/global views).
  */
 export const getConversationMergeKey = (conversation: Conversation, selfUserId?: string) => {
-  const participantKey = getConversationParticipantsKey(conversation, selfUserId);
-  if (!participantKey) return '';
-  // Normalize single-id keys with self when available so "peer-only" and "self:peer" collide.
-  if (!participantKey.includes(':') && selfUserId) {
-    const selfId = safeString(selfUserId);
-    const peer = participantKey;
-    if (selfId && peer && peer !== selfId) {
-      return `direct:${[peer, selfId].sort().join(':')}`;
+  if (!conversation || isGroupConversation(conversation)) return '';
+
+  const selfId = safeString(selfUserId);
+  const uniqueIds = collectDirectParticipantIds(conversation, selfUserId);
+  if (uniqueIds.length === 0) return '';
+
+  if (selfId) {
+    const viewerIsMember =
+      uniqueIds.includes(selfId) ||
+      safeArray<any>(conversation.participants).some(
+        (p) => participantUserId(p) === selfId && isActiveParticipant(p)
+      );
+    const peers = uniqueIds.filter((id) => id !== selfId);
+
+    // Foreign rows (admin/global list): never peer-relative under the admin id.
+    if (!viewerIsMember) {
+      if (uniqueIds.length >= 2) return `direct:${uniqueIds.sort().slice(0, 2).join(':')}`;
+      if (uniqueIds.length === 1) return `direct:foreign:${uniqueIds[0]}:${safeString(conversation.id)}`;
+      return `direct:id:${safeString(conversation.id)}`;
     }
+
+    if (peers.length === 1) {
+      return `direct:peer:${peers[0]}`;
+    }
+    if (peers.length === 0) {
+      // Only self resolved — try harder for a peer via raw messages / fields.
+      const msgPeer = extractPeerIdsFromMessages(conversation, selfId)[0];
+      if (msgPeer && msgPeer !== selfId) return `direct:peer:${msgPeer}`;
+      const fieldPeer =
+        safeString((conversation as any)?.peerUserId) ||
+        safeString((conversation as any)?.otherUserId) ||
+        safeString((conversation as any)?.peer?.id);
+      if (fieldPeer && fieldPeer !== selfId) return `direct:peer:${fieldPeer}`;
+      // Single-id self-only incomplete rows cannot merge safely.
+      return '';
+    }
+    // Multi-peer direct (legacy conference-as-direct): stable full set key.
+    return `direct:multi:${[selfId, ...peers].sort().join(':')}`;
   }
-  return `direct:${participantKey}`;
+
+  // No viewer context — sorted pair (or single id for incomplete admin payloads).
+  if (uniqueIds.length === 1) return `direct:${uniqueIds[0]}`;
+  return `direct:${uniqueIds.sort().slice(0, 2).join(':')}`;
 };
 
 export const getMessageMergeKey = (message: any) => {
@@ -215,14 +251,21 @@ export const getMessageMergeKey = (message: any) => {
 };
 
 /** True when a realtime message belongs to an inbox conversation row (id or merge-key match). */
-export const messageMatchesConversation = (message: any, conversation: Conversation) => {
+export const messageMatchesConversation = (message: any, conversation: Conversation, selfUserId?: string) => {
   if (!conversation) return false;
   const conversationId = safeString(conversation?.id);
   const messageConversationId = safeString(message?.conversationId ?? message?.conversation_id);
   if (conversationId && messageConversationId && conversationId === messageConversationId) return true;
 
-  const conversationKey = getConversationMergeKey(conversation);
+  const conversationKey = getConversationMergeKey(conversation, selfUserId);
   if (!conversationKey) return false;
+  // Peer-relative keys: match message pair that includes the conversation peer.
+  if (conversationKey.startsWith('direct:peer:')) {
+    const peerId = conversationKey.slice('direct:peer:'.length);
+    const senderId = safeString(message?.senderId ?? message?.sender_id);
+    const receiverId = safeString(message?.receiverId ?? message?.receiver_id);
+    if (peerId && (senderId === peerId || receiverId === peerId)) return true;
+  }
   const messageKey = getMessageMergeKey(message);
   if (!messageKey) return false;
   // Story-tagged message keys are prefixed with the participant pair key.
@@ -242,18 +285,29 @@ const isScrolithaConversation = (conversation: Conversation) =>
       )
   );
 
+const conversationHasViewer = (conversation: Conversation, selfId: string) => {
+  if (!selfId) return false;
+  return safeArray<any>(conversation?.participants).some(
+    (p) => participantUserId(p) === selfId && isActiveParticipant(p)
+  );
+};
+
 export const mergeDirectConversations = (list: Conversation[], selfUserId?: string) => {
   if (!Array.isArray(list) || list.length === 0) return [];
 
   const directBuckets = new Map<string, Conversation[]>();
   const passthrough: Conversation[] = [];
+  const selfId = safeString(selfUserId);
 
   list.forEach((conversation) => {
-    // Phase 20.7.5: force all Scrolitha DMs into one defensive inbox bucket
-    // even if participant keys temporarily diverge during consolidation races.
+    // Phase 20.7.5: collapse Scrolitha DMs per viewer (never merge other users' assistant
+    // threads into the admin/global inbox — that caused mark-as-read / appearance 404s).
     let key = getConversationMergeKey(conversation, selfUserId);
     if (isScrolithaConversation(conversation)) {
-      key = 'direct:scrolitha-canonical';
+      const member = selfId && conversationHasViewer(conversation, selfId);
+      key = member
+        ? `direct:scrolitha:${selfId}`
+        : `direct:scrolitha-row:${safeString(conversation.id)}`;
     }
     if (!key) {
       passthrough.push(conversation);
@@ -268,9 +322,16 @@ export const mergeDirectConversations = (list: Conversation[], selfUserId?: stri
       const leftAt = new Date(left?.lastMessageAt || left?.last_message_at || 0).getTime();
       const rightAt = new Date(right?.lastMessageAt || right?.last_message_at || 0).getTime();
       if (leftAt !== rightAt) return rightAt - leftAt;
+      // Prefer rows that still include the viewer (mark-as-read / appearance membership).
+      if (selfId) {
+        const leftHas = conversationHasViewer(left, selfId) ? 1 : 0;
+        const rightHas = conversationHasViewer(right, selfId) ? 1 : 0;
+        if (leftHas !== rightHas) return rightHas - leftHas;
+      }
       return String(right?.id || '').localeCompare(String(left?.id || ''));
     });
-    const primary = ordered[0] || bucket[0];
+    const primaryWithSelf = selfId ? ordered.find((entry) => conversationHasViewer(entry, selfId)) : undefined;
+    const primary = primaryWithSelf || ordered[0] || bucket[0];
     const mergedMessages = Array.from(
       ordered
         .flatMap((entry) => safeArray<any>(entry?.messages))
@@ -287,23 +348,62 @@ export const mergeDirectConversations = (list: Conversation[], selfUserId?: stri
         if (leftAt !== rightAt) return leftAt - rightAt;
         return String(left?.id || '').localeCompare(String(right?.id || ''));
       });
+    // Union participants across bucket so Scrolitha (or peer) is not dropped when
+    // the primary row only has a partial participant list.
+    const mergedParticipants = Array.from(
+      ordered
+        .flatMap((entry) => safeArray<any>(entry?.participants))
+        .reduce((acc, participant) => {
+          const id = participantUserId(participant);
+          if (!id) return acc;
+          if (!acc.has(id)) acc.set(id, participant);
+          else {
+            const prev = acc.get(id);
+            acc.set(id, {
+              ...prev,
+              ...participant,
+              isScrolitha: Boolean(
+                prev?.isScrolitha || prev?.is_scrolitha || participant?.isScrolitha || participant?.is_scrolitha
+              ),
+              is_scrolitha: Boolean(
+                prev?.isScrolitha || prev?.is_scrolitha || participant?.isScrolitha || participant?.is_scrolitha
+              ),
+              name: safeString(participant?.name || prev?.name),
+              username: safeString(participant?.username || prev?.username)
+            });
+          }
+          return acc;
+        }, new Map<string, any>())
+        .values()
+    );
     const lastVisibleMessage = mergedMessages[mergedMessages.length - 1];
-    const unreadCount = ordered.reduce((sum, entry) => sum + safeNumber(entry?.unreadCount ?? entry?.unread_count), 0);
+    const unreadCount = ordered.reduce(
+      (sum, entry) => sum + safeNumber(entry?.unreadCount ?? entry?.unread_count),
+      0
+    );
     const preview = formatConversationPreview({
       message: lastVisibleMessage || null,
       fallbackPreview: primary?.lastMessage || primary?.last_message || ''
     });
     const previewText = preview.isEmpty ? '' : preview.text;
+    const scrolithaMerged = ordered.some((entry) => isScrolithaConversation(entry));
+    const mergedIds = ordered.map((entry) => safeString(entry?.id)).filter(Boolean);
 
     return {
       ...primary,
+      participants: mergedParticipants.length ? mergedParticipants : primary?.participants,
       messages: mergedMessages,
       last_message: safeString(previewText || primary?.last_message),
       last_message_at: safeString(lastVisibleMessage?.timestamp ?? primary?.last_message_at),
       lastMessage: safeString(previewText || primary?.lastMessage),
       lastMessageAt: safeString(lastVisibleMessage?.timestamp ?? primary?.lastMessageAt),
       unread_count: unreadCount,
-      unreadCount
+      unreadCount,
+      isScrolitha: Boolean((primary as any)?.isScrolitha || (primary as any)?.is_scrolitha || scrolithaMerged),
+      is_scrolitha: Boolean((primary as any)?.isScrolitha || (primary as any)?.is_scrolitha || scrolithaMerged),
+      // Help clients remap deep-links that pointed at absorbed duplicate ids.
+      mergedFromIds: mergedIds,
+      merged_from_ids: mergedIds
     } as Conversation;
   });
 

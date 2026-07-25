@@ -59,6 +59,17 @@ export const composerEditor =
   'text-[15px] leading-7 text-slate-800 shadow-sm outline-none transition focus:border-slate-400 ' +
   'focus-visible:ring-2 focus-visible:ring-slate-200 sm:min-h-[180px]';
 
+/**
+ * Facebook-style text-background composer surface.
+ * Intentionally omits bg-white / text-slate so theme colors paint through.
+ * Pair with inline style: backgroundColor transparent + theme textColor/caretColor.
+ */
+export const composerEditorTextBackground =
+  'min-h-[220px] max-h-[min(50vh,420px)] w-full resize-none rounded-2xl border-0 bg-transparent p-6 ' +
+  'text-center text-xl font-semibold leading-snug shadow-none outline-none transition ' +
+  'focus:border-0 focus:ring-0 focus-visible:ring-0 sm:min-h-[260px] sm:p-8 sm:text-2xl ' +
+  'placeholder:text-inherit placeholder:opacity-60';
+
 export const composerAttachmentTile =
   'relative overflow-hidden rounded-xl border border-slate-200 bg-slate-50';
 

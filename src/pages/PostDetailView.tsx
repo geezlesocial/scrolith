@@ -21,9 +21,14 @@ import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
 import PostVideoActionBar from '../components/media/PostVideoActionBar';
 import TranslatablePostText from '../components/translation/TranslatablePostText';
+import PostTextBackgroundBody from '../components/post/PostTextBackgroundBody';
 import FeedAdCard from '../mobile/home/components/FeedAdCard';
 import RecommendedListingCard from '../mobile/home/components/RecommendedListingCard';
 import SuggestedCard from '../mobile/home/components/SuggestedCard';
+import {
+  resolvePostPresentation,
+  shouldRenderTextBackground
+} from '../utils/postTextBackgrounds';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -130,6 +135,8 @@ const normalizePost = (post: any) => {
       ? null
       : String(aiInsightTextRaw).trim() || null;
 
+  const resolvedPresentation = resolvePostPresentation(post);
+
   return {
     id: post.id,
     title: post.title,
@@ -171,6 +178,25 @@ const normalizePost = (post: any) => {
     topic: post.topic || null,
     location: post.location || null,
     visibility: post.visibility,
+    presentation: resolvedPresentation
+      ? {
+          type: resolvedPresentation.type,
+          themeId: resolvedPresentation.themeId,
+          background: resolvedPresentation.background,
+          textColor: resolvedPresentation.textColor
+        }
+      : post.presentation || null,
+    textBackground:
+      post.textBackground ||
+      post.text_background ||
+      resolvedPresentation?.background ||
+      null,
+    textColor: post.textColor || post.text_color || resolvedPresentation?.textColor || null,
+    textBackgroundId:
+      post.textBackgroundId ||
+      post.text_background_id ||
+      resolvedPresentation?.themeId ||
+      null,
     commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
     repostsEnabled: post.repostsEnabled ?? post.reposts_enabled,
     isPinned: post.isPinned ?? post.is_pinned ?? false,
@@ -444,20 +470,30 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
         </button>
       ) : null}
 
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={() => onOpenPost(post.id)}
-        className="mt-3 block w-full text-left text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onOpenPost(post.id);
-          }
-        }}
-      >
-        <MentionText text={contentText} viewerId={currentUserId || undefined} />
-      </div>
+      {shouldRenderTextBackground(post) ? (
+        <button
+          type="button"
+          onClick={() => onOpenPost(post.id)}
+          className="mt-3 block w-full text-left"
+        >
+          <PostTextBackgroundBody post={post} content={contentText} />
+        </button>
+      ) : (
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onOpenPost(post.id)}
+          className="mt-3 block w-full text-left text-[15px] leading-[1.78] text-slate-700 [overflow-wrap:anywhere]"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              onOpenPost(post.id);
+            }
+          }}
+        >
+          <MentionText text={contentText} viewerId={currentUserId || undefined} />
+        </div>
+      )}
 
       {post.tags?.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -1408,16 +1444,30 @@ export default function PostDetailView() {
             </div>
           ) : null}
           <div className="mt-4">
-            <TranslatablePostText
-              post={post}
-              viewerId={user?.id}
-              viewerUsername={user?.username}
-              mentionToken={focusMentionToken || undefined}
-              expandable={false}
-              titleClassName="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]"
-              contentClassName="text-[15px] leading-[1.82] text-slate-700 [overflow-wrap:anywhere] md:text-base"
-              translationRowClassName="text-slate-500"
-            />
+            {shouldRenderTextBackground(post) ? (
+              <div>
+                {post.title ? (
+                  <h1 className="mb-3 text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem] [overflow-wrap:anywhere]">
+                    {post.title}
+                  </h1>
+                ) : null}
+                <PostTextBackgroundBody
+                  post={post}
+                  content={String(post.content || '')}
+                />
+              </div>
+            ) : (
+              <TranslatablePostText
+                post={post}
+                viewerId={user?.id}
+                viewerUsername={user?.username}
+                mentionToken={focusMentionToken || undefined}
+                expandable={false}
+                titleClassName="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]"
+                contentClassName="text-[15px] leading-[1.82] text-slate-700 [overflow-wrap:anywhere] md:text-base"
+                translationRowClassName="text-slate-500"
+              />
+            )}
           </div>
 
           {post.tags?.length ? (
