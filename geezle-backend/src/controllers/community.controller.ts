@@ -63,6 +63,7 @@ import {
   normalizePostPresentationInput,
   serializePostPresentation
 } from '../utils/postPresentation';
+import { GOOGLE_CLOUD_STORAGE_PROVIDER, gcsMediaExists } from '../services/storage/gcsMediaStorage';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -92,7 +93,13 @@ const getAppIo = (req: Request) => {
 const NOTIFICATION_BATCH_SIZE = 250;
 
 const buildAttachmentLookup = async (fileIds: string[]) => {
-  const ids = Array.from(new Set((fileIds || []).filter(Boolean)));
+  const ids = Array.from(
+    new Set(
+      (fileIds || [])
+        .map((entry: any) => String(entry?.fileId || entry?.id || entry || '').trim())
+        .filter(Boolean)
+    )
+  );
   if (!ids.length) return new Map<string, any>();
   const files = (await prisma.file.findMany({
     where: { id: { in: ids } },
@@ -102,6 +109,8 @@ const buildAttachmentLookup = async (fileIds: string[]) => {
       originalName: true,
       mimeType: true,
       thumbnailUrl: true,
+      storageKey: true,
+      storageProvider: true,
       width: true,
       height: true,
       duration: true,
@@ -113,16 +122,48 @@ const buildAttachmentLookup = async (fileIds: string[]) => {
     originalName: string;
     mimeType: string;
     thumbnailUrl?: string | null;
+    storageKey?: string | null;
+    storageProvider?: string | null;
     width?: number | null;
     height?: number | null;
     duration?: number | null;
     size: number;
   }>;
-  return new Map<string, (typeof files)[number]>(files.map((f) => [f.id, f]));
+  const unavailableVideoIds = new Set<string>();
+  await Promise.all(
+    files.map(async (file) => {
+      const provider = String(file.storageProvider || '').toLowerCase();
+      const isGcs = provider === GOOGLE_CLOUD_STORAGE_PROVIDER || provider === 'gcs';
+      const isVideo = String(file.mimeType || '').toLowerCase().startsWith('video/');
+      if (!isVideo || !isGcs) return;
+      if (!file.storageKey) {
+        unavailableVideoIds.add(file.id);
+        return;
+      }
+      const exists = await gcsMediaExists(file.storageKey).catch(() => false);
+      if (!exists) unavailableVideoIds.add(file.id);
+    })
+  );
+  return new Map<string, (typeof files)[number] & { unavailable?: boolean; unavailableReason?: string | null }>(
+    files.map((f) => [
+      f.id,
+      {
+        ...f,
+        unavailable: unavailableVideoIds.has(f.id),
+        unavailableReason: unavailableVideoIds.has(f.id) ? 'storage_missing' : null
+      }
+    ])
+  );
 };
 
 const mapAttachmentIds = (fileIds: string[], map: Map<string, any>) =>
-  Array.from(new Set((fileIds || []).filter(Boolean)))
+  Array.from(
+    new Set(
+      (fileIds || [])
+        .map((entry: any) => String(entry?.fileId || entry?.id || entry || '').trim())
+        .filter(Boolean)
+    )
+  )
     .map((id) => {
       const file = map.get(id);
       if (!file) return null;
@@ -143,7 +184,10 @@ const mapAttachmentIds = (fileIds: string[], map: Map<string, any>) =>
       return {
         id: file.id,
         fileId: file.id,
-        url: file.url,
+        url: file.unavailable ? null : file.url,
+        fallbackUrl: null,
+        unavailable: Boolean(file.unavailable),
+        unavailableReason: file.unavailableReason || null,
         name: file.originalName,
         mimeType: file.mimeType,
         thumbnailUrl: file.thumbnailUrl || undefined,

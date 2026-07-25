@@ -12,6 +12,7 @@ import {
   assessVideoIntegrityByFile,
   buildVideoIntegrityUpdate
 } from '../services/videoIntegrity.service';
+import { GOOGLE_CLOUD_STORAGE_PROVIDER, gcsMediaExists } from '../services/storage/gcsMediaStorage';
 import { getScrollDashTotals } from '../services/gcoinDonationTotals.service';
 import {
   normalizeStoredContentOfferTags,
@@ -560,9 +561,25 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
     }
   });
   const baseUrl = getBaseFileUrl(req);
+  const unavailableVideoFileIds = new Set<string>();
+  await Promise.all(
+    files.map(async (file) => {
+      const provider = String(file.storageProvider || '').toLowerCase();
+      const isGcs = provider === GOOGLE_CLOUD_STORAGE_PROVIDER || provider === 'gcs';
+      const isVideo = String(file.mimeType || '').toLowerCase().startsWith('video/');
+      if (!isVideo || !isGcs) return;
+      if (!file.storageKey) {
+        unavailableVideoFileIds.add(file.id);
+        return;
+      }
+      const exists = await gcsMediaExists(file.storageKey).catch(() => false);
+      if (!exists) unavailableVideoFileIds.add(file.id);
+    })
+  );
   return new Map(
     files.map((file) => {
       const media = resolveStoredFileMedia(file, baseUrl);
+      const unavailable = unavailableVideoFileIds.has(file.id);
       return [
         file.id,
         {
@@ -571,9 +588,11 @@ const buildScrollMediaMap = async (fileIds: string[], req: Request) => {
           name: file.originalName,
           mimeType: file.mimeType,
           duration: file.duration ?? null,
-          url: media.url,
-          fallbackUrl: media.fallbackUrl,
+          url: unavailable ? null : media.url,
+          fallbackUrl: unavailable ? null : media.fallbackUrl,
           storagePath: media.storagePath,
+          unavailable,
+          unavailableReason: unavailable ? 'storage_missing' : null,
           thumbnailUrl: media.thumbnailUrl,
           width: file.width ?? null,
           height: file.height ?? null

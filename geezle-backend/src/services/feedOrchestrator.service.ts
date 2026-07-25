@@ -20,6 +20,7 @@ import {
   resolveFileBaseUrl
 } from '../utils/mediaUrl';
 import { mapOrchestratedItemsWithIntelligence } from './intelligence/intelligence.contract';
+import { GOOGLE_CLOUD_STORAGE_PROVIDER, gcsMediaExists } from './storage/gcsMediaStorage';
 
 export type OrchestratedSurface = 'member_home' | 'community';
 
@@ -1418,17 +1419,38 @@ async function resolveFileMediaMap(fileIds: string[]) {
     })
     .catch(() => []);
 
+  const unavailableVideoFileIds = new Set<string>();
+  await Promise.all(
+    files.map(async (file) => {
+      const provider = String(file.storageProvider || '').toLowerCase();
+      const isGcs = provider === GOOGLE_CLOUD_STORAGE_PROVIDER || provider === 'gcs';
+      const isVideo = String(file.mimeType || '').toLowerCase().startsWith('video/');
+      if (!isVideo || !isGcs) return;
+      if (!file.storageKey) {
+        unavailableVideoFileIds.add(file.id);
+        return;
+      }
+      const exists = await gcsMediaExists(file.storageKey).catch(() => false);
+      if (!exists) unavailableVideoFileIds.add(file.id);
+    })
+  );
+
   for (const file of files) {
+    const unavailable = unavailableVideoFileIds.has(file.id);
     const contentUrl = buildFileContentUrl(file.id, baseUrl);
     const uploadsUrl = file.storageKey ? buildUploadsUrl(String(file.storageKey), baseUrl) : null;
     const directUrl = resolveDirectMediaUrl(file.url, baseUrl);
     const provider = String(file.storageProvider || '').toLowerCase();
     const managed = ['database_storage', 'firebase_storage', 'azure_blob'].includes(provider);
-    const preferred = managed
-      ? contentUrl
-      : directUrl || uploadsUrl || contentUrl;
+    const preferred = unavailable
+      ? null
+      : managed
+        ? contentUrl
+        : directUrl || uploadsUrl || contentUrl;
     const fallback =
-      preferred === contentUrl
+      !preferred
+        ? null
+        : preferred === contentUrl
         ? uploadsUrl || directUrl || null
         : preferred === uploadsUrl
           ? contentUrl
@@ -1440,6 +1462,8 @@ async function resolveFileMediaMap(fileIds: string[]) {
       url: preferred,
       fallbackUrl: fallback && fallback !== preferred ? fallback : null,
       storagePath: file.storageKey || null,
+      unavailable,
+      unavailableReason: unavailable ? 'storage_missing' : null,
       mimeType: file.mimeType || null,
       originalName: file.originalName || null,
       filename: file.filename || null,
@@ -1450,14 +1474,17 @@ async function resolveFileMediaMap(fileIds: string[]) {
     });
   }
 
-  // Orphaned ids still emit content URL so clients can attempt load / show placeholder.
+  // Orphaned ids are not playable media. Do not fabricate /api/files/content/:id,
+  // because browser video elements treat that as a real stream and show a broken player.
   for (const id of ids) {
     if (map.has(id)) continue;
     map.set(id, {
       fileId: id,
-      url: buildFileContentUrl(id, baseUrl),
+      url: null,
       fallbackUrl: null,
-      storagePath: null
+      storagePath: null,
+      unavailable: true,
+      unavailableReason: 'file_record_missing'
     });
   }
 
