@@ -1,0 +1,4 @@
+8ceabf05044e4b38db82242f8f16c1160f0572af  Scrolith-1.1.42-52-release.aab
+dbcf8c6a0c278adcdc91a9d496caa6f180403045  mapping.txt
+2d37f1c98cc88f8c23870fea659ee7f90be6ba8b  artifact-metadata.json
+68ca62bdedab95e115cd95856ee8a45fb34b509f  RELEASE_NOTES.md

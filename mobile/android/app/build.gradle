@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.41 - realtime calls, messaging stability, post backgrounds, and ringtone.
-        versionCode 51
-        versionName "1.1.41"
+        // 1.1.42 - durable uploaded media playback, mobile call hardening, and latest production web.
+        versionCode 52
+        versionName "1.1.42"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

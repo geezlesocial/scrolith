@@ -1,0 +1,1 @@
+Fixes uploaded media playback in posts, stories, and Scroll, improves mobile voice/video call reliability, keeps Scrolith call ringtone support, and includes the latest post background, messaging, and admin video-call controls.
