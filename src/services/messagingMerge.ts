@@ -276,13 +276,25 @@ const isScrolithaConversation = (conversation: Conversation) =>
   Boolean(
     (conversation as any)?.isScrolitha ||
       (conversation as any)?.is_scrolitha ||
-      safeArray<any>(conversation?.participants).some(
-        (p) =>
-          Boolean(p?.isScrolitha || p?.is_scrolitha) ||
-          safeString(p?.username).toLowerCase() === 'scrolitha' ||
-          safeString(p?.label).toLowerCase() === 'scrolitha' ||
-          safeString(p?.label).toLowerCase() === 'system'
-      )
+      safeArray<any>(conversation?.participants).some((p) => {
+        if (Boolean(p?.isScrolitha || p?.is_scrolitha)) return true;
+        const username = safeString(p?.username).toLowerCase().replace(/^@/, '');
+        if (
+          username === 'scrolitha' ||
+          username === 'scrolitha_ai' ||
+          username === 'scrolitha-bot'
+        ) {
+          return true;
+        }
+        const systemLabel = safeString(p?.systemLabel ?? p?.system_label).toLowerCase();
+        if (systemLabel.includes('ai assistant') || systemLabel.includes('official ai')) {
+          return true;
+        }
+        // Do not treat bare label === 'system' as Scrolitha (false positives in admin inbox).
+        if (safeString(p?.label).toLowerCase() === 'scrolitha') return true;
+        if (safeString(p?.name).toLowerCase() === 'scrolitha') return true;
+        return false;
+      })
   );
 
 const conversationHasViewer = (conversation: Conversation, selfId: string) => {

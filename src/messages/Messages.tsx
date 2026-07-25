@@ -1053,22 +1053,42 @@ const Messages = () => {
       return dedupedConversations.find((conversation) => getConversationMergeKey(conversation) === mergeKey);
   }, [activeConvoId, conversations, dedupedConversations]);
 
-  const isScrolithaParticipantEntity = (participant: any) =>
-      Boolean(
-          participant?.isScrolitha ||
-              participant?.is_scrolitha ||
-              isScrolithaUsername(participant?.username) ||
-              String(participant?.systemLabel || participant?.system_label || '')
-                  .toLowerCase()
-                  .includes('ai assistant') ||
-              String(participant?.label || '').toLowerCase() === 'system' ||
-              String(participant?.label || '').toLowerCase() === 'scrolitha' ||
-              String(participant?.name || '').trim().toLowerCase() === 'scrolitha'
-      );
+  /**
+   * Strict Scrolitha peer detection for inbox titles/avatars.
+   * Do not use bare participant.label === 'system' or username === 'ai' — those false-positive
+   * and rename normal DMs to "Scrolitha" (esp. in ADMIN VIEW).
+   */
+  const isScrolithaParticipantEntity = (participant: any) => {
+      if (!participant) return false;
+      if (participant.isScrolitha || participant.is_scrolitha) return true;
+      const username = String(participant.username || '')
+          .trim()
+          .toLowerCase()
+          .replace(/^@/, '');
+      // Official handles only (exclude generic 'ai').
+      if (
+          username === 'scrolitha' ||
+          username === 'scrolitha_ai' ||
+          username === 'scrolitha-bot'
+      ) {
+          return true;
+      }
+      const systemLabel = String(
+          participant.systemLabel || participant.system_label || ''
+      ).toLowerCase();
+      if (systemLabel.includes('ai assistant') || systemLabel.includes('official ai')) {
+          return true;
+      }
+      const name = String(participant.name || '').trim().toLowerCase();
+      if (name === 'scrolitha') return true;
+      // label=scrolitha is explicit; label=system alone is NOT enough (over-matches).
+      if (String(participant.label || '').toLowerCase() === 'scrolitha') return true;
+      return false;
+  };
 
   const isActiveScrolithaConversation = Boolean(
-      activeConvo?.isScrolitha ??
-          activeConvo?.is_scrolitha ??
+      activeConvo?.isScrolitha ||
+          activeConvo?.is_scrolitha ||
           activeConvo?.participants?.some((p: any) => isScrolithaParticipantEntity(p))
   );
 
@@ -1150,8 +1170,21 @@ const Messages = () => {
   const visibleConversations = [...conversationListSource]
       .sort((a, b) => {
           // Official Scrolitha assistant always pins above user conversations.
-          const aAi = Number(Boolean(a.isScrolitha ?? a.is_scrolitha ?? a.isPinned ?? a.is_pinned));
-          const bAi = Number(Boolean(b.isScrolitha ?? b.is_scrolitha ?? b.isPinned ?? b.is_pinned));
+          // Do NOT treat isPinned as Scrolitha — that renames/sorts normal starred DMs as AI.
+          const aAi = Number(
+              Boolean(
+                  a.isScrolitha ||
+                      a.is_scrolitha ||
+                      (a.participants || []).some((p: any) => isScrolithaParticipantEntity(p))
+              )
+          );
+          const bAi = Number(
+              Boolean(
+                  b.isScrolitha ||
+                      b.is_scrolitha ||
+                      (b.participants || []).some((p: any) => isScrolithaParticipantEntity(p))
+              )
+          );
           if (aAi !== bAi) return bAi - aAi;
           const aStar = Number(Boolean(a.isStarred ?? a.is_starred));
           const bStar = Number(Boolean(b.isStarred ?? b.is_starred));
@@ -4031,27 +4064,32 @@ const Messages = () => {
                             const scrolithaListPeer = peerCandidates.find((p: any) =>
                                 isScrolithaParticipantEntity(p)
                             );
+                            // Require a real Scrolitha peer or explicit conversation flag — never title-force
+                            // from weak heuristics alone.
                             const isScrolithaConvo = Boolean(
-                                (convo.isScrolitha ?? convo.is_scrolitha) ||
-                                    scrolithaListPeer ||
-                                    (convo.participants || []).some((p: any) => isScrolithaParticipantEntity(p))
+                                scrolithaListPeer ||
+                                    ((convo.isScrolitha || convo.is_scrolitha) &&
+                                        (convo.participants || []).some((p: any) =>
+                                            isScrolithaParticipantEntity(p)
+                                        ))
+                            );
+                            const humanPeer = peerCandidates.find(
+                                (p: any) => !isScrolithaParticipantEntity(p)
                             );
                             const participant = isScrolithaConvo
-                                ? scrolithaListPeer
-                                    ? {
-                                          ...scrolithaListPeer,
-                                          name: SCROLITHA_DISPLAY_NAME,
-                                          username: scrolithaListPeer.username || 'scrolitha',
-                                          isScrolitha: true,
-                                          is_scrolitha: true
-                                      }
-                                    : {
-                                          id: 'scrolitha',
-                                          name: SCROLITHA_DISPLAY_NAME,
-                                          username: 'scrolitha',
-                                          isScrolitha: true,
-                                          is_scrolitha: true
-                                      }
+                                ? {
+                                      ...(scrolithaListPeer || {}),
+                                      id: scrolithaListPeer?.id || 'scrolitha',
+                                      name: SCROLITHA_DISPLAY_NAME,
+                                      username: scrolithaListPeer?.username || 'scrolitha',
+                                      // Official art only — do not reuse a human peer avatar as Scrolitha.
+                                      avatar: undefined,
+                                      avatarUrl: undefined,
+                                      isScrolitha: true,
+                                      is_scrolitha: true,
+                                      systemLabel: 'AI assistant',
+                                      system_label: 'AI assistant'
+                                  }
                                 : peerCandidates.find((p: any) => {
                                       const id = String(p?.id || '').trim();
                                       const name = String(p?.name || p?.username || '').trim();
@@ -4078,8 +4116,14 @@ const Messages = () => {
                                     .slice(0, 3)
                                     .join(', ') ||
                                 'Group';
+                            const isPlatformAdmin = String(user?.role || '')
+                                .toLowerCase()
+                                .includes('admin');
+                            // Admin global list may show many users' Scrolitha DMs — disambiguate with peer.
                             const inboxTitle = isScrolithaConvo
-                                ? SCROLITHA_DISPLAY_NAME
+                                ? isPlatformAdmin && humanPeer?.name
+                                    ? `${SCROLITHA_DISPLAY_NAME} · ${humanPeer.name}`
+                                    : SCROLITHA_DISPLAY_NAME
                                 : isGroupConvo
                                   ? groupDisplayName
                                   : participant?.name || 'Conversation';
@@ -4127,23 +4171,24 @@ const Messages = () => {
                                                               ? resolveUserAvatarUrl(fid)
                                                               : undefined;
                                                           })()
-                                                        : resolveScrolithaAvatar(
-                                                            isScrolithaConvo
-                                                              ? { ...participant, isScrolitha: true }
-                                                              : participant
-                                                          ) ||
-                                                          resolveUserAvatarUrl(participant) ||
-                                                          (isScrolithaConvo
-                                                            ? getScrolithaProfilePhotoUrl()
-                                                            : null)
+                                                        : isScrolithaConvo
+                                                          ? getScrolithaProfilePhotoUrl()
+                                                          : resolveScrolithaAvatar(participant) ||
+                                                            resolveUserAvatarUrl(participant) ||
+                                                            null
                                                     }
                                                     name={
                                                       isGroupConvo
                                                         ? groupDisplayName
-                                                        : participant?.name ||
-                                                          (isScrolithaConvo ? 'Scrolitha' : 'User')
+                                                        : isScrolithaConvo
+                                                          ? SCROLITHA_DISPLAY_NAME
+                                                          : participant?.name || 'User'
                                                     }
-                                                    user={isGroupConvo ? undefined : participant}
+                                                    user={
+                                                      isGroupConvo || isScrolithaConvo
+                                                        ? undefined
+                                                        : participant
+                                                    }
                                                     size="md"
                                                     className={
                                                       isScrolithaConvo
