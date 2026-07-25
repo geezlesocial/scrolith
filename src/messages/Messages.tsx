@@ -14,7 +14,7 @@ import {
 } from '../services/messaging';
 import { tokenStore } from '../services/tokenStore';
 import { Conversation, Message, ProjectBrief, UploadedFile, UserRole } from '../types';
-import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search, Shield, Pin, Palette } from 'lucide-react';
+import { Send, Image as ImageIcon, Smile, MoreVertical, ArrowLeft, Sparkles, Loader2, Check, Trash2, ShieldAlert, RefreshCw, X, CornerUpLeft, Copy, Pencil, Star, Phone, Users, Paperclip, Download, Camera, FileText, Search, Shield, Pin, Palette, Video } from 'lucide-react';
 import { AIService } from '../services/ai/ai.service';
 import { UserService } from '../services/user';
 import { useUser } from '../context/UserContext';
@@ -26,8 +26,7 @@ import ProBadge from '../components/ProBadge';
 import { FileService } from '../services/files';
 import VoiceRecorder from './VoiceRecorder';
 import EnterpriseAvatar from '../components/common/EnterpriseAvatar';
-import VoiceCallModal from './VoiceCallModal';
-import { VoiceCallProvider, useVoiceCall } from './VoiceCallProvider';
+import { useVoiceCall } from './VoiceCallProvider';
 import { BriefsService } from '../services/briefs';
 import { proposalsApi } from '../services/proposals';
 import { normalizeDealFlowSettings } from '../utils/dealFlow';
@@ -124,143 +123,76 @@ type AttachmentPreviewResource = {
 const VoiceCallControls: React.FC<{
   disabled?: boolean;
   canConference?: boolean;
-  meId?: string;
+  canVideo?: boolean;
+  conversationId?: string | null;
+  callTargets?: { id: string; name: string; avatar?: string }[];
+  participantUsers?: { id: string; name: string; avatar?: string }[];
   onError: (message: string) => void;
-}> = ({ disabled, canConference, meId, onError }) => {
-  const {
-    open,
-    incoming,
-    statusLabel,
-    muted,
-    speakerOn,
-    addBusy,
-    participantUsers,
-    participants,
-    remoteStreams,
-    startCall,
-    acceptCall,
-    rejectCall,
-    endCall,
-    toggleMute,
-    toggleSpeaker,
-    addParticipant,
-    requestJoin,
-    approveJoinRequest,
-    rejectJoinRequest,
-    cancelJoinRequest,
-    pendingJoinRequests,
-    myJoinRequestStatus
-  } = useVoiceCall();
+}> = ({
+  disabled,
+  canConference,
+  canVideo,
+  conversationId,
+  callTargets,
+  participantUsers: roster,
+  onError
+}) => {
+  const { startCall } = useVoiceCall();
 
-  const handleStart = async (conference?: boolean) => {
+  const handleStart = async (options?: { conference?: boolean; video?: boolean }) => {
     try {
-      await startCall({ conference });
+      await startCall({
+        conference: Boolean(options?.conference),
+        video: Boolean(options?.video),
+        conversationId: conversationId || undefined,
+        callTargets: callTargets,
+        participantUsers: roster
+      });
     } catch (error: any) {
-      onError(error?.message || 'Unable to start voice call.');
-    }
-  };
-
-  const handleAccept = async () => {
-    try {
-      await acceptCall();
-    } catch (error: any) {
-      onError(error?.message || 'Unable to accept voice call.');
-    }
-  };
-
-  const handleReject = async () => {
-    try {
-      await rejectCall();
-    } catch (error: any) {
-      onError(error?.message || 'Unable to reject voice call.');
-    }
-  };
-
-  const handleEnd = async () => {
-    try {
-      await endCall();
-    } catch (error: any) {
-      onError(error?.message || 'Unable to end voice call.');
-    }
-  };
-
-  const handleAddParticipant = async (userId: string) => {
-    try {
-      await addParticipant(userId);
-    } catch (error: any) {
-      onError(error?.message || 'Unable to add participant.');
+      onError(error?.message || 'Unable to start call.');
     }
   };
 
   return (
-    <>
-      <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => void handleStart({ conference: false, video: false })}
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+        title="Start voice call"
+        aria-label="Start voice call"
+        data-testid="messages-voice-call-btn"
+      >
+        <Phone className="h-4 w-4" />
+      </button>
+      {canVideo ? (
         <button
           type="button"
           disabled={disabled}
-          onClick={() => void handleStart(false)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
-          title="Start voice call"
+          onClick={() => void handleStart({ conference: false, video: true })}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+          title="Start video call"
+          aria-label="Start video call"
+          data-testid="messages-video-call-btn"
         >
-          <Phone className="h-4 w-4" />
+          <Video className="h-4 w-4" />
         </button>
-        {canConference ? (
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => void handleStart(true)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"
-            title="Start conference call"
-          >
-            <Users className="h-4 w-4" />
-          </button>
-        ) : null}
-      </div>
-
-      <VoiceCallModal
-        open={open}
-        incoming={incoming}
-        statusLabel={statusLabel}
-        muted={muted}
-        speakerOn={speakerOn}
-        addBusy={addBusy}
-        canAddParticipant={Boolean(canConference)}
-        participantUsers={participantUsers}
-        participants={participants}
-        meId={meId}
-        remoteStreams={remoteStreams}
-        onClose={() => void handleEnd()}
-        onAccept={() => void handleAccept()}
-        onReject={() => void handleReject()}
-        onEnd={() => void handleEnd()}
-        onToggleMute={toggleMute}
-        onToggleSpeaker={toggleSpeaker}
-        onAddParticipant={(userId) => void handleAddParticipant(userId)}
-        myJoinRequestStatus={myJoinRequestStatus}
-        pendingJoinRequests={pendingJoinRequests}
-        canModerateJoinRequests={!incoming}
-        onRequestJoin={() =>
-          void requestJoin().catch((error: any) =>
-            onError(error?.message || 'Unable to request join.')
-          )
-        }
-        onCancelJoinRequest={() =>
-          void cancelJoinRequest().catch((error: any) =>
-            onError(error?.message || 'Unable to cancel join request.')
-          )
-        }
-        onApproveJoinRequest={(requestId) =>
-          void approveJoinRequest(requestId).catch((error: any) =>
-            onError(error?.message || 'Unable to approve join request.')
-          )
-        }
-        onRejectJoinRequest={(requestId) =>
-          void rejectJoinRequest(requestId).catch((error: any) =>
-            onError(error?.message || 'Unable to reject join request.')
-          )
-        }
-      />
-    </>
+      ) : null}
+      {canConference ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => void handleStart({ conference: true, video: false })}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:opacity-50"
+          title="Start conference call"
+          aria-label="Start conference call"
+          data-testid="messages-conference-call-btn"
+        >
+          <Users className="h-4 w-4" />
+        </button>
+      ) : null}
+    </div>
   );
 };
 
@@ -308,6 +240,7 @@ const Messages = () => {
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState({
       enabledVoiceCalls: true,
       enabledConferenceCalls: true,
+      enabledVideoCalls: true,
       enabledVoiceNotes: true,
       maxParticipants: 20,
       maxVoiceNoteDurationSeconds: 180,
@@ -785,6 +718,7 @@ const Messages = () => {
               setVoiceRuntimeConfig({
                   enabledVoiceCalls: Boolean(config?.enabledVoiceCalls ?? true),
                   enabledConferenceCalls: Boolean(config?.enabledConferenceCalls ?? true),
+                  enabledVideoCalls: Boolean((config as any)?.enabledVideoCalls ?? true),
                   enabledVoiceNotes: Boolean(config?.enabledVoiceNotes ?? true),
                   maxParticipants: Number(config?.maxParticipants ?? 20),
                   maxVoiceNoteDurationSeconds: Number(config?.maxVoiceNoteDurationSeconds ?? 180),
@@ -3971,13 +3905,7 @@ const Messages = () => {
       }
   };
                             return (
-    <VoiceCallProvider
-        socket={socket}
-        userId={user?.id}
-        conversationId={activeConvoId || undefined}
-        participantUsers={voiceCallCandidateUsers}
-        callTargets={activeConversationVoiceTargets}
-    >
+    <>
     <div
         ref={layoutShellRef}
         className="mx-auto flex max-w-6xl min-h-0 flex-col px-2 py-3 sm:px-4 sm:py-4 md:h-[calc(100dvh-4rem)] md:max-h-[calc(100dvh-4rem)] md:py-4"
@@ -4551,10 +4479,19 @@ const Messages = () => {
                                     </button>
                                 )}
                                 <VoiceCallControls
-                                    disabled={!activeConvoId || voiceCallsBlocked}
-                                    canConference={voiceRuntimeConfig.enabledConferenceCalls && voiceCallCandidateUsers.length > 1}
-                                    meId={user?.id}
-                                    onError={(message) => showNotification('error', 'Voice Call', message)}
+                                    disabled={!activeConvoId || voiceCallsBlocked || isActiveScrolithaConversation}
+                                    canConference={
+                                        voiceRuntimeConfig.enabledConferenceCalls &&
+                                        voiceCallCandidateUsers.length > 1
+                                    }
+                                    canVideo={
+                                        Boolean(voiceRuntimeConfig.enabledVideoCalls) &&
+                                        !isActiveScrolithaConversation
+                                    }
+                                    conversationId={activeConvoId}
+                                    callTargets={activeConversationVoiceTargets}
+                                    participantUsers={voiceCallCandidateUsers}
+                                    onError={(message) => showNotification('error', 'Call', message)}
                                 />
                                 {user?.role === UserRole.ADMIN && (
                                     <button className="inline-flex h-10 w-10 items-center justify-center rounded-xl text-red-500 transition hover:bg-red-50" title="Admin Actions">
@@ -5442,7 +5379,7 @@ const Messages = () => {
                 )}
             </div>
         </div>
-    </div>
+        </div>
     </div>
     {activeConvoId ? (
         <GroupManagePanel
@@ -5844,7 +5781,7 @@ const Messages = () => {
             );
         }}
     />
-    </VoiceCallProvider>
+    </>
   );
 };
 

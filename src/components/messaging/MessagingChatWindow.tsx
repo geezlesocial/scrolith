@@ -14,7 +14,9 @@ import {
   MoreVertical,
   Pin,
   Palette,
-  Phone
+  Phone,
+  Users,
+  Video
 } from 'lucide-react';
 import { MessagingService } from '../../services/messaging';
 import {
@@ -27,7 +29,6 @@ import ChatAppearancePanel from './ChatAppearancePanel';
 import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
-import { useSocket } from '../../context/SocketContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import {
@@ -36,8 +37,7 @@ import {
   getConversationDisplayName,
   getMessagePreviewText
 } from '../../services/messagingSurfaces';
-import { VoiceCallProvider, useVoiceCall } from '../../messages/VoiceCallProvider';
-import VoiceCallModal from '../../messages/VoiceCallModal';
+import { useVoiceCall } from '../../messages/VoiceCallProvider';
 import {
   canDeleteForMe,
   canEditOrUnsendMessage,
@@ -69,47 +69,33 @@ type MessagingChatWindowProps = {
   presentation?: 'dock' | 'fullscreen';
 };
 
-/** Compact voice-call control for dock / soft-open chrome (same provider as /messages). */
-const DockVoiceCallButton: React.FC<{
+/** Compact call controls for dock / soft-open chrome (uses global VoiceCallProvider). */
+const DockCallControls: React.FC<{
   disabled?: boolean;
-  meId?: string;
+  canConference?: boolean;
+  canVideo?: boolean;
+  conversationId: string;
+  callTargets: Array<{ id: string; name: string; avatar?: string }>;
   onError: (message: string) => void;
-}> = ({ disabled, meId, onError }) => {
-  const {
-    open,
-    incoming,
-    statusLabel,
-    muted,
-    speakerOn,
-    addBusy,
-    participantUsers,
-    participants,
-    remoteStreams,
-    startCall,
-    acceptCall,
-    rejectCall,
-    endCall,
-    toggleMute,
-    toggleSpeaker,
-    addParticipant,
-    requestJoin,
-    approveJoinRequest,
-    rejectJoinRequest,
-    cancelJoinRequest,
-    pendingJoinRequests,
-    myJoinRequestStatus
-  } = useVoiceCall();
+}> = ({ disabled, canConference, canVideo, conversationId, callTargets, onError }) => {
+  const { startCall } = useVoiceCall();
+
+  const handleStart = (options: { conference?: boolean; video?: boolean }) => {
+    void startCall({
+      conference: Boolean(options.conference),
+      video: Boolean(options.video),
+      conversationId,
+      callTargets,
+      participantUsers: callTargets
+    }).catch((error: any) => onError(error?.message || 'Unable to start call.'));
+  };
 
   return (
-    <>
+    <div className="flex items-center gap-0.5">
       <button
         type="button"
         disabled={disabled}
-        onClick={() => {
-          void startCall({ conference: false }).catch((error: any) =>
-            onError(error?.message || 'Unable to start voice call.')
-          );
-        }}
+        onClick={() => handleStart({ conference: false, video: false })}
         className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40"
         aria-label="Start voice call"
         title="Start voice call"
@@ -117,62 +103,33 @@ const DockVoiceCallButton: React.FC<{
       >
         <Phone className="h-4 w-4" />
       </button>
-      <VoiceCallModal
-        open={open}
-        incoming={incoming}
-        statusLabel={statusLabel}
-        muted={muted}
-        speakerOn={speakerOn}
-        addBusy={addBusy}
-        canAddParticipant={false}
-        participantUsers={participantUsers}
-        participants={participants}
-        meId={meId}
-        remoteStreams={remoteStreams}
-        onClose={() => void endCall().catch(() => undefined)}
-        onAccept={() =>
-          void acceptCall().catch((error: any) =>
-            onError(error?.message || 'Unable to accept voice call.')
-          )
-        }
-        onReject={() =>
-          void rejectCall().catch((error: any) =>
-            onError(error?.message || 'Unable to reject voice call.')
-          )
-        }
-        onEnd={() => void endCall().catch(() => undefined)}
-        onToggleMute={toggleMute}
-        onToggleSpeaker={toggleSpeaker}
-        onAddParticipant={(userId) =>
-          void addParticipant(userId).catch((error: any) =>
-            onError(error?.message || 'Unable to add participant.')
-          )
-        }
-        myJoinRequestStatus={myJoinRequestStatus}
-        pendingJoinRequests={pendingJoinRequests}
-        canModerateJoinRequests={!incoming}
-        onRequestJoin={() =>
-          void requestJoin().catch((error: any) =>
-            onError(error?.message || 'Unable to request join.')
-          )
-        }
-        onCancelJoinRequest={() =>
-          void cancelJoinRequest().catch((error: any) =>
-            onError(error?.message || 'Unable to cancel join request.')
-          )
-        }
-        onApproveJoinRequest={(requestId) =>
-          void approveJoinRequest(requestId).catch((error: any) =>
-            onError(error?.message || 'Unable to approve join request.')
-          )
-        }
-        onRejectJoinRequest={(requestId) =>
-          void rejectJoinRequest(requestId).catch((error: any) =>
-            onError(error?.message || 'Unable to reject join request.')
-          )
-        }
-      />
-    </>
+      {canVideo ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => handleStart({ conference: false, video: true })}
+          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40 disabled:opacity-40"
+          aria-label="Start video call"
+          title="Start video call"
+          data-testid="dock-video-call-btn"
+        >
+          <Video className="h-4 w-4" />
+        </button>
+      ) : null}
+      {canConference ? (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => handleStart({ conference: true, video: false })}
+          className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-indigo-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-40"
+          aria-label="Start conference call"
+          title="Start conference call"
+          data-testid="dock-conference-call-btn"
+        >
+          <Users className="h-4 w-4" />
+        </button>
+      ) : null}
+    </div>
   );
 };
 
@@ -278,6 +235,30 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
     Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
     !Boolean((voiceRuntimeConfig as any).enabledVoiceCalls ?? true) ||
     isScrolithaConversation;
+  const canVideoCall =
+    Boolean((voiceRuntimeConfig as any).enabledVideoCalls ?? true) && !isScrolithaConversation;
+  const canConferenceCall =
+    Boolean((voiceRuntimeConfig as any).enabledConferenceCalls ?? true) &&
+    !isScrolithaConversation &&
+    (conversation?.participants || []).filter((p: any) => {
+      const id = String(p?.id || p?.userId || '').trim();
+      return id && id !== String(user?.id || '').trim();
+    }).length > 1;
+  const dockCallTargets = useMemo(() => {
+    const selfId = String(user?.id || '').trim();
+    return (conversation?.participants || [])
+      .map((participant: any) => {
+        const id = String(participant?.id || participant?.userId || '').trim();
+        if (!id || id === selfId) return null;
+        const rawName = String(participant?.name || participant?.username || '').trim();
+        return {
+          id,
+          name: rawName || 'Participant',
+          avatar: String(participant?.avatar || '')
+        };
+      })
+      .filter(Boolean) as Array<{ id: string; name: string; avatar?: string }>;
+  }, [conversation?.participants, user?.id]);
 
   useEffect(() => {
     void ensureThreadLoaded(conversationId);
@@ -599,9 +580,12 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
           <Palette className="h-4 w-4" />
         </button>
         {!isScrolithaConversation ? (
-          <DockVoiceCallButton
-            disabled={!conversationId || voiceCallsBlocked}
-            meId={user?.id}
+          <DockCallControls
+            disabled={!conversationId || voiceCallsBlocked || dockCallTargets.length === 0}
+            canConference={canConferenceCall}
+            canVideo={canVideoCall}
+            conversationId={conversationId}
+            callTargets={dockCallTargets}
             onError={(message) => setSendError(message)}
           />
         ) : null}
@@ -1164,45 +1148,9 @@ const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
   );
 };
 
-/**
- * Dock/soft-open chat window with a conversation-scoped VoiceCallProvider so
- * voice call controls work outside the full /messages workspace.
- */
-const MessagingChatWindow: React.FC<MessagingChatWindowProps> = (props) => {
-  const { user } = useUser();
-  const { socket } = useSocket();
-  const { conversations } = useMessages();
-  const conversation = useMemo(
-    () => conversations.find((entry) => entry.id === props.conversationId) || null,
-    [conversations, props.conversationId]
-  );
-  const participantUsers = useMemo(() => {
-    const selfId = String(user?.id || '').trim();
-    return (conversation?.participants || [])
-      .map((participant: any) => {
-        const id = String(participant?.id || participant?.userId || '').trim();
-        if (!id || id === selfId) return null;
-        const rawName = String(participant?.name || participant?.username || '').trim();
-        return {
-          id,
-          name: rawName || 'Participant',
-          avatar: String(participant?.avatar || '')
-        };
-      })
-      .filter(Boolean) as Array<{ id: string; name: string; avatar?: string }>;
-  }, [conversation?.participants, user?.id]);
-
-  return (
-    <VoiceCallProvider
-      socket={socket}
-      userId={user?.id}
-      conversationId={props.conversationId}
-      participantUsers={participantUsers}
-      callTargets={participantUsers}
-    >
-      <MessagingChatWindowInner {...props} />
-    </VoiceCallProvider>
-  );
-};
+/** Dock/soft-open chat window — call controls use the global VoiceCallProvider. */
+const MessagingChatWindow: React.FC<MessagingChatWindowProps> = (props) => (
+  <MessagingChatWindowInner {...props} />
+);
 
 export default MessagingChatWindow;

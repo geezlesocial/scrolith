@@ -1,5 +1,5 @@
-import React from 'react';
-import { Phone, PhoneOff, Mic, MicOff, UserPlus, Volume2, VolumeX } from 'lucide-react';
+import React, { useEffect, useRef } from 'react';
+import { Phone, PhoneOff, Mic, MicOff, UserPlus, Volume2, VolumeX, Video } from 'lucide-react';
 import ConferenceParticipantsPanel from './ConferenceParticipantsPanel';
 import MobileDialog from '../components/mobile/MobileDialog';
 
@@ -24,6 +24,8 @@ type VoiceCallModalProps = {
   addBusy?: boolean;
   muted?: boolean;
   speakerOn?: boolean;
+  mediaMode?: 'audio' | 'video' | string;
+  localStream?: MediaStream | null;
   participantUsers?: ParticipantUser[];
   participants?: CallParticipant[];
   meId?: string;
@@ -48,6 +50,34 @@ type VoiceCallModalProps = {
   canModerateJoinRequests?: boolean;
 };
 
+const AttachStreamVideo: React.FC<{
+  stream: MediaStream | null | undefined;
+  muted?: boolean;
+  className?: string;
+  mirror?: boolean;
+}> = ({ stream, muted, className, mirror }) => {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (stream) {
+      el.srcObject = stream;
+      void el.play().catch(() => undefined);
+    } else {
+      el.srcObject = null;
+    }
+  }, [stream]);
+  return (
+    <video
+      ref={ref}
+      autoPlay
+      playsInline
+      muted={muted}
+      className={`${className || ''} ${mirror ? 'scale-x-[-1]' : ''}`}
+    />
+  );
+};
+
 const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   open,
   title = 'Voice call',
@@ -57,6 +87,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   addBusy,
   muted,
   speakerOn = true,
+  mediaMode = 'audio',
+  localStream = null,
   participantUsers = [],
   participants = [],
   meId,
@@ -77,6 +109,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   canModerateJoinRequests = false
 }) => {
   if (!open) return null;
+  const isVideo = String(mediaMode || '').toLowerCase() === 'video';
+  const remoteEntries = Object.entries(remoteStreams || {}).filter(([, stream]) => Boolean(stream));
 
   const pendingForMe =
     myJoinRequestStatus === 'pending' ||
@@ -160,6 +194,40 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         </div>
       }
     >
+        {isVideo ? (
+          <div className="mb-3 grid gap-2 sm:grid-cols-2">
+            <div className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video">
+              <AttachStreamVideo
+                stream={localStream}
+                muted
+                mirror
+                className="h-full w-full object-cover"
+              />
+              <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
+                You
+              </span>
+            </div>
+            {remoteEntries.length ? (
+              remoteEntries.map(([userId, stream]) => (
+                <div
+                  key={userId}
+                  className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video"
+                >
+                  <AttachStreamVideo stream={stream} className="h-full w-full object-cover" />
+                  <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
+                    {participantUsers.find((u) => u.id === userId)?.name || 'Participant'}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="flex aspect-video items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                <span className="inline-flex items-center gap-2">
+                  <Video className="h-4 w-4" /> Waiting for video…
+                </span>
+              </div>
+            )}
+          </div>
+        ) : null}
         {myJoinRequestStatus === 'pending' || myJoinRequestStatus === 'required' ? (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {myJoinRequestStatus === 'required'

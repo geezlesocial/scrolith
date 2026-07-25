@@ -143,6 +143,9 @@ interface MessageContextType {
   copyMessage: (conversationId: string, message: Message) => Promise<void>;
   voiceRuntimeConfig: {
     enabledVoiceNotes: boolean;
+    enabledVoiceCalls?: boolean;
+    enabledConferenceCalls?: boolean;
+    enabledVideoCalls?: boolean;
     maxVoiceNoteDurationSeconds: number;
     blockedForCurrentUser: boolean;
   };
@@ -203,6 +206,9 @@ const DEFAULT_MESSAGE_CONTEXT: MessageContextType = {
   copyMessage: async () => {},
   voiceRuntimeConfig: {
     enabledVoiceNotes: true,
+    enabledVoiceCalls: true,
+    enabledConferenceCalls: true,
+    enabledVideoCalls: true,
     maxVoiceNoteDurationSeconds: DEFAULT_MAX_VOICE_NOTE_SECONDS,
     blockedForCurrentUser: false
   },
@@ -283,6 +289,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [searchError, setSearchError] = useState<string | null>(null);
   const [voiceRuntimeConfig, setVoiceRuntimeConfig] = useState({
     enabledVoiceNotes: true,
+    enabledVoiceCalls: true,
+    enabledConferenceCalls: true,
+    enabledVideoCalls: true,
     maxVoiceNoteDurationSeconds: DEFAULT_MAX_VOICE_NOTE_SECONDS,
     blockedForCurrentUser: false
   });
@@ -795,6 +804,9 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .then((config) => {
         setVoiceRuntimeConfig({
           enabledVoiceNotes: Boolean(config?.enabledVoiceNotes ?? true),
+          enabledVoiceCalls: Boolean(config?.enabledVoiceCalls ?? true),
+          enabledConferenceCalls: Boolean(config?.enabledConferenceCalls ?? true),
+          enabledVideoCalls: Boolean((config as any)?.enabledVideoCalls ?? true),
           maxVoiceNoteDurationSeconds: Number(
             config?.maxVoiceNoteDurationSeconds ?? DEFAULT_MAX_VOICE_NOTE_SECONDS
           ),
