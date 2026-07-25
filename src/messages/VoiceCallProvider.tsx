@@ -1,5 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
+import {
+  bindScrolithCallRingtoneUnlock,
+  startScrolithCallTone,
+  stopScrolithCallTone,
+  type RingtoneRole,
+  type RingtoneStopReason
+} from './scrolithCallRingtone';
 
 type ParticipantOption = {
   id: string;
@@ -120,6 +127,18 @@ const statusToLabel = (status: string, incoming: boolean) => {
   return 'Connecting...';
 };
 
+const toneStopReasonForStatus = (status: string): RingtoneStopReason => {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'missed') return 'timeout';
+  if (normalized === 'rejected') return 'rejected';
+  if (normalized === 'cancelled') return 'cancelled';
+  if (normalized === 'busy') return 'busy';
+  if (normalized === 'failed') return 'failed';
+  if (normalized === 'left') return 'left';
+  if (normalized === 'ended') return 'ended';
+  return 'manual';
+};
+
 const emitVoiceLifecycleEvent = (type: string, payload?: Record<string, any>) => {
   try {
     window.dispatchEvent(
@@ -170,8 +189,6 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const callIdRef = useRef<string>('');
   const conversationIdRef = useRef<string>('');
   const userIdRef = useRef<string>('');
-  const ringAudioContextRef = useRef<AudioContext | null>(null);
-  const ringIntervalRef = useRef<number | null>(null);
   const resetTimerRef = useRef<number | null>(null);
   const permissionNoticeShownRef = useRef(false);
   const rtcConfigRef = useRef<RTCConfiguration>(DEFAULT_RTC_CONFIG);
@@ -183,6 +200,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     conversationIdRef.current = callState?.conversationId || '';
     userIdRef.current = String(userId || '').trim();
   }, [callState?.callId, callState?.conversationId, userId]);
+
+  useEffect(() => bindScrolithCallRingtoneUnlock(), []);
 
   const clearPeers = useCallback(() => {
     peerConnectionsRef.current.forEach((pc) => {
@@ -203,49 +222,15 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     }
   }, []);
 
-  const playRingPulse = useCallback(() => {
-    try {
-      const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext;
-      if (!AudioContextCtor) return;
-      if (!ringAudioContextRef.current) {
-        ringAudioContextRef.current = new AudioContextCtor();
-      }
-      const ctx = ringAudioContextRef.current;
-      if (!ctx) return;
-      if (ctx.state === 'suspended') {
-        void ctx.resume();
-      }
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
-      oscillator.type = 'sine';
-      oscillator.frequency.value = 920;
-      gain.gain.value = 0.0001;
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-      const now = ctx.currentTime;
-      gain.gain.exponentialRampToValueAtTime(0.05, now + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
-      oscillator.start(now);
-      oscillator.stop(now + 0.27);
-    } catch {
-      // noop
-    }
+  const stopRingingAlert = useCallback((reason: RingtoneStopReason = 'manual') => {
+    stopScrolithCallTone(reason);
   }, []);
 
-  const stopRingingAlert = useCallback(() => {
-    if (ringIntervalRef.current) {
-      window.clearInterval(ringIntervalRef.current);
-      ringIntervalRef.current = null;
-    }
+  const startRingingAlert = useCallback((callId?: string | null, role: RingtoneRole = 'incoming') => {
+    const activeCallId = String(callId || callIdRef.current || '').trim();
+    if (!activeCallId) return;
+    void startScrolithCallTone({ callId: activeCallId, role });
   }, []);
-
-  const startRingingAlert = useCallback(() => {
-    if (ringIntervalRef.current) return;
-    playRingPulse();
-    ringIntervalRef.current = window.setInterval(() => {
-      playRingPulse();
-    }, 1900);
-  }, [playRingPulse]);
 
   const clearLocalStream = useCallback(() => {
     if (localStreamRef.current) {
@@ -649,7 +634,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
     const finalizeCallState = (status: string, payload?: any, delayMs = 1200) => {
       clearResetTimer();
-      stopRingingAlert();
+      stopRingingAlert(toneStopReasonForStatus(status));
       setIncoming(false);
       setCallState((prev) => (prev ? { ...prev, status } : prev));
       if (status === 'missed' || status === 'failed' || status === 'rejected') {
@@ -733,9 +718,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         }))
       );
       if (String(payload?.status || 'ringing').toLowerCase() === 'ringing') {
-        startRingingAlert();
+        startRingingAlert(payloadCallId, incomingCall ? 'incoming' : 'outgoing');
       } else {
-        stopRingingAlert();
+        stopRingingAlert(toneStopReasonForStatus(String(payload?.status || 'manual')));
       }
       if (incomingCall) {
         emitVoiceLifecycleEvent('incoming', {
@@ -764,7 +749,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (!callId || !joinedUserId || callId !== callIdRef.current) return;
       ensureParticipantEntry(joinedUserId, 'joined');
       setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
-      stopRingingAlert();
+      stopRingingAlert('answered');
       if (joinedUserId !== userIdRef.current) {
         void createOfferForUser(joinedUserId);
       }
@@ -816,7 +801,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (!callId || !joinedUserId || callId !== callIdRef.current) return;
       ensureParticipantEntry(joinedUserId, 'joined');
       setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
-      stopRingingAlert();
+      stopRingingAlert('answered');
       // Backup for call-room delivery: user-room messenger:call_joined also triggers offer.
       if (joinedUserId !== userIdRef.current) {
         void createOfferForUser(joinedUserId);
@@ -1025,7 +1010,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
             error: errorMessage
           });
         }
-        stopRingingAlert();
+        stopRingingAlert(responseCode.includes('busy') ? 'busy' : 'failed');
         clearLocalStream();
         setLocalStreamState(null);
         throw new Error(String(response?.error || 'Failed to initiate call.'));
@@ -1048,9 +1033,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         mediaMode: resolvedMedia
       });
       if (String(data?.status || 'ringing').toLowerCase() === 'ringing') {
-        startRingingAlert();
+        startRingingAlert(String(data.callId || ''), 'outgoing');
       } else {
-        stopRingingAlert();
+        stopRingingAlert(toneStopReasonForStatus(String(data?.status || 'manual')));
       }
       const ids = Array.isArray(data?.participantIds)
         ? data.participantIds.map((id: any) => String(id || '').trim()).filter(Boolean)
@@ -1094,7 +1079,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       }
       throw new Error(String(response?.error || 'Failed to accept call.'));
     }
-    stopRingingAlert();
+    stopRingingAlert('answered');
     setIncoming(false);
     setMyJoinRequestStatus(null);
     setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
@@ -1173,12 +1158,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
   const rejectCall = useCallback(async () => {
     if (!socket || !callState?.callId) {
+      stopRingingAlert('rejected');
       resetCallState();
       return;
     }
     await emitWithAck(socket, 'call:reject', { callId: callState.callId });
+    stopRingingAlert('rejected');
     resetCallState();
-  }, [socket, callState?.callId, resetCallState]);
+  }, [socket, callState?.callId, resetCallState, stopRingingAlert]);
 
   const endCall = useCallback(async () => {
     if (socket && callState?.callId) {
@@ -1194,8 +1181,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         await emitWithAck(socket, 'call:end', { callId: callState.callId });
       }
     }
+    stopRingingAlert('ended');
     resetCallState();
-  }, [socket, callState?.callId, callState?.callType, participants, resetCallState]);
+  }, [socket, callState?.callId, callState?.callType, participants, resetCallState, stopRingingAlert]);
 
   const addParticipant = useCallback(
     async (targetUserId: string) => {
@@ -1237,15 +1225,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     return () => {
       resetCallState();
       clearResetTimer();
-      stopRingingAlert();
-      if (ringAudioContextRef.current) {
-        try {
-          void ringAudioContextRef.current.close();
-        } catch {
-          // noop
-        }
-        ringAudioContextRef.current = null;
-      }
+      stopRingingAlert('ended');
     };
   }, [resetCallState, clearResetTimer, stopRingingAlert]);
 
