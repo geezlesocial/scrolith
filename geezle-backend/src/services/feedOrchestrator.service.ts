@@ -727,6 +727,8 @@ async function collectPosts(input: {
       businessPageId: true,
       title: true,
       content: true,
+      // Facebook-style text backgrounds — required for Member Home / orchestrator payload.
+      presentation: true,
       attachments: true,
       tags: true,
       mentions: true,

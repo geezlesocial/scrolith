@@ -719,6 +719,8 @@ const communityPostFeedSelect: any = {
   authorId: true,
   title: true,
   content: true,
+  // Facebook-style text backgrounds — must be selected for list/feed serialization.
+  presentation: true,
   sourceLanguage: true,
   sourceLanguageConfidence: true,
   languageDetectionStatus: true,
