@@ -1,4 +1,4 @@
-# Production-ready frontend image: post backgrounds + soft inbox + voice/video/conference (96b9b3a8).
+# Production-ready frontend image: post backgrounds + call media playback (451d67b9).
 # Points to PRODUCTION API (not candidate BE). Deploy only with --no-traffic until operator ramps.
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -29,7 +29,7 @@ steps:
         --label,
         release=fe-pbg-prod-ready,
         --label,
-        frontend_commit=96b9b3a8,
+        frontend_commit=451d67b9,
         .
       ]
 images:
