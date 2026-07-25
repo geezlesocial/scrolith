@@ -1,0 +1,40 @@
+# Production-ready frontend image: post backgrounds + soft inbox + dock voice (585b82d2).
+# Points to PRODUCTION API (not candidate BE). Deploy only with --no-traffic until operator ramps.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        build,
+        --no-cache,
+        -t,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:fe-pbg-prod-ready,
+        --build-arg,
+        VITE_API_URL=https://api.scrolith.com/api,
+        --build-arg,
+        VITE_API_BASE_URL=https://api.scrolith.com/api,
+        --build-arg,
+        VITE_BACKEND_URL=https://api.scrolith.com,
+        --build-arg,
+        VITE_PUBLIC_APP_DOMAIN=scrolith.com,
+        --build-arg,
+        VITE_PUBLIC_APP_URL=https://scrolith.com,
+        --build-arg,
+        VITE_APP_URL=https://scrolith.com,
+        --build-arg,
+        VITE_APP_ENV=production,
+        --build-arg,
+        VITE_DEBUG=false,
+        --build-arg,
+        VITE_ALLOW_LOCAL_API_IN_PROD=false,
+        --label,
+        release=fe-pbg-prod-ready,
+        --label,
+        frontend_commit=585b82d2,
+        .
+      ]
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:fe-pbg-prod-ready
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 2400s
