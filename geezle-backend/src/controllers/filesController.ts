@@ -1574,9 +1574,35 @@ const redirectToBrandAssetFallback = (res: Response, assetName?: string | null) 
   res.redirect(302, fallbackUrl);
 };
 
-const tryServeManagedStorageUploadAsset = async (relativePath: string, res: Response) => {
+const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Request, res: Response) => {
   const normalizedPath = normalizeSlashes(relativePath).replace(/^\/+/, '');
   if (!normalizedPath) return false;
+
+  try {
+    const metadata = await getGcsMediaMetadata(normalizedPath);
+    const contentType =
+      String(metadata?.contentType || '').trim() ||
+      getMimeTypeFromFilename(normalizedPath) ||
+      'application/octet-stream';
+    const size = Number(metadata?.size || 0) || 0;
+    const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+    serveRangedObject({
+      req,
+      res,
+      size,
+      contentType,
+      cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+      openStream: (start, end) => createGcsMediaReadStream(normalizedPath, { start, end })
+    });
+    return true;
+  } catch (error: any) {
+    if (String(error?.code || '') !== 'NOT_FOUND' && Number(error?.code || 0) !== 404) {
+      console.warn('Failed to serve legacy GCS upload asset:', {
+        relativePath: normalizedPath,
+        error: String(error?.message || error)
+      });
+    }
+  }
 
   try {
     const metadata = await getDatabaseStorageMetadataByName(normalizedPath);
@@ -2424,7 +2450,7 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
       }
     }
 
-    if (await tryServeManagedStorageUploadAsset(relativePath, res)) {
+    if (await tryServeManagedStorageUploadAsset(relativePath, req, res)) {
       return;
     }
 
@@ -2463,6 +2489,53 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
     }
 
     const storageProvider = String(legacyMatch.storageProvider || DEFAULT_STORAGE_PROVIDER).toLowerCase();
+    if (storageProvider === GCS_MEDIA_STORAGE_PROVIDER || storageProvider === 'gcs') {
+      const objectCandidates = Array.from(
+        new Set(
+          [
+            legacyMatch.storageKey,
+            relativePath,
+            baseName
+          ].filter(Boolean)
+        )
+      ) as string[];
+
+      for (const objectName of objectCandidates) {
+        try {
+          const metadata = await getGcsMediaMetadata(objectName);
+          const contentType =
+            String(metadata?.contentType || '').trim() ||
+            legacyMatch.mimeType ||
+            getMimeTypeFromFilename(legacyMatch.filename || objectName) ||
+            'application/octet-stream';
+          const size = Number(metadata?.size || 0) || 0;
+          const { serveRangedObject } = require('../utils/httpRange') as typeof import('../utils/httpRange');
+          serveRangedObject({
+            req,
+            res,
+            size,
+            contentType,
+            cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+            openStream: (start, end) => createGcsMediaReadStream(objectName, { start, end })
+          });
+          return;
+        } catch (error: any) {
+          if (String(error?.code || '') === 'NOT_FOUND' || Number(error?.code || 0) === 404) continue;
+          console.warn('Failed to stream GCS legacy upload record:', {
+            objectName,
+            error: String(error?.message || error)
+          });
+        }
+      }
+
+      if (isLikelyBrandAsset) {
+        redirectToBrandAssetFallback(res, baseName);
+        return;
+      }
+      res.status(404).end();
+      return;
+    }
+
     if (storageProvider === DATABASE_STORAGE_PROVIDER) {
       const objectCandidates = Array.from(
         new Set(
@@ -3144,4 +3217,3 @@ export const uploadMedia = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: 'Failed to upload file' });
   }
 };
-
