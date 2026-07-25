@@ -304,6 +304,26 @@ const conversationHasViewer = (conversation: Conversation, selfId: string) => {
   );
 };
 
+const isAbsorbedMergeStub = (conversation: Conversation, selfUserId?: string) => {
+  const preview = safeString(
+    (conversation as any)?.lastMessage ||
+      (conversation as any)?.last_message ||
+      ''
+  );
+  if (/\[\s*merged\s+into\s+[a-z0-9_-]+\s*\]/i.test(preview)) return true;
+  const selfId = safeString(selfUserId);
+  if (!selfId) return false;
+  const selfRow = safeArray<any>(conversation?.participants).find(
+    (p) => safeString(p?.id ?? p?.userId ?? p?.user_id) === selfId
+  );
+  const label = safeString(selfRow?.label).toLowerCase();
+  if (label === 'scrolitha_duplicate_merged') return true;
+  if (selfRow && (selfRow.deletedAt || selfRow.deleted_at) && isScrolithaConversation(conversation)) {
+    return true;
+  }
+  return false;
+};
+
 export const mergeDirectConversations = (list: Conversation[], selfUserId?: string) => {
   if (!Array.isArray(list) || list.length === 0) return [];
 
@@ -312,6 +332,8 @@ export const mergeDirectConversations = (list: Conversation[], selfUserId?: stri
   const selfId = safeString(selfUserId);
 
   list.forEach((conversation) => {
+    // Drop Scrolitha consolidation losers so admin/global lists do not flood the inbox.
+    if (isAbsorbedMergeStub(conversation, selfUserId)) return;
     // Phase 20.7.5: collapse Scrolitha DMs per viewer (never merge other users' assistant
     // threads into the admin/global inbox — that caused mark-as-read / appearance 404s).
     let key = getConversationMergeKey(conversation, selfUserId);

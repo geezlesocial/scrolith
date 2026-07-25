@@ -1167,7 +1167,42 @@ const Messages = () => {
         }
       : undefined;
   const conversationListSource = isMessageSearchActive ? searchConversations : dedupedConversations;
+  /** Backend Scrolitha consolidation leaves soft-deleted losers with this preview marker. */
+  const isScrolithaMergeStubConversation = (convo: Conversation) => {
+      const preview = String(
+          getConversationPreviewText(convo, { currentUserId: user?.id }) ||
+              (convo as any)?.lastMessage ||
+              (convo as any)?.last_message ||
+              ''
+      );
+      if (/\[\s*merged\s+into\s+[a-z0-9_-]+\s*\]/i.test(preview)) return true;
+      const selfId = String(user?.id || '').trim();
+      const selfRow = (convo.participants || []).find(
+          (p: any) => String(p?.id || p?.userId || '').trim() === selfId
+      );
+      const label = String(selfRow?.label || '').toLowerCase();
+      if (label === 'scrolitha_duplicate_merged') return true;
+      // Soft-left self on a scrolitha duplicate should not appear in the inbox.
+      if (selfRow && (selfRow.deletedAt || selfRow.deleted_at) && isScrolithaParticipantEntity(
+          (convo.participants || []).find((p: any) => isScrolithaParticipantEntity(p))
+      )) {
+          return true;
+      }
+      return false;
+  };
+  /** /messages should show the viewer's inbox even when role is admin (admin list is global). */
+  const isViewerMemberOfConversation = (convo: Conversation) => {
+      const selfId = String(user?.id || '').trim();
+      if (!selfId) return true;
+      return (convo.participants || []).some((p: any) => {
+          if (String(p?.id || p?.userId || '').trim() !== selfId) return false;
+          if (p?.deletedAt || p?.deleted_at) return false;
+          return true;
+      });
+  };
   const visibleConversations = [...conversationListSource]
+      .filter((convo) => !isScrolithaMergeStubConversation(convo))
+      .filter((convo) => isViewerMemberOfConversation(convo))
       .sort((a, b) => {
           // Official Scrolitha assistant always pins above user conversations.
           // Do NOT treat isPinned as Scrolitha — that renames/sorts normal starred DMs as AI.
