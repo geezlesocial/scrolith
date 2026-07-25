@@ -4,6 +4,7 @@ import {
   getMessengerVideoClientPayload
 } from '../services/messaging/messengerVideoConfig.service';
 import { authorizeCallAction, resolveGroupCallPolicy } from '../services/messaging/messengerCallPolicy.service';
+import { sanitizeMessengerVoiceConfigInput } from '../services/messengerVoice.service';
 
 describe('messengerVideoConfig', () => {
   const prev = { ...process.env };
@@ -39,6 +40,11 @@ describe('messengerVideoConfig', () => {
     expect(payload.mediaTopology).toBe('mesh');
     expect(payload.sfuReady).toBe(false);
     expect(payload).not.toHaveProperty('turnSecret');
+  });
+
+  test('admin messenger config accepts platform video on/off flag', () => {
+    expect(sanitizeMessengerVoiceConfigInput({ enabledVideoCalls: false }).enabledVideoCalls).toBe(false);
+    expect(sanitizeMessengerVoiceConfigInput({ enableVideoCalls: 'on' }).enabledVideoCalls).toBe(true);
   });
 });
 

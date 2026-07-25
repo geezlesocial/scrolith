@@ -2130,18 +2130,15 @@ communityNs.on('connection', (socket) => {
           // telemetry must never block calls
         }
 
+        const platform = buildLivePlatformVoiceFlags(config, {
+          maxParticipants: participantLimit,
+          videoFlags
+        });
+        platform.videoBlockedUserIds = videoBlockedUserIds;
+
         const startAuth = authorizeCallAction({
           action: 'start',
-          platform: {
-            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
-            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
-            maxParticipants: participantLimit,
-            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
-            enabledVideoCalls: videoFlags.enabledVideoCalls,
-            videoBlockedUserIds,
-            enabledScreenSharing: videoFlags.enabledScreenSharing,
-            maxVideoParticipants: videoFlags.maxVideoParticipants
-          },
+          platform,
           actorUserId: userId,
           isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
           conversationType,
@@ -2730,18 +2727,15 @@ communityNs.on('connection', (socket) => {
           if (ack) ack({ success: false, error, code });
           return;
         }
+        const platform = buildLivePlatformVoiceFlags(config, {
+          maxParticipants: participantLimit,
+          videoFlags
+        });
+        platform.videoBlockedUserIds = videoBlockedUserIds;
+
         const inviteAuth = authorizeCallAction({
           action: 'invite',
-          platform: {
-            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
-            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
-            maxParticipants: participantLimit,
-            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
-            enabledVideoCalls: videoFlags.enabledVideoCalls,
-            videoBlockedUserIds,
-            enabledScreenSharing: videoFlags.enabledScreenSharing,
-            maxVideoParticipants: videoFlags.maxVideoParticipants
-          },
+          platform,
           actorUserId: callerId,
           isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
           conversationType: String((convo.conversation as any)?.type || ''),

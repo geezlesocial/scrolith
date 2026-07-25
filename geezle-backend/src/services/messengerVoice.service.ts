@@ -4,6 +4,7 @@ export type MessengerVoiceConfig = {
   id: string;
   enabledVoiceCalls: boolean;
   enabledConferenceCalls: boolean;
+  enabledVideoCalls: boolean;
   enabledVoiceNotes: boolean;
   maxParticipants: number;
   maxVoiceNoteDurationSeconds: number;
@@ -27,6 +28,7 @@ const DEFAULT_CONFIG: Omit<MessengerVoiceConfig, 'createdAt' | 'updatedAt'> = {
   id: 'default',
   enabledVoiceCalls: true,
   enabledConferenceCalls: true,
+  enabledVideoCalls: true,
   enabledVoiceNotes: true,
   maxParticipants: MAX_MESSENGER_VOICE_PARTICIPANTS,
   maxVoiceNoteDurationSeconds: 180,
@@ -69,6 +71,9 @@ const clamp = (value: number, min: number, max: number) => {
 export const isMessengerVoiceSchemaMissingError = (error: any) => {
   const code = String(error?.code || '').toUpperCase();
   const message = String(error?.message || '');
+  if (code === 'P2022' && (message.includes('MessengerVoiceConfig') || message.includes('enabledVideoCalls'))) {
+    return true;
+  }
   if (code !== 'P2021') return false;
   return MESSENGER_VOICE_TABLE_NAMES.some((tableName) => message.includes(tableName));
 };
@@ -87,6 +92,10 @@ export const sanitizeMessengerVoiceConfigInput = (input: any) => {
     enabledConferenceCalls: toBool(
       payload.enabledConferenceCalls ?? payload.enableConferenceCalls,
       DEFAULT_CONFIG.enabledConferenceCalls
+    ),
+    enabledVideoCalls: toBool(
+      payload.enabledVideoCalls ?? payload.enableVideoCalls,
+      DEFAULT_CONFIG.enabledVideoCalls
     ),
     enabledVoiceNotes: toBool(payload.enabledVoiceNotes ?? payload.enableVoiceNotes, DEFAULT_CONFIG.enabledVoiceNotes),
     maxParticipants: clamp(

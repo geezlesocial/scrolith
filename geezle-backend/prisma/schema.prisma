@@ -4325,6 +4325,7 @@ model MessengerVoiceConfig {
   id                          String   @id @default("default")
   enabledVoiceCalls           Boolean  @default(true)
   enabledConferenceCalls      Boolean  @default(true)
+  enabledVideoCalls           Boolean  @default(true)
   enabledVoiceNotes           Boolean  @default(true)
   maxParticipants             Int      @default(8)
   maxVoiceNoteDurationSeconds Int      @default(180)

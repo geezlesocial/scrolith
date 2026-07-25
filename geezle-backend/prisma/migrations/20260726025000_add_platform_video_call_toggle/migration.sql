@@ -1,0 +1,2 @@
+ALTER TABLE "MessengerVoiceConfig"
+ADD COLUMN IF NOT EXISTS "enabledVideoCalls" BOOLEAN NOT NULL DEFAULT true;

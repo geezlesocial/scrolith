@@ -36,6 +36,32 @@ describe('messengerCallPlatform', () => {
     expect(flags.blockedUserIds).toEqual(['bad-user']);
   });
 
+  test('admin platform video switch disables video even when env video flag is enabled', () => {
+    const flags = buildLivePlatformVoiceFlags(
+      {
+        enabledVoiceCalls: true,
+        enabledConferenceCalls: true,
+        enabledVideoCalls: false,
+        maxParticipants: 10,
+        blockedUserIds: []
+      },
+      {
+        videoFlags: {
+          enabledVideoCalls: true,
+          enabledScreenSharing: true,
+          maxVideoParticipants: 4,
+          defaultVideoQuality: 'medium',
+          maxResolution: '1280x720',
+          maxFrameRate: 30,
+          cameraRecordingPolicy: 'disabled',
+          maxBitrateKbps: 0,
+          allowVirtualBackground: false
+        }
+      }
+    );
+    expect(flags.enabledVideoCalls).toBe(false);
+  });
+
   test('resolveCallStoredMediaMode defaults missing metadata to audio', () => {
     expect(resolveCallStoredMediaMode(null)).toBe('audio');
     expect(resolveCallStoredMediaMode({})).toBe('audio');

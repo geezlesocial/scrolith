@@ -9,6 +9,7 @@ import { getMessengerVideoPlatformFlags, normalizeMediaMode } from './messengerV
 export type MessengerVoiceConfigLike = {
   enabledVoiceCalls?: boolean | null;
   enabledConferenceCalls?: boolean | null;
+  enabledVideoCalls?: boolean | null;
   maxParticipants?: number | null;
   blockedUserIds?: unknown;
   videoBlockedUserIds?: unknown;
@@ -33,7 +34,7 @@ export const buildLivePlatformVoiceFlags = (
       Math.min(20, Number(options?.maxParticipants ?? config?.maxParticipants ?? 20) || 20)
     ),
     blockedUserIds: blocked,
-    enabledVideoCalls: videoFlags.enabledVideoCalls,
+    enabledVideoCalls: videoFlags.enabledVideoCalls && config?.enabledVideoCalls !== false,
     videoBlockedUserIds: Array.isArray(config?.videoBlockedUserIds)
       ? (config.videoBlockedUserIds as unknown[]).map((id) => String(id || '').trim()).filter(Boolean)
       : [],

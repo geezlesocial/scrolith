@@ -271,9 +271,13 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
         maxParticipants: Number(config.maxParticipants || 20),
         maxVoiceNoteDurationSeconds: Number(config.maxVoiceNoteDurationSeconds || 180),
         blockedForCurrentUser: blocked,
-        // Phase 1 video (env-backed, no migration).
+        // Video is enabled only when both ops env and admin platform policy allow it.
         ...video,
-        enabledVideoCalls: Boolean(video.enabledVideoCalls) && videoEnabledForCurrentUser,
+        enabledVideoCalls:
+          Boolean(video.enabledVideoCalls) &&
+          (config as any).enabledVideoCalls !== false &&
+          videoEnabledForCurrentUser,
+        platformVideoCallsEnabled: (config as any).enabledVideoCalls !== false,
         videoBlockedForCurrentUser: !videoEnabledForCurrentUser,
         // ICE/TURN for WebRTC — clients must not hardcode STUN-only.
         iceServers: ice.iceServers,
