@@ -38,6 +38,10 @@ export type GroupCallPolicy = {
   whoCanInvite: CallInviteScope;
   participationMode: CallParticipationMode;
   availability: GroupCallAvailability;
+  /** When false, video media is denied for this group (audio may still work). */
+  allowVideo: boolean;
+  /** When false, screen sharing is denied for this group. */
+  allowScreenShare: boolean;
 };
 
 export type PlatformVoiceFlags = {
@@ -45,7 +49,14 @@ export type PlatformVoiceFlags = {
   enabledConferenceCalls: boolean;
   maxParticipants: number;
   blockedUserIds: string[];
+  /** Phase 1 video — defaults true when omitted (backward compatible). */
+  enabledVideoCalls?: boolean;
+  videoBlockedUserIds?: string[];
+  enabledScreenSharing?: boolean;
+  maxVideoParticipants?: number;
 };
+
+export type CallMediaMode = 'audio' | 'video';
 
 export type CallAction =
   | 'start'
@@ -60,14 +71,18 @@ export type CallAction =
   | 'remove'
   | 'signal'
   | 'approve_join'
-  | 'request_join';
+  | 'request_join'
+  | 'screen_share'
+  | 'toggle_video';
 
 const DEFAULT_POLICY: GroupCallPolicy = {
   whoCanStart: 'ALL_MEMBERS',
   whoCanJoin: 'ALL_MEMBERS',
   whoCanInvite: 'OWNERS_ADMINS_MODS',
   participationMode: 'OPEN',
-  availability: 'ENABLED'
+  availability: 'ENABLED',
+  allowVideo: true,
+  allowScreenShare: true
 };
 
 const ROLE_RANK: Record<GroupCallRole, number> = {
@@ -201,12 +216,19 @@ export const resolveGroupCallPolicy = (input?: {
     (overrides as any).callPolicy ||
     {};
 
+  const allowVideoRaw = raw.allowVideo ?? raw.videoEnabled ?? raw.enableVideo;
+  const allowScreenRaw =
+    raw.allowScreenShare ?? raw.allowScreenSharing ?? raw.screenShareEnabled ?? raw.enableScreenShare;
+
   const policy: GroupCallPolicy = {
     whoCanStart: normalizeStartScope(raw.whoCanStart ?? raw.startScope),
     whoCanJoin: normalizeJoinScope(raw.whoCanJoin ?? raw.joinScope),
     whoCanInvite: normalizeInviteScope(raw.whoCanInvite ?? raw.inviteScope),
     participationMode: normalizeParticipationMode(raw.participationMode ?? raw.joinMode),
-    availability: normalizeAvailability(raw.availability ?? raw.callAvailability)
+    availability: normalizeAvailability(raw.availability ?? raw.callAvailability),
+    allowVideo: allowVideoRaw === undefined || allowVideoRaw === null ? true : Boolean(allowVideoRaw),
+    allowScreenShare:
+      allowScreenRaw === undefined || allowScreenRaw === null ? true : Boolean(allowScreenRaw)
   };
 
   // Content toggle allowVoice=false disables group voice/conference calls.
@@ -228,7 +250,13 @@ export const mergeCallPolicyIntoPolicyJson = (
     whoCanJoin: callPolicyPartial.whoCanJoin || current.whoCanJoin,
     whoCanInvite: callPolicyPartial.whoCanInvite || current.whoCanInvite,
     participationMode: callPolicyPartial.participationMode || current.participationMode,
-    availability: callPolicyPartial.availability || current.availability
+    availability: callPolicyPartial.availability || current.availability,
+    allowVideo:
+      callPolicyPartial.allowVideo === undefined ? current.allowVideo : Boolean(callPolicyPartial.allowVideo),
+    allowScreenShare:
+      callPolicyPartial.allowScreenShare === undefined
+        ? current.allowScreenShare
+        : Boolean(callPolicyPartial.allowScreenShare)
   };
   return base;
 };
@@ -256,9 +284,12 @@ export const authorizeCallAction = (params: {
   participantCount?: number;
   /** True when requester has an approved join request for this call. */
   isJoinApproved?: boolean;
+  /** audio (default) | video — Phase 1 media mode */
+  mediaMode?: CallMediaMode;
 }): AuthorizeCallResult => {
   const role = normalizeRole(params.memberRole);
   const policy = params.groupPolicy || DEFAULT_POLICY;
+  const mediaMode: CallMediaMode = params.mediaMode === 'video' ? 'video' : 'audio';
   const isGroup =
     String(params.conversationType || '')
       .trim()
@@ -317,16 +348,95 @@ export const authorizeCallAction = (params: {
     };
   }
 
+  // Platform video gate (default enabled when flag omitted — voice-only clients unchanged).
+  const videoEnabled = params.platform.enabledVideoCalls !== false;
+  const screenEnabled = params.platform.enabledScreenSharing !== false;
+  const videoBlocked = Array.isArray(params.platform.videoBlockedUserIds)
+    ? params.platform.videoBlockedUserIds.map((id) => String(id || '').trim())
+    : [];
+
+  if ((mediaMode === 'video' || params.action === 'toggle_video') && !videoEnabled) {
+    return {
+      allowed: false,
+      code: 'VIDEO_CALLS_DISABLED',
+      error: 'Video calls are disabled by the platform administrator.',
+      role,
+      policy
+    };
+  }
+
+  if (
+    (mediaMode === 'video' || params.action === 'toggle_video' || params.action === 'screen_share') &&
+    videoBlocked.includes(String(params.actorUserId || '').trim())
+  ) {
+    return {
+      allowed: false,
+      code: 'VIDEO_BLOCKED_FOR_USER',
+      error: 'Video calling is disabled for this account by an administrator.',
+      role,
+      policy
+    };
+  }
+
+  if (params.action === 'screen_share') {
+    if (!videoEnabled) {
+      return {
+        allowed: false,
+        code: 'VIDEO_CALLS_DISABLED',
+        error: 'Video features are disabled; screen sharing is unavailable.',
+        role,
+        policy
+      };
+    }
+    if (!screenEnabled) {
+      return {
+        allowed: false,
+        code: 'SCREEN_SHARING_DISABLED',
+        error: 'Screen sharing is disabled by the platform administrator.',
+        role,
+        policy
+      };
+    }
+  }
+
   const max = Math.max(2, Math.min(20, Number(params.platform.maxParticipants || 20) || 20));
   if (
     typeof params.participantCount === 'number' &&
     params.participantCount > max &&
-    (params.action === 'start' || params.action === 'invite' || params.action === 'join')
+    (params.action === 'start' ||
+      params.action === 'invite' ||
+      params.action === 'join' ||
+      params.action === 'accept')
   ) {
     return {
       allowed: false,
       code: 'MAX_PARTICIPANTS_EXCEEDED',
       error: `Maximum ${max} participants allowed.`,
+      role,
+      policy
+    };
+  }
+
+  const maxVideo = Math.max(
+    2,
+    Math.min(12, Number(params.platform.maxVideoParticipants || 6) || 6)
+  );
+  // R-03: enforce video mesh cap on accept *and* mid-call upgrades (toggle_video / screen_share).
+  if (
+    mediaMode === 'video' &&
+    typeof params.participantCount === 'number' &&
+    params.participantCount > maxVideo &&
+    (params.action === 'start' ||
+      params.action === 'invite' ||
+      params.action === 'join' ||
+      params.action === 'accept' ||
+      params.action === 'toggle_video' ||
+      params.action === 'screen_share')
+  ) {
+    return {
+      allowed: false,
+      code: 'MAX_VIDEO_PARTICIPANTS_EXCEEDED',
+      error: `Maximum ${maxVideo} video participants allowed on mesh topology.`,
       role,
       policy
     };
@@ -356,6 +466,29 @@ export const authorizeCallAction = (params: {
     };
   }
 
+  if (
+    (mediaMode === 'video' || params.action === 'toggle_video') &&
+    policy.allowVideo === false
+  ) {
+    return {
+      allowed: false,
+      code: 'GROUP_VIDEO_DISABLED',
+      error: 'Video is disabled for this group.',
+      role,
+      policy
+    };
+  }
+
+  if (params.action === 'screen_share' && policy.allowScreenShare === false) {
+    return {
+      allowed: false,
+      code: 'GROUP_SCREEN_SHARE_DISABLED',
+      error: 'Screen sharing is disabled for this group.',
+      role,
+      policy
+    };
+  }
+
   const effectiveRole = params.isPlatformAdmin ? 'OWNER' : role;
 
   switch (params.action) {
@@ -365,6 +498,20 @@ export const authorizeCallAction = (params: {
           allowed: false,
           code: 'GROUP_CALL_START_DENIED',
           error: 'Your role cannot start calls in this group.',
+          role,
+          policy
+        };
+      }
+      return { allowed: true, role: effectiveRole, policy };
+
+    case 'toggle_video':
+    case 'screen_share':
+      // Must already be a call participant context; membership + media gates above.
+      if (!roleMeetsJoinScope(effectiveRole, policy.whoCanJoin) && !params.isInitiator && !params.isInvited) {
+        return {
+          allowed: false,
+          code: 'GROUP_CALL_JOIN_DENIED',
+          error: 'Your role cannot publish media in this group call.',
           role,
           policy
         };

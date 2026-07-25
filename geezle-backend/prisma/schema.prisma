@@ -444,6 +444,10 @@ model UserSettings {
   transferFeeValue             Float    @default(0)
   twoFactorEnabled             Boolean  @default(false)
   loginAlerts                  Boolean  @default(true)
+  videoCallsEnabled            Boolean  @default(true)
+  videoCallsUpdatedAt          DateTime?
+  videoCallsUpdatedById        String?
+  videoCallsAdminReason        String?
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 

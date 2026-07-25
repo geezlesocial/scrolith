@@ -12,6 +12,7 @@ import {
   mergeCallPolicyIntoPolicyJson,
   resolveGroupCallPolicy
 } from '../services/messaging/messengerCallPolicy.service';
+import { isVideoCallingEnabledForUser } from '../services/messaging/messengerCallPlatform.service';
 
 const nowIso = () => new Date().toISOString();
 
@@ -254,6 +255,13 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
     const config = await getOrCreateMessengerVoiceConfig();
     const blocked = userId ? isVoiceBlockedForUser(config, userId) : false;
     const ice = getMessengerIceClientPayload({ userId });
+    const { getMessengerVideoClientPayload } = await import(
+      '../services/messaging/messengerVideoConfig.service'
+    );
+    const video = getMessengerVideoClientPayload();
+    const videoEnabledForCurrentUser = userId
+      ? await isVideoCallingEnabledForUser(prisma as any, userId)
+      : true;
     return res.json({
       success: true,
       data: {
@@ -263,6 +271,10 @@ export const getVoiceRuntimeConfig = async (req: Request, res: Response) => {
         maxParticipants: Number(config.maxParticipants || 20),
         maxVoiceNoteDurationSeconds: Number(config.maxVoiceNoteDurationSeconds || 180),
         blockedForCurrentUser: blocked,
+        // Phase 1 video (env-backed, no migration).
+        ...video,
+        enabledVideoCalls: Boolean(video.enabledVideoCalls) && videoEnabledForCurrentUser,
+        videoBlockedForCurrentUser: !videoEnabledForCurrentUser,
         // ICE/TURN for WebRTC — clients must not hardcode STUN-only.
         iceServers: ice.iceServers,
         iceTransportPolicy: ice.iceTransportPolicy,

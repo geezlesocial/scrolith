@@ -135,6 +135,18 @@ import {
   normalizeMediaMode
 } from './services/messaging/messengerVideoConfig.service';
 import {
+  buildLivePlatformVoiceFlags,
+  countJoinedParticipants,
+  getVideoDisabledUserIds,
+  participantIsJoined,
+  resolveCallStoredMediaMode,
+  resolveMediaControlIntent
+} from './services/messaging/messengerCallPlatform.service';
+import {
+  atomicAcceptCall,
+  atomicMediaUpgrade
+} from './services/messaging/messengerCallCapacity.service';
+import {
   createJoinRequest,
   expireStaleJoinRequests,
   findApprovedRequest,
@@ -2092,6 +2104,21 @@ communityNs.on('connection', (socket) => {
           (!isDirectConversation && filteredTargets.length > 1);
         const mediaMode = normalizeMediaMode(payload?.mediaMode ?? payload?.media);
         const videoFlags = getMessengerVideoPlatformFlags();
+        const videoBlockedUserIds =
+          mediaMode === 'video'
+            ? await getVideoDisabledUserIds(prisma as any, [userId, ...filteredTargets])
+            : [];
+        if (videoBlockedUserIds.length) {
+          const code = videoBlockedUserIds.includes(userId)
+            ? 'VIDEO_BLOCKED_FOR_USER'
+            : 'VIDEO_BLOCKED_FOR_PARTICIPANT';
+          const error =
+            code === 'VIDEO_BLOCKED_FOR_USER'
+              ? 'Video calling is disabled for this account by an administrator.'
+              : 'Video calling is disabled for one or more selected participants.';
+          if (ack) ack({ success: false, error, code });
+          return;
+        }
         try {
           const { recordCallMetric } = await import('./utils/observability/metricsRegistry');
           recordCallMetric({
@@ -2111,6 +2138,7 @@ communityNs.on('connection', (socket) => {
             maxParticipants: participantLimit,
             blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
             enabledVideoCalls: videoFlags.enabledVideoCalls,
+            videoBlockedUserIds,
             enabledScreenSharing: videoFlags.enabledScreenSharing,
             maxVideoParticipants: videoFlags.maxVideoParticipants
           },
@@ -2333,35 +2361,29 @@ communityNs.on('connection', (socket) => {
                 ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
             )
           : false;
-        const acceptAuth = authorizeCallAction({
-          action: 'accept',
-          platform: {
-            enabledVoiceCalls: true,
-            enabledConferenceCalls: true,
-            maxParticipants: MAX_MESSENGER_VOICE_PARTICIPANTS,
-            blockedUserIds: []
-          },
-          actorUserId: userId,
-          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
-          conversationType: String((convo.conversation as any)?.type || ''),
-          memberRole: (convo.actorParticipant as any)?.role,
-          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
-          groupPolicy: convo.groupPolicy,
-          isConference: String(call.callType || '').toUpperCase() === 'CONFERENCE',
-          isInvited,
-          isInitiator: String(call.initiatorId || '') === userId,
-          isJoinApproved: approvedJoin
-        });
-        if (!acceptAuth.allowed) {
+        // C-02: accept is fully server-authoritative — never hard-code platform flags.
+        const config = await getOrCreateMessengerVoiceConfig();
+        if ((config as any)?._schemaMissing) {
           if (ack) {
             ack({
               success: false,
-              error: (acceptAuth as { error: string }).error,
-              code: (acceptAuth as { code: string }).code
+              error: 'Messenger voice tables are not ready.',
+              code: 'MESSENGER_VOICE_SCHEMA_MISSING'
             });
           }
           return;
         }
+        const videoFlags = getMessengerVideoPlatformFlags();
+        const acceptCallMediaMode = resolveCallStoredMediaMode((call as any)?.metadata);
+        const videoBlockedUserIds =
+          acceptCallMediaMode === 'video'
+            ? await getVideoDisabledUserIds(prisma as any, [userId])
+            : [];
+        const platform = buildLivePlatformVoiceFlags(config, {
+          maxParticipants: resolveVoiceParticipantLimit(config),
+          videoFlags
+        });
+        platform.videoBlockedUserIds = videoBlockedUserIds;
 
         const busyEntry = await findBusyCallParticipant([userId], callId);
         if (busyEntry) {
@@ -2380,34 +2402,44 @@ communityNs.on('connection', (socket) => {
           return;
         }
 
-        await (prisma as any).voiceCallParticipant.updateMany({
-          where: { callId, userId },
-          data: { status: 'JOINED', joinedAt: new Date(), leftAt: null }
+        // R-02: capacity recheck + JOINED transition under VoiceCall row lock.
+        const acceptResult = await atomicAcceptCall(prisma as any, {
+          callId,
+          userId,
+          platform,
+          conversationType: String((convo.conversation as any)?.type || ''),
+          memberRole: (convo.actorParticipant as any)?.role,
+          memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
+          groupPolicy: convo.groupPolicy,
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          isJoinApproved: approvedJoin,
+          isConference: String(call.callType || '').toUpperCase() === 'CONFERENCE'
         });
-
-        await (prisma as any).voiceCall.update({
-          where: { id: callId },
-          data: {
-            status: 'ACTIVE',
-            startedAt: call.startedAt || new Date()
+        if (acceptResult.ok === false) {
+          if (ack) {
+            ack({
+              success: false,
+              error: acceptResult.error,
+              code: acceptResult.code
+            });
           }
-        });
+          return;
+        }
 
+        // Broadcast only after transaction commits.
         socket.join(`call:${callId}`);
-
-        const participantIds = Array.isArray(call.participants)
-          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
         const eventPayload = {
           callId,
-          conversationId: call.conversationId,
+          conversationId: acceptResult.conversationId || call.conversationId,
           userId,
           status: 'active',
-          joinedAt: new Date().toISOString()
+          mediaMode: acceptResult.callMediaMode,
+          joinedAt: acceptResult.joinedAt,
+          idempotent: acceptResult.idempotent
         };
 
         communityNs.to(`call:${callId}`).emit('call:participant:joined', eventPayload);
-        emitVoiceEventToUsers(participantIds, 'messenger:call_joined', eventPayload);
+        emitVoiceEventToUsers(acceptResult.participantIds, 'messenger:call_joined', eventPayload);
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:accept error', error);
@@ -2681,13 +2713,34 @@ communityNs.on('connection', (socket) => {
           ['INVITED', 'JOINED'].includes(String(entry.status || '').toUpperCase())
         ).length;
         const participantLimit = resolveVoiceParticipantLimit(config);
+        const callMediaMode = resolveCallStoredMediaMode((call as any)?.metadata);
+        const videoFlags = getMessengerVideoPlatformFlags();
+        const videoBlockedUserIds =
+          callMediaMode === 'video'
+            ? await getVideoDisabledUserIds(prisma as any, [callerId, targetUserId])
+            : [];
+        if (videoBlockedUserIds.length) {
+          const code = videoBlockedUserIds.includes(callerId)
+            ? 'VIDEO_BLOCKED_FOR_USER'
+            : 'VIDEO_BLOCKED_FOR_PARTICIPANT';
+          const error =
+            code === 'VIDEO_BLOCKED_FOR_USER'
+              ? 'Video calling is disabled for this account by an administrator.'
+              : 'Video calling is disabled for the selected participant.';
+          if (ack) ack({ success: false, error, code });
+          return;
+        }
         const inviteAuth = authorizeCallAction({
           action: 'invite',
           platform: {
             enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
             enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
             maxParticipants: participantLimit,
-            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : []
+            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
+            enabledVideoCalls: videoFlags.enabledVideoCalls,
+            videoBlockedUserIds,
+            enabledScreenSharing: videoFlags.enabledScreenSharing,
+            maxVideoParticipants: videoFlags.maxVideoParticipants
           },
           actorUserId: callerId,
           isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
@@ -2698,7 +2751,8 @@ communityNs.on('connection', (socket) => {
           isConference:
             String(call.callType || '').toUpperCase() === 'CONFERENCE' || activeCount + 1 > 2,
           isInitiator: String(call.initiatorId || '') === callerId,
-          participantCount: activeCount + 1
+          participantCount: activeCount + 1,
+          mediaMode: callMediaMode
         });
         if (!inviteAuth.allowed) {
           if (ack) {
@@ -3325,33 +3379,38 @@ communityNs.on('connection', (socket) => {
   });
 
   /**
-   * Phase 1 video media control: camera / screen-share state (authorized).
-   * Does not replace WebRTC renegotiation (still via call:signal).
-   * Payload: { callId, kind: 'camera'|'screen', action: 'start'|'stop'|'toggle', enabled?: boolean }
+   * Media control plane (C-01): camera / screen / mic.
+   * Client requests → server validates → approved event broadcast → clients sync.
+   * Does not replace WebRTC renegotiation (still via call:signal after approval).
+   * Payload: { callId, kind: 'camera'|'screen'|'microphone', action, enabled?: boolean }
    */
   socket.on('call:media', (payload: any, ack?: (result: any) => void) => {
     const handleMedia = async () => {
       try {
         const fromUserId = resolveSocketUserId(socket);
         const callId = String(payload?.callId || '').trim();
-        const kind = String(payload?.kind || '')
-          .trim()
-          .toLowerCase();
-        const action = String(payload?.action || '')
-          .trim()
-          .toLowerCase();
-        if (!fromUserId || !callId || !kind || !action) {
+        if (!fromUserId || !callId) {
           if (ack) {
-            ack({ success: false, error: 'callId, kind and action are required.', code: 'MEDIA_PAYLOAD_INVALID' });
+            ack({ success: false, error: 'callId is required.', code: 'MEDIA_PAYLOAD_INVALID' });
           }
           return;
         }
-        if (!['camera', 'screen', 'microphone'].includes(kind)) {
-          if (ack) ack({ success: false, error: 'Unsupported media kind.', code: 'MEDIA_KIND_INVALID' });
-          return;
-        }
-        if (!['start', 'stop', 'toggle', 'state'].includes(action)) {
-          if (ack) ack({ success: false, error: 'Unsupported media action.', code: 'MEDIA_ACTION_INVALID' });
+
+        const intent = resolveMediaControlIntent({
+          kind: payload?.kind,
+          action: payload?.action,
+          callMediaMode: 'audio', // filled after load
+          enabled: payload?.enabled
+        });
+        // Re-run after we know stored mode — first pass only validates kind/action shape.
+        if (!intent.kind || !intent.action) {
+          if (ack) {
+            ack({
+              success: false,
+              error: 'callId, kind and action are required.',
+              code: 'MEDIA_PAYLOAD_INVALID'
+            });
+          }
           return;
         }
 
@@ -3360,87 +3419,99 @@ communityNs.on('connection', (socket) => {
           if (ack) ack({ success: false, error: 'Call not found or access denied.', code: 'CALL_NOT_FOUND' });
           return;
         }
+        if (!VOICE_CALL_ACTIVE_STATUSES.includes(String(call.status || '').toUpperCase())) {
+          if (ack) {
+            ack({ success: false, error: 'This call is no longer active.', code: 'CALL_NOT_ACTIVE' });
+          }
+          return;
+        }
+
+        const storedMode = resolveCallStoredMediaMode((call as any)?.metadata);
+        const resolvedIntent = resolveMediaControlIntent({
+          kind: payload?.kind,
+          action: payload?.action,
+          callMediaMode: storedMode,
+          enabled: payload?.enabled
+        });
+        if (!resolvedIntent.kind || !resolvedIntent.action) {
+          if (ack) ack({ success: false, error: 'Unsupported media control.', code: 'MEDIA_KIND_INVALID' });
+          return;
+        }
 
         const config = await getOrCreateMessengerVoiceConfig();
         const videoFlags = getMessengerVideoPlatformFlags();
-        const mediaMode = normalizeMediaMode((call as any)?.metadata?.mediaMode || 'video');
-        const callAction = kind === 'screen' ? 'screen_share' : kind === 'camera' ? 'toggle_video' : 'mute_self';
-
+        const platform = buildLivePlatformVoiceFlags(config, {
+          maxParticipants: resolveVoiceParticipantLimit(config),
+          videoFlags
+        });
+        platform.videoBlockedUserIds = resolvedIntent.requiresVideoAuth
+          ? await getVideoDisabledUserIds(prisma as any, [fromUserId])
+          : [];
         const convo = await loadConversationForVoice(String(call.conversationId || ''), fromUserId);
-        const auth = authorizeCallAction({
-          action: callAction as any,
-          platform: {
-            enabledVoiceCalls: Boolean(config.enabledVoiceCalls),
-            enabledConferenceCalls: Boolean(config.enabledConferenceCalls),
-            maxParticipants: resolveVoiceParticipantLimit(config),
-            blockedUserIds: Array.isArray(config.blockedUserIds) ? config.blockedUserIds : [],
-            enabledVideoCalls: videoFlags.enabledVideoCalls,
-            enabledScreenSharing: videoFlags.enabledScreenSharing,
-            maxVideoParticipants: videoFlags.maxVideoParticipants
-          },
-          actorUserId: fromUserId,
-          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+        const enabled = resolvedIntent.effectiveEnabled;
+        const actorId = fromUserId;
+
+        // R-02/R-03: same row lock as accept; video caps on toggle_video/screen_share.
+        const mediaResult = await atomicMediaUpgrade(prisma as any, {
+          callId,
+          userId: fromUserId,
+          platform,
           conversationType: String((convo.conversation as any)?.type || ''),
           memberRole: (convo.actorParticipant as any)?.role,
           memberDeletedAt: (convo.actorParticipant as any)?.deletedAt,
           groupPolicy: convo.groupPolicy || resolveGroupCallPolicy({}),
-          isInitiator: String(call.initiatorId || '') === fromUserId,
-          isInvited: true,
-          mediaMode: kind === 'camera' || kind === 'screen' ? 'video' : mediaMode
+          isPlatformAdmin: isAdminRoleValue(resolveSocketRole(socket)),
+          policyAction: resolvedIntent.policyAction,
+          upgradesCallToVideo: resolvedIntent.upgradesCallToVideo,
+          authMediaMode: resolvedIntent.authMediaMode,
+          kind: resolvedIntent.kind,
+          action: resolvedIntent.action,
+          enabled,
+          nextMetadataPatch: (prevMeta) => {
+            const next = { ...prevMeta };
+            if (resolvedIntent.kind === 'screen') {
+              next.screenShare = {
+                active: enabled,
+                presenterId: enabled ? actorId : null,
+                updatedAt: new Date().toISOString()
+              };
+            }
+            if (resolvedIntent.kind === 'camera') {
+              next.camera = {
+                ...(typeof next.camera === 'object' && next.camera ? next.camera : {}),
+                [actorId]: { enabled, updatedAt: new Date().toISOString() }
+              };
+            }
+            return next;
+          }
         });
-        if (!auth.allowed) {
+
+        if (mediaResult.ok === false) {
           if (ack) {
             ack({
               success: false,
-              error: (auth as { error: string }).error,
-              code: (auth as { code: string }).code
+              error: mediaResult.error,
+              code: mediaResult.code
             });
           }
           return;
         }
 
-        const enabled =
-          action === 'stop'
-            ? false
-            : action === 'start'
-              ? true
-              : payload?.enabled === undefined
-                ? true
-                : Boolean(payload.enabled);
-
-        const prevMeta =
-          call.metadata && typeof call.metadata === 'object' ? { ...(call.metadata as any) } : {};
-        if (kind === 'screen') {
-          prevMeta.screenShare = {
-            active: enabled,
-            presenterId: enabled ? fromUserId : null,
-            updatedAt: new Date().toISOString()
-          };
-          try {
-            await (prisma as any).voiceCall.update({
-              where: { id: callId },
-              data: { metadata: prevMeta }
-            });
-          } catch {
-            // non-fatal: still broadcast
-          }
-        }
-
-        const participantIds = Array.isArray(call.participants)
-          ? call.participants.map((entry: any) => String(entry.userId || '')).filter(Boolean)
-          : [];
         const eventPayload = {
           callId,
           userId: fromUserId,
-          kind,
-          action,
+          kind: resolvedIntent.kind,
+          action: resolvedIntent.action,
           enabled,
-          mediaMode: prevMeta.mediaMode || mediaMode,
-          screenShare: prevMeta.screenShare || null,
+          approved: true,
+          mediaMode: mediaResult.mediaMode,
+          mediaModeUpgraded: mediaResult.mediaModeUpgraded,
+          screenShare: (mediaResult.metadata as any)?.screenShare || null,
           emittedAt: new Date().toISOString()
         };
+        // Broadcast only after transaction commits.
         communityNs.to(`call:${callId}`).emit('call:media', eventPayload);
-        emitVoiceEventToUsers(participantIds, 'call:media', eventPayload);
+        emitVoiceEventToUsers(mediaResult.participantIds, 'call:media', eventPayload);
         if (ack) ack({ success: true, data: eventPayload });
       } catch (error: any) {
         console.error('call:media error', error);

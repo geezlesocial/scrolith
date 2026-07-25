@@ -6,6 +6,7 @@ import {
   getUserModerationSummaryController
 } from '../../controllers/accountModeration.controller';
 import { requireAnyPermission, requirePermission } from '../../middleware/rbac.middleware';
+import { extractRequestAuditMeta, writeAdminAuditEvent } from '../../services/adminAudit.service';
 
 const router = express.Router();
 const getPrisma = () => prisma;
@@ -37,6 +38,9 @@ const normalizeKycStatus = (value: unknown) => {
 };
 
 const toResponseUser = (user: any) => {
+  const settings = user?.settings || null;
+  const existingCapabilities = user?.callCapabilities || user?.call_capabilities || {};
+  const { settings: _settings, ...publicUser } = user || {};
   const override = statusOverrides.get(user.id);
   const isActive = user?.isActive ?? user?.is_active ?? true;
   const status =
@@ -51,13 +55,24 @@ const toResponseUser = (user: any) => {
   };
 
   return {
-    ...user,
+    ...publicUser,
     role: normalizeRole(user?.role),
     isActive,
     isVerified: Boolean(user?.isVerified),
     kycStatus: user?.kycStatus ? String(user.kycStatus).toLowerCase() : 'pending',
     status,
     flags,
+    callCapabilities: {
+      videoCallsEnabled:
+        settings?.videoCallsEnabled !== undefined
+          ? settings.videoCallsEnabled !== false
+          : existingCapabilities?.videoCallsEnabled !== false,
+      videoCallsUpdatedAt: settings?.videoCallsUpdatedAt
+        ? new Date(settings.videoCallsUpdatedAt).toISOString()
+        : existingCapabilities?.videoCallsUpdatedAt || null,
+      videoCallsUpdatedById: settings?.videoCallsUpdatedById || existingCapabilities?.videoCallsUpdatedById || null,
+      videoCallsAdminReason: settings?.videoCallsAdminReason || existingCapabilities?.videoCallsAdminReason || null
+    },
     createdAt: user?.createdAt ? new Date(user.createdAt).toISOString() : user?.createdAt,
     updatedAt: user?.updatedAt ? new Date(user.updatedAt).toISOString() : user?.updatedAt
   };
@@ -132,7 +147,15 @@ router.get('/', requireAnyPermission('users.read', 'users.update', 'users.modera
           employerPlanActive: true,
           isActive: true,
           createdAt: true,
-          updatedAt: true
+          updatedAt: true,
+          settings: {
+            select: {
+              videoCallsEnabled: true,
+              videoCallsUpdatedAt: true,
+              videoCallsUpdatedById: true,
+              videoCallsAdminReason: true
+            }
+          }
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -259,7 +282,17 @@ router.put('/:id', requireAnyPermission('users.update', 'users.update_status', '
     if (prismaClient) {
       updated = await prismaClient.user.update({
         where: { id: userId },
-        data: updates
+        data: updates,
+        include: {
+          settings: {
+            select: {
+              videoCallsEnabled: true,
+              videoCallsUpdatedAt: true,
+              videoCallsUpdatedById: true,
+              videoCallsAdminReason: true
+            }
+          }
+        }
       });
       if (isScrolithaTarget) {
         try {
@@ -288,6 +321,114 @@ router.put('/:id', requireAnyPermission('users.update', 'users.update_status', '
     return res.json({ success: true, data: toResponseUser(updated) });
   } catch (error) {
     return res.status(500).json({ success: false, error: 'Failed to update user' });
+  }
+});
+
+router.patch('/:id/call-capabilities', requireAnyPermission('users.update', 'users.moderate'), async (req, res) => {
+  const userId = String(req.params.id || '').trim();
+  const prismaClient = getPrisma();
+  const rawEnabled = req.body?.videoCallsEnabled ?? req.body?.video_calls_enabled;
+  const reason = String(req.body?.reason || req.body?.videoCallsAdminReason || '')
+    .trim()
+    .slice(0, 500);
+
+  if (!userId) {
+    return res.status(400).json({ success: false, error: 'User ID is required' });
+  }
+  if (typeof rawEnabled !== 'boolean') {
+    return res.status(400).json({
+      success: false,
+      error: 'videoCallsEnabled must be a boolean'
+    });
+  }
+
+  try {
+    if (prismaClient) {
+      const target = await prismaClient.user.findUnique({
+        where: { id: userId },
+        select: { id: true }
+      });
+      if (!target) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      const actorId = String((req as any).user?.id || req.body?.adminId || '').trim() || null;
+      await prismaClient.userSettings.upsert({
+        where: { userId },
+        update: {
+          videoCallsEnabled: rawEnabled,
+          videoCallsUpdatedAt: new Date(),
+          videoCallsUpdatedById: actorId,
+          videoCallsAdminReason: reason || null
+        },
+        create: {
+          userId,
+          videoCallsEnabled: rawEnabled,
+          videoCallsUpdatedAt: new Date(),
+          videoCallsUpdatedById: actorId,
+          videoCallsAdminReason: reason || null
+        }
+      });
+
+      void (async () => {
+        try {
+          const meta = await extractRequestAuditMeta(req);
+          await writeAdminAuditEvent({
+            ...meta,
+            moduleKey: 'users',
+            actionKey: rawEnabled ? 'video_calls_enabled' : 'video_calls_disabled',
+            entityType: 'user',
+            entityId: userId,
+            severity: rawEnabled ? 'info' : 'warning',
+            status: 'success',
+            message: rawEnabled
+              ? 'Admin enabled video calling for user account.'
+              : 'Admin disabled video calling for user account.',
+            metadata: {
+              videoCallsEnabled: rawEnabled,
+              reason: reason || null
+            }
+          });
+        } catch {
+          /* best-effort audit */
+        }
+      })();
+
+      const updated = await prismaClient.user.findUnique({
+        where: { id: userId },
+        include: {
+          settings: {
+            select: {
+              videoCallsEnabled: true,
+              videoCallsUpdatedAt: true,
+              videoCallsUpdatedById: true,
+              videoCallsAdminReason: true
+            }
+          }
+        }
+      });
+
+      return res.json({ success: true, data: toResponseUser(updated) });
+    }
+
+    ensureMemoryUser(req);
+    const idx = memoryUsers.findIndex((u) => u.id === userId);
+    if (idx < 0) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    memoryUsers[idx] = {
+      ...memoryUsers[idx],
+      callCapabilities: {
+        videoCallsEnabled: rawEnabled,
+        videoCallsUpdatedAt: new Date().toISOString(),
+        videoCallsUpdatedById: String((req as any).user?.id || req.body?.adminId || '') || null,
+        videoCallsAdminReason: reason || null
+      },
+      updatedAt: new Date().toISOString()
+    };
+    return res.json({ success: true, data: toResponseUser(memoryUsers[idx]) });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: 'Failed to update call capabilities' });
   }
 });
 
