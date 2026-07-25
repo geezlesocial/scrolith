@@ -192,6 +192,12 @@ export interface User {
   followersCount?: number; // camelCase
   followingCount?: number; // camelCase
   profilePhotoFileId?: string; // camelCase
+  callCapabilities?: {
+    videoCallsEnabled?: boolean;
+    videoCallsUpdatedAt?: string | null;
+    videoCallsUpdatedById?: string | null;
+    videoCallsAdminReason?: string | null;
+  };
 
   // Admin meta
   meta?: {

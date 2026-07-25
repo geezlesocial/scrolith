@@ -254,6 +254,12 @@ const normalizeUser = (user: any): User => {
     isActive,
     status,
     flags,
+    callCapabilities: {
+      videoCallsEnabled: user?.callCapabilities?.videoCallsEnabled ?? user?.call_capabilities?.video_calls_enabled ?? true,
+      videoCallsUpdatedAt: user?.callCapabilities?.videoCallsUpdatedAt ?? user?.call_capabilities?.video_calls_updated_at ?? null,
+      videoCallsUpdatedById: user?.callCapabilities?.videoCallsUpdatedById ?? user?.call_capabilities?.video_calls_updated_by_id ?? null,
+      videoCallsAdminReason: user?.callCapabilities?.videoCallsAdminReason ?? user?.call_capabilities?.video_calls_admin_reason ?? null
+    },
     profilePhotoFileId: user?.profilePhotoFileId ?? user?.profile_photo_file_id
   } as User;
 };
@@ -386,6 +392,18 @@ export const AdminService = {
 
   updateUserStatus: async (userId: string, status: any, adminId: string): Promise<void> => {
     await adminPost(`/users/${userId}/status`, { status, adminId });
+  },
+
+  updateUserCallCapabilities: async (
+    userId: string,
+    payload: { videoCallsEnabled: boolean; reason?: string },
+    adminId: string
+  ): Promise<User> => {
+    const data = await adminPatch<User>(`/users/${userId}/call-capabilities`, {
+      ...payload,
+      adminId
+    });
+    return normalizeUser(data);
   },
 
   getUserModerationStatus: async (userId: string): Promise<any> => {

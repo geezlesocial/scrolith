@@ -59,7 +59,8 @@ import {
   Grid3X3,
   BarChart2,
   Layout,
-  RefreshCw
+  RefreshCw,
+  Video
 } from 'lucide-react';
 
 import type { User as UserType, UserRole, GcoinWallet } from '../../types';
@@ -376,6 +377,45 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
     } catch (error) {
       console.error('Failed to update status:', error);
       showNotification('error', 'Status Error', 'Failed to update user status.');
+      loadData();
+    }
+  };
+
+  const handleVideoCallCapabilityUpdate = async (
+    user: Partial<UserType> & { id: string },
+    videoCallsEnabled: boolean
+  ) => {
+    const userLabel = user.name || user.username || user.email || 'this user';
+    const actionLabel = videoCallsEnabled ? 'enable' : 'disable';
+    if (!window.confirm(`Confirm ${actionLabel} video calling for ${userLabel}?`)) return;
+    const reason = window.prompt(
+      videoCallsEnabled
+        ? 'Optional admin reason for enabling video calling:'
+        : 'Admin reason for disabling video calling:',
+      videoCallsEnabled ? 'Restored by admin' : ''
+    );
+    if (reason === null) return;
+
+    try {
+      const updated = await AdminService.updateUserCallCapabilities(
+        user.id,
+        { videoCallsEnabled, reason: reason.trim() || undefined },
+        adminId
+      );
+      setUsers((prev) => prev.map((entry) => (entry.id === user.id ? updated : entry)));
+      setEditingUser((prev) => (prev?.id === user.id ? { ...prev, ...updated } : prev));
+      showNotification(
+        'success',
+        'Video Calls Updated',
+        `Video calling ${videoCallsEnabled ? 'enabled' : 'disabled'} for ${userLabel}.`
+      );
+    } catch (error: any) {
+      console.error('Failed to update video call capability:', error);
+      showNotification(
+        'error',
+        'Video Calls Error',
+        extractAdminError(error, 'Failed to update video calling control.')
+      );
       loadData();
     }
   };
@@ -1191,6 +1231,7 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                   <th className="px-6 py-3">User</th>
                   <th className="px-6 py-3">Role</th>
                   <th className="px-6 py-3">Status</th>
+                  <th className="px-6 py-3">Video Calls</th>
                   <th className="px-6 py-3">Wallet Balance</th>
                   <th className="px-6 py-3">Gcoin Balance</th>
                   <th className="px-6 py-3">Joined</th>
@@ -1265,6 +1306,27 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                            <ShieldX className="w-3 h-3 mr-1" />}
                           {displayStatus}
                         </span>
+                      </td>
+                      <td className="px-6 py-4">
+                        {(() => {
+                          const videoEnabled = u.callCapabilities?.videoCallsEnabled !== false;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => handleVideoCallCapabilityUpdate(u, !videoEnabled)}
+                              className={`inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium transition ${
+                                videoEnabled
+                                  ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                  : 'bg-red-50 text-red-700 hover:bg-red-100'
+                              }`}
+                              title={videoEnabled ? 'Deactivate video calls for this user' : 'Activate video calls for this user'}
+                              data-testid={`admin-user-video-calls-${u.id}`}
+                            >
+                              <Video className="h-3.5 w-3.5" />
+                              {videoEnabled ? 'Enabled' : 'Disabled'}
+                            </button>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex flex-col">
@@ -1739,6 +1801,47 @@ const UsersManagementTab: React.FC<UsersManagementTabProps> = ({
                     <option value="suspended">Suspended</option>
                     <option value="banned">Banned</option>
                   </select>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+                        <Video className="h-4 w-4 text-slate-600" />
+                        Video calling
+                      </div>
+                      <div className="mt-1 text-xs text-gray-600">
+                        Controls whether this account can start, accept, or publish camera/screen video.
+                      </div>
+                    </div>
+                    {(() => {
+                      const videoEnabled = editingUser.callCapabilities?.videoCallsEnabled !== false;
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => handleVideoCallCapabilityUpdate(editingUser as EditableUser & { id: string }, !videoEnabled)}
+                          className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                            videoEnabled
+                              ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                              : 'bg-red-600 text-white hover:bg-red-700'
+                          }`}
+                        >
+                          {videoEnabled ? <Unlock className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+                          {videoEnabled ? 'Video Enabled' : 'Video Disabled'}
+                        </button>
+                      );
+                    })()}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-gray-600 md:grid-cols-2">
+                    <div>
+                      Last changed:{' '}
+                      {editingUser.callCapabilities?.videoCallsUpdatedAt
+                        ? new Date(editingUser.callCapabilities.videoCallsUpdatedAt).toLocaleString()
+                        : 'Never'}
+                    </div>
+                    <div>
+                      Reason: {editingUser.callCapabilities?.videoCallsAdminReason || 'No reason recorded'}
+                    </div>
+                  </div>
                 </div>
                   </>
                 ) : null}

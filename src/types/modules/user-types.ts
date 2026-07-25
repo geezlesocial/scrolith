@@ -63,6 +63,12 @@ export interface User {
   followers_count?: number;
   following_count?: number;
   profile_photo_file_id?: string;
+  callCapabilities?: {
+    videoCallsEnabled?: boolean;
+    videoCallsUpdatedAt?: string | null;
+    videoCallsUpdatedById?: string | null;
+    videoCallsAdminReason?: string | null;
+  };
   
   meta?: {
     last_login?: string;
