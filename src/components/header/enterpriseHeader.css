@@ -358,7 +358,7 @@
 /* Compact desktop: search compresses first; nav stays readable; no overlap */
 @media (min-width: 1024px) and (max-width: 1279px) {
   :root {
-    --scrolith-header-nav-item-w: 3.85rem;
+    --scrolith-header-nav-item-w: 4.75rem;
     --scrolith-header-item-h: 48px;
     --scrolith-header-icon-shell: 1.85rem;
     --scrolith-header-badge-w: 1.25rem;
@@ -378,7 +378,7 @@
 
   .scrolith-header-nav-item {
     padding-inline: 0.28rem;
-    font-size: 0.6875rem;
+    font-size: 0.67rem;
   }
 
   .scrolith-header-nav-track {
