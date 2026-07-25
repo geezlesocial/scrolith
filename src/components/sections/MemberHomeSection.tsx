@@ -4921,7 +4921,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setComposerDraftNotice(null);
       clearComposerDraft(composerDraftKey);
       if (created) {
-        const normalized = normalizePost(created);
+        // Prefer server presentation; fall back to the draft we just submitted so
+        // list responses that omit presentation still show the chosen background immediately.
+        const normalized = normalizePost({
+          ...created,
+          presentation: created?.presentation || presentation || null,
+          textBackground:
+            created?.textBackground ||
+            created?.text_background ||
+            presentation?.background ||
+            null,
+          textColor:
+            created?.textColor || created?.text_color || presentation?.textColor || null,
+          textBackgroundId:
+            created?.textBackgroundId ||
+            created?.text_background_id ||
+            presentation?.themeId ||
+            null
+        });
         setFeedItems((prev) => [normalized, ...prev.filter((item) => String(item.id) !== String(normalized.id))]);
         setCommentCounts((prev) => ({ ...prev, [normalized.id]: 0 }));
       }

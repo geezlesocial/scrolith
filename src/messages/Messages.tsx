@@ -1190,19 +1190,29 @@ const Messages = () => {
       }
       return false;
   };
-  /** /messages should show the viewer's inbox even when role is admin (admin list is global). */
-  const isViewerMemberOfConversation = (convo: Conversation) => {
+  /**
+   * Admin global list includes foreign threads. Keep a conversation when:
+   * - self is an active participant, OR
+   * - participant payload is incomplete (0–1 peers) — common for own DIRECT previews that omit self.
+   * Hide only clearly foreign multi-party rows (2+ participants and self absent).
+   */
+  const isViewerInboxConversation = (convo: Conversation) => {
       const selfId = String(user?.id || '').trim();
       if (!selfId) return true;
-      return (convo.participants || []).some((p: any) => {
-          if (String(p?.id || p?.userId || '').trim() !== selfId) return false;
-          if (p?.deletedAt || p?.deleted_at) return false;
-          return true;
-      });
+      const parts = Array.isArray(convo.participants) ? convo.participants : [];
+      const active = parts.filter((p: any) => !p?.deletedAt && !p?.deleted_at);
+      const hasSelf = active.some(
+          (p: any) => String(p?.id || p?.userId || '').trim() === selfId
+      );
+      if (hasSelf) return true;
+      // Incomplete own-inbox preview (peer-only or empty participants).
+      if (active.length <= 1) return true;
+      // Multi-party without self → foreign admin-list noise.
+      return false;
   };
   const visibleConversations = [...conversationListSource]
       .filter((convo) => !isScrolithaMergeStubConversation(convo))
-      .filter((convo) => isViewerMemberOfConversation(convo))
+      .filter((convo) => isViewerInboxConversation(convo))
       .sort((a, b) => {
           // Official Scrolitha assistant always pins above user conversations.
           // Do NOT treat isPinned as Scrolitha — that renames/sorts normal starred DMs as AI.
@@ -1386,29 +1396,27 @@ const Messages = () => {
           } else if (!cancelled) {
               setGroupPins([]);
           }
-          // Appearance is per-member personal state — skip foreign admin/global threads (404).
-          const isPlatformAdmin = String(user?.role || '')
-              .toLowerCase()
-              .includes('admin');
-          const hasSelfMembership = Boolean(
-              user?.id &&
-                  (activeConvo?.participants || []).some(
-                      (p: any) =>
-                          String(p?.id || p?.userId || '').trim() === String(user.id) &&
-                          !p?.deletedAt &&
-                          !p?.deleted_at
-                  )
-          );
-          const appearanceMember = hasSelfMembership || !isPlatformAdmin;
-          if (appearanceMember) {
+          // Appearance is personal membership state — skip when self is not a participant
+          // (admin global list can surface foreign threads; avoids console 404).
+          const selfId = String(user?.id || '').trim();
+          const parts = Array.isArray(activeConvo?.participants) ? activeConvo!.participants : [];
+          const hasSelfMembership =
+              !selfId ||
+              parts.some(
+                  (p: any) =>
+                      String(p?.id || p?.userId || '').trim() === selfId &&
+                      !p?.deletedAt &&
+                      !p?.deleted_at
+              );
+          if (parts.length > 0 && selfId && !hasSelfMembership) {
+              if (!cancelled) setChatAppearance({ kind: 'none' });
+          } else {
               try {
                   const appearance = await MessagingService.getChatAppearance(activeConvoId);
                   if (!cancelled) setChatAppearance(appearance || { kind: 'none' });
               } catch {
                   if (!cancelled) setChatAppearance({ kind: 'none' });
               }
-          } else if (!cancelled) {
-              setChatAppearance({ kind: 'none' });
           }
       })();
       try {
@@ -2747,12 +2755,9 @@ const Messages = () => {
       const handlePinUpdated = (payload: any) => {
           const convoId = String(payload?.conversationId || payload?.conversation_id || '').trim();
           if (!convoId || convoId !== activeConvoIdRef.current) return;
+          // Pin events only apply to groups; avoid listGroupPins on DIRECT (403).
           if (Array.isArray(payload?.pins)) {
               setGroupPins(payload.pins);
-          } else {
-              void MessagingService.listGroupPins(convoId)
-                  .then((pins) => setGroupPins(Array.isArray(pins) ? pins : []))
-                  .catch(() => null);
           }
           const actorId = String(payload?.actorId || '').trim();
           if (actorId && actorId !== userIdRef.current && payload?.action === 'created') {

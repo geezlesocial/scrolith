@@ -13,7 +13,8 @@ import {
   RefreshCw,
   MoreVertical,
   Pin,
-  Palette
+  Palette,
+  Phone
 } from 'lucide-react';
 import { MessagingService } from '../../services/messaging';
 import {
@@ -26,6 +27,7 @@ import ChatAppearancePanel from './ChatAppearancePanel';
 import type { Message } from '../../types';
 import { useMessages } from '../../context/MessageContext';
 import { useUser } from '../../context/UserContext';
+import { useSocket } from '../../context/SocketContext';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import EnterpriseAvatar from '../common/EnterpriseAvatar';
 import {
@@ -34,6 +36,8 @@ import {
   getConversationDisplayName,
   getMessagePreviewText
 } from '../../services/messagingSurfaces';
+import { VoiceCallProvider, useVoiceCall } from '../../messages/VoiceCallProvider';
+import VoiceCallModal from '../../messages/VoiceCallModal';
 import {
   canDeleteForMe,
   canEditOrUnsendMessage,
@@ -65,7 +69,114 @@ type MessagingChatWindowProps = {
   presentation?: 'dock' | 'fullscreen';
 };
 
-const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
+/** Compact voice-call control for dock / soft-open chrome (same provider as /messages). */
+const DockVoiceCallButton: React.FC<{
+  disabled?: boolean;
+  meId?: string;
+  onError: (message: string) => void;
+}> = ({ disabled, meId, onError }) => {
+  const {
+    open,
+    incoming,
+    statusLabel,
+    muted,
+    speakerOn,
+    addBusy,
+    participantUsers,
+    participants,
+    remoteStreams,
+    startCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+    toggleMute,
+    toggleSpeaker,
+    addParticipant,
+    requestJoin,
+    approveJoinRequest,
+    rejectJoinRequest,
+    cancelJoinRequest,
+    pendingJoinRequests,
+    myJoinRequestStatus
+  } = useVoiceCall();
+
+  return (
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => {
+          void startCall({ conference: false }).catch((error: any) =>
+            onError(error?.message || 'Unable to start voice call.')
+          );
+        }}
+        className="rounded p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:opacity-40"
+        aria-label="Start voice call"
+        title="Start voice call"
+        data-testid="dock-voice-call-btn"
+      >
+        <Phone className="h-4 w-4" />
+      </button>
+      <VoiceCallModal
+        open={open}
+        incoming={incoming}
+        statusLabel={statusLabel}
+        muted={muted}
+        speakerOn={speakerOn}
+        addBusy={addBusy}
+        canAddParticipant={false}
+        participantUsers={participantUsers}
+        participants={participants}
+        meId={meId}
+        remoteStreams={remoteStreams}
+        onClose={() => void endCall().catch(() => undefined)}
+        onAccept={() =>
+          void acceptCall().catch((error: any) =>
+            onError(error?.message || 'Unable to accept voice call.')
+          )
+        }
+        onReject={() =>
+          void rejectCall().catch((error: any) =>
+            onError(error?.message || 'Unable to reject voice call.')
+          )
+        }
+        onEnd={() => void endCall().catch(() => undefined)}
+        onToggleMute={toggleMute}
+        onToggleSpeaker={toggleSpeaker}
+        onAddParticipant={(userId) =>
+          void addParticipant(userId).catch((error: any) =>
+            onError(error?.message || 'Unable to add participant.')
+          )
+        }
+        myJoinRequestStatus={myJoinRequestStatus}
+        pendingJoinRequests={pendingJoinRequests}
+        canModerateJoinRequests={!incoming}
+        onRequestJoin={() =>
+          void requestJoin().catch((error: any) =>
+            onError(error?.message || 'Unable to request join.')
+          )
+        }
+        onCancelJoinRequest={() =>
+          void cancelJoinRequest().catch((error: any) =>
+            onError(error?.message || 'Unable to cancel join request.')
+          )
+        }
+        onApproveJoinRequest={(requestId) =>
+          void approveJoinRequest(requestId).catch((error: any) =>
+            onError(error?.message || 'Unable to approve join request.')
+          )
+        }
+        onRejectJoinRequest={(requestId) =>
+          void rejectJoinRequest(requestId).catch((error: any) =>
+            onError(error?.message || 'Unable to reject join request.')
+          )
+        }
+      />
+    </>
+  );
+};
+
+const MessagingChatWindowInner: React.FC<MessagingChatWindowProps> = ({
   conversationId,
   minimized = false,
   onClose,
@@ -141,6 +252,12 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
       String((conversation as any)?.type || '').toUpperCase() === 'GROUP' ||
       Boolean((conversation as any)?.title && (conversation?.participants?.length || 0) > 2)
   );
+  const isScrolithaConversation = Boolean(
+    (conversation as any)?.isScrolitha ||
+      (conversation as any)?.is_scrolitha ||
+      (other as any)?.isScrolitha ||
+      (other as any)?.is_scrolitha
+  );
   const groupAvatarFileId = String(
     (conversation as any)?.avatarFileId || (conversation as any)?.avatar_file_id || ''
   ).trim();
@@ -157,6 +274,10 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
       }) ||
       String(otherAny?.avatar || otherAny?.avatarUrl || '').trim();
   const isOnline = !isGroupConversation && Boolean(otherAny?.isOnline ?? otherAny?.is_online);
+  const voiceCallsBlocked =
+    Boolean(voiceRuntimeConfig.blockedForCurrentUser) ||
+    !Boolean((voiceRuntimeConfig as any).enabledVoiceCalls ?? true) ||
+    isScrolithaConversation;
 
   useEffect(() => {
     void ensureThreadLoaded(conversationId);
@@ -165,26 +286,45 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      // Pins are group membership APIs — never call on DIRECT/Scrolitha (403 noise).
+      if (isGroupConversation) {
+        try {
+          const pinList = await MessagingService.listGroupPins(conversationId);
+          if (!cancelled) setPins(Array.isArray(pinList) ? pinList : []);
+        } catch {
+          if (!cancelled) setPins([]);
+        }
+      } else if (!cancelled) {
+        setPins([]);
+      }
+
+      // Appearance is personal membership state. Skip when participants are known
+      // and the viewer is not among them (avoids console 404 for foreign rows).
+      const selfId = String(user?.id || '').trim();
+      const parts = Array.isArray(conversation?.participants) ? conversation!.participants : [];
+      const hasSelf =
+        !selfId ||
+        parts.some(
+          (p: any) =>
+            String(p?.id || p?.userId || '').trim() === selfId &&
+            !p?.deletedAt &&
+            !p?.deleted_at
+        );
+      if (parts.length > 0 && selfId && !hasSelf) {
+        if (!cancelled) setAppearance({ kind: 'none' });
+        return;
+      }
       try {
-        const [pinList, app] = await Promise.all([
-          MessagingService.listGroupPins(conversationId).catch(() => []),
-          MessagingService.getChatAppearance(conversationId).catch(() => ({ kind: 'none' }))
-        ]);
-        if (!cancelled) {
-          setPins(Array.isArray(pinList) ? pinList : []);
-          setAppearance(app || { kind: 'none' });
-        }
+        const app = await MessagingService.getChatAppearance(conversationId);
+        if (!cancelled) setAppearance(app || { kind: 'none' });
       } catch {
-        if (!cancelled) {
-          setPins([]);
-          setAppearance({ kind: 'none' });
-        }
+        if (!cancelled) setAppearance({ kind: 'none' });
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [conversationId]);
+  }, [conversationId, isGroupConversation, user?.id, conversation?.participants]);
 
   useEffect(() => {
     if (minimized) {
@@ -458,6 +598,13 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         >
           <Palette className="h-4 w-4" />
         </button>
+        {!isScrolithaConversation ? (
+          <DockVoiceCallButton
+            disabled={!conversationId || voiceCallsBlocked}
+            meId={user?.id}
+            onError={(message) => setSendError(message)}
+          />
+        ) : null}
         <Link
           to={`/messages/${encodeURIComponent(conversationId)}`}
           state={{ softOpen: true, fromHeaderMessages: true }}
@@ -1014,6 +1161,47 @@ const MessagingChatWindow: React.FC<MessagingChatWindowProps> = ({
         }}
       />
     </div>
+  );
+};
+
+/**
+ * Dock/soft-open chat window with a conversation-scoped VoiceCallProvider so
+ * voice call controls work outside the full /messages workspace.
+ */
+const MessagingChatWindow: React.FC<MessagingChatWindowProps> = (props) => {
+  const { user } = useUser();
+  const { socket } = useSocket();
+  const { conversations } = useMessages();
+  const conversation = useMemo(
+    () => conversations.find((entry) => entry.id === props.conversationId) || null,
+    [conversations, props.conversationId]
+  );
+  const participantUsers = useMemo(() => {
+    const selfId = String(user?.id || '').trim();
+    return (conversation?.participants || [])
+      .map((participant: any) => {
+        const id = String(participant?.id || participant?.userId || '').trim();
+        if (!id || id === selfId) return null;
+        const rawName = String(participant?.name || participant?.username || '').trim();
+        return {
+          id,
+          name: rawName || 'Participant',
+          avatar: String(participant?.avatar || '')
+        };
+      })
+      .filter(Boolean) as Array<{ id: string; name: string; avatar?: string }>;
+  }, [conversation?.participants, user?.id]);
+
+  return (
+    <VoiceCallProvider
+      socket={socket}
+      userId={user?.id}
+      conversationId={props.conversationId}
+      participantUsers={participantUsers}
+      callTargets={participantUsers}
+    >
+      <MessagingChatWindowInner {...props} />
+    </VoiceCallProvider>
   );
 };
 
