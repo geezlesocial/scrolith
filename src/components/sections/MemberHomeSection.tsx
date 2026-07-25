@@ -124,6 +124,14 @@ import OptimizedImage from '../media/OptimizedImage';
 import AdVideoPlayer from '../ads/AdVideoPlayer';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostOriginPreview from '../post/PostOriginPreview';
+import PostTextBackgroundBody from '../post/PostTextBackgroundBody';
+import PostTextBackgroundPicker from '../composer/PostTextBackgroundPicker';
+import {
+  buildPostPresentation,
+  POST_TEXT_BG_NONE_ID,
+  resolvePostPresentation,
+  shouldRenderTextBackground
+} from '../../utils/postTextBackgrounds';
 import TranslatablePostText from '../translation/TranslatablePostText';
 import type { MemberHomeHighlightItem, MemberHomeHighlightPill } from '../member-home/MemberHomeHighlightsBoard';
 import StoryUploadStatusCard from '../stories/StoryUploadStatusCard';
@@ -333,6 +341,15 @@ type FeedPost = {
   commentPolicy?: string | null;
   repostsEnabled?: boolean;
   offerTags?: any[];
+  presentation?: {
+    type?: string;
+    themeId?: string;
+    background?: string;
+    textColor?: string;
+  } | null;
+  textBackground?: string | null;
+  textColor?: string | null;
+  textBackgroundId?: string | null;
   originalPost?: {
     id?: string;
     authorName?: string | null;
@@ -427,6 +444,8 @@ type PostDraft = {
   aiInsightPreference: PostAiInsightPreference;
   offerTags: OfferTagSelection[];
   media: PostMediaItem[];
+  /** Facebook-style text background theme id (`none` = default). */
+  textBackgroundId: string;
 };
 
 type DesktopComposerIntent = 'text' | 'photo' | 'video' | 'article';
@@ -524,7 +543,8 @@ const createEmptyPostDraft = (): PostDraft => ({
   isAIEnhanced: false,
   aiInsightPreference: 'auto',
   offerTags: [],
-  media: []
+  media: [],
+  textBackgroundId: 'none'
 });
 
 const stripHtmlToText = (value: string): string =>
@@ -2589,6 +2609,24 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         : dedupeLabels([post.topic || '', ...(tags as string[])]),
       location: post.location || null,
       visibility: post.visibility,
+      presentation: (() => {
+        const resolved = resolvePostPresentation(post);
+        return resolved
+          ? {
+              type: resolved.type,
+              themeId: resolved.themeId,
+              background: resolved.background,
+              textColor: resolved.textColor
+            }
+          : post.presentation || null;
+      })(),
+      textBackground: post.textBackground || post.text_background || resolvePostPresentation(post)?.background || null,
+      textColor: post.textColor || post.text_color || resolvePostPresentation(post)?.textColor || null,
+      textBackgroundId:
+        post.textBackgroundId ||
+        post.text_background_id ||
+        resolvePostPresentation(post)?.themeId ||
+        null,
       commentPolicy: post.commentPolicy || post.comment_policy || 'everyone',
       repostsEnabled: post.repostsEnabled ?? post.reposts_enabled ?? true,
       offerTags: normalizeContentOfferTags(post.offerTags ?? post.offer_tags),
@@ -4843,6 +4881,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     setComposerStatusMessage('Publishing…');
     try {
       const submitLocation = composePostLocationValue(postDraft.location, postDraft.region);
+      const textBackgroundId =
+        attachmentFileIds.length > 0
+          ? POST_TEXT_BG_NONE_ID
+          : postDraft.textBackgroundId || POST_TEXT_BG_NONE_ID;
+      const presentation = buildPostPresentation(textBackgroundId);
       const created = await CommunityService.createPost({
         title: postDraft.title.trim(),
         content: postDraft.content,
@@ -4855,7 +4898,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         graphicWarning: postDraft.graphicWarning,
         isAIEnhanced: postDraft.isAIEnhanced,
         aiInsightEnabled: postAiInsightPreferenceToBoolean(postDraft.aiInsightPreference),
-        offerTags: postDraft.offerTags
+        offerTags: postDraft.offerTags,
+        textBackgroundId: presentation ? presentation.themeId : null,
+        presentation
       });
       // Clear blob previews before wiping draft.
       postDraft.media.forEach((item) => revokeAttachmentPreviews(item));
@@ -7202,7 +7247,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             aiInsightPreference: resolvePostAiInsightPreference(
               saved.aiInsightPreference,
               prev.aiInsightPreference
-            )
+            ),
+            textBackgroundId:
+              typeof saved.textBackgroundId === 'string' && saved.textBackgroundId
+                ? saved.textBackgroundId
+                : prev.textBackgroundId
           }));
           if (saved.authorScopeId) setPostAuthorScopeId(saved.authorScopeId);
           setComposerDraftNotice('Restored your unfinished draft from this session.');
@@ -7234,6 +7283,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       graphicWarning: draft.graphicWarning,
       isAIEnhanced: draft.isAIEnhanced,
       aiInsightPreference: draft.aiInsightPreference,
+      textBackgroundId: draft.textBackgroundId,
       authorScopeId: postAuthorScopeIdRef.current
     });
     setDesktopComposerOpen(false);
@@ -7479,51 +7529,100 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             ) : null}
 
             <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
-              <MentionHashtagTextarea
-                ref={composerInputRef}
-                value={postDraft.content}
-                onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
-                placeholder="What do you want to talk about?"
-                mentionsEnabled={mentionsEnabled}
-                hashtagsEnabled={hashtagsEnabled}
-                className={composerEditor}
-              />
-              <div className="mt-3 space-y-3">
-                <div className="flex flex-wrap gap-2">
-                  {postAiActions.map((action) => (
-                    <button
-                      key={action.mode}
-                      type="button"
-                      onClick={() => void runPostAi(action.mode)}
-                      disabled={aiLoading || posting}
-                      className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              {(() => {
+                const bgTheme = buildPostPresentation(postDraft.textBackgroundId);
+                const textOnlyBackground =
+                  Boolean(bgTheme) &&
+                  !postDraft.media.some((item) => item.id || item.uploading) &&
+                  Boolean(String(postDraft.content || '').trim() || String(postDraft.title || '').trim());
+                return (
+                  <>
+                    <div
+                      className={
+                        textOnlyBackground
+                          ? 'overflow-hidden rounded-2xl px-4 py-8 sm:px-6 sm:py-10'
+                          : ''
+                      }
+                      style={
+                        textOnlyBackground && bgTheme
+                          ? { background: bgTheme.background, color: bgTheme.textColor }
+                          : undefined
+                      }
                     >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
-                    </button>
-                  ))}
-                </div>
-                <AIComposerAssist
-                  value={postDraft.content}
-                  surface="post-member-home"
-                  disabled={posting || aiLoading}
-                  onApplyDraft={(draft, meta) => {
-                    if (meta?.replace === false) {
-                      setPostDraft((prev) => {
-                        const base = String(prev.content || '').trim();
-                        return { ...prev, content: base ? `${base}\n\n${draft}` : draft, isAIEnhanced: true };
-                      });
-                      return;
-                    }
-                    setPostDraft((prev) => ({ ...prev, content: draft, isAIEnhanced: true }));
-                  }}
-                />
-                <p className="text-[11px] text-slate-500">
-                  {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
-                  {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. AI never publishes
-                  without your approval. Drag, drop, or paste photos, videos, and files — previews appear instantly.
-                </p>
-              </div>
+                      <MentionHashtagTextarea
+                        ref={composerInputRef}
+                        value={postDraft.content}
+                        onChange={(nextValue) => setPostDraft((prev) => ({ ...prev, content: nextValue }))}
+                        placeholder="What do you want to talk about?"
+                        mentionsEnabled={mentionsEnabled}
+                        hashtagsEnabled={hashtagsEnabled}
+                        className={
+                          textOnlyBackground
+                            ? `${composerEditor} min-h-[180px] border-0 bg-transparent text-center text-xl font-semibold leading-snug shadow-none sm:min-h-[220px] sm:text-2xl`
+                            : composerEditor
+                        }
+                        style={
+                          textOnlyBackground && bgTheme
+                            ? { color: bgTheme.textColor, caretColor: bgTheme.textColor }
+                            : undefined
+                        }
+                      />
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      <PostTextBackgroundPicker
+                        value={postDraft.textBackgroundId || POST_TEXT_BG_NONE_ID}
+                        disabled={posting || postDraft.media.some((item) => Boolean(item.id || item.uploading))}
+                        onChange={(themeId) =>
+                          setPostDraft((prev) => ({
+                            ...prev,
+                            textBackgroundId: themeId || POST_TEXT_BG_NONE_ID
+                          }))
+                        }
+                      />
+                      {postDraft.media.some((item) => Boolean(item.id || item.uploading)) ? (
+                        <p className="text-[11px] text-slate-500">
+                          Text backgrounds apply to text-only posts. Remove media to enable backgrounds.
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        {postAiActions.map((action) => (
+                          <button
+                            key={action.mode}
+                            type="button"
+                            onClick={() => void runPostAi(action.mode)}
+                            disabled={aiLoading || posting}
+                            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <Sparkles className="h-3.5 w-3.5" />
+                            {aiRunningMode === action.mode && aiLoading ? 'Working...' : action.label}
+                          </button>
+                        ))}
+                      </div>
+                      <AIComposerAssist
+                        value={postDraft.content}
+                        surface="post-member-home"
+                        disabled={posting || aiLoading}
+                        onApplyDraft={(draft, meta) => {
+                          if (meta?.replace === false) {
+                            setPostDraft((prev) => {
+                              const base = String(prev.content || '').trim();
+                              return { ...prev, content: base ? `${base}\n\n${draft}` : draft, isAIEnhanced: true };
+                            });
+                            return;
+                          }
+                          setPostDraft((prev) => ({ ...prev, content: draft, isAIEnhanced: true }));
+                        }}
+                      />
+                      <p className="text-[11px] text-slate-500">
+                        {hashtagsEnabled ? '#tags' : '#tags (disabled by admin)'} and{' '}
+                        {mentionsEnabled ? '@mentions' : '@mentions (disabled by admin)'} supported. No word limit on
+                        post text. Background colors auto-adjust text contrast. AI never publishes without your
+                        approval. Drag, drop, or paste photos, videos, and files — previews appear instantly.
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
 
                   <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
@@ -9707,6 +9806,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                             ) : null}
                             <PostOriginPreview originalPost={post.originalPost} />
                             {postContent || postTitle ? (
+                              shouldRenderTextBackground(post) ? (
+                                <div>
+                                  {postTitle ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => openPostCard(post)}
+                                      className={`mb-2 block w-full text-left transition hover:opacity-90 [overflow-wrap:anywhere] ${postCardType.title}`}
+                                    >
+                                      {postTitle}
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={(event) => openPostFromText(event as any, post)}
+                                    className="block w-full text-left"
+                                  >
+                                    <PostTextBackgroundBody post={post} content={String(postContent || '')} />
+                                  </button>
+                                </div>
+                              ) : (
                               <TranslatablePostText
                                 post={post}
                                 viewerId={user?.id}
@@ -9726,6 +9845,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                   }
                                 }}
                               />
+                              )
                             ) : !post.attachments?.length ? (
                               <button
                                 type="button"

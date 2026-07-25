@@ -301,11 +301,14 @@ const normalizeConversation = (raw: any): Conversation => {
   } as Conversation;
 };
 
-const normalizeList = (raw: any): Conversation[] => {
+const normalizeList = (raw: any, selfUserId?: string): Conversation[] => {
   const list = Array.isArray(raw)
     ? raw
     : safeArray<any>(raw?.conversations ?? raw?.items ?? raw?.data ?? []);
-  return mergeDirectConversations(list.map(normalizeConversation));
+  return mergeDirectConversations(
+    list.map(normalizeConversation),
+    selfUserId || safeString((raw as any)?.viewerUserId || (raw as any)?.userId)
+  );
 };
 
 export type MessageSearchMatchType = 'user' | 'username' | 'message';
@@ -439,7 +442,7 @@ export const MessagingService = {
       })
       .then(response => {
         const data = extractData<any>(response);
-        const normalized = normalizeList(data);
+        const normalized = normalizeList(data, userId);
         if (!updatedSince) {
           conversationCache.set(`${userId}:${role}`, { timestamp: Date.now(), data: normalized });
         }

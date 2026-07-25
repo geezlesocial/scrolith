@@ -414,12 +414,16 @@ const Messages = () => {
                           unread_count: result.unreadCount ?? conversation.unread_count ?? conversation.unreadCount
                       } as Conversation;
                   })
-                  .filter(Boolean) as Conversation[]
+                  .filter(Boolean) as Conversation[],
+              user?.id
           ),
-      [messageSearchResults]
+      [messageSearchResults, user?.id]
   );
 
-  const dedupedConversations = useMemo(() => mergeDirectConversations(conversations), [conversations]);
+  const dedupedConversations = useMemo(
+    () => mergeDirectConversations(conversations, user?.id),
+    [conversations, user?.id]
+  );
 
   const traceClient = (event: string, details?: Record<string, any>) => {
       if (!messagesTraceEnabled) return;
@@ -683,7 +687,7 @@ const Messages = () => {
           const list = await MessagingService.getAllConversations(user.id, user.role, {
               force: !softOpen
           });
-          if (!cancelled) setConversations(mergeDirectConversations(list));
+          if (!cancelled) setConversations(mergeDirectConversations(list, user?.id));
       })().catch(() => undefined);
       return () => {
           cancelled = true;
@@ -1981,20 +1985,21 @@ const Messages = () => {
                   }
                   return conversation;
               });
-              return mergeDirectConversations(next);
+              return mergeDirectConversations(next, userIdRef.current);
           });
           const convoId = activeConvoIdRef.current;
           if (convoId && !options?.silent) {
               const full = await MessagingService.getConversationById(convoId);
               if (full) {
                   setConversations((prev) => {
-                      const mergeKey = getConversationMergeKey(full);
+                      const selfId = userIdRef.current;
+                      const mergeKey = getConversationMergeKey(full, selfId);
                       const without = prev.filter((entry) => {
                           if (entry.id === full.id) return false;
-                          if (mergeKey && getConversationMergeKey(entry) === mergeKey) return false;
+                          if (mergeKey && getConversationMergeKey(entry, selfId) === mergeKey) return false;
                           return true;
                       });
-                      return mergeDirectConversations([{ ...full }, ...without]);
+                      return mergeDirectConversations([{ ...full }, ...without], selfId);
                   });
               }
           }

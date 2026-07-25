@@ -44,6 +44,8 @@ export type MentionHashtagTextareaProps = {
   /** Optional club/community scope for @moderators / @admins ranking. */
   clubId?: string | null;
   onCaretChange?: (caret: number) => void;
+  /** Optional inline styles (e.g. Facebook-style text-background composer). */
+  style?: React.CSSProperties;
 };
 
 const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHashtagTextareaProps>(
@@ -58,7 +60,8 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
       hashtagsEnabled = true,
       minQueryLength = 0,
       clubId = null,
-      onCaretChange
+      onCaretChange,
+      style
     },
     forwardedRef
   ) => {
@@ -292,6 +295,7 @@ const MentionHashtagTextarea = React.forwardRef<HTMLTextAreaElement, MentionHash
           placeholder={placeholder}
           disabled={disabled}
           className={className}
+          style={style}
           role="combobox"
           aria-expanded={isOpen}
           aria-controls={isOpen ? listboxId : undefined}

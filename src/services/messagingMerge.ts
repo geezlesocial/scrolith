@@ -70,9 +70,15 @@ const isActiveParticipant = (participant: any) => {
  * Collect stable participant user ids for DIRECT merge keys.
  * Prefers active participants; falls back to message sender/receiver pair when the
  * participant list is incomplete (e.g. one-sided preview payloads).
+ * Pass selfUserId so single-sided participant lists still form the canonical pair key
+ * (fixes duplicate inbox rows for the same peer account).
  */
-const collectDirectParticipantIds = (conversation: Conversation): string[] => {
+const collectDirectParticipantIds = (
+  conversation: Conversation,
+  selfUserId?: string
+): string[] => {
   if (!conversation || String(conversation.type || '').toLowerCase() !== 'direct') return [];
+  const selfId = safeString(selfUserId);
 
   const fromParticipants = safeArray<any>(conversation.participants)
     .filter(isActiveParticipant)
@@ -106,11 +112,16 @@ const collectDirectParticipantIds = (conversation: Conversation): string[] => {
     });
     const peersFromMessages = Array.from(messagePeerIds).filter((id) => uniqueIds.includes(id));
     if (peersFromMessages.length === 2) return peersFromMessages.sort();
+    // Prefer self + one peer when self is present.
+    if (selfId && uniqueIds.includes(selfId)) {
+      const peer = uniqueIds.find((id) => id !== selfId);
+      if (peer) return [selfId, peer].sort();
+    }
     // Last resort: first two sorted ids keeps key stable across dual rows with same extras.
     return uniqueIds.sort().slice(0, 2);
   }
 
-  // Single participant (other user only) — augment from last message peers.
+  // Single participant (other user only) — augment from last message peers, then self.
   if (uniqueIds.length === 1) {
     const known = uniqueIds[0];
     const messages = safeArray<any>(conversation.messages);
@@ -122,10 +133,21 @@ const collectDirectParticipantIds = (conversation: Conversation): string[] => {
         sender && sender !== known ? sender : receiver && receiver !== known ? receiver : '';
       if (other) return [known, other].sort();
     }
+    // Known is peer → pair with viewer; known is self → try peer fields on conversation.
+    if (selfId && known !== selfId) return [known, selfId].sort();
+    if (selfId && known === selfId) {
+      const peer =
+        safeString((conversation as any)?.peerUserId) ||
+        safeString((conversation as any)?.otherUserId) ||
+        safeString((conversation as any)?.participantUserId) ||
+        safeString((conversation as any)?.peer?.id) ||
+        safeString((conversation as any)?.otherUser?.id);
+      if (peer && peer !== selfId) return [selfId, peer].sort();
+    }
     return uniqueIds;
   }
 
-  // No participants — derive pair purely from messages.
+  // No participants — derive pair purely from messages, then self.
   const messagePeerIds = new Set<string>();
   safeArray<any>(conversation.messages).forEach((message) => {
     const sender = safeString(message?.senderId ?? message?.sender_id);
@@ -135,12 +157,21 @@ const collectDirectParticipantIds = (conversation: Conversation): string[] => {
   });
   const fromMessages = Array.from(messagePeerIds);
   if (fromMessages.length >= 2) return fromMessages.sort().slice(0, 2);
+  if (fromMessages.length === 1 && selfId && fromMessages[0] !== selfId) {
+    return [fromMessages[0], selfId].sort();
+  }
   return fromMessages;
 };
 
-const getConversationParticipantsKey = (conversation: Conversation) => {
-  const uniqueIds = collectDirectParticipantIds(conversation);
+const getConversationParticipantsKey = (conversation: Conversation, selfUserId?: string) => {
+  const uniqueIds = collectDirectParticipantIds(conversation, selfUserId);
   if (uniqueIds.length === 0) return '';
+  // Require a real pair for DIRECT merge keys so incomplete rows don't create phantom buckets.
+  if (uniqueIds.length === 1) {
+    // Still key single-id rows by that id so multiple incomplete rows for same peer can merge,
+    // then self pairing above should upgrade when selfUserId is known.
+    return uniqueIds[0];
+  }
   return uniqueIds.join(':');
 };
 
@@ -150,9 +181,17 @@ const getConversationParticipantsKey = (conversation: Conversation) => {
  * story comment threads that share the same pair) collapse to a single conversation row.
  * Message-level story keys remain available via getMessageMergeKey for realtime matching.
  */
-export const getConversationMergeKey = (conversation: Conversation) => {
-  const participantKey = getConversationParticipantsKey(conversation);
+export const getConversationMergeKey = (conversation: Conversation, selfUserId?: string) => {
+  const participantKey = getConversationParticipantsKey(conversation, selfUserId);
   if (!participantKey) return '';
+  // Normalize single-id keys with self when available so "peer-only" and "self:peer" collide.
+  if (!participantKey.includes(':') && selfUserId) {
+    const selfId = safeString(selfUserId);
+    const peer = participantKey;
+    if (selfId && peer && peer !== selfId) {
+      return `direct:${[peer, selfId].sort().join(':')}`;
+    }
+  }
   return `direct:${participantKey}`;
 };
 
@@ -203,7 +242,7 @@ const isScrolithaConversation = (conversation: Conversation) =>
       )
   );
 
-export const mergeDirectConversations = (list: Conversation[]) => {
+export const mergeDirectConversations = (list: Conversation[], selfUserId?: string) => {
   if (!Array.isArray(list) || list.length === 0) return [];
 
   const directBuckets = new Map<string, Conversation[]>();
@@ -212,7 +251,7 @@ export const mergeDirectConversations = (list: Conversation[]) => {
   list.forEach((conversation) => {
     // Phase 20.7.5: force all Scrolitha DMs into one defensive inbox bucket
     // even if participant keys temporarily diverge during consolidation races.
-    let key = getConversationMergeKey(conversation);
+    let key = getConversationMergeKey(conversation, selfUserId);
     if (isScrolithaConversation(conversation)) {
       key = 'direct:scrolitha-canonical';
     }

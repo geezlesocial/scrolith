@@ -30,6 +30,11 @@ import {
 } from '../../../components/composer/composerAttachments';
 import ComposerMediaPreviewGrid from '../../../components/composer/ComposerMediaPreviewGrid';
 import AIComposerAssist from '../../../components/ai/AIComposerAssist';
+import PostTextBackgroundPicker from '../../../components/composer/PostTextBackgroundPicker';
+import {
+  buildPostPresentation,
+  POST_TEXT_BG_NONE_ID
+} from '../../../utils/postTextBackgrounds';
 
 const postAiActions: Array<{ mode: PostEnhanceMode; label: string }> = [
   { mode: 'grammar', label: 'Improve Grammar' },
@@ -53,6 +58,7 @@ export default function MobilePostScreen({
   const { showNotification } = useNotification();
   const { user } = useUser();
   const [content, setContent] = useState('');
+  const [textBackgroundId, setTextBackgroundId] = useState(POST_TEXT_BG_NONE_ID);
   const [media, setMedia] = useState<ComposerAttachmentPreview[]>([]);
   const mediaRef = useRef(media);
   mediaRef.current = media;
@@ -483,6 +489,8 @@ export default function MobilePostScreen({
         return;
       }
 
+      const presentation =
+        attachmentIds.length > 0 ? null : buildPostPresentation(textBackgroundId);
       const created = await CommunityService.createPost({
         content: content.trim(),
         attachmentFileIds: attachmentIds,
@@ -492,7 +500,9 @@ export default function MobilePostScreen({
         isAIEnhanced,
         aiInsightEnabled: postAiInsightPreferenceToBoolean(aiInsightPreference),
         topic: topic.trim() || undefined,
-        location: place.trim() || undefined
+        location: place.trim() || undefined,
+        textBackgroundId: presentation ? presentation.themeId : null,
+        presentation
       } as any);
 
       window.dispatchEvent(new CustomEvent('community:post_created', { detail: { post: created } }));
@@ -500,6 +510,7 @@ export default function MobilePostScreen({
       media.forEach((item) => revokeAttachmentPreviews(item));
       mediaCountRef.current = 0;
       setContent('');
+      setTextBackgroundId(POST_TEXT_BG_NONE_ID);
       setMedia([]);
       setGraphicWarning(false);
       setIsAIEnhanced(false);
@@ -610,6 +621,25 @@ export default function MobilePostScreen({
             ? 'This setting updates whether Scrolitha keeps AI insight on this post.'
             : 'Automatic preserves your current Scrolitha insight settings for new posts.'}
         </p>
+
+        {!isEditing ? (
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <PostTextBackgroundPicker
+              value={textBackgroundId}
+              disabled={busy || media.some((item) => Boolean(item.id || item.uploading))}
+              onChange={setTextBackgroundId}
+            />
+            {media.some((item) => Boolean(item.id || item.uploading)) ? (
+              <p className="mt-2 text-[11px] text-slate-500">
+                Text backgrounds are available for text-only posts. Remove media to enable.
+              </p>
+            ) : (
+              <p className="mt-2 text-[11px] text-slate-500">
+                No word limit. Text color adjusts automatically with each background.
+              </p>
+            )}
+          </div>
+        ) : null}
 
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           <div>

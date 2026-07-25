@@ -395,7 +395,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // Phase 22.1 — soft refresh isolates new rows; force replace still allowed.
           // Always re-merge DIRECT participant pairs so delta soft-refresh cannot reintroduce
           // a legacy duplicate conversation id that was previously collapsed.
-          let sorted = mergeDirectConversations(incoming);
+          const selfId = String(userIdRef?.current || user?.id || '').trim() || undefined;
+          let sorted = mergeDirectConversations(incoming, selfId);
           if (!options?.force && conversationsRef.current.length > 0 && updatedSince) {
             const isolated = isolateInboxSoftRefresh(conversationsRef.current, incoming);
             // Auto-apply pending for messaging (unlike feed) so users see new DMs,
@@ -403,7 +404,8 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             sorted = mergeDirectConversations(
               sortConversationsByRecent(
                 applyPendingInboxItems(isolated.sessionItems, isolated.pendingNewItems)
-              )
+              ),
+              selfId
             );
           }
           setConversations(sorted);
@@ -655,13 +657,17 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }));
           if (full) {
             setConversations((prev) => {
-              const mergeKey = getConversationMergeKey(full);
+              const selfId = userIdRef.current;
+              const mergeKey = getConversationMergeKey(full, selfId);
               const without = prev.filter((entry) => {
                 if (entry.id === full.id) return false;
-                if (mergeKey && getConversationMergeKey(entry) === mergeKey) return false;
+                if (mergeKey && getConversationMergeKey(entry, selfId) === mergeKey) return false;
                 return true;
               });
-              return mergeDirectConversations(sortConversationsByRecent([full, ...without]));
+              return mergeDirectConversations(
+                sortConversationsByRecent([full, ...without]),
+                selfId
+              );
             });
           }
         } catch (e: any) {
@@ -1593,15 +1599,17 @@ export const MessageProvider: React.FC<{ children: React.ReactNode }> = ({ child
             .then((full) => {
               if (!full) return;
               setConversations((current) => {
-                const mergeKey = getConversationMergeKey(full);
+                const selfId = userIdRef.current;
+                const mergeKey = getConversationMergeKey(full, selfId);
                 const without = current.filter((entry) => {
                   if (entry.id === full.id) return false;
-                  if (mergeKey && getConversationMergeKey(entry) === mergeKey) return false;
+                  if (mergeKey && getConversationMergeKey(entry, selfId) === mergeKey) return false;
                   return true;
                 });
                 // Prefer server unread for newly discovered conversations to avoid local double-count.
                 const next = mergeDirectConversations(
-                  sortConversationsByRecent([full, ...without])
+                  sortConversationsByRecent([full, ...without]),
+                  selfId
                 );
                 recomputeUnread(next);
                 return next;

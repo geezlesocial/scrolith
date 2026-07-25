@@ -1180,6 +1180,14 @@ class CommunityService {
     isAIEnhanced?: boolean;
     aiInsightEnabled?: boolean;
     offerTags?: Array<{ offerType: 'user_gig' | 'business_package'; offerId: string }>;
+    /** Facebook-style text background theme id (or presentation object). */
+    textBackgroundId?: string | null;
+    presentation?: {
+      type?: string;
+      themeId?: string;
+      background?: string;
+      textColor?: string;
+    } | null;
   }): Promise<any> {
     const attachmentFileIds = Array.from(
       new Set([...(data.attachmentFileIds || []), ...(data.attachments || [])].filter(Boolean))
@@ -1202,7 +1210,14 @@ class CommunityService {
       commentPolicy: data.commentPolicy,
       isAIEnhanced: data.isAIEnhanced === true,
       aiInsightEnabled: typeof data.aiInsightEnabled === 'boolean' ? data.aiInsightEnabled : undefined,
-      offerTags: Array.isArray(data.offerTags) ? data.offerTags : []
+      offerTags: Array.isArray(data.offerTags) ? data.offerTags : [],
+      textBackgroundId:
+        data.textBackgroundId === undefined
+          ? undefined
+          : data.textBackgroundId === null || data.textBackgroundId === 'none'
+            ? null
+            : data.textBackgroundId,
+      presentation: data.presentation === undefined ? undefined : data.presentation
     };
     const response = await this.post('/community/posts', payload);
     return response;
