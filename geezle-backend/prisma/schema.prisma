@@ -4378,6 +4378,8 @@ model CommunityPost {
   attachments                    String[]  @default([])
   attachmentCaptions             Json?
   offerTags                      Json?
+  /// Facebook-style text post presentation (background + auto text color). Null = default post.
+  presentation                   Json?
   tags                           String[]  @default([])
   mentions                       String[]  @default([])
   topic                          String?

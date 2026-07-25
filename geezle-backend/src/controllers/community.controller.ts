@@ -59,6 +59,10 @@ import {
   translateCommunityPostForLocale,
   upsertCommunityPostLanguageMetadata
 } from '../services/contentTranslation.service';
+import {
+  normalizePostPresentationInput,
+  serializePostPresentation
+} from '../utils/postPresentation';
 
 // Safe helper to retrieve the `io` instance from `req.app` without broad `as any` casts
 const getAppIo = (req: Request) => {
@@ -1845,6 +1849,7 @@ export const postRepost = async (req: Request, res: Response) => {
           title: wrapperPost.title,
           content: wrapperPost.content,
           ...buildPostTranslationMetadata(wrapperPost),
+          ...serializePostPresentation(wrapperPost),
           attachmentFileIds: wrapperAttachmentIds,
           attachments: await resolveAttachments(wrapperAttachmentIds),
           tags: wrapperPost.tags || [],
@@ -2209,6 +2214,7 @@ export const getPosts = async (req: Request, res: Response) => {
         title: post.title,
         content: post.content,
         ...buildPostTranslationMetadata(post),
+        ...serializePostPresentation(post),
         attachmentFileIds: post.attachments || [],
         attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
         attachmentCaptions:
@@ -2482,6 +2488,7 @@ export const getFeed = async (req: Request, res: Response) => {
         title: post.title,
         content: post.content,
         ...buildPostTranslationMetadata(post),
+        ...serializePostPresentation(post),
         attachmentFileIds: post.attachments || [],
         attachments: mapAttachmentIds(post.attachments || [], attachmentMap),
         attachmentCaptions:
@@ -2804,6 +2811,7 @@ export const getPostById = async (req: Request, res: Response) => {
       title: post.title,
       content: post.content,
       ...buildPostTranslationMetadata(post),
+      ...serializePostPresentation(post),
       attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
       attachmentCaptions:
@@ -3071,6 +3079,7 @@ export const getCommunityPostsByTag = async (req: Request, res: Response) => {
           title: post.title,
           content: post.content,
           ...buildPostTranslationMetadata(post),
+          ...serializePostPresentation(post),
           attachmentFileIds: post.attachments || [],
           attachments: await resolveAttachments(post.attachments || []),
           attachmentCaptions:
@@ -3316,6 +3325,11 @@ export const createPost = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Add text or at least one attachment' });
     }
 
+    // No hard word/character cap on post body — Text column supports long-form posts.
+    const presentationNormalized = normalizePostPresentationInput(req.body, {
+      hasAttachments: normalizedAttachmentIds.length > 0
+    });
+
     const post = await prisma.communityPost.create({
       data: {
         authorId: userId,
@@ -3324,6 +3338,9 @@ export const createPost = async (req: Request, res: Response) => {
         attachments: normalizedAttachmentIds,
         attachmentCaptions: normalizedAttachmentCaptions,
         offerTags: normalizedOfferTags.length ? normalizedOfferTags : null,
+        ...(presentationNormalized !== undefined
+          ? { presentation: presentationNormalized }
+          : {}),
         tags: normalizedTags,
         mentions: normalizedMentionUserIds,
         topic: topic || null,
@@ -3453,6 +3470,7 @@ export const createPost = async (req: Request, res: Response) => {
       title: post.title,
       content: post.content,
       ...buildPostTranslationMetadata(post),
+      ...serializePostPresentation(post),
       attachmentFileIds: post.attachments || [],
       attachments: await resolveAttachments(post.attachments || []),
       attachmentCaptions:
@@ -3766,6 +3784,17 @@ export const updatePost = async (req: Request, res: Response) => {
     } else if (attachmentCaptions !== undefined) {
       updateData.attachmentCaptions = normalizeAttachmentCaptions(attachmentCaptions, post.attachments || []);
     }
+    const nextAttachmentCount = Array.isArray(updateData.attachments)
+      ? updateData.attachments.length
+      : Array.isArray(post.attachments)
+        ? post.attachments.length
+        : 0;
+    const presentationUpdate = normalizePostPresentationInput(req.body, {
+      hasAttachments: nextAttachmentCount > 0
+    });
+    if (presentationUpdate !== undefined) {
+      updateData.presentation = presentationUpdate;
+    }
     const nextContent =
       updateData.content !== undefined ? String(updateData.content || '') : String(post.content || '');
     const aiRelevantContentChanged = updateData.title !== undefined || updateData.content !== undefined;
@@ -4002,6 +4031,7 @@ export const updatePost = async (req: Request, res: Response) => {
       title: updated.title,
       content: updated.content,
       ...buildPostTranslationMetadata(updated),
+      ...serializePostPresentation(updated),
       attachmentFileIds: updated.attachments || [],
       attachments: await resolveAttachments(updated.attachments || []),
       attachmentCaptions:
