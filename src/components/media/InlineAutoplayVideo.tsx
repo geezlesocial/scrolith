@@ -77,9 +77,13 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   const isInViewRef = useRef(isInView);
   const internalPauseUntilRef = useRef(0);
   const isMuted = muted ?? internalMuted;
+  const fallbackSourcesKey = useMemo(
+    () => (fallbackSources || []).map((value) => String(value || '').trim()).filter(Boolean).join('\n'),
+    [fallbackSources]
+  );
   const sourceCandidates = useMemo(() => {
     const seen = new Set<string>();
-    return [src, fallbackSrc, ...(fallbackSources || [])]
+    return [src, fallbackSrc, ...fallbackSourcesKey.split('\n')]
       .map((value) => String(value || '').trim())
       .filter(Boolean)
       .filter((value) => {
@@ -87,7 +91,8 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
         seen.add(value);
         return true;
       });
-  }, [fallbackSrc, fallbackSources, src]);
+  }, [fallbackSrc, fallbackSourcesKey, src]);
+  const sourceCandidatesKey = useMemo(() => sourceCandidates.join('\n'), [sourceCandidates]);
   const activeSrc = sourceCandidates[activeSourceIndex] || sourceCandidates[0] || '';
   // Cache-bust only http(s) URLs after an explicit retry. Never rewrite blob:/data: previews
   // (composer local ObjectURLs break if we append ?_r=…).
@@ -164,7 +169,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     setActiveSourceIndex(0);
     setIsLoadingVideo(Boolean(sourceCandidates[0] || src));
     if (eagerLoad) setShouldLoadSource(Boolean(src));
-  }, [eagerLoad, sourceCandidates, src, reloadToken]);
+  }, [eagerLoad, sourceCandidatesKey, src]);
 
   useEffect(() => {
     if (eagerLoad && src) setShouldLoadSource(true);
