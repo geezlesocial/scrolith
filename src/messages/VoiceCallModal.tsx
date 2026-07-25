@@ -78,6 +78,37 @@ const AttachStreamVideo: React.FC<{
   );
 };
 
+/** Required for voice-only (and as backup for video) — remote tracks never play without a media element. */
+const RemoteStreamAudioSinks: React.FC<{
+  remoteStreams: Record<string, MediaStream>;
+  speakerOn?: boolean;
+}> = ({ remoteStreams, speakerOn = true }) => {
+  const entries = Object.entries(remoteStreams || {}).filter(([, stream]) => Boolean(stream));
+  return (
+    <>
+      {entries.map(([userId, stream]) => (
+        <RemoteAudio key={userId} stream={stream} speakerOn={speakerOn} />
+      ))}
+    </>
+  );
+};
+
+const RemoteAudio: React.FC<{ stream: MediaStream; speakerOn: boolean }> = ({ stream, speakerOn }) => {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.srcObject = stream;
+    el.muted = !speakerOn;
+    el.volume = speakerOn ? 1 : 0;
+    void el.play().catch(() => undefined);
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream, speakerOn]);
+  return <audio ref={ref} autoPlay playsInline className="hidden" aria-hidden />;
+};
+
 const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   open,
   title = 'Voice call',
@@ -194,6 +225,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
         </div>
       }
     >
+        {/* Always attach remote audio sinks — voice-only previously never played remote media. */}
+        <RemoteStreamAudioSinks remoteStreams={remoteStreams} speakerOn={speakerOn} />
         {isVideo ? (
           <div className="mb-3 grid gap-2 sm:grid-cols-2">
             <div className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video">
@@ -213,7 +246,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                   key={userId}
                   className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video"
                 >
-                  <AttachStreamVideo stream={stream} className="h-full w-full object-cover" />
+                  <AttachStreamVideo stream={stream} muted={!speakerOn} className="h-full w-full object-cover" />
                   <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
                     {participantUsers.find((u) => u.id === userId)?.name || 'Participant'}
                   </span>
@@ -227,7 +260,13 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
               </div>
             )}
           </div>
-        ) : null}
+        ) : (
+          <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            {remoteEntries.length
+              ? `Connected to ${remoteEntries.length} remote stream${remoteEntries.length === 1 ? '' : 's'}.`
+              : statusLabel || 'Connecting media…'}
+          </div>
+        )}
         {myJoinRequestStatus === 'pending' || myJoinRequestStatus === 'required' ? (
           <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             {myJoinRequestStatus === 'required'

@@ -166,6 +166,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
   const localStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const offeredPeersRef = useRef<Set<string>>(new Set());
   const callIdRef = useRef<string>('');
   const conversationIdRef = useRef<string>('');
   const userIdRef = useRef<string>('');
@@ -262,6 +263,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     setParticipants([]);
     setMuted(false);
     permissionNoticeShownRef.current = false;
+    offeredPeersRef.current.clear();
+    pendingCandidatesRef.current.clear();
     clearPeers();
     clearLocalStream();
   }, [clearLocalStream, clearPeers, clearResetTimer, stopRingingAlert]);
@@ -361,13 +364,45 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   /** @deprecated Prefer ensureLocalMedia — kept for internal call sites. */
   const ensureLocalAudio = useCallback(async () => ensureLocalMedia(false), [ensureLocalMedia]);
 
+  /** Serialize WebRTC objects for Socket.IO (RTCIceCandidate/RTCSessionDescription are not plain JSON). */
+  const toPlainSignal = useCallback((signal: any) => {
+    if (!signal || typeof signal !== 'object') return signal;
+    const type = String(signal.type || '').toLowerCase();
+    if (type === 'offer' || type === 'answer' || type === 'pranswer') {
+      const sdpValue = signal.sdp;
+      // Accept nested RTCSessionDescriptionInit or string sdp.
+      if (sdpValue && typeof sdpValue === 'object') {
+        return {
+          type: String(sdpValue.type || type),
+          sdp: String(sdpValue.sdp || '')
+        };
+      }
+      return { type, sdp: String(sdpValue || '') };
+    }
+    if (type === 'candidate' || signal.candidate) {
+      const candidate = signal.candidate ?? signal;
+      const plain =
+        candidate && typeof candidate.toJSON === 'function'
+          ? candidate.toJSON()
+          : {
+              candidate: String(candidate?.candidate || ''),
+              sdpMid: candidate?.sdpMid ?? null,
+              sdpMLineIndex: candidate?.sdpMLineIndex ?? null,
+              usernameFragment: candidate?.usernameFragment ?? undefined
+            };
+      return { type: 'candidate', candidate: plain };
+    }
+    return signal;
+  }, []);
+
   const sendSignal = useCallback(
     async (toUserId: string, signal: any) => {
       const callId = callIdRef.current;
       if (!callId || !toUserId) return;
-      await emitWithAck(socket, 'call:signal', { callId, toUserId, signal });
+      const plain = toPlainSignal(signal);
+      await emitWithAck(socket, 'call:signal', { callId, toUserId, signal: plain });
     },
-    [socket]
+    [socket, toPlainSignal]
   );
 
   const createPeerConnection = useCallback(
@@ -403,7 +438,19 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
       peer.onicecandidate = (event) => {
         if (!event.candidate) return;
-        void sendSignal(remoteUserId, { type: 'candidate', candidate: event.candidate });
+        // Always plain-object candidate — raw RTCIceCandidate drops fields over Socket.IO.
+        void sendSignal(remoteUserId, {
+          type: 'candidate',
+          candidate:
+            typeof event.candidate.toJSON === 'function'
+              ? event.candidate.toJSON()
+              : {
+                  candidate: event.candidate.candidate,
+                  sdpMid: event.candidate.sdpMid,
+                  sdpMLineIndex: event.candidate.sdpMLineIndex,
+                  usernameFragment: event.candidate.usernameFragment
+                }
+        });
       };
 
       peer.onconnectionstatechange = () => {
@@ -476,17 +523,27 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const createOfferForUser = useCallback(
     async (remoteUserId: string) => {
       if (!remoteUserId || remoteUserId === userIdRef.current) return;
+      // Avoid double offers when both call-room and user-room join events fire.
+      if (offeredPeersRef.current.has(remoteUserId)) return;
+      offeredPeersRef.current.add(remoteUserId);
       try {
         const peer = await createPeerConnection(remoteUserId);
-        if (!peer) return;
+        if (!peer) {
+          offeredPeersRef.current.delete(remoteUserId);
+          return;
+        }
         const wantVideo = mediaModeRef.current === 'video';
         const offer = await peer.createOffer({
           offerToReceiveAudio: true,
           offerToReceiveVideo: wantVideo
         });
         await peer.setLocalDescription(offer);
-        await sendSignal(remoteUserId, { type: 'offer', sdp: offer });
+        await sendSignal(remoteUserId, {
+          type: 'offer',
+          sdp: { type: offer.type, sdp: offer.sdp }
+        });
       } catch (error: any) {
+        offeredPeersRef.current.delete(remoteUserId);
         setCallState((prev) => (prev ? { ...prev, status: 'failed' } : prev));
         emitVoiceLifecycleEvent('failed', {
           callId: callIdRef.current,
@@ -510,8 +567,33 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (!peer) return;
 
       const signalType = String(signal?.type || '').toLowerCase();
-      if (signalType === 'offer' && signal?.sdp) {
-        await peer.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+      const resolveDescriptionInit = (raw: any): RTCSessionDescriptionInit | null => {
+        if (!raw) return null;
+        if (typeof raw === 'string') {
+          return { type: signalType as RTCSdpType, sdp: raw };
+        }
+        if (typeof raw === 'object') {
+          // Nested { type, sdp } or already flat
+          if (typeof raw.sdp === 'string') {
+            return {
+              type: (String(raw.type || signalType) as RTCSdpType) || (signalType as RTCSdpType),
+              sdp: raw.sdp
+            };
+          }
+          if (raw.sdp && typeof raw.sdp === 'object' && typeof raw.sdp.sdp === 'string') {
+            return {
+              type: (String(raw.sdp.type || raw.type || signalType) as RTCSdpType),
+              sdp: String(raw.sdp.sdp)
+            };
+          }
+        }
+        return null;
+      };
+
+      if (signalType === 'offer') {
+        const desc = resolveDescriptionInit(signal.sdp ?? signal);
+        if (!desc?.sdp) return;
+        await peer.setRemoteDescription(new RTCSessionDescription(desc));
         // Flush queued ICE candidates after remote description is set.
         const queued = pendingCandidatesRef.current.get(fromUserId) || [];
         for (const candidate of queued) {
@@ -524,9 +606,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         pendingCandidatesRef.current.delete(fromUserId);
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
-        await sendSignal(fromUserId, { type: 'answer', sdp: answer });
-      } else if (signalType === 'answer' && signal?.sdp) {
-        await peer.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        await sendSignal(fromUserId, {
+          type: 'answer',
+          sdp: { type: answer.type, sdp: answer.sdp }
+        });
+      } else if (signalType === 'answer' || signalType === 'pranswer') {
+        const desc = resolveDescriptionInit(signal.sdp ?? signal);
+        if (!desc?.sdp) return;
+        await peer.setRemoteDescription(new RTCSessionDescription(desc));
         const queued = pendingCandidatesRef.current.get(fromUserId) || [];
         for (const candidate of queued) {
           try {
@@ -538,12 +625,16 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         pendingCandidatesRef.current.delete(fromUserId);
       } else if (signalType === 'candidate' && signal?.candidate) {
         try {
+          const candInit =
+            typeof signal.candidate === 'object'
+              ? signal.candidate
+              : { candidate: String(signal.candidate || '') };
           if (!peer.remoteDescription) {
             const queue = pendingCandidatesRef.current.get(fromUserId) || [];
-            queue.push(signal.candidate);
+            queue.push(candInit);
             pendingCandidatesRef.current.set(fromUserId, queue);
           } else {
-            await peer.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            await peer.addIceCandidate(new RTCIceCandidate(candInit));
           }
         } catch {
           // candidate race; ignore
@@ -726,6 +817,10 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       ensureParticipantEntry(joinedUserId, 'joined');
       setCallState((prev) => (prev ? { ...prev, status: 'active' } : prev));
       stopRingingAlert();
+      // Backup for call-room delivery: user-room messenger:call_joined also triggers offer.
+      if (joinedUserId !== userIdRef.current) {
+        void createOfferForUser(joinedUserId);
+      }
     };
 
     const onLifecycleMissed = (payload: any) => {
