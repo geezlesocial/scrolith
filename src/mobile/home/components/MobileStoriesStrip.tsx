@@ -101,6 +101,7 @@ const resolveStoryMediaUrl = (story: any) => {
   return {
     isVideo: media.kind === 'video',
     url: media.src || null,
+    fallbackUrl: media.fallbackSrc || null,
     thumbnailUrl: media.poster || null
   };
 };
@@ -294,6 +295,7 @@ const resolveScrollMedia = (scroll: ScrollVideo) => {
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
   return {
     url: media.src || '',
+    fallbackUrl: media.fallbackSrc || '',
     poster: media.poster || undefined
   };
 };
@@ -1532,6 +1534,7 @@ export default function MobileStoriesStrip({
                         media.isVideo ? (
                           <InlineAutoplayVideo
                             src={media.url}
+                            fallbackSrc={media.fallbackUrl}
                             poster={media.thumbnailUrl}
                             className="pointer-events-none h-full w-full object-cover"
                             containerClassName="pointer-events-none h-full w-full"
@@ -1680,6 +1683,7 @@ export default function MobileStoriesStrip({
                       {media.url ? (
                         <InlineAutoplayVideo
                           src={media.url}
+                          fallbackSrc={media.fallbackUrl}
                           poster={media.poster}
                           className="pointer-events-none h-full w-full object-cover"
                           containerClassName="pointer-events-none h-full w-full"
@@ -2524,6 +2528,7 @@ function StoryViewer({
               <InlineAutoplayVideo
                 key={String(story?.id || media.url || '')}
                 src={media.url}
+                fallbackSrc={media.fallbackUrl}
                 poster={media.thumbnailUrl}
                 className="h-full w-full object-cover"
                 containerClassName="h-full w-full"

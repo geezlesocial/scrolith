@@ -186,9 +186,21 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const [bufferHealth, setBufferHealth] = useState(0);
   const [mediaError, setMediaError] = useState(false);
   const [mediaReloadToken, setMediaReloadToken] = useState(0);
+  const [activeMediaSourceIndex, setActiveMediaSourceIndex] = useState(0);
   const [interestSignal, setInterestSignal] = useState<string | null>(scroll.viewer?.feedbackSignal || null);
   const media = resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
-  const mediaUrl = media.src;
+  const mediaSourceCandidates = useMemo(() => {
+    const seen = new Set<string>();
+    return [media.src, media.fallbackSrc]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean)
+      .filter((value) => {
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+  }, [media.fallbackSrc, media.src]);
+  const mediaUrl = mediaSourceCandidates[activeMediaSourceIndex] || mediaSourceCandidates[0] || '';
   const playbackSrc = (() => {
     const raw = String(mediaUrl || '').trim();
     if (!raw) return '';
@@ -204,7 +216,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   useEffect(() => {
     setMediaError(false);
     setMediaReloadToken(0);
-  }, [mediaUrl, scroll.id]);
+    setActiveMediaSourceIndex(0);
+  }, [media.fallbackSrc, media.src, scroll.id]);
   const preloadMode = resolveScrollPreloadMode({
     isActive,
     isNeighbor,
@@ -850,13 +863,21 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               onPause={handlePause}
               onPlay={handlePlay}
               onSeeked={handleSeeked}
-              onError={() => setMediaError(true)}
+              onError={() => {
+                if (activeMediaSourceIndex + 1 < mediaSourceCandidates.length) {
+                  setActiveMediaSourceIndex((index) => index + 1);
+                  setMediaError(false);
+                  return;
+                }
+                setMediaError(true);
+              }}
               poster={safePoster}
               onContextMenu={(event) => event.preventDefault()}
               onClick={(event) => {
                 event.stopPropagation();
                 if (mediaError) {
                   setMediaError(false);
+                  setActiveMediaSourceIndex(0);
                   setMediaReloadToken((token) => token + 1);
                   return;
                 }
@@ -878,6 +899,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
                     event.preventDefault();
                     event.stopPropagation();
                     setMediaError(false);
+                    setActiveMediaSourceIndex(0);
                     setMediaReloadToken((token) => token + 1);
                   }}
                   className="rounded-full bg-white px-4 py-2 text-xs font-semibold text-slate-900"

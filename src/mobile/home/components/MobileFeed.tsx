@@ -38,7 +38,11 @@ import {
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY } from '../../../utils/inlineMedia';
 import { resolveAssetUrl } from '../../../utils/assetUrl';
 import { normalizeContentOfferTags } from '../../../utils/contentOffers';
-import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../../utils/postAttachmentMedia';
+import {
+  resolvePostAttachmentMediaPair,
+  resolvePostAttachmentMediaUrl,
+  resolvePostAttachmentPosterUrl
+} from '../../../utils/postAttachmentMedia';
 import {
   buildPostVideoScrollViewerPath,
   stashPendingPostVideoScrollViewerSource,
@@ -3338,6 +3342,10 @@ export default function MobileFeed({
                       <div className={shouldBlurMedia ? 'pointer-events-none blur-sm' : ''}>
                         {attachments.slice(0, 3).map((file: any) => {
                           const mediaKey = String(file.id || file.url || '');
+                          const mediaPair = resolvePostAttachmentMediaPair(file);
+                          const mediaUrl = mediaPair.url || resolvePostAttachmentMediaUrl(file);
+                          const fallbackUrl = mediaPair.fallbackUrl || '';
+                          const posterUrl = resolvePostAttachmentPosterUrl(file);
                           return (
                             <div
                               key={`${postId}_att_${file.id || file.url}`}
@@ -3365,8 +3373,9 @@ export default function MobileFeed({
                                   }}
                                 >
                                   <InlineAutoplayVideo
-                                    src={resolvePostAttachmentMediaUrl(file)}
-                                    poster={resolvePostAttachmentPosterUrl(file)}
+                                    src={mediaUrl}
+                                    fallbackSrc={fallbackUrl}
+                                    poster={posterUrl}
                                     className="h-[22rem] w-full object-cover sm:h-[26rem] md:h-[30rem]"
                                     controls={false}
                                     autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
@@ -3382,8 +3391,8 @@ export default function MobileFeed({
                                         media={{
                                           id: file?.id,
                                           fileId: file?.fileId || file?.file_id || file?.file?.id || file?.asset?.id || file?.id || null,
-                                          url: resolvePostAttachmentMediaUrl(file),
-                                          thumbnailUrl: resolvePostAttachmentPosterUrl(file),
+                                          url: mediaUrl,
+                                          thumbnailUrl: posterUrl,
                                           name: file?.name || file?.originalName || file?.filename,
                                           mimeType: file?.mimeType || file?.mime_type
                                         }}

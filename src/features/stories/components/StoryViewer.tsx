@@ -45,6 +45,7 @@ const resolveStoryMedia = (story: any) => {
   return {
     isVideo: media.kind === 'video',
     url: media.src || null,
+    fallbackUrl: media.fallbackSrc || null,
     thumbnailUrl: media.poster || null
   };
 };
@@ -806,6 +807,7 @@ export default function StoryViewer({
               <InlineAutoplayVideo
                 key={String(story?.id || media.url || '')}
                 src={media.url}
+                fallbackSrc={media.fallbackUrl}
                 poster={media.thumbnailUrl}
                 className="h-full w-full object-contain"
                 containerClassName="mx-auto h-full w-full max-w-[720px]"

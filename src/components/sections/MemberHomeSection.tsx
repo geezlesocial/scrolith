@@ -105,7 +105,11 @@ import {
 import { Phase2Service } from '../../services/phase2';
 import { MemberFeedService } from '../../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../../utils/inlineMedia';
-import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../../utils/postAttachmentMedia';
+import {
+  resolvePostAttachmentMediaPair,
+  resolvePostAttachmentMediaUrl,
+  resolvePostAttachmentPosterUrl
+} from '../../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
@@ -949,12 +953,14 @@ const resolveReelMedia = (scroll: ScrollVideo) => {
   const inline = resolveInlineMedia(media, { typeHint: 'video' });
   if (inline.src) return inline;
   // Fall back through attachment resolver for nested file/asset payloads.
-  const src = resolvePostAttachmentMediaUrl(media);
+  const mediaPair = resolvePostAttachmentMediaPair(media);
+  const src = mediaPair.url || resolvePostAttachmentMediaUrl(media);
   const poster = resolvePostAttachmentPosterUrl(media);
   return {
     kind: (src ? 'video' : 'unknown') as 'video' | 'image' | 'document' | 'unknown',
     src: src || '',
-    poster: poster || undefined
+    poster: poster || undefined,
+    fallbackSrc: mediaPair.fallbackUrl || undefined
   };
 };
 
@@ -7144,7 +7150,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           {attachments.map((media) => {
             const type = inferMediaType(media || {});
             const mediaKey = String(media.id || media.url || '');
-            const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || (media as any)?.url || '').trim();
+            const mediaPair = resolvePostAttachmentMediaPair(media);
+            const mediaUrl = String(mediaPair.url || resolvePostAttachmentMediaUrl(media) || (media as any)?.url || '').trim();
+            const fallbackUrl = String(mediaPair.fallbackUrl || '').trim();
             const posterUrl = String(resolvePostAttachmentPosterUrl(media) || (media as any)?.thumbnailUrl || '').trim();
             const durationLabel = formatMediaDuration((media as any)?.duration);
             if (!mediaUrl && type !== 'document') return null;
@@ -7177,6 +7185,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 >
                   <InlineAutoplayVideo
                     src={mediaUrl}
+                    fallbackSrc={fallbackUrl}
                     poster={safePoster}
                     className={`${mediaPreviewHeightClass} w-full object-cover`}
                     controls={false}
@@ -9092,6 +9101,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                                 <InlineAutoplayVideo
                                   key={String(story?.id || media.src)}
                                   src={media.src}
+                                  fallbackSrc={media.fallbackSrc}
                                   poster={media.poster}
                                   className="h-full w-full object-cover"
                                   containerClassName="h-full w-full"
@@ -9195,6 +9205,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                               <InlineAutoplayVideo
                                 key={String(scroll?.id || media.src)}
                                 src={media.src}
+                                fallbackSrc={media.fallbackSrc}
                                 poster={media.poster}
                                 className="h-full w-full object-cover"
                                 containerClassName="h-full w-full"
@@ -11191,6 +11202,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                         <InlineAutoplayVideo
                           key={String(editingStory?.id || media.src)}
                           src={media.src}
+                          fallbackSrc={media.fallbackSrc}
                           poster={media.poster}
                           className="h-44 sm:h-48 w-full object-cover"
                           containerClassName="h-44 sm:h-48 w-full"

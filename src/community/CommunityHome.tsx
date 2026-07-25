@@ -74,7 +74,11 @@ import {
 import { Phase2Service } from '../services/phase2';
 import { MemberFeedService } from '../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
-import { resolvePostAttachmentMediaUrl, resolvePostAttachmentPosterUrl } from '../utils/postAttachmentMedia';
+import {
+  resolvePostAttachmentMediaPair,
+  resolvePostAttachmentMediaUrl,
+  resolvePostAttachmentPosterUrl
+} from '../utils/postAttachmentMedia';
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
 import {
@@ -3214,6 +3218,7 @@ const CommunityHome = () => {
                                 <InlineAutoplayVideo
                                   key={String(story?.id || media.src)}
                                   src={media.src}
+                                  fallbackSrc={media.fallbackSrc}
                                   poster={media.poster}
                                   className="h-full w-full object-cover"
                                   containerClassName="h-full w-full"
@@ -3319,6 +3324,7 @@ const CommunityHome = () => {
                               <InlineAutoplayVideo
                                 key={String(scroll?.id || media.src)}
                                 src={media.src}
+                                fallbackSrc={media.fallbackSrc}
                                 poster={media.poster}
                                 className="h-full w-full object-cover"
                                 containerClassName="h-full w-full"
@@ -3846,7 +3852,9 @@ const CommunityHome = () => {
                                 {post.attachments.map((media: any) => {
                                   const type = inferMediaType(media || {});
                                   const mediaKey = String(media.id || media.url || '');
-                                  const mediaUrl = String(resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
+                                  const mediaPair = resolvePostAttachmentMediaPair(media);
+                                  const mediaUrl = String(mediaPair.url || resolvePostAttachmentMediaUrl(media) || resolveAssetUrl(media?.url) || '').trim();
+                                  const fallbackUrl = String(mediaPair.fallbackUrl || '').trim();
                                   const posterUrl = String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || mediaUrl).trim();
                                   const mediaHeightClass =
                                     post.attachments.length === 1
@@ -3877,6 +3885,7 @@ const CommunityHome = () => {
                                       >
                                         <InlineAutoplayVideo
                                           src={mediaUrl}
+                                          fallbackSrc={fallbackUrl}
                                           poster={posterUrl || undefined}
                                           className={`${mediaHeightClass} w-full object-cover`}
                                           controls={false}
@@ -4373,6 +4382,7 @@ const CommunityHome = () => {
                         <InlineAutoplayVideo
                           key={String(editingStory?.id || media.src)}
                           src={media.src}
+                          fallbackSrc={media.fallbackSrc}
                           poster={media.poster}
                           className="h-48 w-full object-cover"
                           containerClassName="h-48 w-full"

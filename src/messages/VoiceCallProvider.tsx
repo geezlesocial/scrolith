@@ -7,6 +7,7 @@ import {
   type RingtoneRole,
   type RingtoneStopReason
 } from './scrolithCallRingtone';
+import { buildCallMediaConstraints, buildCallMediaFallbackConstraints } from './callMediaConstraints';
 
 type ParticipantOption = {
   id: string;
@@ -79,13 +80,6 @@ const DEFAULT_RTC_CONFIG: RTCConfiguration = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
   ]
-};
-
-const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-  channelCount: 1
 };
 
 const emitWithAck = (socket: Socket | null, event: string, payload: any): Promise<any> => {
@@ -300,27 +294,14 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       localStreamRef.current = null;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: AUDIO_CONSTRAINTS,
-        video: wantVideo
-          ? {
-              facingMode: 'user',
-              width: { ideal: 1280, max: 1280 },
-              height: { ideal: 720, max: 720 },
-              frameRate: { ideal: 24, max: 30 }
-            }
-          : false
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(buildCallMediaConstraints({ video: wantVideo }));
       localStreamRef.current = stream;
       setLocalStreamState(stream);
       return stream;
     } catch (error: any) {
       // Fallback if advanced constraints rejected by device.
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-          video: wantVideo
-        });
+        const stream = await navigator.mediaDevices.getUserMedia(buildCallMediaFallbackConstraints(wantVideo));
         localStreamRef.current = stream;
         setLocalStreamState(stream);
         return stream;
