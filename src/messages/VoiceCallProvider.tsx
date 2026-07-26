@@ -46,6 +46,7 @@ type VoiceCallContextValue = {
   statusLabel: string;
   muted: boolean;
   speakerOn: boolean;
+  cameraOff: boolean;
   addBusy: boolean;
   mediaMode: 'audio' | 'video' | string;
   localStream: MediaStream | null;
@@ -58,6 +59,8 @@ type VoiceCallContextValue = {
   endCall: () => Promise<void>;
   toggleMute: () => void;
   toggleSpeaker: () => void;
+  toggleCamera: () => Promise<void>;
+  switchToVideo: () => Promise<void>;
   addParticipant: (userId: string) => Promise<void>;
   /** REQUEST mode: ask host/mods for permission to join. */
   requestJoin: () => Promise<void>;
@@ -112,6 +115,7 @@ const statusToLabel = (status: string, incoming: boolean, mediaMode?: string, ca
   const mediaLabel = String(mediaMode || '').toLowerCase() === 'video' ? 'video call' : 'voice call';
   const conferenceLabel = String(callType || '').toLowerCase() === 'conference' ? 'conference ' : '';
   if (incoming && status === 'ringing') return `Incoming ${conferenceLabel}${mediaLabel}`;
+  if (status === 'connecting') return `Connecting ${conferenceLabel}${mediaLabel}...`;
   if (status === 'ringing') return `Calling ${conferenceLabel}${mediaLabel}...`;
   if (status === 'active') return `${conferenceLabel}${mediaLabel.charAt(0).toUpperCase()}${mediaLabel.slice(1)} in progress`;
   if (status === 'missed') return 'Missed call';
@@ -171,6 +175,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const [incoming, setIncoming] = useState(false);
   const [muted, setMuted] = useState(false);
   const [speakerOn, setSpeakerOn] = useState(true);
+  const [cameraOff, setCameraOff] = useState(false);
   const [participants, setParticipants] = useState<VoiceCallParticipant[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [addBusy, setAddBusy] = useState(false);
@@ -190,6 +195,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
   const rtcConfigRef = useRef<RTCConfiguration>(DEFAULT_RTC_CONFIG);
   const iceRestartingRef = useRef<Set<string>>(new Set());
   const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const activeStartTokenRef = useRef(0);
 
   useEffect(() => {
     callIdRef.current = callState?.callId || '';
@@ -243,6 +249,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     setCallState(null);
     setParticipants([]);
     setMuted(false);
+    setCameraOff(false);
+    activeStartTokenRef.current += 1;
     permissionNoticeShownRef.current = false;
     offeredPeersRef.current.clear();
     pendingCandidatesRef.current.clear();
@@ -523,6 +531,84 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
     [createPeerConnection, sendSignal]
   );
 
+  const publishLocalTracksToPeers = useCallback((stream: MediaStream) => {
+    peerConnectionsRef.current.forEach((peer) => {
+      stream.getTracks().forEach((track) => {
+        const sender = peer.getSenders().find((entry) => entry.track?.kind === track.kind);
+        if (sender) {
+          void sender.replaceTrack(track).catch(() => undefined);
+        } else {
+          try {
+            peer.addTrack(track, stream);
+          } catch {
+            // Track may already be attached on some WebRTC implementations.
+          }
+        }
+      });
+    });
+  }, []);
+
+  const renegotiatePeerMedia = useCallback(
+    async (remoteUserId: string, peer: RTCPeerConnection) => {
+      if (!remoteUserId || peer.signalingState === 'closed') return;
+      const offer = await peer.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: mediaModeRef.current === 'video'
+      });
+      await peer.setLocalDescription(offer);
+      await sendSignal(remoteUserId, {
+        type: 'offer',
+        sdp: { type: offer.type, sdp: offer.sdp },
+        mediaMode: mediaModeRef.current
+      });
+    },
+    [sendSignal]
+  );
+
+  const renegotiateAllPeerMedia = useCallback(async () => {
+    const entries = Array.from(peerConnectionsRef.current.entries());
+    await Promise.all(entries.map(([remoteUserId, peer]) => renegotiatePeerMedia(remoteUserId, peer)));
+  }, [renegotiatePeerMedia]);
+
+  const switchToVideo = useCallback(async () => {
+    const stream = await ensureLocalMedia(true);
+    stream.getVideoTracks().forEach((track) => {
+      track.enabled = true;
+    });
+    mediaModeRef.current = 'video';
+    setMediaMode('video');
+    setCameraOff(false);
+    setCallState((prev) => (prev ? { ...prev, mediaMode: 'video' } : prev));
+    publishLocalTracksToPeers(stream);
+    await renegotiateAllPeerMedia();
+    emitVoiceLifecycleEvent('video_enabled', {
+      callId: callIdRef.current,
+      conversationId: conversationIdRef.current
+    });
+  }, [ensureLocalMedia, publishLocalTracksToPeers, renegotiateAllPeerMedia]);
+
+  const toggleCamera = useCallback(async () => {
+    if (mediaModeRef.current !== 'video') {
+      await switchToVideo();
+      return;
+    }
+    const stream = localStreamRef.current;
+    const videoTracks = stream?.getVideoTracks().filter((track) => track.readyState === 'live') || [];
+    if (!videoTracks.length) {
+      await switchToVideo();
+      return;
+    }
+    const nextCameraOff = !cameraOff;
+    videoTracks.forEach((track) => {
+      track.enabled = !nextCameraOff;
+    });
+    setCameraOff(nextCameraOff);
+    emitVoiceLifecycleEvent(nextCameraOff ? 'camera_disabled' : 'camera_enabled', {
+      callId: callIdRef.current,
+      conversationId: conversationIdRef.current
+    });
+  }, [cameraOff, switchToVideo]);
+
   const handleIncomingSignal = useCallback(
     async (payload: any) => {
       const callId = String(payload?.callId || '').trim();
@@ -561,6 +647,11 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       if (signalType === 'offer') {
         const desc = resolveDescriptionInit(signal.sdp ?? signal);
         if (!desc?.sdp) return;
+        if (/\bm=video\b/i.test(desc.sdp)) {
+          mediaModeRef.current = 'video';
+          setMediaMode('video');
+          setCallState((prev) => (prev ? { ...prev, mediaMode: 'video' } : prev));
+        }
         await peer.setRemoteDescription(new RTCSessionDescription(desc));
         // Flush queued ICE candidates after remote description is set.
         const queued = pendingCandidatesRef.current.get(fromUserId) || [];
@@ -965,18 +1056,62 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       }
 
       const wantVideo = Boolean(options?.video);
+      const startToken = Date.now();
+      activeStartTokenRef.current = startToken;
+      const pendingCallId = `pending-${startToken}`;
+      const resolvedCallType = String(options?.conference ? 'conference' : 'direct');
+      const rosterForUi = [
+        ...participantUsers,
+        ...startCandidates,
+        ...(Array.isArray(options?.participantUsers) ? options.participantUsers : [])
+      ];
       mediaModeRef.current = wantVideo ? 'video' : 'audio';
       setMediaMode(wantVideo ? 'video' : 'audio');
+      setIncoming(false);
+      conversationIdRef.current = activeConversationId;
+      setCallState({
+        callId: pendingCallId,
+        conversationId: activeConversationId,
+        initiatorId: String(userId),
+        status: 'connecting',
+        callType: resolvedCallType,
+        mediaMode: wantVideo ? 'video' : 'audio'
+      });
+      setParticipants(
+        normalizeParticipants(
+          Array.from(new Set([String(userId), ...targetParticipantIds])),
+          rosterForUi,
+          'invited'
+        )
+      );
       // Acquire devices before creating the server call so permission failures do not
       // leave a ringing call that later records as "missed".
-      await ensureLocalMedia(wantVideo);
+      try {
+        await ensureLocalMedia(wantVideo);
+      } catch (error: any) {
+        setCallState((prev) => (prev ? { ...prev, status: 'failed' } : prev));
+        resetTimerRef.current = window.setTimeout(() => resetCallState(), 1500);
+        throw error;
+      }
+      if (activeStartTokenRef.current !== startToken) {
+        clearLocalStream();
+        return;
+      }
 
       const response = await emitWithAck(socket, 'call:initiate', {
         conversationId: activeConversationId,
         participantIds: targetParticipantIds,
-        callType: options?.conference ? 'conference' : 'direct',
+        callType: resolvedCallType,
         mediaMode: wantVideo ? 'video' : 'audio'
       });
+      if (activeStartTokenRef.current !== startToken) {
+        const serverCallId = String(response?.data?.callId || '').trim();
+        if (serverCallId) {
+          await emitWithAck(socket, 'call:end', { callId: serverCallId });
+        }
+        clearLocalStream();
+        return;
+      }
       if (response?.success === false) {
         const errorMessage = String(response?.error || 'Failed to initiate call.');
         const responseCode = String(response?.code || response?.data?.code || '').toLowerCase();
@@ -996,6 +1131,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         stopRingingAlert(responseCode.includes('busy') ? 'busy' : 'failed');
         clearLocalStream();
         setLocalStreamState(null);
+        setCallState((prev) => (prev ? { ...prev, status: 'failed' } : prev));
+        resetTimerRef.current = window.setTimeout(() => resetCallState(), 1500);
         throw new Error(String(response?.error || 'Failed to initiate call.'));
       }
       const data = response?.data || {};
@@ -1012,7 +1149,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         conversationId: String(data.conversationId || activeConversationId),
         initiatorId: String(data.initiatorId || userId),
         status: String(data.status || 'ringing'),
-        callType: String(data.callType || (options?.conference ? 'conference' : 'direct')),
+        callType: String(data.callType || resolvedCallType),
         mediaMode: resolvedMedia
       });
       if (String(data?.status || 'ringing').toLowerCase() === 'ringing') {
@@ -1023,11 +1160,6 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       const ids = Array.isArray(data?.participantIds)
         ? data.participantIds.map((id: any) => String(id || '').trim()).filter(Boolean)
         : [userId, ...targetParticipantIds];
-      const rosterForUi = [
-        ...participantUsers,
-        ...startCandidates,
-        ...(Array.isArray(options?.participantUsers) ? options.participantUsers : [])
-      ];
       setParticipants(normalizeParticipants(Array.from(new Set(ids)), rosterForUi, 'invited'));
     },
     [
@@ -1038,6 +1170,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       participantUsers,
       ensureLocalMedia,
       clearLocalStream,
+      resetCallState,
       startRingingAlert,
       stopRingingAlert
     ]
@@ -1152,6 +1285,11 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
 
   const endCall = useCallback(async () => {
     if (socket && callState?.callId) {
+      if (String(callState.callId).startsWith('pending-')) {
+        stopRingingAlert('cancelled');
+        resetCallState();
+        return;
+      }
       const joinedCount = participants.filter(
         (entry) => String(entry.status || '').toLowerCase() === 'joined'
       ).length;
@@ -1227,6 +1365,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       statusLabel,
       muted,
       speakerOn,
+      cameraOff,
       addBusy,
       mediaMode: callState?.mediaMode || mediaMode,
       localStream: localStreamState,
@@ -1239,6 +1378,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       endCall,
       toggleMute,
       toggleSpeaker,
+      toggleCamera,
+      switchToVideo,
       addParticipant,
       requestJoin,
       approveJoinRequest,
@@ -1253,6 +1394,7 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       statusLabel,
       muted,
       speakerOn,
+      cameraOff,
       addBusy,
       callState?.mediaMode,
       mediaMode,
@@ -1266,6 +1408,8 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
       endCall,
       toggleMute,
       toggleSpeaker,
+      toggleCamera,
+      switchToVideo,
       addParticipant,
       requestJoin,
       approveJoinRequest,

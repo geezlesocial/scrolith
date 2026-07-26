@@ -19,6 +19,7 @@ const GlobalVoiceCallOverlay: React.FC = () => {
     statusLabel,
     muted,
     speakerOn,
+    cameraOff,
     addBusy,
     mediaMode,
     localStream,
@@ -30,6 +31,8 @@ const GlobalVoiceCallOverlay: React.FC = () => {
     endCall,
     toggleMute,
     toggleSpeaker,
+    toggleCamera,
+    switchToVideo,
     addParticipant,
     requestJoin,
     approveJoinRequest,
@@ -58,6 +61,7 @@ const GlobalVoiceCallOverlay: React.FC = () => {
       statusLabel={statusLabel}
       muted={muted}
       speakerOn={speakerOn}
+      cameraOff={cameraOff}
       addBusy={addBusy}
       mediaMode={mediaMode}
       localStream={localStream}
@@ -80,6 +84,16 @@ const GlobalVoiceCallOverlay: React.FC = () => {
       onEnd={() => void endCall().catch(() => undefined)}
       onToggleMute={toggleMute}
       onToggleSpeaker={toggleSpeaker}
+      onToggleCamera={() =>
+        void toggleCamera().catch((error: any) =>
+          onError(error?.message || 'Unable to toggle camera.')
+        )
+      }
+      onSwitchToVideo={() =>
+        void switchToVideo().catch((error: any) =>
+          onError(error?.message || 'Unable to switch to video.')
+        )
+      }
       onAddParticipant={(userId) =>
         void addParticipant(userId).catch((error: any) =>
           onError(error?.message || 'Unable to add participant.')

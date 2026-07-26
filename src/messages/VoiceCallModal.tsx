@@ -1,7 +1,20 @@
-import React, { useEffect, useRef } from 'react';
-import { Phone, PhoneOff, Mic, MicOff, UserPlus, Volume2, VolumeX, Video } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Maximize2,
+  Mic,
+  MicOff,
+  MoreHorizontal,
+  Phone,
+  PhoneOff,
+  UserPlus,
+  UserRound,
+  Video,
+  VideoOff,
+  Volume2,
+  VolumeX,
+  X
+} from 'lucide-react';
 import ConferenceParticipantsPanel from './ConferenceParticipantsPanel';
-import MobileDialog from '../components/mobile/MobileDialog';
 
 type ParticipantUser = {
   id: string;
@@ -24,6 +37,7 @@ type VoiceCallModalProps = {
   addBusy?: boolean;
   muted?: boolean;
   speakerOn?: boolean;
+  cameraOff?: boolean;
   mediaMode?: 'audio' | 'video' | string;
   localStream?: MediaStream | null;
   participantUsers?: ParticipantUser[];
@@ -36,6 +50,8 @@ type VoiceCallModalProps = {
   onEnd?: () => void;
   onToggleMute?: () => void;
   onToggleSpeaker?: () => void;
+  onToggleCamera?: () => void;
+  onSwitchToVideo?: () => void;
   onAddParticipant?: (userId: string) => void;
   myJoinRequestStatus?: string | null;
   pendingJoinRequests?: Array<{
@@ -78,21 +94,6 @@ const AttachStreamVideo: React.FC<{
   );
 };
 
-/** Required for voice-only (and as backup for video) — remote tracks never play without a media element. */
-const RemoteStreamAudioSinks: React.FC<{
-  remoteStreams: Record<string, MediaStream>;
-  speakerOn?: boolean;
-}> = ({ remoteStreams, speakerOn = true }) => {
-  const entries = Object.entries(remoteStreams || {}).filter(([, stream]) => Boolean(stream));
-  return (
-    <>
-      {entries.map(([userId, stream]) => (
-        <RemoteAudio key={userId} stream={stream} speakerOn={speakerOn} />
-      ))}
-    </>
-  );
-};
-
 const RemoteAudio: React.FC<{ stream: MediaStream; speakerOn: boolean }> = ({ stream, speakerOn }) => {
   const ref = useRef<HTMLAudioElement | null>(null);
   useEffect(() => {
@@ -109,15 +110,66 @@ const RemoteAudio: React.FC<{ stream: MediaStream; speakerOn: boolean }> = ({ st
   return <audio ref={ref} autoPlay playsInline className="hidden" aria-hidden />;
 };
 
+const RemoteStreamAudioSinks: React.FC<{
+  remoteStreams: Record<string, MediaStream>;
+  speakerOn?: boolean;
+}> = ({ remoteStreams, speakerOn = true }) => (
+  <>
+    {Object.entries(remoteStreams || {})
+      .filter(([, stream]) => Boolean(stream))
+      .map(([userId, stream]) => (
+        <RemoteAudio key={userId} stream={stream} speakerOn={speakerOn} />
+      ))}
+  </>
+);
+
+const getInitials = (name?: string) =>
+  String(name || 'Participant')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || 'SC';
+
+const ControlButton: React.FC<{
+  label: string;
+  icon: React.ReactNode;
+  onClick?: () => void;
+  active?: boolean;
+  danger?: boolean;
+  disabled?: boolean;
+}> = ({ label, icon, onClick, active, danger, disabled }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    aria-label={label}
+    title={label}
+    className={[
+      'flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition sm:h-16 sm:w-16',
+      danger
+        ? 'bg-rose-600 hover:bg-rose-500'
+        : active
+          ? 'bg-white text-slate-950 hover:bg-slate-100'
+          : 'bg-white/10 hover:bg-white/20',
+      disabled ? 'cursor-not-allowed opacity-45' : ''
+    ].join(' ')}
+  >
+    {icon}
+    <span className="sr-only">{label}</span>
+  </button>
+);
+
 const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   open,
-  title = 'Voice call',
+  title = 'Call',
   statusLabel,
   incoming,
   canAddParticipant,
   addBusy,
   muted,
   speakerOn = true,
+  cameraOff = false,
   mediaMode = 'audio',
   localStream = null,
   participantUsers = [],
@@ -130,6 +182,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   onEnd,
   onToggleMute,
   onToggleSpeaker,
+  onToggleCamera,
+  onSwitchToVideo,
   onAddParticipant,
   myJoinRequestStatus = null,
   pendingJoinRequests = [],
@@ -139,225 +193,259 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   onRejectJoinRequest,
   canModerateJoinRequests = false
 }) => {
-  if (!open) return null;
+  const [showDetails, setShowDetails] = useState(false);
   const isVideo = String(mediaMode || '').toLowerCase() === 'video';
   const remoteEntries = Object.entries(remoteStreams || {}).filter(([, stream]) => Boolean(stream));
-
-  const pendingForMe =
-    myJoinRequestStatus === 'pending' ||
-    myJoinRequestStatus === 'required' ||
-    myJoinRequestStatus === 'approved';
+  const primaryParticipant = useMemo(() => {
+    const nonSelf = participants.find((entry) => entry.userId && entry.userId !== meId);
+    const user = nonSelf?.user || participantUsers.find((entry) => entry.id === nonSelf?.userId);
+    return user || participantUsers.find((entry) => entry.id !== meId) || null;
+  }, [meId, participantUsers, participants]);
+  const displayName = primaryParticipant?.name || title;
+  const displayAvatar = primaryParticipant?.avatar;
+  const normalizedStatus = String(statusLabel || '').toLowerCase();
+  const isConnecting =
+    normalizedStatus.includes('connecting') ||
+    normalizedStatus.includes('calling') ||
+    normalizedStatus.includes('ringing') ||
+    Boolean(incoming);
+  const joinedCount = participants.filter((entry) => String(entry.status || '').toLowerCase() === 'joined').length;
   const openJoinRequests = pendingJoinRequests.filter((entry) => entry.status === 'pending');
+  const callStatusText = statusLabel || (incoming ? 'Incoming call' : isVideo ? 'Video call' : 'Voice call');
+
+  useEffect(() => {
+    if (!open) setShowDetails(false);
+  }, [open]);
+
+  if (!open) return null;
 
   return (
-    <MobileDialog
-      open={open}
-      onClose={onClose || (() => undefined)}
-      size="md"
-      zIndexClassName="z-[140]"
-      title={title}
-      description={statusLabel}
-      footer={
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {incoming ? (
-            <>
-              <button
-                type="button"
-                onClick={onReject}
-                className="inline-flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-full bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700"
-              >
-                <PhoneOff className="h-4 w-4" /> Reject
-              </button>
-              <button
-                type="button"
-                onClick={onAccept}
-                className="inline-flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-full bg-emerald-600 px-4 text-sm font-semibold text-white hover:bg-emerald-700"
-              >
-                <Phone className="h-4 w-4" /> Accept
-              </button>
-              {onRequestJoin ? (
-                <button
-                  type="button"
-                  onClick={onRequestJoin}
-                  className="inline-flex h-11 min-w-[120px] items-center justify-center gap-2 rounded-full border border-indigo-300 bg-indigo-50 px-4 text-sm font-semibold text-indigo-700 hover:bg-indigo-100"
-                >
-                  Request to join
-                </button>
-              ) : null}
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={onToggleSpeaker}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                {speakerOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-                {speakerOn ? 'Speaker' : 'Earpiece'}
-              </button>
-              <button
-                type="button"
-                onClick={onToggleMute}
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              >
-                {muted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                {muted ? 'Unmute' : 'Mute'}
-              </button>
-              {canAddParticipant ? (
-                <button
-                  type="button"
-                  onClick={() => undefined}
-                  className="inline-flex h-11 cursor-default items-center justify-center gap-2 rounded-full border border-gray-300 px-4 text-sm font-semibold text-gray-400"
-                  title="Use Add in participants panel"
-                >
-                  <UserPlus className="h-4 w-4" /> Add
-                </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={onEnd}
-                className="inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-full bg-rose-600 px-4 text-sm font-semibold text-white hover:bg-rose-700"
-              >
-                <PhoneOff className="h-4 w-4" /> End
-              </button>
-            </>
-          )}
-        </div>
-      }
+    <div
+      className="fixed inset-0 z-[160] overflow-hidden bg-slate-950 text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label={callStatusText}
+      data-scroll-skip-swipe="true"
     >
-        {/* Always attach remote audio sinks — voice-only previously never played remote media. */}
-        <RemoteStreamAudioSinks remoteStreams={remoteStreams} speakerOn={speakerOn} />
-        <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
-          {isVideo ? <Video className="h-3.5 w-3.5 text-emerald-600" /> : <Phone className="h-3.5 w-3.5 text-blue-600" />}
-          {isVideo ? 'Video call' : 'Voice call'}
-        </div>
-        {isVideo ? (
-          <div className="mb-3 grid gap-2 sm:grid-cols-2">
-            <div className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video">
-              <AttachStreamVideo
-                stream={localStream}
-                muted
-                mirror
-                className="h-full w-full object-cover"
-              />
-              <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
+      <RemoteStreamAudioSinks remoteStreams={remoteStreams} speakerOn={speakerOn} />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.08] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:28px_28px]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(37,99,235,0.24),transparent_38%),linear-gradient(180deg,rgba(15,23,42,0.82),#020617)]" />
+
+      {isVideo && remoteEntries[0] ? (
+        <AttachStreamVideo
+          stream={remoteEntries[0][1]}
+          muted={!speakerOn}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : null}
+      {isVideo && !remoteEntries.length && localStream && !cameraOff ? (
+        <AttachStreamVideo
+          stream={localStream}
+          muted
+          mirror
+          className="absolute inset-0 h-full w-full object-cover opacity-70"
+        />
+      ) : null}
+      {isVideo ? <div className="absolute inset-0 bg-slate-950/35" /> : null}
+
+      <div
+        className="relative flex h-full flex-col"
+        style={{
+          paddingTop: 'max(1rem, env(safe-area-inset-top))',
+          paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1rem, env(safe-area-inset-right))'
+        }}
+      >
+        <header className="flex shrink-0 items-center justify-between gap-4 px-1 py-2 sm:px-4">
+          <button
+            type="button"
+            onClick={onClose || onEnd}
+            aria-label="Close call screen"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="min-w-0 text-center">
+            <h2 className="truncate text-xl font-bold sm:text-2xl">{displayName}</h2>
+            <div className="mt-1 flex items-center justify-center gap-2 text-sm text-white/72 sm:text-base">
+              {isConnecting ? <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" /> : null}
+              <span className="truncate">{callStatusText}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowDetails((prev) => !prev)}
+            aria-label="Call details"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </button>
+        </header>
+
+        <main className="flex min-h-0 flex-1 flex-col items-center justify-center px-2 py-5 sm:px-8">
+          {!isVideo || (!remoteEntries.length && (!localStream || cameraOff)) ? (
+            <div className="relative flex flex-col items-center">
+              {isConnecting ? (
+                <>
+                  <span className="absolute h-44 w-44 animate-ping rounded-full bg-blue-500/15 sm:h-64 sm:w-64" />
+                  <span className="absolute h-56 w-56 rounded-full border border-white/10 sm:h-72 sm:w-72" />
+                </>
+              ) : null}
+              <div className="relative flex h-40 w-40 items-center justify-center overflow-hidden rounded-full bg-white/10 ring-4 ring-white/10 sm:h-64 sm:w-64">
+                {displayAvatar ? (
+                  <img src={displayAvatar} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <span className="text-5xl font-bold text-white/85 sm:text-7xl">
+                    {getInitials(displayName)}
+                  </span>
+                )}
+              </div>
+              <div className="mt-6 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white/80">
+                {joinedCount > 0 ? `${joinedCount} joined` : isConnecting ? 'Waiting for answer' : 'Media connected'}
+              </div>
+            </div>
+          ) : null}
+
+          {isVideo && remoteEntries.length > 1 ? (
+            <div className="grid w-full max-w-5xl grid-cols-1 gap-3 sm:grid-cols-2">
+              {remoteEntries.slice(0, 4).map(([userId, stream]) => (
+                <div key={userId} className="relative aspect-video overflow-hidden rounded-2xl bg-slate-900 ring-1 ring-white/10">
+                  <AttachStreamVideo stream={stream} muted={!speakerOn} className="h-full w-full object-cover" />
+                  <span className="absolute bottom-3 left-3 rounded-full bg-black/50 px-3 py-1 text-xs font-semibold">
+                    {participantUsers.find((user) => user.id === userId)?.name || 'Participant'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {isVideo && localStream && remoteEntries.length ? (
+            <div className="absolute bottom-28 right-4 aspect-[9/14] w-24 overflow-hidden rounded-2xl bg-slate-900 shadow-2xl ring-1 ring-white/20 sm:bottom-32 sm:right-8 sm:w-36">
+              {cameraOff ? (
+                <div className="flex h-full w-full items-center justify-center bg-slate-900 text-white/60">
+                  <VideoOff className="h-7 w-7" />
+                </div>
+              ) : (
+                <AttachStreamVideo stream={localStream} muted mirror className="h-full w-full object-cover" />
+              )}
+              <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2 py-0.5 text-[10px] font-semibold">
                 You
               </span>
             </div>
-            {remoteEntries.length ? (
-              remoteEntries.map(([userId, stream]) => (
-                <div
-                  key={userId}
-                  className="relative overflow-hidden rounded-xl bg-slate-900 aspect-video"
-                >
-                  <AttachStreamVideo stream={stream} muted={!speakerOn} className="h-full w-full object-cover" />
-                  <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-semibold text-white">
-                    {participantUsers.find((u) => u.id === userId)?.name || 'Participant'}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <div className="flex aspect-video items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
-                <span className="inline-flex items-center gap-2">
-                  <Video className="h-4 w-4" /> Waiting for video…
-                </span>
+          ) : null}
+        </main>
+
+        {showDetails ? (
+          <aside className="absolute bottom-28 left-4 right-4 max-h-[42vh] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950/95 p-4 shadow-2xl backdrop-blur sm:bottom-32 sm:left-auto sm:right-8 sm:w-[28rem]">
+            {myJoinRequestStatus === 'pending' || myJoinRequestStatus === 'required' ? (
+              <div className="mb-3 rounded-xl border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-sm text-amber-100">
+                {myJoinRequestStatus === 'required'
+                  ? 'This call requires approval before you can join.'
+                  : 'Join request pending approval.'}
+                {onCancelJoinRequest && myJoinRequestStatus === 'pending' ? (
+                  <button type="button" onClick={onCancelJoinRequest} className="ml-2 font-semibold underline">
+                    Cancel
+                  </button>
+                ) : null}
               </div>
-            )}
-          </div>
-        ) : (
-          <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-            {remoteEntries.length
-              ? `Connected to ${remoteEntries.length} remote stream${remoteEntries.length === 1 ? '' : 's'}.`
-              : statusLabel || 'Connecting media…'}
-          </div>
-        )}
-        {myJoinRequestStatus === 'pending' || myJoinRequestStatus === 'required' ? (
-          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            {myJoinRequestStatus === 'required'
-              ? 'This call requires approval before you can join.'
-              : 'Join request pending approval…'}
-            {onCancelJoinRequest && myJoinRequestStatus === 'pending' ? (
-              <button
-                type="button"
-                onClick={onCancelJoinRequest}
-                className="ml-2 font-semibold text-amber-800 underline"
-              >
-                Cancel
-              </button>
             ) : null}
-          </div>
-        ) : null}
-        {myJoinRequestStatus === 'approved' ? (
-          <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-            Approved — tap Accept to join the call.
-          </div>
-        ) : null}
-        {myJoinRequestStatus === 'rejected' ? (
-          <div className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
-            Your join request was rejected.
-          </div>
-        ) : null}
-
-        {canModerateJoinRequests && openJoinRequests.length > 0 ? (
-          <div className="mb-3 space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Join requests
-            </p>
-            {openJoinRequests.map((entry) => {
-              const name =
-                participantUsers.find((user) => user.id === entry.requesterId)?.name ||
-                entry.requesterId;
-              return (
-                <div
-                  key={entry.requestId}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-2 py-1.5 text-sm"
-                >
-                  <span className="font-medium text-slate-800">{name}</span>
-                  <span className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onApproveJoinRequest?.(entry.requestId)}
-                      className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold text-white"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRejectJoinRequest?.(entry.requestId)}
-                      className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold text-white"
-                    >
-                      Reject
-                    </button>
-                  </span>
-                </div>
-              );
-            })}
-          </div>
+            {canModerateJoinRequests && openJoinRequests.length > 0 ? (
+              <div className="mb-3 space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/50">Join requests</p>
+                {openJoinRequests.map((entry) => {
+                  const name = participantUsers.find((user) => user.id === entry.requesterId)?.name || entry.requesterId;
+                  return (
+                    <div key={entry.requestId} className="flex items-center justify-between gap-2 rounded-lg bg-white/10 px-2 py-2 text-sm">
+                      <span className="truncate font-medium">{name}</span>
+                      <span className="flex shrink-0 gap-2">
+                        <button type="button" onClick={() => onApproveJoinRequest?.(entry.requestId)} className="rounded-full bg-emerald-600 px-3 py-1 text-xs font-semibold">
+                          Approve
+                        </button>
+                        <button type="button" onClick={() => onRejectJoinRequest?.(entry.requestId)} className="rounded-full bg-rose-600 px-3 py-1 text-xs font-semibold">
+                          Reject
+                        </button>
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            <ConferenceParticipantsPanel
+              participants={participants}
+              meId={meId}
+              candidateUsers={participantUsers}
+              canAddParticipant={canAddParticipant}
+              addBusy={addBusy}
+              onAddParticipant={onAddParticipant}
+            />
+          </aside>
         ) : null}
 
-        <ConferenceParticipantsPanel
-          participants={participants}
-          meId={meId}
-          candidateUsers={participantUsers}
-          canAddParticipant={canAddParticipant}
-          addBusy={addBusy}
-          onAddParticipant={onAddParticipant}
-        />
+        <footer className="shrink-0 pb-2">
+          {incoming ? (
+            <div className="flex items-center justify-center gap-5 rounded-[2rem] bg-black/25 px-5 py-4 backdrop-blur">
+              <ControlButton label="Reject call" icon={<PhoneOff className="h-7 w-7" />} onClick={onReject} danger />
+              <ControlButton label="Accept call" icon={<Phone className="h-7 w-7" />} onClick={onAccept} active />
+              {onRequestJoin ? (
+                <ControlButton label="Request to join" icon={<UserPlus className="h-6 w-6" />} onClick={onRequestJoin} />
+              ) : null}
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-[2rem] bg-black/25 px-4 py-4 backdrop-blur sm:gap-5">
+              <ControlButton
+                label={speakerOn ? 'Turn speaker off' : 'Turn speaker on'}
+                icon={speakerOn ? <Volume2 className="h-6 w-6" /> : <VolumeX className="h-6 w-6" />}
+                onClick={onToggleSpeaker}
+                active={speakerOn}
+              />
+              <ControlButton
+                label={muted ? 'Unmute microphone' : 'Mute microphone'}
+                icon={muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+                onClick={onToggleMute}
+                active={!muted}
+              />
+              {isVideo ? (
+                <ControlButton
+                  label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+                  icon={cameraOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
+                  onClick={onToggleCamera}
+                  active={!cameraOff}
+                />
+              ) : (
+                <ControlButton
+                  label="Switch to video call"
+                  icon={<Video className="h-6 w-6" />}
+                  onClick={onSwitchToVideo}
+                />
+              )}
+              {canAddParticipant ? (
+                <ControlButton
+                  label="Add participant"
+                  icon={<UserPlus className="h-6 w-6" />}
+                  onClick={() => setShowDetails(true)}
+                  disabled={addBusy}
+                />
+              ) : (
+                <ControlButton
+                  label="Participants"
+                  icon={<UserRound className="h-6 w-6" />}
+                  onClick={() => setShowDetails((prev) => !prev)}
+                />
+              )}
+              <ControlButton label="End call" icon={<PhoneOff className="h-7 w-7" />} onClick={onEnd} danger />
+            </div>
+          )}
+        </footer>
+      </div>
 
-        {Object.entries(remoteStreams).map(([userId, stream]) => (
-          <audio
-            key={userId}
-            autoPlay
-            playsInline
-            muted={!speakerOn}
-            ref={(node) => {
-              if (!node) return;
-              if (node.srcObject !== stream) node.srcObject = stream;
-              node.volume = speakerOn ? 1 : 0;
-            }}
-          />
-        ))}
-    </MobileDialog>
+      {isVideo && remoteEntries.length === 1 ? (
+        <div className="pointer-events-none absolute left-4 top-20 hidden items-center gap-2 rounded-full bg-black/35 px-3 py-1.5 text-xs font-semibold text-white/80 sm:flex">
+          <Maximize2 className="h-3.5 w-3.5" />
+          Secure video connected
+        </div>
+      ) : null}
+    </div>
   );
 };
 
