@@ -1592,6 +1592,8 @@ const tryServeManagedStorageUploadAsset = async (relativePath: string, req: Requ
       size,
       contentType,
       cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+      etag: metadata?.etag || null,
+      lastModified: metadata?.updated || null,
       openStream: (start, end) => createGcsMediaReadStream(normalizedPath, { start, end })
     });
     return true;
@@ -2092,6 +2094,8 @@ export const serveFileContent = async (req: Request, res: Response) => {
           size,
           contentType,
           cacheControl,
+          etag: metadata?.etag || null,
+          lastModified: metadata?.updated || null,
           openStream: (start, end) => createGcsMediaReadStream(file.storageKey!, { start, end })
         });
         return;
@@ -2286,6 +2290,8 @@ export const serveFileContent = async (req: Request, res: Response) => {
             size,
             contentType,
             cacheControl,
+            etag: metadata?.etag || null,
+            lastModified: metadata?.updated || null,
             openStream: (start, end) => createGcsMediaReadStream(objectName, { start, end })
           });
           return;
@@ -2516,6 +2522,8 @@ export const serveLegacyUploadAsset = async (req: Request, res: Response) => {
             size,
             contentType,
             cacheControl: PUBLIC_LEGACY_UPLOAD_CACHE_CONTROL,
+            etag: metadata?.etag || null,
+            lastModified: metadata?.updated || null,
             openStream: (start, end) => createGcsMediaReadStream(objectName, { start, end })
           });
           return;

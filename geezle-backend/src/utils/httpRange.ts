@@ -95,6 +95,7 @@ export type ServeRangedObjectOptions = {
   contentType: string;
   cacheControl: string;
   etag?: string | null;
+  lastModified?: string | Date | null;
   /** Open a readable stream for inclusive byte window [start, end]. For full body, start=0 end=size-1. */
   openStream: (start: number, end: number) => NodeJS.ReadableStream;
 };
@@ -128,7 +129,7 @@ const safeDestroyStream = (stream: NodeJS.ReadableStream | null | undefined) => 
  * HEAD: headers only — openStream is not called.
  */
 export const serveRangedObject = (options: ServeRangedObjectOptions): void => {
-  const { req, res, size, contentType, cacheControl, etag, openStream } = options;
+  const { req, res, size, contentType, cacheControl, etag, lastModified, openStream } = options;
   const method = String(req.method || 'GET').toUpperCase();
   const isHead = method === 'HEAD';
   const rangeHeader = Array.isArray(req.headers.range) ? req.headers.range[0] : req.headers.range;
@@ -138,8 +139,16 @@ export const serveRangedObject = (options: ServeRangedObjectOptions): void => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Cache-Control', cacheControl);
   res.setHeader('Content-Type', contentType);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   if (etag) {
     res.setHeader('ETag', etag);
+  }
+  if (lastModified) {
+    const value = lastModified instanceof Date ? lastModified.toUTCString() : String(lastModified);
+    const parsedDate = new Date(value);
+    if (!Number.isNaN(parsedDate.getTime())) {
+      res.setHeader('Last-Modified', parsedDate.toUTCString());
+    }
   }
 
   if (parsed.kind === 'unsatisfiable') {

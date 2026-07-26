@@ -222,7 +222,9 @@ export const getGcsMediaMetadata = async (objectKey: string) => {
     const [metadata] = await getFile(key).getMetadata();
     return {
       contentType: String(metadata?.contentType || '').trim() || 'application/octet-stream',
-      size: Number(metadata?.size || 0) || 0
+      size: Number(metadata?.size || 0) || 0,
+      etag: String(metadata?.etag || '').trim() || null,
+      updated: String(metadata?.updated || metadata?.timeCreated || '').trim() || null
     };
   } catch (error: any) {
     const code = Number(error?.code || 0);
