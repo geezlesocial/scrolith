@@ -3,6 +3,7 @@ import {
   Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   MoreHorizontal,
   Phone,
   PhoneOff,
@@ -11,8 +12,7 @@ import {
   Video,
   VideoOff,
   Volume2,
-  VolumeX,
-  X
+  VolumeX
 } from 'lucide-react';
 import ConferenceParticipantsPanel from './ConferenceParticipantsPanel';
 
@@ -284,7 +284,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             title="Minimize"
             className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800 text-white shadow-lg ring-1 ring-white/10 transition hover:bg-slate-700"
           >
-            <X className="h-5 w-5" />
+            <Minimize2 className="h-5 w-5" />
           </button>
           <div className="min-w-0 text-center">
             <h2 className="truncate text-xl font-bold sm:text-2xl">{displayName}</h2>
