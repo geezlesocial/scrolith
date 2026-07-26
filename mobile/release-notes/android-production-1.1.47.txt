@@ -1,0 +1,3 @@
+<en-US>
+This release improves Scrolith voice and video calls with color-coded controls, clearer labels for mute, speaker, video, camera, answer, and end-call actions, plus a minimized active-call overlay that stays available while users move through the app. It also includes the latest production stability, media, messaging, and performance updates.
+</en-US>
