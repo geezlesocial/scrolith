@@ -1,0 +1,3 @@
+<en-US>
+This release adds an upgraded Scrolith calling experience with clear ringing and connecting screens, improved voice and video call controls, camera toggle support, speaker and mute controls, and smoother cross-device call handling. It also includes the latest production stability, messaging, media, and performance updates.
+</en-US>

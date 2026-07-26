@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.45 - stability/performance release for simultaneous video autoplay and hardened media streaming.
-        versionCode 55
-        versionName "1.1.45"
+        // 1.1.46 - enterprise call screen controls for voice and video calling.
+        versionCode 56
+        versionName "1.1.46"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
