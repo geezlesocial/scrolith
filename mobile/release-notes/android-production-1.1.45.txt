@@ -1,0 +1,3 @@
+Stability and performance update for Scrolith.
+
+This release improves production readiness for simultaneous video autoplay in posts, stories, and Scroll, with hardened video streaming, smoother mobile playback behavior, and safer media loading. It also includes the latest production updates for voice/video calling, call ringtone support, admin video controls, post backgrounds, messaging, marketplace, and Scrolitha.
