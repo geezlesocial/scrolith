@@ -31,7 +31,6 @@ type InlineAutoplayVideoProps = {
   loadingLabel?: string | false;
 };
 
-const MAX_ACTIVE_AUTOPLAY_VIDEOS = 2;
 const activeAutoplayVideos = new Set<HTMLVideoElement>();
 
 const canUseNavigatorConnection = () =>
@@ -46,19 +45,9 @@ const prefersReducedMediaData = () => {
   );
 };
 
-const pauseOldestAutoplayPeer = (current: HTMLVideoElement) => {
+const markAutoplayVideoActive = (current: HTMLVideoElement) => {
   activeAutoplayVideos.delete(current);
   activeAutoplayVideos.add(current);
-  while (activeAutoplayVideos.size > MAX_ACTIVE_AUTOPLAY_VIDEOS) {
-    const oldest = activeAutoplayVideos.values().next().value as HTMLVideoElement | undefined;
-    if (!oldest || oldest === current) break;
-    activeAutoplayVideos.delete(oldest);
-    try {
-      if (!oldest.paused) oldest.pause();
-    } catch {
-      // ignore pause races from recycled feed/story nodes
-    }
-  }
 };
 
 const releaseVideoBuffer = (node: HTMLVideoElement) => {
@@ -161,7 +150,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     node.playsInline = true;
 
     const playNow = () => {
-      pauseOldestAutoplayPeer(node);
+      markAutoplayVideoActive(node);
       const playAttempt = node.play();
       if (playAttempt && typeof playAttempt.catch === 'function') {
         playAttempt.catch(() => undefined);
@@ -285,7 +274,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     const playIfAllowed = () => {
       if (!autoplayEnabled || !active || !isInView || document.hidden || userPausedRef.current) return;
       node.muted = isMuted;
-      pauseOldestAutoplayPeer(node);
+      markAutoplayVideoActive(node);
       const playAttempt = node.play();
       if (playAttempt && typeof playAttempt.catch === 'function') {
         playAttempt.catch(() => undefined);
@@ -330,7 +319,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
 
       if (!autoplayEnabled || !active || !isInView || userPausedRef.current) return;
       node.muted = isMuted;
-      pauseOldestAutoplayPeer(node);
+      markAutoplayVideoActive(node);
       const playAttempt = node.play();
       if (playAttempt && typeof playAttempt.catch === 'function') {
         playAttempt.catch(() => undefined);
@@ -371,7 +360,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
           current.load();
         } catch {}
         if (autoplayEnabledRef.current && activeRef.current && !document.hidden) {
-          pauseOldestAutoplayPeer(current);
+          markAutoplayVideoActive(current);
           const playAttempt = current.play();
           if (playAttempt && typeof playAttempt.catch === 'function') {
             playAttempt.catch(() => undefined);
@@ -493,7 +482,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
 
     const onPlay = () => {
       userPausedRef.current = false;
-      pauseOldestAutoplayPeer(node);
+      markAutoplayVideoActive(node);
     };
 
     node.addEventListener('volumechange', onVolumeChange);

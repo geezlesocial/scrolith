@@ -1,6 +1,6 @@
 /**
  * Phase 22.1B — lightweight muted Scroll video preview for recommendation cards.
- * Max one global active preview; IntersectionObserver driven.
+ * IntersectionObserver driven muted Scroll preview.
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { Play } from 'lucide-react';
@@ -15,26 +15,6 @@ type Props = {
   /** Called when autoplay is blocked. */
   onPreviewBlocked?: () => void;
   onClick?: (event: React.MouseEvent) => void;
-};
-
-/** Module-level registry so only one preview plays at a time. */
-let activePreviewEl: HTMLVideoElement | null = null;
-const MAX_ACTIVE_PREVIEWS = 1;
-
-const pauseOtherPreviews = (except: HTMLVideoElement | null) => {
-  if (activePreviewEl && activePreviewEl !== except) {
-    try {
-      activePreviewEl.pause();
-    } catch {
-      /* ignore */
-    }
-  }
-  if (except) activePreviewEl = except;
-  else if (activePreviewEl === null) {
-    /* keep */
-  } else if (!except) {
-    activePreviewEl = null;
-  }
 };
 
 const ScrollVideoPreview: React.FC<Props> = ({
@@ -94,10 +74,8 @@ const ScrollVideoPreview: React.FC<Props> = ({
         } catch {
           /* ignore */
         }
-        if (activePreviewEl === video) pauseOtherPreviews(null);
         return;
       }
-      if (MAX_ACTIVE_PREVIEWS <= 1) pauseOtherPreviews(video);
       video.muted = true;
       video.playsInline = true;
       video.defaultMuted = true;
@@ -109,7 +87,6 @@ const ScrollVideoPreview: React.FC<Props> = ({
           setHasStarted(true);
           onPreviewStarted?.();
         }
-        activePreviewEl = video;
       } catch {
         if (cancelled) return;
         setAutoplayBlocked(true);
@@ -126,7 +103,6 @@ const ScrollVideoPreview: React.FC<Props> = ({
       } catch {
         /* ignore */
       }
-      if (activePreviewEl === video) activePreviewEl = null;
     };
   }, [visible, mediaSrc, hasStarted, onPreviewStarted, onPreviewBlocked]);
 
