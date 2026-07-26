@@ -137,28 +137,47 @@ const ControlButton: React.FC<{
   onClick?: () => void;
   active?: boolean;
   danger?: boolean;
+  tone?: 'neutral' | 'primary' | 'success' | 'warning' | 'danger';
   disabled?: boolean;
-}> = ({ label, icon, onClick, active, danger, disabled }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    aria-label={label}
-    title={label}
-    className={[
-      'flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-lg transition sm:h-16 sm:w-16',
-      danger
-        ? 'bg-rose-600 hover:bg-rose-500'
-        : active
-          ? 'bg-white text-slate-950 hover:bg-slate-100'
-          : 'bg-white/10 hover:bg-white/20',
-      disabled ? 'cursor-not-allowed opacity-45' : ''
-    ].join(' ')}
-  >
-    {icon}
-    <span className="sr-only">{label}</span>
-  </button>
-);
+}> = ({ label, icon, onClick, active, danger, tone = 'neutral', disabled }) => {
+  const resolvedTone = danger ? 'danger' : tone;
+  const toneClass =
+    resolvedTone === 'success'
+      ? 'bg-emerald-500 text-white shadow-emerald-950/40 hover:bg-emerald-400'
+      : resolvedTone === 'danger'
+        ? 'bg-rose-600 text-white shadow-rose-950/40 hover:bg-rose-500'
+        : resolvedTone === 'warning'
+          ? 'bg-amber-400 text-slate-950 shadow-amber-950/30 hover:bg-amber-300'
+          : resolvedTone === 'primary'
+            ? 'bg-blue-600 text-white shadow-blue-950/40 hover:bg-blue-500'
+            : active
+              ? 'bg-cyan-500 text-slate-950 shadow-cyan-950/30 hover:bg-cyan-400'
+              : 'bg-slate-800 text-white shadow-slate-950/40 hover:bg-slate-700';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-label={label}
+      title={label}
+      className={[
+        'group flex min-w-[3.75rem] shrink-0 flex-col items-center gap-1.5 text-center text-[10px] font-semibold text-white transition sm:min-w-[4.75rem] sm:gap-2 sm:text-xs',
+        disabled ? 'cursor-not-allowed opacity-45' : ''
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'flex h-12 w-12 items-center justify-center rounded-full shadow-lg ring-1 ring-white/10 transition sm:h-16 sm:w-16',
+          toneClass
+        ].join(' ')}
+      >
+        {icon}
+      </span>
+      <span className="max-w-[4.75rem] leading-tight text-white/85 group-hover:text-white sm:max-w-[5.75rem]">{label}</span>
+    </button>
+  );
+};
 
 const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
   open,
@@ -261,8 +280,9 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
           <button
             type="button"
             onClick={onClose || onEnd}
-            aria-label="Close call screen"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+            aria-label="Minimize call screen"
+            title="Minimize"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800 text-white shadow-lg ring-1 ring-white/10 transition hover:bg-slate-700"
           >
             <X className="h-5 w-5" />
           </button>
@@ -277,7 +297,8 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
             type="button"
             onClick={() => setShowDetails((prev) => !prev)}
             aria-label="Call details"
-            className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+            title="More call tools"
+            className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-800 text-white shadow-lg ring-1 ring-white/10 transition hover:bg-slate-700"
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
@@ -384,46 +405,51 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
         <footer className="shrink-0 pb-2">
           {incoming ? (
-            <div className="flex items-center justify-center gap-5 rounded-[2rem] bg-black/25 px-5 py-4 backdrop-blur">
-              <ControlButton label="Reject call" icon={<PhoneOff className="h-7 w-7" />} onClick={onReject} danger />
-              <ControlButton label="Accept call" icon={<Phone className="h-7 w-7" />} onClick={onAccept} active />
+            <div className="flex items-center justify-center gap-4 rounded-[2rem] bg-black/35 px-4 py-4 shadow-2xl backdrop-blur">
+              <ControlButton label="Reject" icon={<PhoneOff className="h-7 w-7" />} onClick={onReject} danger />
+              <ControlButton label="Answer" icon={<Phone className="h-7 w-7" />} onClick={onAccept} tone="success" />
               {onRequestJoin ? (
-                <ControlButton label="Request to join" icon={<UserPlus className="h-6 w-6" />} onClick={onRequestJoin} />
+                <ControlButton label="Request join" icon={<UserPlus className="h-6 w-6" />} onClick={onRequestJoin} tone="primary" />
               ) : null}
             </div>
           ) : (
-            <div className="mx-auto flex max-w-3xl items-center justify-center gap-3 rounded-[2rem] bg-black/25 px-4 py-4 backdrop-blur sm:gap-5">
+            <div className="mx-auto flex max-w-3xl items-center justify-center gap-2 rounded-[2rem] bg-black/35 px-3 py-4 shadow-2xl backdrop-blur sm:gap-5 sm:px-4">
               <ControlButton
-                label={speakerOn ? 'Turn speaker off' : 'Turn speaker on'}
+                label={speakerOn ? 'Speaker on' : 'Speaker off'}
                 icon={speakerOn ? <Volume2 className="h-6 w-6" /> : <VolumeX className="h-6 w-6" />}
                 onClick={onToggleSpeaker}
+                tone={speakerOn ? 'primary' : 'neutral'}
                 active={speakerOn}
               />
               <ControlButton
-                label={muted ? 'Unmute microphone' : 'Mute microphone'}
+                label={muted ? 'Unmute' : 'Mute'}
                 icon={muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
                 onClick={onToggleMute}
+                tone={muted ? 'warning' : 'success'}
                 active={!muted}
               />
               {isVideo ? (
                 <ControlButton
-                  label={cameraOff ? 'Turn camera on' : 'Turn camera off'}
+                  label={cameraOff ? 'Camera on' : 'Camera off'}
                   icon={cameraOff ? <VideoOff className="h-6 w-6" /> : <Video className="h-6 w-6" />}
                   onClick={onToggleCamera}
+                  tone={cameraOff ? 'warning' : 'primary'}
                   active={!cameraOff}
                 />
               ) : (
                 <ControlButton
-                  label="Switch to video call"
+                  label="Video call"
                   icon={<Video className="h-6 w-6" />}
                   onClick={onSwitchToVideo}
+                  tone="primary"
                 />
               )}
               {canAddParticipant ? (
                 <ControlButton
-                  label="Add participant"
+                  label="Add user"
                   icon={<UserPlus className="h-6 w-6" />}
                   onClick={() => setShowDetails(true)}
+                  tone="neutral"
                   disabled={addBusy}
                 />
               ) : (
@@ -433,7 +459,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
                   onClick={() => setShowDetails((prev) => !prev)}
                 />
               )}
-              <ControlButton label="End call" icon={<PhoneOff className="h-7 w-7" />} onClick={onEnd} danger />
+              <ControlButton label="End" icon={<PhoneOff className="h-7 w-7" />} onClick={onEnd} danger />
             </div>
           )}
         </footer>
