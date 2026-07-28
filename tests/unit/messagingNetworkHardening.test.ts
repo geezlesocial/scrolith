@@ -176,3 +176,28 @@ test('MessageContext polling uses health policy not socket null alone', () => {
   assert.ok(src.includes('MESSAGING_POLL_GRACE_MS'));
   assert.ok(src.includes('connectionHealth'));
 });
+
+test('call overlay stays above message detail routes and remote audio is feedback-limited', () => {
+  const shell = read('src/messages/GlobalVoiceCallShell.tsx');
+  const modal = read('src/messages/VoiceCallModal.tsx');
+  const app = read('src/App.tsx');
+
+  assert.ok(app.includes('path="/messages/:conversationId"'), 'message detail route must keep using the shared Messages surface');
+  assert.ok(shell.includes('z-[9999]'), 'minimized active-call overlay must sit above inbox/detail chrome');
+  assert.ok(modal.includes('z-[9998]'), 'full call screen must sit above inbox/detail chrome');
+  assert.ok(modal.includes('el.volume = speakerOn ? 0.82 : 0'), 'remote audio should be capped below 100% to reduce same-room feedback');
+  assert.ok(modal.includes('el.disableRemotePlayback = true'), 'remote audio sink should stay local and explicit');
+});
+
+test('voice/video calls use mobile-friendly WebRTC and microphone constraints', () => {
+  const provider = read('src/messages/VoiceCallProvider.tsx');
+  const constraints = read('src/messages/callMediaConstraints.ts');
+
+  assert.ok(provider.includes("bundlePolicy: 'max-bundle'"));
+  assert.ok(provider.includes("rtcpMuxPolicy: 'require'"));
+  assert.ok(provider.includes('iceCandidatePoolSize: 4'));
+  assert.ok(constraints.includes('echoCancellation: { ideal: true }'));
+  assert.ok(constraints.includes('noiseSuppression: { ideal: true }'));
+  assert.ok(constraints.includes('autoGainControl: { ideal: true }'));
+  assert.ok(constraints.includes('channelCount: { ideal: 1, max: 1 }'));
+});

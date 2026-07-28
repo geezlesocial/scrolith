@@ -100,10 +100,14 @@ const RemoteAudio: React.FC<{ stream: MediaStream; speakerOn: boolean }> = ({ st
     const el = ref.current;
     if (!el) return;
     el.srcObject = stream;
+    el.autoplay = true;
+    el.playsInline = true;
+    el.disableRemotePlayback = true;
     el.muted = !speakerOn;
-    el.volume = speakerOn ? 1 : 0;
+    el.volume = speakerOn ? 0.82 : 0;
     void el.play().catch(() => undefined);
     return () => {
+      el.pause();
       el.srcObject = null;
     };
   }, [stream, speakerOn]);
@@ -240,7 +244,7 @@ const VoiceCallModal: React.FC<VoiceCallModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[160] overflow-hidden bg-slate-950 text-white"
+      className="fixed inset-0 isolate z-[9998] overflow-hidden bg-slate-950 text-white"
       role="dialog"
       aria-modal="true"
       aria-label={callStatusText}

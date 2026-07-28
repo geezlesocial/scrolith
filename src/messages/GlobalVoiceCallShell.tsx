@@ -111,7 +111,7 @@ const GlobalVoiceCallOverlay: React.FC = () => {
   if (open && minimized) {
     return (
       <div
-        className="fixed bottom-4 left-3 right-3 z-[170] rounded-3xl border border-white/10 bg-slate-950/95 px-3 py-3 text-white shadow-2xl backdrop-blur sm:left-auto sm:right-5 sm:w-[29rem]"
+        className="fixed bottom-4 left-3 right-3 z-[9999] rounded-3xl border border-white/10 bg-slate-950/95 px-3 py-3 text-white shadow-2xl backdrop-blur sm:left-auto sm:right-5 sm:w-[29rem]"
         style={{ bottom: 'max(1rem, env(safe-area-inset-bottom))' }}
         role="status"
         aria-live="polite"

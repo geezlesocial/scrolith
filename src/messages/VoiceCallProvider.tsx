@@ -82,7 +82,10 @@ const DEFAULT_RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' }
-  ]
+  ],
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
+  iceCandidatePoolSize: 4
 };
 
 const emitWithAck = (socket: Socket | null, event: string, payload: any): Promise<any> => {
@@ -272,6 +275,9 @@ export const VoiceCallProvider: React.FC<VoiceCallProviderProps> = ({
         if (servers?.length) {
           rtcConfigRef.current = {
             iceServers: servers,
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require',
+            iceCandidatePoolSize: 4,
             iceTransportPolicy:
               (config as any).iceTransportPolicy === 'relay' ? 'relay' : 'all'
           };

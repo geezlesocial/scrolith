@@ -6,10 +6,10 @@
 export type VideoQualityPreset = 'low' | 'medium' | 'high';
 
 export const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
-  echoCancellation: true,
-  noiseSuppression: true,
-  autoGainControl: true,
-  channelCount: 1,
+  echoCancellation: { ideal: true },
+  noiseSuppression: { ideal: true },
+  autoGainControl: { ideal: true },
+  channelCount: { ideal: 1, max: 1 },
   sampleRate: { ideal: 48000 },
   sampleSize: { ideal: 16 }
 };
