@@ -1,0 +1,40 @@
+# Frontend image: voice/video call overlay and audio feedback hardening.
+# Points to production API and app domain.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        build,
+        --no-cache,
+        -t,
+        asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:fe-call-hardening-0728,
+        --build-arg,
+        VITE_API_URL=https://api.scrolith.com/api,
+        --build-arg,
+        VITE_API_BASE_URL=https://api.scrolith.com/api,
+        --build-arg,
+        VITE_BACKEND_URL=https://api.scrolith.com,
+        --build-arg,
+        VITE_PUBLIC_APP_DOMAIN=scrolith.com,
+        --build-arg,
+        VITE_PUBLIC_APP_URL=https://scrolith.com,
+        --build-arg,
+        VITE_APP_URL=https://scrolith.com,
+        --build-arg,
+        VITE_APP_ENV=production,
+        --build-arg,
+        VITE_DEBUG=false,
+        --build-arg,
+        VITE_ALLOW_LOCAL_API_IN_PROD=false,
+        --label,
+        release=fe-call-hardening-0728,
+        --label,
+        frontend_commit=c66d63a0,
+        .
+      ]
+images:
+  - asia-southeast1-docker.pkg.dev/scrolith-500821/scrolith/scrolith-frontend:fe-call-hardening-0728
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 2400s
