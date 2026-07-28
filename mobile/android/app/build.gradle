@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.47 - production call control colors and minimized active-call overlay.
-        versionCode 57
-        versionName "1.1.47"
+        // 1.1.49 - call audio feedback hardening and message-detail overlay reliability.
+        versionCode 59
+        versionName "1.1.49"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]
