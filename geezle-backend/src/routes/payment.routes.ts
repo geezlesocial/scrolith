@@ -10,7 +10,8 @@ import {
   handleMonnifyWebhook,
   handleOpayWebhook,
   handleDragonpayCallback,
-  handlePayoneerNotify
+  handlePayoneerNotify,
+  handleAntomNotify
 } from '../controllers/walletFunding.controller';
 import { listFundingGatewaysPublic } from '../controllers/walletFunding.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
@@ -33,6 +34,8 @@ router.post('/monnify/webhook', express.json(), handleMonnifyWebhook);
 router.post('/opay/webhook', express.json(), handleOpayWebhook);
 router.get('/dragonpay/callback', handleDragonpayCallback);
 router.post('/payoneer/notify', express.json(), handlePayoneerNotify);
+// Antom (Alipay+) payment result notifications
+router.post('/antom/notify', express.json({ type: '*/*' }), handleAntomNotify);
 
 // Protected routes
 router.post('/create-intent', authMiddleware, createPaymentIntent);

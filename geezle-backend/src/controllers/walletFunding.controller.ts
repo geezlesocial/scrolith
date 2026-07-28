@@ -2,6 +2,14 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import prisma from '../utils/prismaClient';
 import { initiateHostedCheckout, parseNotification } from '../services/payments/providers/payoneer';
+import {
+  createAntomCashierPayment,
+  mapAntomNotifyStatus,
+  antomNotifyAckSuccess,
+  antomNotifyAckFailure,
+  verifyAntomSignature,
+  extractAntomSignatureValue
+} from '../services/payments/providers/antom';
 import { createFxLock } from '../services/fxLock.service';
 import { findOrderPaymentIntentByReference, settleOrderPaymentIntent } from '../services/orderPayments';
 import { encryptSecret, maybeDecryptSecret } from '../utils/secretCipher';
@@ -202,6 +210,25 @@ const getProviderConfig = (provider: string, settings: any) => {
     };
   }
 
+  if (provider === 'antom') {
+    return {
+      enabled: entry?.enabled ?? false,
+      clientId: entry?.clientId || process.env.ANTOM_CLIENT_ID || process.env.ALIPAY_CLIENT_ID,
+      merchantPrivateKey: maybeDecryptSecret(
+        entry?.merchantPrivateKey || process.env.ANTOM_MERCHANT_PRIVATE_KEY || process.env.ALIPAY_PRIVATE_KEY
+      ),
+      antomPublicKey: maybeDecryptSecret(
+        entry?.antomPublicKey || process.env.ANTOM_PUBLIC_KEY || process.env.ALIPAY_PUBLIC_KEY
+      ),
+      environment: entry?.environment || process.env.ANTOM_ENV || 'sandbox',
+      gatewayBaseUrl: entry?.gatewayBaseUrl || process.env.ANTOM_GATEWAY_BASE_URL || '',
+      settlementCurrency: entry?.settlementCurrency || process.env.ANTOM_SETTLEMENT_CURRENCY || '',
+      defaultPaymentMethodType:
+        entry?.defaultPaymentMethodType || process.env.ANTOM_DEFAULT_PAYMENT_METHOD || 'CARD',
+      keyVersion: entry?.keyVersion || process.env.ANTOM_KEY_VERSION || '1'
+    };
+  }
+
   return {
     enabled: entry?.enabled ?? false
   };
@@ -228,6 +255,7 @@ const isProviderEnabled = (provider: string, settings: any) => {
   if (provider === 'opay') return Boolean(config?.merchantId && config?.secretKey);
   if (provider === 'dragonpay') return Boolean(config?.merchantId && config?.secretKey);
   if (provider === 'payoneer') return Boolean(config?.clientId && config?.clientSecret);
+  if (provider === 'antom') return Boolean(config?.clientId && config?.merchantPrivateKey);
   return false;
 };
 
@@ -315,6 +343,28 @@ const paymentGatewayCatalog = [
     name: 'Dragonpay',
     logo: 'https://www.dragonpay.ph/wp-content/uploads/2018/05/Dragonpay-Logo-Small.png',
     supported_currencies: ['PHP']
+  },
+  {
+    id: 'antom',
+    name: 'Antom (Alipay+)',
+    logo: 'https://gw.alipayobjects.com/mdn/rms_b3f2c2/afts/img/A*g-x4R5biJnsAAAAAAAAAAAAAARQnAQ',
+    // Broad multi-currency catalog; actual methods depend on Antom contract.
+    supported_currencies: [
+      'USD',
+      'EUR',
+      'GBP',
+      'SGD',
+      'HKD',
+      'JPY',
+      'CNY',
+      'AUD',
+      'MYR',
+      'THB',
+      'PHP',
+      'IDR',
+      'KRW',
+      'BRL'
+    ]
   }
 ];
 
@@ -328,7 +378,8 @@ const secretFieldMap: Record<string, string[]> = {
   monnify: ['apiKey', 'secretKey', 'contractCode'],
   opay: ['merchantId', 'secretKey'],
   dragonpay: ['merchantId', 'secretKey'],
-  payoneer: ['clientSecret', 'authToken', 'notificationSecret']
+  payoneer: ['clientSecret', 'authToken', 'notificationSecret'],
+  antom: ['merchantPrivateKey', 'antomPublicKey']
 };
 
 const sanitizeConfigForAdmin = (providerId: string, entry: any) => {
@@ -371,6 +422,15 @@ const mapGateway = (gateway: any, settings: any) => {
       ).toLowerCase() === 'standard'
         ? 'standard'
         : 'express';
+  }
+
+  if (gateway.id === 'antom') {
+    const envRaw = String(sanitizedConfig.environment || sanitizedConfig.mode || resolvedMode || 'sandbox').toLowerCase();
+    sanitizedConfig.environment = envRaw === 'live' ? 'live' : 'sandbox';
+    sanitizedConfig.defaultPaymentMethodType = String(
+      sanitizedConfig.defaultPaymentMethodType || 'CARD'
+    ).toUpperCase();
+    sanitizedConfig.keyVersion = String(sanitizedConfig.keyVersion || '1');
   }
 
   return {
@@ -428,7 +488,19 @@ export const saveFundingGatewaysAdmin = async (req: Request, res: Response) => {
       monnify: ['enabled', 'apiKey', 'secretKey', 'contractCode', 'logo'],
       opay: ['enabled', 'merchantId', 'secretKey', 'logo', 'environment'],
       dragonpay: ['enabled', 'merchantId', 'secretKey', 'logo'],
-      payoneer: ['enabled', 'clientId', 'clientSecret', 'programId', 'apiBaseUrl', 'authToken', 'notificationSecret', 'createSessionPath', 'logo']
+      payoneer: ['enabled', 'clientId', 'clientSecret', 'programId', 'apiBaseUrl', 'authToken', 'notificationSecret', 'createSessionPath', 'logo'],
+      antom: [
+        'enabled',
+        'clientId',
+        'merchantPrivateKey',
+        'antomPublicKey',
+        'environment',
+        'gatewayBaseUrl',
+        'settlementCurrency',
+        'defaultPaymentMethodType',
+        'keyVersion',
+        'logo'
+      ]
     };
     const requiredFields: Record<string, string[]> = {
       stripe: ['secretKey'],
@@ -440,7 +512,8 @@ export const saveFundingGatewaysAdmin = async (req: Request, res: Response) => {
       monnify: ['apiKey', 'secretKey', 'contractCode'],
       opay: ['merchantId', 'secretKey'],
       dragonpay: ['merchantId', 'secretKey'],
-      payoneer: ['clientId', 'clientSecret', 'apiBaseUrl', 'authToken']
+      payoneer: ['clientId', 'clientSecret', 'apiBaseUrl', 'authToken'],
+      antom: ['clientId', 'merchantPrivateKey']
     };
 
     const updatedProviders = { ...existing };
@@ -988,6 +1061,74 @@ export const initiateWalletTopup = async (req: AuthRequest, res: Response) => {
         intent_id: intent.id,
         provider,
         redirect_url: init.data?.link || null,
+        ...topupResponseMeta
+      });
+    }
+
+    if (provider === 'antom') {
+      const config = getProviderConfig('antom', settings);
+      if (!config?.clientId || !config?.merchantPrivateKey) {
+        return fail(res, 400, 'Antom is not configured', 'ERR_PROVIDER_CONFIG');
+      }
+
+      const frontendBase = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:3000';
+      const backendBase =
+        process.env.BACKEND_URL || process.env.API_BASE_URL || process.env.PUBLIC_API_URL || '';
+      const role = (user.role || '').toString().toLowerCase();
+      const dashboardPath =
+        role.includes('freelancer') || role.includes('seller')
+          ? '/freelancer/dashboard'
+          : '/client/dashboard';
+      const redirectUrl = `${frontendBase}${dashboardPath}?tab=wallet&topup_intent=${intent.id}&topup_status=processing`;
+      const notifyUrl = `${String(backendBase).replace(/\/+$/, '')}/api/payments/antom/notify`;
+
+      const payResult = await createAntomCashierPayment({
+        config: {
+          clientId: config.clientId,
+          merchantPrivateKey: config.merchantPrivateKey,
+          antomPublicKey: config.antomPublicKey,
+          environment: config.environment,
+          gatewayBaseUrl: config.gatewayBaseUrl,
+          settlementCurrency: config.settlementCurrency,
+          defaultPaymentMethodType: config.defaultPaymentMethodType,
+          keyVersion: config.keyVersion
+        },
+        paymentRequestId: intent.id,
+        amount,
+        currency,
+        orderDescription: 'Scrolith Wallet Top-up',
+        referenceOrderId: intent.id,
+        referenceBuyerId: user.id,
+        paymentRedirectUrl: redirectUrl,
+        paymentNotifyUrl: notifyUrl,
+        paymentMethodType: config.defaultPaymentMethodType || 'CARD',
+        terminalType: 'WEB',
+        userRegion: country
+      });
+
+      if (!payResult.ok || !payResult.redirectUrl) {
+        return fail(
+          res,
+          400,
+          payResult.resultMessage || 'Antom could not create a checkout session',
+          'ERR_PROVIDER_INIT'
+        );
+      }
+
+      await prisma.walletFundingIntent.update({
+        where: { id: intent.id },
+        data: {
+          status: 'pending',
+          providerReferenceId: payResult.paymentId || intent.id,
+          providerCheckoutUrl: payResult.redirectUrl,
+          providerPayload: serializePayload(payResult.raw)
+        }
+      });
+
+      return ok(res, {
+        intent_id: intent.id,
+        provider,
+        redirect_url: payResult.redirectUrl,
         ...topupResponseMeta
       });
     }
@@ -1707,6 +1848,103 @@ export const handlePayoneerNotify = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Payoneer notify error:', error);
     return res.status(500).json({ success: false, error: error.message || 'Notify error' });
+  }
+};
+
+/**
+ * Antom payment result notification (async).
+ * Respond with fixed Antom result envelope; optional RSA verify when antomPublicKey is set.
+ */
+export const handleAntomNotify = async (req: Request, res: Response) => {
+  try {
+    const settings = await getOrCreateSettings();
+    const config = getProviderConfig('antom', settings);
+    const rawBody =
+      typeof req.body === 'string'
+        ? req.body
+        : Buffer.isBuffer(req.body)
+          ? req.body.toString('utf8')
+          : JSON.stringify(req.body || {});
+
+    if (config?.antomPublicKey) {
+      const clientId = String(req.headers['client-id'] || req.headers['Client-Id'] || config.clientId || '');
+      const requestTime = String(req.headers['request-time'] || req.headers['Request-Time'] || '');
+      const signatureHeader = String(req.headers['signature'] || req.headers['Signature'] || '');
+      const targetSignature = extractAntomSignatureValue(signatureHeader);
+      const requestUri = String(req.originalUrl || req.url || '/api/payments/antom/notify').split('?')[0];
+      if (targetSignature && requestTime && clientId) {
+        const valid = verifyAntomSignature({
+          requestUri,
+          clientId,
+          responseTime: requestTime,
+          responseBody: rawBody,
+          targetSignature,
+          antomPublicKey: config.antomPublicKey
+        });
+        if (!valid) {
+          return res.status(401).json(antomNotifyAckFailure('Invalid Antom notify signature'));
+        }
+      }
+    }
+
+    const event = typeof req.body === 'object' && req.body ? req.body : (() => {
+      try {
+        return JSON.parse(rawBody);
+      } catch {
+        return {};
+      }
+    })();
+
+    const paymentRequestId = String(
+      event?.paymentRequestId || event?.paymentResult?.paymentRequestId || event?.paymentId || ''
+    ).trim();
+    const paymentId = String(event?.paymentId || event?.paymentResult?.paymentId || paymentRequestId).trim();
+    if (!paymentRequestId && !paymentId) {
+      return res.status(400).json(antomNotifyAckFailure('Missing paymentRequestId'));
+    }
+
+    const status = mapAntomNotifyStatus(event);
+    if (status === 'pending') {
+      // Acknowledge receipt; settlement waits for final status.
+      return res.json(antomNotifyAckSuccess());
+    }
+
+    const orderIntent =
+      (await findOrderPaymentIntentByReference('antom', paymentId)) ||
+      (await findOrderPaymentIntentByReference('antom', paymentRequestId));
+    if (orderIntent) {
+      await settleOrderPaymentIntent({
+        provider: 'antom',
+        providerReferenceId: paymentId || paymentRequestId,
+        status,
+        rawEvent: event,
+        intentId: orderIntent.id
+      });
+      return res.json(antomNotifyAckSuccess());
+    }
+
+    let intent =
+      (await findIntentByReference('antom', paymentId)) ||
+      (await findIntentByReference('antom', paymentRequestId));
+    if (!intent && paymentRequestId) {
+      intent = await prisma.walletFundingIntent.findUnique({ where: { id: paymentRequestId } }).catch(() => null);
+    }
+    if (!intent) {
+      // Still ACK so Antom does not retry forever for unknown intents.
+      return res.json(antomNotifyAckSuccess());
+    }
+
+    await settleWalletFundingIntent(
+      intent.id,
+      'antom',
+      paymentId || paymentRequestId,
+      status,
+      event
+    );
+    return res.json(antomNotifyAckSuccess());
+  } catch (error: any) {
+    console.error('Antom notify error:', error);
+    return res.status(500).json(antomNotifyAckFailure(error?.message || 'Notify error'));
   }
 };
 

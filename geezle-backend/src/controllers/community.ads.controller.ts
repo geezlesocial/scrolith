@@ -637,6 +637,9 @@ const normalizePaymentMethod = (value: any): string => {
   if (compact === 'card' || compact === 'credit_card' || compact === 'debit_card' || compact.includes('stripe')) {
     return 'stripe';
   }
+  if (compact === 'antom' || compact.includes('alipay') || compact.includes('alipayplus')) {
+    return 'antom';
+  }
   return compact;
 };
 
@@ -1738,12 +1741,97 @@ export const payAd = async (req: Request, res: Response) => {
       }
     }
 
+    if (paymentMethodId === 'antom') {
+      try {
+        const { createAntomCashierPayment } = await import('../services/payments/providers/antom');
+        const { maybeDecryptSecret } = await import('../utils/secretCipher');
+        const settings = await prisma.settings.findFirst({ orderBy: { updatedAt: 'desc' } });
+        const providers =
+          settings?.walletFundingProviders && typeof settings.walletFundingProviders === 'object'
+            ? (settings.walletFundingProviders as Record<string, any>)
+            : {};
+        const entry = providers.antom || {};
+        if (!entry?.enabled) {
+          return res.status(400).json({
+            success: false,
+            error: 'Antom is not enabled. Activate it in Admin → Payment Gateways.'
+          });
+        }
+        const clientId = String(entry.clientId || process.env.ANTOM_CLIENT_ID || '').trim();
+        const merchantPrivateKey = maybeDecryptSecret(
+          entry.merchantPrivateKey || process.env.ANTOM_MERCHANT_PRIVATE_KEY || ''
+        );
+        if (!clientId || !merchantPrivateKey) {
+          return res.status(400).json({
+            success: false,
+            error: 'Antom credentials are missing. Configure Client ID and Merchant Private Key in Payment Gateways.'
+          });
+        }
+        const backendBase =
+          process.env.BACKEND_URL || process.env.API_BASE_URL || process.env.PUBLIC_API_URL || '';
+        const notifyUrl = `${String(backendBase).replace(/\/+$/, '')}/api/payments/antom/notify`;
+        const payResult = await createAntomCashierPayment({
+          config: {
+            clientId,
+            merchantPrivateKey,
+            antomPublicKey: maybeDecryptSecret(entry.antomPublicKey || process.env.ANTOM_PUBLIC_KEY || ''),
+            environment: entry.environment || 'sandbox',
+            gatewayBaseUrl: entry.gatewayBaseUrl || '',
+            settlementCurrency: entry.settlementCurrency || '',
+            defaultPaymentMethodType: entry.defaultPaymentMethodType || 'CARD',
+            keyVersion: entry.keyVersion || '1'
+          },
+          paymentRequestId: `ad_${adId}_${Date.now()}`,
+          amount,
+          currency: normalizeCurrencyCode(currentAd.currency, 'USD'),
+          orderDescription: `Scrolith Ad Campaign ${adId}`,
+          referenceOrderId: adId,
+          referenceBuyerId: String(req.user?.id || adId),
+          paymentRedirectUrl: successUrl,
+          paymentNotifyUrl: notifyUrl,
+          paymentMethodType: entry.defaultPaymentMethodType || 'CARD',
+          terminalType: 'WEB'
+        });
+        if (!payResult.ok || !payResult.redirectUrl) {
+          return res.status(400).json({
+            success: false,
+            error: payResult.resultMessage || 'Antom could not create checkout session.'
+          });
+        }
+        await prisma.adPayment
+          .create({
+            data: {
+              adId,
+              amount,
+              currency: normalizeCurrencyCode(currentAd.currency, 'USD'),
+              status: 'pending',
+              transactionId: payResult.paymentId || payResult.paymentRequestId || null
+            }
+          })
+          .catch(() => null);
+        return res.json({
+          success: true,
+          data: {
+            checkout_url: payResult.redirectUrl,
+            paymentMethodId: 'antom',
+            paymentRequestId: payResult.paymentRequestId
+          }
+        });
+      } catch (antomError: any) {
+        console.error('Antom ad checkout error', antomError);
+        return res.status(400).json({
+          success: false,
+          error: antomError?.message || 'Antom checkout failed.'
+        });
+      }
+    }
+
     if (paymentMethodId !== 'stripe') {
       return res.status(400).json({
         success: false,
         code: 'PAYMENT_METHOD_UNSUPPORTED',
         error:
-          'Selected payment method is not available for direct ad checkout yet. Choose Stripe Payment or Wallet Balance.'
+          'Selected payment method is not available for direct ad checkout yet. Choose Stripe Payment, Antom, or Wallet Balance.'
       });
     }
 
