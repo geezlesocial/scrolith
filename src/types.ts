@@ -67,7 +67,20 @@ export type SortOrder = 'asc' | 'desc';
 export type AnomalySeverity = 'info' | 'warning' | 'critical';
 
 export type AIModule = 'Support' | 'Payments' | 'Jobs' | 'Gigs' | 'KYC' | 'General';
-export type PaymentProviderId = 'stripe' | 'paypal' | 'paystack' | 'flutterwave' | 'payoneer' | 'paymongo' | 'monnify' | 'opay' | 'xendit' | 'dragonpay' | 'wallet' | 'balance';
+export type PaymentProviderId =
+  | 'stripe'
+  | 'paypal'
+  | 'paystack'
+  | 'flutterwave'
+  | 'payoneer'
+  | 'paymongo'
+  | 'monnify'
+  | 'opay'
+  | 'xendit'
+  | 'dragonpay'
+  | 'antom'
+  | 'wallet'
+  | 'balance';
 export type ChannelType = 'public' | 'private' | 'club' | 'event';
 export type ChannelVisibility = 'public' | 'private';
 export type HomepageSectionType =

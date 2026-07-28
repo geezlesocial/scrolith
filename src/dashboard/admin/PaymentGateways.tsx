@@ -171,6 +171,55 @@ const GatewaysTab = () => {
             { key: 'authToken', label: 'Auth Token', type: 'password', placeholder: 'Bearer token', secret: true },
             { key: 'notificationSecret', label: 'Notification Secret', type: 'password', placeholder: 'Notification secret', secret: true },
             { key: 'createSessionPath', label: 'Create Session Path', placeholder: '/checkout/hosted/session' }
+        ],
+        antom: [
+            {
+                key: 'clientId',
+                label: 'Client ID',
+                placeholder: 'From Antom Dashboard → Developers → Quickstart',
+                help: 'Antom Client-Id used in every AMS request header.'
+            },
+            {
+                key: 'merchantPrivateKey',
+                label: 'Merchant Private Key (RSA)',
+                type: 'password',
+                placeholder: 'PKCS#8 private key (PEM or base64 body)',
+                secret: true,
+                help: 'Used to sign pay requests. Store securely; never shared with clients.'
+            },
+            {
+                key: 'antomPublicKey',
+                label: 'Antom Public Key (RSA)',
+                type: 'password',
+                placeholder: 'Antom public key for response/notify verification',
+                secret: true,
+                help: 'From Antom Dashboard integration resources. Used to verify responses and webhooks.'
+            },
+            { key: 'environment', label: 'Environment', type: 'select', options: ['sandbox', 'live'] },
+            {
+                key: 'gatewayBaseUrl',
+                label: 'Gateway Base URL (optional)',
+                placeholder: 'https://open-na-global.alipay.com',
+                help: 'Leave blank for default Antom AMS host. Override only if Antom provides a regional endpoint.'
+            },
+            {
+                key: 'settlementCurrency',
+                label: 'Settlement Currency (optional)',
+                placeholder: 'USD',
+                help: 'ISO currency for settlementStrategy when required by your Antom contract.'
+            },
+            {
+                key: 'defaultPaymentMethodType',
+                label: 'Default Payment Method Type',
+                placeholder: 'CARD',
+                help: 'e.g. CARD, ALIPAY_CN, or another method enabled on your Antom contract.'
+            },
+            {
+                key: 'keyVersion',
+                label: 'Key Version',
+                placeholder: '1',
+                help: 'Key version string sent in Signature header (default 1).'
+            }
         ]
     };
 
@@ -285,6 +334,18 @@ const GatewaysTab = () => {
                         </div>
 
                         <div className="p-5 space-y-5">
+                            {selectedGateway.id === 'antom' ? (
+                                <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-900">
+                                    <p className="font-semibold">Platform-wide Antom activation</p>
+                                    <p className="mt-1">
+                                        When enabled, Antom appears as a payment method for wallet top-ups and other
+                                        surfaces that use active gateways. Register this notify URL in Antom Dashboard:
+                                    </p>
+                                    <code className="mt-1 block break-all rounded bg-white/80 px-2 py-1 font-mono text-[11px] text-slate-800">
+                                        {'{BACKEND_URL}'}/api/payments/antom/notify
+                                    </code>
+                                </div>
+                            ) : null}
                             <div className="flex items-center gap-4">
                                 <div className="w-24 h-16 border rounded-lg flex items-center justify-center overflow-hidden bg-gray-50">
                                     {configDraft.logo || selectedGateway.logo ? (

@@ -74,7 +74,18 @@ export interface PaymentGateway {
   config?: any;
 }
 
-export type PaymentProviderId = 'stripe' | 'paypal' | 'paystack' | 'flutterwave' | 'payoneer' | 'paymongo' | 'monnify' | 'opay' | 'xendit' | 'dragonpay';
+export type PaymentProviderId =
+  | 'stripe'
+  | 'paypal'
+  | 'paystack'
+  | 'flutterwave'
+  | 'payoneer'
+  | 'paymongo'
+  | 'monnify'
+  | 'opay'
+  | 'xendit'
+  | 'dragonpay'
+  | 'antom';
 
 export interface WithdrawalRequest {
   id: string;

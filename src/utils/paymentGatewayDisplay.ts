@@ -5,7 +5,8 @@ type GatewayLike = {
 };
 
 const SPECIAL_GATEWAY_LABELS: Record<string, string> = {
-  stripe: 'Stripe Payment'
+  stripe: 'Stripe Payment',
+  antom: 'Antom (Alipay+)'
 };
 
 const normalizeText = (value: unknown): string => String(value ?? '').replace(/\s+/g, ' ').trim();
