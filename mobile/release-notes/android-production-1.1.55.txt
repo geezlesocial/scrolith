@@ -1,0 +1,3 @@
+<en-US>
+This release hardens media captions so uploaded file names never appear as captions. Captions on photos and videos now display only when manually added, with continued support for emoji, @mentions, #tags, and polished caption tools.
+</en-US>
