@@ -754,6 +754,33 @@ const CommunityHome = () => {
     [triggerPostDoubleTapLike]
   );
 
+  const onPostVideoTouchEnd = useCallback(
+    (event: React.TouchEvent<HTMLElement>, post: any, media: any, mediaKey: string) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('[data-inline-video-control="true"], button, a, input, textarea, select, label')) return;
+      const postId = String(post?.id || '').trim();
+      if (!postId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const tapKey = `${postId}:${mediaKey}`;
+      const now = Date.now();
+      const previousTap = postMediaLastTapAtRef.current[tapKey] || 0;
+      postMediaLastTapAtRef.current[tapKey] = now;
+      if (previousTap && now - previousTap <= 320) {
+        const existing = postMediaTapTimersRef.current[tapKey];
+        if (existing) {
+          window.clearTimeout(existing);
+          delete postMediaTapTimersRef.current[tapKey];
+        }
+        postMediaLastTapAtRef.current[tapKey] = 0;
+        void triggerPostDoubleTapLike(post);
+        return;
+      }
+      queueOpenPostFromMediaTap(post, media, mediaKey);
+    },
+    [queueOpenPostFromMediaTap, triggerPostDoubleTapLike]
+  );
+
   const buildContributorUrl = useCallback((entry?: any) => {
     const handle = String(entry?.username || entry?.userName || '').trim().replace(/^@+/, '');
     if (handle) return `/u/${encodeURIComponent(handle)}`;
@@ -3892,14 +3919,15 @@ const CommunityHome = () => {
                                           if ((event.target as HTMLElement | null)?.closest('[data-inline-video-control=\"true\"]')) return;
                                           onPostMediaDoubleClick(event, post, mediaKey);
                                         }}
-                                        onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
+                                        onTouchEnd={(event) => onPostVideoTouchEnd(event, post, media, mediaKey)}
                                         onKeyDown={(event) => {
                                           if (event.key === 'Enter' || event.key === ' ') {
                                             event.preventDefault();
                                             handlePostMediaPrimaryAction(post, media);
                                           }
                                         }}
-                                        className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+                                        className="group relative mx-auto w-full cursor-pointer overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
+                                        aria-label="Open video in Scroll"
                                       >
                                         <InlineAutoplayVideo
                                           src={mediaUrl}
@@ -3920,6 +3948,19 @@ const CommunityHome = () => {
                                             />
                                           )}
                                         />
+                                        <button
+                                          type="button"
+                                          data-inline-video-control="true"
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            event.stopPropagation();
+                                            handlePostMediaPrimaryAction(post, media);
+                                          }}
+                                          className="absolute bottom-2 left-2 rounded-full bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white opacity-0 shadow-lg backdrop-blur transition hover:bg-black/80 group-hover:opacity-100 group-focus-within:opacity-100 sm:opacity-100"
+                                          aria-label="Open this video in Scroll"
+                                        >
+                                          Open in Scroll
+                                        </button>
                                       </div>
                                     );
                                   }
