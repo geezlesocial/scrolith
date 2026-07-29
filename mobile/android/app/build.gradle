@@ -13,9 +13,9 @@ android {
         applicationId "com.scrolith.scrolith"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // 1.1.53 - rich video caption overlays with @mention and #tag support.
-        versionCode 63
-        versionName "1.1.53"
+        // 1.1.54 - explicit media captions with emoji, mention, tag, and design tools.
+        versionCode 64
+        versionName "1.1.54"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         // Release builds should not allow cleartext traffic. Debug builds override this to true.
         manifestPlaceholders = [usesCleartextTraffic: "false"]

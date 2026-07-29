@@ -1,0 +1,3 @@
+<en-US>
+This release makes media captions explicit: captions appear on post videos, Stories, and Scrolls only when you add one. It also adds caption tools for emojis, professional cleanup, highlights, calls to action, @mentions, and #tags, optimized for Android and mobile web.
+</en-US>
