@@ -35,6 +35,7 @@ geezle-backend/*
 !geezle-backend/package.json
 !geezle-backend/package-lock.json
 !geezle-backend/tsconfig.json
+!geezle-backend/tsconfig.production.json
 !geezle-backend/prisma/
 !geezle-backend/prisma/**
 !geezle-backend/scripts/
