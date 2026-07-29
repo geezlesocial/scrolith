@@ -78,7 +78,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   showMuteToggle = true,
   threshold = 0.35,
   rootMargin = '0px 0px -10% 0px',
-  preloadRootMargin = '160px 0px 160px 0px',
+  preloadRootMargin = '320px 0px 480px 0px',
   eagerLoad = false,
   onDoubleTapLike,
   onEnded,
@@ -206,6 +206,16 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   useEffect(() => {
     if (eagerLoad && src) setShouldLoadSource(true);
   }, [eagerLoad, src]);
+
+  useEffect(() => {
+    const node = videoRef.current;
+    if (!node || !shouldLoadSource || !activeSrc || hasPlaybackError) return;
+    try {
+      node.load();
+    } catch {
+      // Browser-managed media loading can throw if the element detaches mid-route.
+    }
+  }, [activeSrc, hasPlaybackError, shouldLoadSource]);
 
   useEffect(() => {
     const node = videoRef.current;
@@ -350,7 +360,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
     const recoverFromStallOnce = () => {
       if (!activeRef.current || document.hidden || !isInViewRef.current || userPausedRef.current) return;
       if (node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
-      if (stalledRecoveryRef.current >= 1) return;
+      if (stalledRecoveryRef.current >= 2) return;
       stalledRecoveryRef.current += 1;
       setIsLoadingVideo(true);
       window.setTimeout(() => {
@@ -451,7 +461,7 @@ const InlineAutoplayVideo: React.FC<InlineAutoplayVideoProps> = ({
   ]);
 
   const effectivePreload: 'none' | 'metadata' | 'auto' =
-    shouldLoadSource && active && isInView ? preload : shouldLoadSource ? 'metadata' : 'none';
+    shouldLoadSource && active && isInView ? (autoplayEnabled ? 'auto' : preload) : shouldLoadSource ? 'metadata' : 'none';
 
   useEffect(() => {
     const node = videoRef.current;

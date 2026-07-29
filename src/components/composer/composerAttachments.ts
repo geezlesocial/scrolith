@@ -4,6 +4,7 @@
  */
 
 export const COMPOSER_MAX_ATTACHMENTS = 12;
+export const COMPOSER_MAX_VIDEO_ATTACHMENTS = 1;
 export const COMPOSER_MAX_IMAGE_BYTES = 25 * 1024 * 1024; // 25MB
 export const COMPOSER_MAX_VIDEO_BYTES = 200 * 1024 * 1024; // 200MB
 export const COMPOSER_MAX_DOCUMENT_BYTES = 40 * 1024 * 1024; // 40MB
@@ -41,6 +42,19 @@ export type ComposerAttachmentPreview = {
   file?: File;
 };
 
+export const hasComposerVideoAttachment = (
+  media: Array<Pick<ComposerAttachmentPreview, 'type' | 'mimeType' | 'name' | 'url'> | null | undefined>
+) => {
+  return (Array.isArray(media) ? media : []).some((item) => {
+    if (!item) return false;
+    if (item.type === 'video') return true;
+    const mime = String(item.mimeType || '').toLowerCase();
+    if (mime.startsWith('video/')) return true;
+    const hay = `${item.name || ''} ${item.url || ''}`.toLowerCase();
+    return /\.(mp4|webm|mov|m4v|avi|mkv|3gp)(?:$|[?#\s])/.test(hay);
+  });
+};
+
 const IMAGE_TYPES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -73,7 +87,7 @@ export const inferComposerMediaKind = (file: Pick<File, 'type' | 'name'>): Compo
 
 export const validateComposerFile = (
   file: File,
-  opts?: { currentCount?: number; maxAttachments?: number }
+  opts?: { currentCount?: number; maxAttachments?: number; currentVideoCount?: number }
 ): ComposerFileValidation => {
   if (!file) return { ok: false, reason: 'No file selected.' };
   const maxAttachments = opts?.maxAttachments ?? COMPOSER_MAX_ATTACHMENTS;
@@ -86,6 +100,9 @@ export const validateComposerFile = (
   }
 
   const kind = inferComposerMediaKind(file);
+  if (kind === 'video' && (opts?.currentVideoCount ?? 0) >= COMPOSER_MAX_VIDEO_ATTACHMENTS) {
+    return { ok: false, reason: 'Only one video can be attached to a post.' };
+  }
   const size = Number(file.size) || 0;
   if (kind === 'image' && size > COMPOSER_MAX_IMAGE_BYTES) {
     return { ok: false, reason: 'Images must be 25MB or smaller.' };

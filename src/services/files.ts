@@ -24,7 +24,7 @@ interface ApiError {
 const FILE_LIST_TIMEOUT_MS = Number(import.meta.env.VITE_FILES_LIST_TIMEOUT_MS ?? 30000);
 const FILE_UPLOAD_TIMEOUT_BASE_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_BASE_MS ?? 90000);
 const FILE_UPLOAD_TIMEOUT_PER_MB_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_PER_MB_MS ?? 15000);
-const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 900000);
+const FILE_UPLOAD_TIMEOUT_MAX_MS = Number(import.meta.env.VITE_FILE_UPLOAD_TIMEOUT_MAX_MS ?? 1800000);
 const FILE_LIST_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILES_LIST_RETRY_ATTEMPTS ?? 2);
 const FILE_UPLOAD_RETRY_ATTEMPTS = Number(import.meta.env.VITE_FILE_UPLOAD_RETRY_ATTEMPTS ?? 2);
 
@@ -295,6 +295,7 @@ export const FileService = {
     }
 
     let lastError: any = null;
+    let lastProgress = 0;
     for (let attempt = 0; attempt < totalAttempts; attempt += 1) {
       try {
         const response = await api.post<ApiResponse<UploadedFile>>('/files/upload', formData, {
@@ -304,8 +305,12 @@ export const FileService = {
           onUploadProgress: onProgress
             ? (event) => {
                 const total = event.total ?? 0;
-                const percent = total ? Math.round((event.loaded / total) * 100) : 0;
-                onProgress(percent, event);
+                const rawPercent = total ? Math.round((event.loaded / total) * 100) : 0;
+                const percent = Math.max(lastProgress, Math.min(99, Math.max(0, rawPercent)));
+                if (percent !== lastProgress) {
+                  lastProgress = percent;
+                  onProgress(percent, event);
+                }
               }
             : undefined
         });

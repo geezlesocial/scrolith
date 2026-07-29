@@ -24,6 +24,7 @@ import {
   COMPOSER_UPLOAD_MAX_RETRIES,
   createLocalAttachment,
   generateLocalVideoPoster,
+  hasComposerVideoAttachment,
   revokeAttachmentPreviews,
   validateComposerFile,
   type ComposerAttachmentPreview
@@ -66,6 +67,7 @@ export default function MobilePostScreen({
   const mediaRef = useRef(media);
   mediaRef.current = media;
   const mediaCountRef = useRef(0);
+  const mediaVideoCountRef = useRef(0);
   const [busy, setBusy] = useState(false);
   const [loadingPost, setLoadingPost] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
@@ -142,6 +144,11 @@ export default function MobilePostScreen({
   }, [allowedVisibilities.join('|'), defaultVisibility]);
 
   useEffect(() => {
+    mediaCountRef.current = media.length;
+    mediaVideoCountRef.current = hasComposerVideoAttachment(media) ? 1 : 0;
+  }, [media]);
+
+  useEffect(() => {
     return () => {
       mediaRef.current.forEach((item) => revokeAttachmentPreviews(item));
     };
@@ -170,12 +177,41 @@ export default function MobilePostScreen({
     );
   }, []);
 
+  const markMediaUploading = useCallback((localId: string, retryCount: number, file: File) => {
+    setMedia((prev) =>
+      prev.map((item) => {
+        if (item.localId !== localId) return item;
+        const currentProgress = Number(item.progress || 0) || 0;
+        return {
+          ...item,
+          uploading: true,
+          progress: retryCount > 0 ? Math.max(currentProgress, 1) : currentProgress,
+          error: undefined,
+          retryCount,
+          file
+        };
+      })
+    );
+  }, []);
+
+  const updateMediaProgress = useCallback((localId: string, percent: number) => {
+    const nextPercent = Math.max(0, Math.min(99, Math.round(Number(percent) || 0)));
+    setMedia((prev) =>
+      prev.map((item) =>
+        item.localId === localId
+          ? { ...item, progress: Math.max(Number(item.progress || 0) || 0, nextPercent), uploading: true }
+          : item
+      )
+    );
+  }, []);
+
   const removeAttachment = useCallback((localId: string) => {
     setMedia((prev) => {
       const target = prev.find((m) => m.localId === localId);
       if (target) revokeAttachmentPreviews(target);
       const next = prev.filter((m) => m.localId !== localId);
       mediaCountRef.current = next.length;
+      mediaVideoCountRef.current = hasComposerVideoAttachment(next) ? 1 : 0;
       return next;
     });
     setStatusMessage('Attachment removed.');
@@ -216,12 +252,16 @@ export default function MobilePostScreen({
       const retryCount = opts?.retryCount ?? 0;
 
       if (!existingLocalId) {
-        const validation = validateComposerFile(file, { currentCount: mediaCountRef.current });
+        const validation = validateComposerFile(file, {
+          currentCount: mediaCountRef.current,
+          currentVideoCount: mediaVideoCountRef.current
+        });
         if (validation.ok === false) {
           showNotification('warning', 'Attachments', validation.reason);
           return;
         }
         mediaCountRef.current += 1;
+        if (validation.kind === 'video') mediaVideoCountRef.current = 1;
         const localItem = createLocalAttachment(file, validation.kind);
         setMedia((prev) => [...prev, localItem]);
         setTextBackgroundId(POST_TEXT_BG_NONE_ID);
@@ -234,7 +274,7 @@ export default function MobilePostScreen({
       }
 
       const localId = existingLocalId;
-      updateMedia(localId, { uploading: true, progress: 0, error: undefined, retryCount, file });
+      markMediaUploading(localId, retryCount, file);
       setStatusMessage(
         retryCount > 0 ? `Retrying ${file.name}…` : `Uploading ${file.name}…`
       );
@@ -245,7 +285,7 @@ export default function MobilePostScreen({
           visibility: visibility === 'private' ? 'private' : 'public',
           userId: user?.id,
           onProgress: (percent: number) => {
-            updateMedia(localId, { progress: percent, uploading: true });
+            updateMediaProgress(localId, percent);
             setStatusMessage(`Uploading ${file.name}: ${percent}%`);
           },
           onRetry: (attempt: number) => {
@@ -284,7 +324,7 @@ export default function MobilePostScreen({
         showNotification('error', 'Attachments', message);
       }
     },
-    [showNotification, updateMedia, user, visibility]
+    [markMediaUploading, showNotification, updateMedia, updateMediaProgress, user, visibility]
   );
 
   const retryAttachment = useCallback(
@@ -355,6 +395,7 @@ export default function MobilePostScreen({
 
     mediaRef.current.forEach((item) => revokeAttachmentPreviews(item));
     mediaCountRef.current = normalized.length;
+    mediaVideoCountRef.current = hasComposerVideoAttachment(normalized) ? 1 : 0;
     setMedia(normalized);
   };
 
@@ -513,6 +554,7 @@ export default function MobilePostScreen({
 
       media.forEach((item) => revokeAttachmentPreviews(item));
       mediaCountRef.current = 0;
+      mediaVideoCountRef.current = 0;
       setContent('');
       setTextBackgroundId(POST_TEXT_BG_NONE_ID);
       setMedia([]);
@@ -523,7 +565,15 @@ export default function MobilePostScreen({
       setPlace('');
       setStatusMessage('');
       showNotification('success', 'Posted', 'Your update is live.');
-      if (onClose) closeComposer();
+      const createdId = String((created as any)?.id || '').trim();
+      if (createdId) {
+        navigate(`/post/${encodeURIComponent(createdId)}`, {
+          replace: true,
+          state: { post: created, fromComposer: true }
+        });
+      } else if (onClose) {
+        closeComposer();
+      }
     } catch (e: any) {
       showNotification(
         'error',

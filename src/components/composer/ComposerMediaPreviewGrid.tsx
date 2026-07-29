@@ -84,17 +84,30 @@ const ComposerMediaPreviewGrid: React.FC<Props> = ({
                 className="relative block h-48 w-full overflow-hidden text-left"
                 onClick={() => onOpenPreview?.(mediaItem)}
               >
-                <InlineAutoplayVideo
-                  src={src || ''}
-                  poster={poster}
-                  className="h-48 w-full object-cover"
-                  controls={false}
-                  loop
-                  eagerLoad
-                  autoplayEnabled
-                  preload="metadata"
-                  loadingLabel="Video preview loading"
-                />
+                {mediaItem.uploading ? (
+                  <video
+                    src={src || undefined}
+                    poster={poster}
+                    className="h-48 w-full object-cover"
+                    muted
+                    playsInline
+                    loop
+                    autoPlay
+                    preload="metadata"
+                  />
+                ) : (
+                  <InlineAutoplayVideo
+                    src={src || ''}
+                    poster={poster}
+                    className="h-48 w-full object-cover"
+                    controls={false}
+                    loop
+                    eagerLoad
+                    autoplayEnabled
+                    preload="metadata"
+                    loadingLabel="Video preview loading"
+                  />
+                )}
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/75 to-transparent px-3 pb-3 pt-8">
                   <span className="inline-flex rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-semibold text-slate-900">
                     Video preview

@@ -74,6 +74,7 @@ import {
 import { Phase2Service } from '../services/phase2';
 import { MemberFeedService } from '../services/memberFeed';
 import { INLINE_VIDEO_PREVIEW_AUTOPLAY, resolveInlineMedia } from '../utils/inlineMedia';
+import { buildScrollVideoUrl } from '../utils/scrollVideoRoutes';
 import {
   resolvePostAttachmentMediaPair,
   resolvePostAttachmentMediaUrl,
@@ -83,7 +84,8 @@ import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
 import {
   filterExistingActiveStories,
-  findExistingActiveStoryById
+  findExistingActiveStoryById,
+  resolveStoryIdentity
 } from '../utils/storyAvailability';
 import {
   buildPostVideoScrollViewerPath,
@@ -581,15 +583,16 @@ const CommunityHome = () => {
     const wantsStories = tab === 'stories' || tab === 'story' || hash === '#stories' || hash === '#story';
     if (!wantsStories && !storyId) return;
     setStoryRailTab('stories');
-    if (storyId) {
-      const target = findExistingActiveStoryById(stories, storyId);
-      if (target && storyDeepLinkOpenRef.current !== storyId) {
-        storyDeepLinkOpenRef.current = storyId;
-        setActiveStory(target);
-        CommunityService.viewStory(storyId).catch((error) => {
-          console.error('Failed to record story view', error);
-        });
-      }
+    const target =
+      (storyId ? findExistingActiveStoryById(stories, storyId) : null) ||
+      (wantsStories ? filterExistingActiveStories(stories)[0] || null : null);
+    const targetStoryId = resolveStoryIdentity(target);
+    if (target && targetStoryId && storyDeepLinkOpenRef.current !== targetStoryId) {
+      storyDeepLinkOpenRef.current = targetStoryId;
+      setActiveStory(target);
+      CommunityService.viewStory(targetStoryId).catch((error) => {
+        console.error('Failed to record story view', error);
+      });
     }
     const timer = window.setTimeout(() => {
       storyRailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2245,6 +2248,8 @@ const CommunityHome = () => {
         textAlign: storyDraft.textAlign
       });
       setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
+      setStoryRailTab('stories');
+      setActiveStory(created);
       setStoryDraft({
         content: '',
         visibility: 'public',
@@ -2290,6 +2295,8 @@ const CommunityHome = () => {
         visibility: storyDraft.visibility
       });
       setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
+      setStoryRailTab('stories');
+      setActiveStory(created);
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
@@ -4299,6 +4306,9 @@ const CommunityHome = () => {
         onCreated={(created) => {
           setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, 18));
           setStoryRailTab('reels');
+          if (created?.id) {
+            navigate(buildScrollVideoUrl(String(created.id)));
+          }
         }}
       />
 

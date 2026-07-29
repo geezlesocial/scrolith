@@ -115,7 +115,8 @@ import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
   filterExistingActiveStories,
-  findExistingActiveStoryById
+  findExistingActiveStoryById,
+  resolveStoryIdentity
 } from '../../utils/storyAvailability';
 import {
   postAiInsightPreferenceToBoolean,
@@ -218,6 +219,7 @@ import {
   createLocalAttachment,
   filesFromDataTransfer,
   generateLocalVideoPoster,
+  hasComposerVideoAttachment,
   revokeAttachmentPreviews,
   revokePreviewUrl,
   validateComposerFile,
@@ -1751,6 +1753,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const publishGuardRef = useRef(createPublishGuard());
   /** Tracks media count for multi-file validation without stale-closure races. */
   const postMediaCountRef = useRef(0);
+  /** Tracks video attachment reservations for same-picker multi-select races. */
+  const postMediaVideoCountRef = useRef(0);
   /** Latest media snapshot for unmount blob cleanup. */
   const postMediaItemsRef = useRef<PostMediaItem[]>([]);
   /** Stable close/save path — avoid recreating onClose every keystroke (focus trap churn). */
@@ -2083,15 +2087,16 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     const wantsStories = tab === 'stories' || tab === 'story' || hash === '#stories' || hash === '#story';
     if ((!wantsStories && !storyId) || !showStories) return;
     setStoryRailTab('stories');
-    if (storyId) {
-      const target = findExistingActiveStoryById(stories, storyId);
-      if (target && storyDeepLinkOpenRef.current !== storyId) {
-        storyDeepLinkOpenRef.current = storyId;
-        setActiveStory(target);
-        CommunityService.viewStory(storyId).catch((error) => {
-          console.error('Failed to record story view', error);
-        });
-      }
+    const target =
+      (storyId ? findExistingActiveStoryById(stories, storyId) : null) ||
+      (wantsStories ? filterExistingActiveStories(stories)[0] || null : null);
+    const targetStoryId = resolveStoryIdentity(target);
+    if (target && targetStoryId && storyDeepLinkOpenRef.current !== targetStoryId) {
+      storyDeepLinkOpenRef.current = targetStoryId;
+      setActiveStory(target);
+      CommunityService.viewStory(targetStoryId).catch((error) => {
+        console.error('Failed to record story view', error);
+      });
     }
     const timer = window.setTimeout(() => {
       storyRailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2295,6 +2300,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   // Keep multi-file attach validation + unmount cleanup in sync with draft media.
   useEffect(() => {
     postMediaCountRef.current = postDraft.media.length;
+    postMediaVideoCountRef.current = hasComposerVideoAttachment(postDraft.media) ? 1 : 0;
     postMediaItemsRef.current = postDraft.media;
   }, [postDraft.media]);
 
@@ -4581,6 +4587,36 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     }));
   }, []);
 
+  const markPostMediaUploading = useCallback((localId: string, retryCount: number, file: File) => {
+    setPostDraft((prev) => ({
+      ...prev,
+      media: prev.media.map((item) => {
+        if (item.localId !== localId) return item;
+        const currentProgress = Number(item.progress || 0) || 0;
+        return {
+          ...item,
+          uploading: true,
+          progress: retryCount > 0 ? Math.max(currentProgress, 1) : currentProgress,
+          error: undefined,
+          retryCount,
+          file
+        };
+      })
+    }));
+  }, []);
+
+  const updatePostMediaProgress = useCallback((localId: string, percent: number) => {
+    const nextPercent = Math.max(0, Math.min(99, Math.round(Number(percent) || 0)));
+    setPostDraft((prev) => ({
+      ...prev,
+      media: prev.media.map((item) =>
+        item.localId === localId
+          ? { ...item, progress: Math.max(Number(item.progress || 0) || 0, nextPercent), uploading: true }
+          : item
+      )
+    }));
+  }, []);
+
   const addPostMediaItem = useCallback((item: PostMediaItem) => {
     // Text backgrounds are text-only — attaching media clears the theme selection.
     setPostDraft((prev) => ({
@@ -4597,6 +4633,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       revokeAttachmentPreviews(target);
       const nextMedia = prev.media.filter((item) => item.localId !== localId);
       postMediaCountRef.current = nextMedia.length;
+      postMediaVideoCountRef.current = hasComposerVideoAttachment(nextMedia) ? 1 : 0;
       postMediaItemsRef.current = nextMedia;
       return {
         ...prev,
@@ -4614,7 +4651,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
 
       if (!existingLocalId) {
         const validation = validateComposerFile(file, {
-          currentCount: postMediaCountRef.current
+          currentCount: postMediaCountRef.current,
+          currentVideoCount: postMediaVideoCountRef.current
         });
         if (validation.ok === false) {
           showNotification('warning', 'Attachments', validation.reason);
@@ -4623,6 +4661,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         }
         // Reserve a slot immediately so concurrent multi-file picks cannot exceed the limit.
         postMediaCountRef.current += 1;
+        if (validation.kind === 'video') postMediaVideoCountRef.current = 1;
         const localItem = createLocalAttachment(file, validation.kind);
         addPostMediaItem(localItem);
         if (validation.kind === 'video') {
@@ -4635,13 +4674,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       }
 
       const localId = existingLocalId;
-      updatePostMedia(localId, {
-        uploading: true,
-        progress: 0,
-        error: undefined,
-        retryCount,
-        file
-      });
+      markPostMediaUploading(localId, retryCount, file);
       setComposerStatusMessage(
         retryCount > 0 ? `Retrying ${file.name} (attempt ${retryCount + 1})…` : `Uploading ${file.name}…`
       );
@@ -4652,7 +4685,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
           visibility: postDraft.visibility === 'private' ? 'private' : 'public',
           userId: user.id,
           onProgress: (percent) => {
-            updatePostMedia(localId, { progress: percent, uploading: true });
+            updatePostMediaProgress(localId, percent);
             setComposerStatusMessage(`Uploading ${file.name}: ${percent}%`);
           },
           onRetry: (attempt) => {
@@ -4705,7 +4738,15 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         showNotification('error', 'Attachments', `${file.name}: ${message}`);
       }
     },
-    [addPostMediaItem, postDraft.visibility, showNotification, updatePostMedia, user]
+    [
+      addPostMediaItem,
+      markPostMediaUploading,
+      postDraft.visibility,
+      showNotification,
+      updatePostMedia,
+      updatePostMediaProgress,
+      user
+    ]
   );
 
   const retryPostMedia = useCallback(
@@ -4970,6 +5011,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       // Clear blob previews before wiping draft.
       postDraft.media.forEach((item) => revokeAttachmentPreviews(item));
       postMediaCountRef.current = 0;
+      postMediaVideoCountRef.current = 0;
       postMediaItemsRef.current = [];
       setPostDraft(createEmptyPostDraft());
       setPostLocationDetails(null);
@@ -4998,6 +5040,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         });
         setFeedItems((prev) => [normalized, ...prev.filter((item) => String(item.id) !== String(normalized.id))]);
         setCommentCounts((prev) => ({ ...prev, [normalized.id]: 0 }));
+        navigate(`/post/${encodeURIComponent(String(normalized.id))}`, {
+          state: { post: normalized, fromComposer: true }
+        });
       }
       setComposerStatusMessage('Your update is live.');
       showNotification('success', 'Posts', 'Your update is live.');
@@ -5015,7 +5060,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setPosting(false);
       publishGuardRef.current.end();
     }
-  }, [activePostBusinessPageId, composerDraftKey, normalizePost, postDraft, showNotification, user]);
+  }, [activePostBusinessPageId, composerDraftKey, navigate, normalizePost, postDraft, showNotification, user]);
 
   const beginEditPost = useCallback((post: FeedPost) => {
     const policyValue = String(post.commentPolicy || 'everyone').toLowerCase();
@@ -5342,6 +5387,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setStories((prev) =>
         filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
       );
+      setStoryRailTab('stories');
+      setActiveStory(created);
       setStoryDraft({
         content: '',
         visibility: 'public',
@@ -5510,6 +5557,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setStories((prev) =>
         filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
       );
+      setStoryRailTab('stories');
+      setActiveStory(created);
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
@@ -5582,6 +5631,8 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       setStories((prev) =>
         filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]).slice(0, maxStories)
       );
+      setStoryRailTab('stories');
+      setActiveStory(created);
       setStoryMediaPreviewOpen(false);
       setStoryMediaDraftFile(null);
       setStoryDraft((prev) => ({ ...prev, content: '' }));
@@ -7403,6 +7454,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
     if (posting || publishGuardRef.current.isBusy()) return;
     postDraft.media.forEach((item) => revokeAttachmentPreviews(item));
     postMediaCountRef.current = 0;
+    postMediaVideoCountRef.current = 0;
     postMediaItemsRef.current = [];
     setPostDraft(createEmptyPostDraft());
     setPostLocationDetails(null);
@@ -10900,6 +10952,9 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
             onCreated={(created) => {
               setReels((prev) => [created, ...prev.filter((item) => item.id !== created.id)].slice(0, maxReels));
               setStoryRailTab('reels');
+              if (created?.id) {
+                navigate(buildScrollVideoUrl(String(created.id)));
+              }
             }}
           />
         </Suspense>

@@ -28,6 +28,8 @@ test('member-home and community consume story tab deep-links', () => {
     assert.match(src, /setStoryRailTab\('stories'\)/);
     assert.match(src, /query\.get\('story'\)/);
     assert.match(src, /findExistingActiveStoryById\(stories, storyId\)/);
+    assert.match(src, /filterExistingActiveStories\(stories\)\[0\]/);
+    assert.match(src, /resolveStoryIdentity\(target\)/);
     assert.match(src, /setActiveStory\(target\)/);
     assert.match(src, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
     assert.match(src, /tab === 'stories'/);
