@@ -728,6 +728,18 @@ export default function MobilePostScreen({
               hasMedia
             });
             return (
+              <>
+              {hasMedia ? (
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div>
+                    <div className="text-xs font-semibold text-slate-600">Media caption</div>
+                    <div className="text-[11px] text-slate-500">Shown with your photo or video after publishing.</div>
+                  </div>
+                  <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-500">
+                    {content.trim().length}
+                  </span>
+                </div>
+              ) : null}
               <div
                 className={
                   textOnlyBackground
@@ -763,6 +775,7 @@ export default function MobilePostScreen({
                   }
                 />
               </div>
+              </>
             );
           })()}
           <div className="mt-2 text-[11px] text-slate-500">

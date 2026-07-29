@@ -516,6 +516,8 @@ const CommunityHome = () => {
   const [storyMediaUploadLabel, setStoryMediaUploadLabel] = useState('');
   const [storyMediaUploadProgress, setStoryMediaUploadProgress] = useState(0);
   const [activeStory, setActiveStory] = useState<any | null>(null);
+  const [storyMediaPreviewOpen, setStoryMediaPreviewOpen] = useState(false);
+  const [storyMediaDraftFile, setStoryMediaDraftFile] = useState<any | null>(null);
   const [storyEditOpen, setStoryEditOpen] = useState(false);
   const [editingStory, setEditingStory] = useState<any | null>(null);
   const [storyEditSaving, setStoryEditSaving] = useState(false);
@@ -2288,22 +2290,56 @@ const CommunityHome = () => {
         }
       });
       setStoryMediaUploadProgress(100);
-      setStoryMediaUploadLabel('Preparing your story for publish...');
+      setStoryMediaUploadLabel(`${file.name} is ready to publish.`);
+      setStoryMediaDraftFile(uploaded);
+      setStoryMediaPreviewOpen(true);
+    } catch (error: any) {
+      console.error(error);
+      showNotification('error', 'Stories', error?.message || 'Unable to upload story media.');
+      clearStoryMediaUploadState();
+    } finally {
+      setStoryPosting(false);
+      setStoryMediaUploadBusy(false);
+    }
+  };
+
+  const publishStorySelectedMedia = async () => {
+    if (!user || !storyMediaDraftFile?.id) return;
+    setStoryPosting(true);
+    setStoryMediaUploadBusy(true);
+    setStoryMediaUploadProgress(100);
+    setStoryMediaUploadLabel('Preparing your story for publish...');
+    let published = false;
+    try {
+      const mime = String(storyMediaDraftFile?.mimeType || storyMediaDraftFile?.mime_type || '').toLowerCase();
+      const explicitType = String(storyMediaDraftFile?.type || '').toLowerCase();
+      const type = explicitType === 'video' || mime.startsWith('video/') ? 'video' : 'image';
       const created = await CommunityService.createStory({
         type,
-        mediaFileId: uploaded.id,
+        mediaFileId: storyMediaDraftFile.id,
+        caption: storyDraft.content?.trim() || undefined,
         visibility: storyDraft.visibility
       });
       setStories((prev) => filterActiveStories([created, ...prev.filter((item) => String(item?.id) !== String(created?.id))]));
       setStoryRailTab('stories');
       setActiveStory(created);
+      setStoryMediaPreviewOpen(false);
+      setStoryMediaDraftFile(null);
+      setStoryDraft((prev) => ({ ...prev, content: '' }));
+      published = true;
       showNotification('success', 'Stories', 'Your story is live.');
     } catch (error: any) {
       console.error(error);
       showNotification('error', 'Stories', error?.message || 'Unable to post story.');
+      setStoryMediaUploadLabel('Media is ready. Review your caption and try publishing again.');
     } finally {
       setStoryPosting(false);
-      clearStoryMediaUploadState();
+      if (published) {
+        clearStoryMediaUploadState();
+      } else {
+        setStoryMediaUploadBusy(false);
+        setStoryMediaUploadProgress(storyMediaDraftFile?.id ? 100 : 0);
+      }
     }
   };
 
@@ -4311,6 +4347,143 @@ const CommunityHome = () => {
           }
         }}
       />
+
+      {storyMediaPreviewOpen && storyMediaDraftFile?.id && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-3 sm:p-6">
+          <div className="w-full max-w-lg max-h-[92dvh] overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Story preview</h3>
+                <p className="text-xs text-gray-500">Review your media, add a caption, and publish when ready.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (storyPosting) return;
+                  setStoryMediaPreviewOpen(false);
+                  setStoryMediaDraftFile(null);
+                  clearStoryMediaUploadState();
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {storyMediaUploadLabel ? (
+                <StoryUploadStatusCard
+                  busy={storyMediaUploadBusy}
+                  label={storyMediaUploadLabel}
+                  progress={storyMediaUploadProgress}
+                  hint={
+                    storyMediaUploadBusy
+                      ? 'Scrolith is finalizing your upload before publish.'
+                      : 'Your media is uploaded. Add a caption if you want, then publish.'
+                  }
+                />
+              ) : null}
+              <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-50">
+                {(() => {
+                  const url =
+                    storyMediaDraftFile?.url ||
+                    storyMediaDraftFile?.downloadUrl ||
+                    storyMediaDraftFile?.download_url ||
+                    '';
+                  const mime = String(storyMediaDraftFile?.mimeType || storyMediaDraftFile?.mime_type || '').toLowerCase();
+                  const explicitType = String(storyMediaDraftFile?.type || '').toLowerCase();
+                  const isVideo = explicitType === 'video' || mime.startsWith('video/');
+                  if (!url) {
+                    return <div className="flex h-48 w-full items-center justify-center text-sm text-gray-600">Media preview not available.</div>;
+                  }
+                  return isVideo ? (
+                    <video
+                      src={url}
+                      className="h-56 w-full object-cover"
+                      controls
+                      autoPlay
+                      muted
+                      playsInline
+                      loop
+                      preload="metadata"
+                    />
+                  ) : (
+                    <OptimizedImage
+                      src={resolveAssetUrl(url)}
+                      alt="Story preview"
+                      width={720}
+                      height={1280}
+                      sizes="(max-width: 768px) 100vw, 420px"
+                      className="h-56 w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  );
+                })()}
+              </div>
+
+              <label className="block">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Caption</span>
+                  <span className="text-[11px] font-semibold text-gray-400">{storyDraft.content.trim().length} characters</span>
+                </div>
+                <textarea
+                  value={storyDraft.content}
+                  onChange={(event) => setStoryDraft((prev) => ({ ...prev, content: event.target.value }))}
+                  placeholder="Add a caption to your story..."
+                  className="min-h-[120px] w-full rounded-2xl border border-gray-200 p-3 text-sm text-gray-700 outline-none focus:border-gray-400"
+                  disabled={storyPosting}
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-700">
+                  <span className="text-gray-500">Visibility</span>
+                  <select
+                    value={storyDraft.visibility}
+                    onChange={(event) =>
+                      setStoryDraft((prev) => ({ ...prev, visibility: normalizeStoryVisibility(event.target.value) }))
+                    }
+                    className="bg-transparent text-xs font-semibold text-gray-900 outline-none"
+                    disabled={storyPosting}
+                  >
+                    {storyVisibilityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (storyPosting) return;
+                      setStoryMediaPreviewOpen(false);
+                      setStoryMediaDraftFile(null);
+                      clearStoryMediaUploadState();
+                      storyDeviceInputRef.current?.click();
+                    }}
+                    className="rounded-full border border-gray-200 px-4 py-2 text-xs font-semibold text-gray-600"
+                    disabled={storyPosting}
+                  >
+                    Change media
+                  </button>
+                  <button
+                    type="button"
+                    onClick={publishStorySelectedMedia}
+                    className="rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white disabled:opacity-60"
+                    disabled={storyPosting}
+                  >
+                    {storyPosting ? 'Publishing...' : 'Publish story'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {storyTextOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">

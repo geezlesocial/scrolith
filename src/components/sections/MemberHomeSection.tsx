@@ -7701,11 +7701,27 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 const textOnlyBackground = isComposerTextBackgroundActive(postDraft.textBackgroundId, {
                   hasMedia: hasComposerMedia
                 });
+                const captionPlaceholder = hasComposerMedia
+                  ? 'Add a caption for your photo or video...'
+                  : textOnlyBackground
+                    ? 'Say something...'
+                    : 'What do you want to talk about?';
                 const textareaStyle = textOnlyBackground
                   ? buildComposerTextBackgroundStyle(postDraft.textBackgroundId)
                   : undefined;
                 return (
                   <>
+                    {hasComposerMedia ? (
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Media caption</p>
+                          <p className="text-[11px] text-slate-500">This caption appears with your photo or video post.</p>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-500">
+                          {postDraft.content.trim().length} characters
+                        </span>
+                      </div>
+                    ) : null}
                     <div
                       className={
                         textOnlyBackground
