@@ -189,6 +189,187 @@ const pick = (body: any, camel: string, snake: string) => {
   return undefined;
 };
 
+const normalizeText = (value: unknown, max = 240) => String(value || '').trim().slice(0, max);
+
+const normalizeDateInput = (value: unknown) => {
+  const raw = normalizeText(value, 32);
+  if (!raw) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}$/.test(raw)) return raw;
+  return raw.slice(0, 32);
+};
+
+const companyPageSlugFromUrl = (value: unknown) => {
+  const raw = normalizeText(value, 300);
+  if (!raw) return '';
+  const marker = '/company/';
+  const idx = raw.toLowerCase().indexOf(marker);
+  if (idx < 0) return '';
+  return decodeURIComponent(raw.slice(idx + marker.length).split(/[?#/]/)[0] || '').trim();
+};
+
+const extractExperienceCompanyPageKeys = (item: Record<string, any>) =>
+  Array.from(
+    new Set(
+      [
+        item.companyPageId,
+        item.company_page_id,
+        item.companyPageSlug,
+        item.company_page_slug,
+        item.companyPageHandle,
+        item.company_page_handle,
+        companyPageSlugFromUrl(item.companyPageUrl || item.company_page_url)
+      ]
+        .map((value) => normalizeText(value, 120))
+        .filter(Boolean)
+    )
+  );
+
+const normalizeExperienceItems = async (value: any) => {
+  const rawItems = normalizeArray(value)
+    .filter((item) => item && typeof item === 'object')
+    .slice(0, 50) as Record<string, any>[];
+
+  const requestedPageKeys = Array.from(new Set(rawItems.flatMap(extractExperienceCompanyPageKeys)));
+  const requestedCompanyNames = Array.from(
+    new Set(rawItems.map((item) => normalizeText(item.company || item.companyName, 160)).filter(Boolean))
+  );
+
+  const candidatePages =
+    requestedPageKeys.length || requestedCompanyNames.length
+      ? await prisma.communityBusinessPage.findMany({
+          where: {
+            status: 'active',
+            OR: [
+              requestedPageKeys.length
+                ? { id: { in: requestedPageKeys } }
+                : undefined,
+              requestedPageKeys.length
+                ? { slug: { in: requestedPageKeys } }
+                : undefined,
+              requestedPageKeys.length
+                ? { handle: { in: requestedPageKeys } }
+                : undefined,
+              ...requestedCompanyNames.map((name) => ({ name: { equals: name, mode: 'insensitive' as const } }))
+            ].filter(Boolean) as any[]
+          },
+          select: { id: true, name: true, slug: true, handle: true }
+        })
+      : [];
+
+  const pagesByKey = new Map<string, (typeof candidatePages)[number]>();
+  candidatePages.forEach((page) => {
+    [page.id, page.slug, page.handle, page.name].forEach((key) => {
+      const normalized = normalizeText(key, 160).toLowerCase();
+      if (normalized && !pagesByKey.has(normalized)) pagesByKey.set(normalized, page);
+    });
+  });
+
+  return rawItems.map((item) => {
+    const company = normalizeText(item.company || item.companyName, 160);
+    const keys = extractExperienceCompanyPageKeys(item);
+    const page =
+      keys.map((key) => pagesByKey.get(key.toLowerCase())).find(Boolean) ||
+      (company ? pagesByKey.get(company.toLowerCase()) : null);
+    const current = Boolean(item.current ?? item.isCurrent ?? item.currentlyWorking);
+    const normalized: Record<string, any> = {
+      id: normalizeText(item.id, 80) || `exp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: normalizeText(item.title, 180),
+      company: page?.name || company,
+      start_date: normalizeDateInput(item.start_date ?? item.startDate),
+      end_date: current ? '' : normalizeDateInput(item.end_date ?? item.endDate),
+      current,
+      description: normalizeText(item.description, 2000)
+    };
+    if (page) {
+      normalized.companyPageId = page.id;
+      normalized.companyPageSlug = page.slug;
+      normalized.companyPageHandle = page.handle;
+      normalized.companyPageUrl = `/company/${encodeURIComponent(page.slug || page.handle || page.id)}`;
+      normalized.companyPageMatched = true;
+    }
+    return normalized;
+  });
+};
+
+const collectExperiencePageIds = (value: any) =>
+  new Set(
+    normalizeArray(value)
+      .map((item) => normalizeText((item as any)?.companyPageId || (item as any)?.company_page_id, 120))
+      .filter(Boolean)
+  );
+
+const notifyCompanyPageAdminsForProfileExperience = async (params: {
+  actorId: string;
+  previousExperience: any;
+  nextExperience: any;
+}) => {
+  const previousIds = collectExperiencePageIds(params.previousExperience);
+  const nextIds = collectExperiencePageIds(params.nextExperience);
+  const newlyAddedPageIds = Array.from(nextIds).filter((pageId) => !previousIds.has(pageId));
+  if (!newlyAddedPageIds.length) return;
+
+  const [actor, pages] = await Promise.all([
+    prisma.user.findUnique({ where: { id: params.actorId }, select: { id: true, name: true, username: true } }),
+    prisma.communityBusinessPage.findMany({
+      where: { id: { in: newlyAddedPageIds }, status: 'active' },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        ownerId: true,
+        admins: { select: { userId: true } }
+      }
+    })
+  ]);
+
+  const actorName = actor?.name || actor?.username || 'A Scrolith member';
+  const actorUrl = actor?.username ? `/u/${encodeURIComponent(actor.username)}` : `/profile/${encodeURIComponent(params.actorId)}`;
+
+  for (const page of pages) {
+    const recipients = Array.from(new Set([page.ownerId, ...page.admins.map((admin) => admin.userId)].filter(Boolean)));
+    for (const recipientId of recipients) {
+      if (!recipientId || recipientId === params.actorId) continue;
+      const meta = {
+        pageId: page.id,
+        pageName: page.name,
+        profileUserId: params.actorId,
+        actorId: params.actorId,
+        actionUrl: actorUrl,
+        action_url: actorUrl,
+        entityType: 'company_page',
+        entityId: page.id
+      };
+      const created = await prisma.notification.create({
+        data: {
+          userId: recipientId,
+          actorId: params.actorId,
+          type: 'company_profile_team_added',
+          title: 'Company added to a profile',
+          body: `${actorName} added ${page.name} to their work experience.`,
+          deepLink: actorUrl,
+          entityType: 'company_page',
+          entityId: page.id,
+          meta,
+          isRead: false
+        }
+      });
+      realtime.emitToUser(recipientId, 'notifications:new', {
+        id: created.id,
+        type: created.type,
+        title: created.title || 'Company added to a profile',
+        body: created.body || '',
+        actionUrl: actorUrl,
+        action_url: actorUrl,
+        link: actorUrl,
+        meta,
+        createdAt: created.createdAt.toISOString()
+      });
+    }
+  }
+};
+
 const parseLimit = (value: any, fallback = 10) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
@@ -619,7 +800,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     if (!userId) return fail(res, 400, 'Missing userId', 'ERR_BAD_REQUEST');
     if (!canAccessUser(req, userId)) return fail(res, 403, 'Not authorized', 'ERR_FORBIDDEN');
 
-    await getOrCreateProfile(userId);
+    const existingProfile = await getOrCreateProfile(userId);
 
     const data: any = {};
 
@@ -655,7 +836,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     }
     if (showBirthMonthDayPublic !== undefined) data.showBirthMonthDayPublic = Boolean(showBirthMonthDayPublic);
     if (portfolio !== undefined) data.portfolio = normalizeArray(portfolio);
-    if (experience !== undefined) data.experienceItems = normalizeArray(experience);
+    if (experience !== undefined) data.experienceItems = await normalizeExperienceItems(experience);
     if (education !== undefined) data.educationItems = normalizeArray(education);
     if (certifications !== undefined) data.certifications = normalizeArray(certifications);
     if (locationInput.hasChanges) Object.assign(data, locationInput.data);
@@ -675,6 +856,21 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 
       return profileRow;
     });
+
+    if (experience !== undefined) {
+      try {
+        await notifyCompanyPageAdminsForProfileExperience({
+          actorId: userId,
+          previousExperience: existingProfile.experienceItems,
+          nextExperience: updated.experienceItems
+        });
+      } catch (notifyError) {
+        console.warn(
+          'updateUserProfile company page notification failed:',
+          (notifyError as any)?.message || notifyError
+        );
+      }
+    }
 
     // Pin cover media so storage GC does not delete identity assets still referenced by Profile.
     if (coverPhotoUrl !== undefined) {
