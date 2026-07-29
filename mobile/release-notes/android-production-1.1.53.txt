@@ -1,0 +1,3 @@
+<en-US>
+This release adds rich captions over Stories, post videos, and Scroll videos with support for @mentions and #tags. Captions stay readable without blocking playback controls and are optimized for web mobile and Android. It also includes the latest production stability updates.
+</en-US>
