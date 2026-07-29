@@ -26,7 +26,7 @@ const DEFAULT_PRELOADER: PreloaderConfig = {
   subText: 'Please wait while we prepare your experience.',
   loaderType: 'spinner',
   logoFileId: null,
-  logoUrl: '/logo.png',
+  logoUrl: '/preloader-logo.png',
   backgroundFileId: null,
   backgroundImageUrl: null,
   backgroundType: 'solid',

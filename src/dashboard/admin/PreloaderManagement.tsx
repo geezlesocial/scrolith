@@ -12,6 +12,7 @@ import {
 import type { UploadedFile } from '../../types';
 
 const BRAND_LOADER_TYPE = 'logoPulse' as const;
+const BRAND_PRELOADER_LOGO_URL = '/preloader-logo.png';
 type PickerTarget = 'logo' | 'background' | null;
 
 const statusOptions: Array<{ value: PreloaderStatus; label: string }> = [
@@ -47,7 +48,7 @@ const defaultDraft = (): PreloaderConfig => ({
   subText: 'Please wait while we prepare your experience.',
   loaderType: BRAND_LOADER_TYPE,
   logoFileId: null,
-  logoUrl: null,
+  logoUrl: BRAND_PRELOADER_LOGO_URL,
   backgroundFileId: null,
   backgroundImageUrl: null,
   backgroundType: 'solid',
@@ -74,7 +75,8 @@ const normalizeConfig = (config: PreloaderConfig): PreloaderConfig => ({
   animationSpeed: Number(config.animationSpeed || 1),
   blurPx: Number(config.blurPx || 0),
   backgroundFileId: config.backgroundFileId || null,
-  backgroundImageUrl: config.backgroundImageUrl || null
+  backgroundImageUrl: config.backgroundImageUrl || null,
+  logoUrl: config.logoUrl || BRAND_PRELOADER_LOGO_URL
 });
 
 const ToggleRow = ({
@@ -131,16 +133,12 @@ const PreloaderPreview = ({ config }: { config: PreloaderConfig }) => {
           className={`relative z-10 flex min-h-[240px] flex-col items-center gap-3 px-6 py-8 ${config.position === 'bottom' ? 'justify-end' : 'justify-center'}`}
         >
           <div className="h-16 w-16 overflow-hidden rounded-2xl border border-white/20 bg-black/30">
-            {config.logoUrl ? (
-              <img
-                src={config.logoUrl}
-                alt="Scrolith preloader logo"
-                className="h-full w-full object-cover"
-                style={{ animation: `pm-logo-pulse ${1.2 / speed}s ease-in-out infinite` }}
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-white/70">Logo</div>
-            )}
+            <img
+              src={config.logoUrl || BRAND_PRELOADER_LOGO_URL}
+              alt="Scrolith preloader logo"
+              className="h-full w-full object-cover"
+              style={{ animation: `pm-logo-pulse ${1.2 / speed}s ease-in-out infinite` }}
+            />
           </div>
           <p className="text-lg font-semibold" style={{ color: config.textColor || '#ffffff' }}>
             {config.headlineText || 'Loading Scrolith...'}
@@ -349,7 +347,7 @@ const PreloaderManagement: React.FC = () => {
             <div className="grid gap-3 md:grid-cols-2">
               <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2">
                 <button type="button" onClick={() => setPickerTarget('logo')} className="rounded-md border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"><UploadCloud className="mr-1 inline h-4 w-4" /> Pick logo</button>
-                {draft.logoUrl && <img src={draft.logoUrl} alt="Preloader logo" className="h-10 w-10 rounded-md object-cover" />}
+                <img src={draft.logoUrl || BRAND_PRELOADER_LOGO_URL} alt="Preloader logo" className="h-10 w-10 rounded-md object-cover" />
               </div>
               <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white p-2">
                 <select className="rounded-md border border-gray-300 px-2 py-2 text-xs" value={draft.backgroundType} onChange={(e) => updateDraft({ backgroundType: e.target.value as PreloaderBackgroundType })}>
