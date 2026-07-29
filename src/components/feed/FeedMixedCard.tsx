@@ -224,7 +224,16 @@ const FeedMixedCard: React.FC<FeedMixedCardProps> = ({
       }
       case 'marketplace': {
         const title = SafeText(data.title || data.name, 'Listing');
-        const href = data.id ? `/marketplace/${encodeURIComponent(String(data.id))}` : '/marketplace';
+        const slugOrId = SafeText(
+          data.slug ||
+            data.listingSlug ||
+            data.listing_slug ||
+            data.listingId ||
+            data.listing_id ||
+            data.id ||
+            data._id
+        );
+        const href = slugOrId ? `/marketplace/listing/${encodeURIComponent(slugOrId)}` : '/marketplace';
         const price = SafePrice(data.price || data.amount || data.pricing, {
           currency: data.currency || data.price?.currency
         });
