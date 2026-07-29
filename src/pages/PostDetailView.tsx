@@ -567,14 +567,20 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
               }
 
               if (type === 'image') {
+                const caption = resolveVideoCaption(post, media);
                 return (
                   <button
                     key={media.id || media.url}
                     type="button"
                     onClick={() => onOpenPost(post.id)}
-                    className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                    className="relative overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
                   >
                     <img src={media.url} alt={media.name || 'Post media'} className={`${mediaHeightClass} w-full object-cover`} />
+                    {caption ? (
+                      <div className="absolute inset-x-0 bottom-0 z-10 px-2 pb-2 sm:px-3 sm:pb-3">
+                        <VideoCaptionOverlay text={caption} compact />
+                      </div>
+                    ) : null}
                   </button>
                 );
               }
@@ -1504,13 +1510,18 @@ export default function PostDetailView() {
                         <button
                           type="button"
                           onClick={() => openMediaLightbox(activeMediaIndex)}
-                          className="block w-full"
+                          className="relative block w-full"
                         >
                           <img
                             src={selectedMedia.url}
                             alt={selectedMedia.name || 'Post media'}
                             className={`${DETAIL_MEDIA_HEIGHT_CLASS} w-full object-contain`}
                           />
+                          {resolveVideoCaption(post, selectedMedia) ? (
+                            <div className="absolute inset-x-0 bottom-0 z-10 px-2 pb-2 sm:px-3 sm:pb-3">
+                              <VideoCaptionOverlay text={resolveVideoCaption(post, selectedMedia)} />
+                            </div>
+                          ) : null}
                         </button>
                       ) : null}
 

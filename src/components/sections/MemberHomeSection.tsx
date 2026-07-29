@@ -7341,6 +7341,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
               );
             }
             if (type === 'image') {
+              const caption = resolveVideoCaption(post, media);
               return (
                 <button
                   key={media.id || media.url}
@@ -7348,7 +7349,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                   onClick={() => handlePostMediaPrimaryAction(post, media)}
                   onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                  className="w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
+                  className="relative w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left"
                 >
                   <OptimizedImage
                     src={posterUrl || mediaUrl}
@@ -7361,6 +7362,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     loading="lazy"
                     decoding="async"
                   />
+                  {caption ? (
+                    <div className="absolute inset-x-0 bottom-0 z-10 px-2 pb-2 sm:px-3 sm:pb-3">
+                      <VideoCaptionOverlay text={caption} compact />
+                    </div>
+                  ) : null}
                 </button>
               );
             }

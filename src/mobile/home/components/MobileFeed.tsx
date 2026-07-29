@@ -3413,7 +3413,7 @@ export default function MobileFeed({
                                   onClick={() => handlePostMediaPrimaryAction(post, file)}
                                   onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                                   onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                  className="block h-[22rem] w-full text-left sm:h-[26rem] md:h-[30rem]"
+                                  className="relative block h-[22rem] w-full text-left sm:h-[26rem] md:h-[30rem]"
                                 >
                                   <OptimizedImage
                                     src={resolvePostAttachmentMediaUrl(file)}
@@ -3427,6 +3427,11 @@ export default function MobileFeed({
                                     decoding="async"
                                     fetchPriority={idx < priorityMediaPostLimit ? 'high' : 'auto'}
                                   />
+                                  {caption ? (
+                                    <div className="absolute inset-x-0 bottom-0 z-10 px-2 pb-2">
+                                      <VideoCaptionOverlay text={caption} compact />
+                                    </div>
+                                  ) : null}
                                 </button>
                               ) : (
                                 <button

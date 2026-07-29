@@ -4024,6 +4024,7 @@ const CommunityHome = () => {
                                     );
                                   }
                                   if (type === 'image') {
+                                    const caption = resolveVideoCaption(post, media);
                                     return (
                                       <button
                                         key={media.id || media.url}
@@ -4031,7 +4032,7 @@ const CommunityHome = () => {
                                         onClick={() => handlePostMediaPrimaryAction(post, media)}
                                         onDoubleClick={(event) => onPostMediaDoubleClick(event, post, mediaKey)}
                                         onTouchEnd={(event) => onPostMediaTouchEnd(event, post, mediaKey)}
-                                        className="mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
+                                        className="relative mx-auto w-full overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 text-left shadow-sm"
                                       >
                                         <OptimizedImage
                                           src={posterUrl}
@@ -4044,6 +4045,11 @@ const CommunityHome = () => {
                                           loading="lazy"
                                           decoding="async"
                                         />
+                                        {caption ? (
+                                          <div className="absolute inset-x-0 bottom-0 z-10 px-2 pb-2 sm:px-3 sm:pb-3">
+                                            <VideoCaptionOverlay text={caption} compact />
+                                          </div>
+                                        ) : null}
                                       </button>
                                     );
                                   }

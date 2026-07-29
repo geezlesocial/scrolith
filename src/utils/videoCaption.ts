@@ -4,7 +4,7 @@ const normalizeCaption = (value: unknown, maxLength = 420) => {
   return normalized.slice(0, maxLength);
 };
 
-const captionKeys = ['caption', 'description', 'altText', 'alt_text', 'title', 'name'];
+const explicitCaptionKeys = ['caption', 'captionText', 'caption_text', 'mediaCaption', 'media_caption'];
 
 const mediaIdentityKeys = (media: any) =>
   [
@@ -42,11 +42,6 @@ export const resolveFirstAttachmentCaption = (container: any, media?: any[] | un
 };
 
 export const resolveVideoCaption = (container: any, media?: any) => {
-  for (const key of captionKeys) {
-    const candidate = normalizeCaption(media?.[key]);
-    if (candidate) return candidate;
-  }
-
   const captionMaps = [
     container?.attachmentCaptions,
     container?.attachment_captions,
@@ -61,6 +56,11 @@ export const resolveVideoCaption = (container: any, media?: any) => {
       const candidate = normalizeCaption((captionMap as Record<string, unknown>)[key]);
       if (candidate) return candidate;
     }
+  }
+
+  for (const key of explicitCaptionKeys) {
+    const candidate = normalizeCaption(media?.[key]);
+    if (candidate) return candidate;
   }
 
   return '';
