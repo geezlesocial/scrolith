@@ -26,8 +26,20 @@ test('member-home and community consume story tab deep-links', () => {
   for (const src of [memberHome, community]) {
     assert.match(src, /id="stories"/);
     assert.match(src, /setStoryRailTab\('stories'\)/);
+    assert.match(src, /query\.get\('story'\)/);
+    assert.match(src, /findExistingActiveStoryById\(stories, storyId\)/);
+    assert.match(src, /setActiveStory\(target\)/);
     assert.match(src, /scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/);
     assert.match(src, /tab === 'stories'/);
     assert.match(src, /hash === '#stories'/);
   }
+});
+
+test('story recommendations reject inactive stories before rendering', () => {
+  const memberFeed = read('src/services/memberFeed.ts');
+  const feedStream = read('src/utils/feedStream.ts');
+
+  assert.match(memberFeed, /isExistingActiveStory\(story\)/);
+  assert.match(feedStream, /kind === 'story'/);
+  assert.match(feedStream, /isExistingActiveStory\(story\)/);
 });

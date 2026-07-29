@@ -8,6 +8,7 @@ import {
   toPostLikePayload
 } from '../services/memberFeed';
 import { extractEntityKeyFromItem } from './continuousFeed';
+import { isExistingActiveStory } from './storyAvailability';
 
 export const FEED_STREAM_VERSION = '21.0.1';
 
@@ -90,6 +91,10 @@ export const toStreamEntry = (item: UnifiedFeedItem | any, index = 0): FeedStrea
   const payload =
     item.payload && typeof item.payload === 'object' ? { ...item.payload } : { ...item };
   const id = String(payload.id || item.id || item.sourceId || '').trim() || feedKey;
+  if (kind === 'story') {
+    const story = { ...payload, id, sourceId: item.sourceId || payload.sourceId || id };
+    if (!isExistingActiveStory(story)) return null;
+  }
   // Phase 22.1B — promote orchestrator media onto presentation data (Scroll previews).
   const media = item.media ?? payload.media ?? null;
   return {

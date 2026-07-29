@@ -7,6 +7,8 @@
  * utilities can be unit-tested without Vite env polyfills.
  */
 
+import { isExistingActiveStory } from '../utils/storyAvailability';
+
 export type MemberFeedSurface = 'member_home' | 'community';
 
 export type UnifiedFeedItemType =
@@ -172,7 +174,15 @@ export const partitionUnifiedFeedItems = (items: UnifiedFeedItem[]) => {
         });
         break;
       case 'STORY':
-        stories.push({ ...payload, id: payload.id || item.id, feedKey: item.feedKey });
+        {
+          const story = {
+            ...payload,
+            id: payload.id || item.id || item.sourceId,
+            sourceId: item.sourceId,
+            feedKey: item.feedKey
+          };
+          if (isExistingActiveStory(story)) stories.push(story);
+        }
         break;
       case 'SCROLL_VIDEO':
         scrollVideos.push({ ...payload, id: payload.id || item.id, feedKey: item.feedKey });

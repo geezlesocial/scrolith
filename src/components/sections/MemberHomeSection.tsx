@@ -114,6 +114,10 @@ import { resolveUserAvatarUrl } from '../../utils/userAvatar';
 import { buildScrollVideoUrl } from '../../utils/scrollVideoRoutes';
 import { hydrateStoryAuthorAvatars } from '../../utils/storyAuthorAvatarHydration';
 import {
+  filterExistingActiveStories,
+  findExistingActiveStoryById
+} from '../../utils/storyAvailability';
+import {
   postAiInsightPreferenceToBoolean,
   resolvePostAiInsightPreference,
   resolveStoredPostAiInsightPreference,
@@ -942,12 +946,6 @@ const resolveStoryAuthorInitial = (story: any) => {
   return first || 'S';
 };
 
-const isStoryActive = (story: any) => {
-  if (!story?.expiresAt) return true;
-  const expiresAt = new Date(story.expiresAt).getTime();
-  return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
-};
-
 const resolveReelMedia = (scroll: ScrollVideo) => {
   const media = scroll?.media || scroll;
   const inline = resolveInlineMedia(media, { typeHint: 'video' });
@@ -1735,6 +1733,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const storyRailSectionRef = useRef<HTMLDivElement | null>(null);
+  const storyDeepLinkOpenRef = useRef<string>('');
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
@@ -2079,15 +2078,26 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
   useEffect(() => {
     const query = new URLSearchParams(location.search);
     const tab = String(query.get('tab') || query.get('focus') || '').toLowerCase();
+    const storyId = String(query.get('story') || query.get('storyId') || '').trim();
     const hash = String(location.hash || '').toLowerCase();
     const wantsStories = tab === 'stories' || tab === 'story' || hash === '#stories' || hash === '#story';
-    if (!wantsStories || !showStories) return;
+    if ((!wantsStories && !storyId) || !showStories) return;
     setStoryRailTab('stories');
+    if (storyId) {
+      const target = findExistingActiveStoryById(stories, storyId);
+      if (target && storyDeepLinkOpenRef.current !== storyId) {
+        storyDeepLinkOpenRef.current = storyId;
+        setActiveStory(target);
+        CommunityService.viewStory(storyId).catch((error) => {
+          console.error('Failed to record story view', error);
+        });
+      }
+    }
     const timer = window.setTimeout(() => {
       storyRailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [location.hash, location.search, showStories]);
+  }, [location.hash, location.search, showStories, stories]);
 
   const defaultFeedTab: FeedTab = (() => {
     const explicit = normalizeFeedTabValue(memberHomeFeed.defaultTab);
@@ -2347,7 +2357,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
       postMediaItemsRef.current.forEach((item) => revokeAttachmentPreviews(item));
     };
   }, []);
-  const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
+  const filterActiveStories = useCallback((items: any[]) => filterExistingActiveStories(items), []);
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
     const authorId =

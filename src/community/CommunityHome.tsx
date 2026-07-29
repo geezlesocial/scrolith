@@ -82,6 +82,10 @@ import {
 import { resolveUserAvatarUrl } from '../utils/userAvatar';
 import { hydrateStoryAuthorAvatars } from '../utils/storyAuthorAvatarHydration';
 import {
+  filterExistingActiveStories,
+  findExistingActiveStoryById
+} from '../utils/storyAvailability';
+import {
   buildPostVideoScrollViewerPath,
   stashPendingPostVideoScrollViewerSource,
   type PendingPostVideoScrollViewerSource
@@ -409,12 +413,6 @@ const resolveStoryAuthorInitial = (story: any) => {
   return first || 'S';
 };
 
-const isStoryActive = (story: any) => {
-  if (!story?.expiresAt) return true;
-  const expiresAt = new Date(story.expiresAt).getTime();
-  return Number.isNaN(expiresAt) ? true : expiresAt > Date.now();
-};
-
 const resolveReelMedia = (scroll: ScrollVideo) => resolveInlineMedia(scroll?.media || scroll, { typeHint: 'video' });
 
 const resolveReelAuthorName = (scroll: ScrollVideo, fallback = 'Scrolith') => {
@@ -527,6 +525,7 @@ const CommunityHome = () => {
   const storyDeviceInputRef = useRef<HTMLInputElement | null>(null);
   const storyCameraInputRef = useRef<HTMLInputElement | null>(null);
   const storyRailSectionRef = useRef<HTMLDivElement | null>(null);
+  const storyDeepLinkOpenRef = useRef<string>('');
   const storyRecorderRef = useRef<MediaRecorder | null>(null);
   const storyChunksRef = useRef<Blob[]>([]);
   const [storyRecording, setStoryRecording] = useState(false);
@@ -577,15 +576,26 @@ const CommunityHome = () => {
   useEffect(() => {
     const query = new URLSearchParams(location.search);
     const tab = String(query.get('tab') || query.get('focus') || '').toLowerCase();
+    const storyId = String(query.get('story') || query.get('storyId') || '').trim();
     const hash = String(location.hash || '').toLowerCase();
     const wantsStories = tab === 'stories' || tab === 'story' || hash === '#stories' || hash === '#story';
-    if (!wantsStories) return;
+    if (!wantsStories && !storyId) return;
     setStoryRailTab('stories');
+    if (storyId) {
+      const target = findExistingActiveStoryById(stories, storyId);
+      if (target && storyDeepLinkOpenRef.current !== storyId) {
+        storyDeepLinkOpenRef.current = storyId;
+        setActiveStory(target);
+        CommunityService.viewStory(storyId).catch((error) => {
+          console.error('Failed to record story view', error);
+        });
+      }
+    }
     const timer = window.setTimeout(() => {
       storyRailSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, loading ? 250 : 80);
     return () => window.clearTimeout(timer);
-  }, [loading, location.hash, location.search]);
+  }, [loading, location.hash, location.search, stories]);
 
   const findPrimaryVideoAttachment = useCallback((post: any) => {
     const attachments = Array.isArray(post?.attachments) ? post.attachments : [];
@@ -1080,7 +1090,7 @@ const CommunityHome = () => {
     });
   }, []);
 
-  const filterActiveStories = useCallback((items: any[]) => items.filter(isStoryActive), []);
+  const filterActiveStories = useCallback((items: any[]) => filterExistingActiveStories(items), []);
 
   const canManageStory = useCallback((story: any) => {
     if (!user) return false;
