@@ -19,7 +19,6 @@ import {
   Maximize2
 } from 'lucide-react';
 import { ScrollService, type ScrollEngagementType, type ScrollVideo } from '../../services/scroll';
-import ExpandablePreviewText from '../../components/common/ExpandablePreviewText';
 import ContentOfferTags from '../../components/commerce/ContentOfferTags';
 import ReactionBar from '../../community/components/ReactionBar';
 import FollowButton from '../../community/components/FollowButton';
@@ -29,6 +28,7 @@ import { resolveInlineMedia } from '../../utils/inlineMedia';
 import GraphicWarningGate from '../../components/media/GraphicWarningGate';
 import OverlayActionRailButton from '../../components/media/OverlayActionRailButton';
 import OptimizedImage from '../../components/media/OptimizedImage';
+import VideoCaptionOverlay from '../../components/media/VideoCaptionOverlay';
 import { resolvePostAttachmentMediaUrl } from '../../utils/postAttachmentMedia';
 import ContentInterestSurvey from '../../components/recommendation/ContentInterestSurvey';
 import ReactionReactorsModal from '../../community/components/ReactionReactorsModal';
@@ -158,8 +158,6 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   onDelete,
   onRemix,
   onOpenSeries,
-  headlinePreviewLimit = 56,
-  descriptionPreviewLimit = 90,
   interestSurveyEnabled = false,
   initialIsFollowing,
   reactionTargetType = 'SCROLL',
@@ -253,8 +251,7 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
   const authorProfileUrl = resolveScrollAuthorProfileUrl(scroll);
   const description = String(scroll.description || '').trim();
   const title = String(scroll.title || '').trim();
-  const headlineLine = title || description || 'Scroll video';
-  const secondaryLine = title && description ? description : '';
+  const captionLine = description || title;
   const dashGcoinTotal = Number(scroll.dashGcoinTotal ?? scroll.metrics?.dashGcoinTotal ?? 0);
   const tagCount = Array.isArray(scroll.tags) ? scroll.tags.length : 0;
   const sourceHeadline = String(scroll.sourceScroll?.title || scroll.sourceScroll?.description || '').trim();
@@ -1240,24 +1237,8 @@ const ScrollCard: React.FC<ScrollCardProps> = ({
               </div>
             </div>
           ) : null}
+          <VideoCaptionOverlay text={captionLine} className="max-w-full" />
           <div className="pointer-events-auto rounded-2xl border border-white/10 bg-black/22 px-2.5 py-2 text-white shadow-[0_14px_34px_-30px_rgba(15,23,42,0.88)] backdrop-blur-[3px]">
-            <ExpandablePreviewText
-              text={headlineLine}
-              limit={headlinePreviewLimit}
-              textClassName="text-[14px] font-semibold leading-snug text-white sm:text-[15px]"
-              buttonClassName="text-white/90"
-              moreLabel="More"
-              lessLabel="Less"
-            />
-            {secondaryLine ? (
-              <ExpandablePreviewText
-                text={secondaryLine}
-                limit={descriptionPreviewLimit}
-                className="mt-1"
-                textClassName="text-[13px] leading-snug text-white/82 sm:text-sm sm:leading-relaxed"
-                buttonClassName="text-white/90"
-              />
-            ) : null}
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[10px] text-white/70 sm:text-[11px]">
               {scroll.location ? (
                 <span className="inline-flex items-center rounded-full border border-white/10 bg-white/8 px-2 py-0.5">

@@ -20,6 +20,7 @@ import PostOptionsButton from '../community/components/post-options/PostOptionsB
 import GraphicWarningGate from '../components/media/GraphicWarningGate';
 import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
 import PostVideoActionBar from '../components/media/PostVideoActionBar';
+import VideoCaptionOverlay from '../components/media/VideoCaptionOverlay';
 import TranslatablePostText from '../components/translation/TranslatablePostText';
 import PostTextBackgroundBody from '../components/post/PostTextBackgroundBody';
 import FeedAdCard from '../mobile/home/components/FeedAdCard';
@@ -29,6 +30,7 @@ import {
   resolvePostPresentation,
   shouldRenderTextBackground
 } from '../utils/postTextBackgrounds';
+import { resolveVideoCaption } from '../utils/videoCaption';
 
 const inferMediaType = (media: { url?: string; mimeType?: string; type?: string }) => {
   const explicit = String(media.type || '').toLowerCase();
@@ -520,6 +522,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
                 attachments.length === 1 ? FEED_SINGLE_MEDIA_HEIGHT_CLASS : FEED_MULTI_MEDIA_HEIGHT_CLASS;
 
               if (type === 'video') {
+                const caption = resolveVideoCaption(post, media, post.content);
                 return (
                   <div
                     key={media.id || media.url}
@@ -546,14 +549,17 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({
                       preload="metadata"
                       loadingLabel="Video loading"
                       overlay={(videoElement) => (
-                        <PostVideoActionBar
-                          postId={post.id}
-                          postTitle={post.title}
-                          postContent={post.content}
-                          postLocation={post.location}
-                          media={media}
-                          videoElement={videoElement}
-                        />
+                        <div className="w-full space-y-2 px-2 sm:px-3">
+                          <VideoCaptionOverlay text={caption} compact />
+                          <PostVideoActionBar
+                            postId={post.id}
+                            postTitle={post.title}
+                            postContent={caption || post.content}
+                            postLocation={post.location}
+                            media={media}
+                            videoElement={videoElement}
+                          />
+                        </div>
                       )}
                     />
                   </div>
@@ -1519,14 +1525,17 @@ export default function PostDetailView() {
                           className={`${DETAIL_MEDIA_HEIGHT_CLASS} w-full object-contain`}
                           loadingLabel="Video loading"
                           overlay={(videoElement) => (
-                            <PostVideoActionBar
-                              postId={post.id}
-                              postTitle={post.title}
-                              postContent={post.content}
-                              postLocation={post.location}
-                              media={selectedMedia}
-                              videoElement={videoElement}
-                            />
+                            <div className="w-full space-y-2 px-2 sm:px-3">
+                              <VideoCaptionOverlay text={resolveVideoCaption(post, selectedMedia, post.content)} />
+                              <PostVideoActionBar
+                                postId={post.id}
+                                postTitle={post.title}
+                                postContent={resolveVideoCaption(post, selectedMedia, post.content) || post.content}
+                                postLocation={post.location}
+                                media={selectedMedia}
+                                videoElement={videoElement}
+                              />
+                            </div>
                           )}
                         />
                       ) : null}

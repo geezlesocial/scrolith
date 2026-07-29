@@ -130,6 +130,7 @@ import { downloadToDevice } from '../../utils/deviceDownload';
 import GraphicWarningGate from '../media/GraphicWarningGate';
 import InlineAutoplayVideo from '../media/InlineAutoplayVideo';
 import OptimizedImage from '../media/OptimizedImage';
+import VideoCaptionOverlay from '../media/VideoCaptionOverlay';
 import AdVideoPlayer from '../ads/AdVideoPlayer';
 import OverlayActionRailButton from '../media/OverlayActionRailButton';
 import PostOriginPreview from '../post/PostOriginPreview';
@@ -157,6 +158,7 @@ import {
 import { DEFAULT_MEMBER_HOME_REGIONS, DEFAULT_MEMBER_HOME_TOPICS } from '../../constants/defaultAudienceOptions';
 import { normalizeContentOfferTags, type OfferTagSelection } from '../../utils/contentOffers';
 import { buildPublicAppUrl } from '../../utils/siteUrl';
+import { resolveVideoCaption } from '../../utils/videoCaption';
 import { getHighlightedCommunityEvents, type HighlightCommunityEvent } from '../../utils/communityEventHighlights';
 import type { CommunityClub, StructuredLocationFields } from '../../types';
 import {
@@ -319,12 +321,15 @@ type FeedPost = {
     url: string;
     name?: string;
     type?: string;
+    caption?: string | null;
+    description?: string | null;
     mimeType?: string;
     thumbnailUrl?: string | null;
     duration?: number | null;
     width?: number | null;
     height?: number | null;
   }[];
+  attachmentCaptions?: Record<string, string>;
   author?: {
     id?: string;
     username?: string | null;
@@ -1861,7 +1866,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
         mediaUrl,
         thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
-        description: String(post?.content || '').trim() || null,
+        description: resolveVideoCaption(post, media, post?.content) || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || '').trim() || null,
@@ -7263,6 +7268,7 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                 posterUrl && !/__video_fallback_thumbnail|video_fallback/i.test(posterUrl)
                   ? posterUrl
                   : undefined;
+              const caption = resolveVideoCaption(post, media, post?.content);
               return (
                 <div
                   key={media.id || media.url}
@@ -7300,6 +7306,11 @@ const MemberHomeSection: React.FC<{ content?: MemberHomeContent }> = ({ content:
                     rootMargin="120px 0px 120px 0px"
                     preloadRootMargin="280px 0px 280px 0px"
                     loadingLabel="Video loading"
+                    overlay={() => (
+                      <div className="w-full px-2 pb-8 sm:px-3 sm:pb-9">
+                        <VideoCaptionOverlay text={caption} compact />
+                      </div>
+                    )}
                   />
                   <button
                     type="button"

@@ -6,6 +6,7 @@ import FollowButton from '../../../community/components/FollowButton';
 import { getStoryTextStyle } from '../../../community/storyStyles';
 import ExpandablePreviewText from '../../../components/common/ExpandablePreviewText';
 import InlineAutoplayVideo from '../../../components/media/InlineAutoplayVideo';
+import VideoCaptionOverlay from '../../../components/media/VideoCaptionOverlay';
 import StoryAuthorAvatar from '../../../components/stories/StoryAuthorAvatar';
 import { useNotification } from '../../../context/NotificationContext';
 import { usePerformanceProfile } from '../../../hooks/usePerformanceProfile';
@@ -848,6 +849,11 @@ export default function StoryViewer({
               Story media not available.
             </div>
           )}
+          {type !== 'text' && content ? (
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 z-30 flex justify-center px-4 sm:bottom-5">
+              <VideoCaptionOverlay text={content} className="max-w-[min(42rem,100%)]" />
+            </div>
+          ) : null}
         </main>
 
         <footer className="px-3 pb-[calc(0.85rem+env(safe-area-inset-bottom))] pt-3 sm:px-5">

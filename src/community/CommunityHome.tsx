@@ -31,6 +31,7 @@ import InlineAutoplayVideo from '../components/media/InlineAutoplayVideo';
 import AdVideoPlayer from '../components/ads/AdVideoPlayer';
 import MediaPreviewModal, { type PreviewMedia } from '../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../components/media/PostVideoActionBar';
+import VideoCaptionOverlay from '../components/media/VideoCaptionOverlay';
 import PostExpandModal from '../components/post/PostExpandModal';
 import ScrollCreateModal from '../features/scroll/ScrollCreateModal';
 import EnterpriseStoryViewer from '../features/stories/components/StoryViewer';
@@ -93,6 +94,7 @@ import {
   type PendingPostVideoScrollViewerSource
 } from '../utils/postVideoScrollBridge';
 import { buildPublicAppUrl } from '../utils/siteUrl';
+import { resolveVideoCaption } from '../utils/videoCaption';
 import { downloadToDevice } from '../utils/deviceDownload';
 import { Capacitor } from '@capacitor/core';
 import { usePerformanceProfile } from '../hooks/usePerformanceProfile';
@@ -623,7 +625,7 @@ const CommunityHome = () => {
         mediaUrl,
         thumbnailUrl: String(resolvePostAttachmentPosterUrl(media) || media?.thumbnailUrl || '').trim() || null,
         title: String(post?.title || '').trim() || null,
-        description: String(post?.content || '').trim() || null,
+        description: resolveVideoCaption(post, media, post?.content) || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(resolveUserAvatarUrl(post?.author || post) || post?.authorAvatar || '').trim() || null,
@@ -3959,6 +3961,7 @@ const CommunityHome = () => {
                                       ? FEED_SINGLE_MEDIA_HEIGHT_CLASS
                                       : FEED_MULTI_MEDIA_HEIGHT_CLASS;
                                   if (type === 'video') {
+                                    const caption = resolveVideoCaption(post, media, post.content);
                                     return (
                                       <div
                                         key={media.id || media.url}
@@ -3991,14 +3994,17 @@ const CommunityHome = () => {
                                           autoplayEnabled={INLINE_VIDEO_PREVIEW_AUTOPLAY}
                                           preload="metadata"
                                           overlay={(videoElement) => (
-                                            <PostVideoActionBar
-                                              postId={post.id}
-                                              postTitle={post.title}
-                                              postContent={post.content}
-                                              postLocation={post.location}
-                                              media={media}
-                                              videoElement={videoElement}
-                                            />
+                                            <div className="w-full space-y-2 px-2 sm:px-3">
+                                              <VideoCaptionOverlay text={caption} compact />
+                                              <PostVideoActionBar
+                                                postId={post.id}
+                                                postTitle={post.title}
+                                                postContent={caption || post.content}
+                                                postLocation={post.location}
+                                                media={media}
+                                                videoElement={videoElement}
+                                              />
+                                            </div>
                                           )}
                                         />
                                         <button

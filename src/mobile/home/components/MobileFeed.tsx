@@ -29,6 +29,7 @@ import OptimizedImage from '../../../components/media/OptimizedImage';
 import EnterpriseAvatar from '../../../components/common/EnterpriseAvatar';
 import type { PreviewMedia } from '../../../components/media/MediaPreviewModal';
 import PostVideoActionBar from '../../../components/media/PostVideoActionBar';
+import VideoCaptionOverlay from '../../../components/media/VideoCaptionOverlay';
 import TranslatablePostText from '../../../components/translation/TranslatablePostText';
 import PostTextBackgroundBody from '../../../components/post/PostTextBackgroundBody';
 import {
@@ -49,6 +50,7 @@ import {
   type PendingPostVideoScrollViewerSource
 } from '../../../utils/postVideoScrollBridge';
 import { resolveVerificationLevel } from '../../../utils/verification';
+import { resolveVideoCaption } from '../../../utils/videoCaption';
 import FeedAdCard from './FeedAdCard';
 import RecommendedListingCard from './RecommendedListingCard';
 import SuggestedCard from './SuggestedCard';
@@ -1652,7 +1654,7 @@ export default function MobileFeed({
         mediaUrl,
         thumbnailUrl: String(media?.thumbnailUrl || resolvePostAttachmentPosterUrl(media) || '').trim() || null,
         title: String(post?.title || '').trim() || null,
-        description: String(post?.content || '').trim() || null,
+        description: resolveVideoCaption(post, media, post?.content) || null,
         location: String(post?.location || '').trim() || null,
         authorName: String(post?.author?.displayName || post?.authorName || '').trim() || null,
         authorAvatar: String(post?.author?.avatarUrl || post?.authorAvatar || '').trim() || null,
@@ -3346,6 +3348,7 @@ export default function MobileFeed({
                           const mediaUrl = mediaPair.url || resolvePostAttachmentMediaUrl(file);
                           const fallbackUrl = mediaPair.fallbackUrl || '';
                           const posterUrl = resolvePostAttachmentPosterUrl(file);
+                          const caption = resolveVideoCaption(post, file, post?.content);
                           return (
                             <div
                               key={`${postId}_att_${file.id || file.url}`}
@@ -3383,21 +3386,24 @@ export default function MobileFeed({
                                     preloadRootMargin={constrainedForFeed ? '80px 0px 80px 0px' : '260px 0px 260px 0px'}
                                     loadingLabel="Video loading"
                                     overlay={(videoElement) => (
-                                      <PostVideoActionBar
-                                        postId={postId}
-                                        postTitle={post?.title}
-                                        postContent={post?.content}
-                                        postLocation={post?.location}
-                                        media={{
-                                          id: file?.id,
-                                          fileId: file?.fileId || file?.file_id || file?.file?.id || file?.asset?.id || file?.id || null,
-                                          url: mediaUrl,
-                                          thumbnailUrl: posterUrl,
-                                          name: file?.name || file?.originalName || file?.filename,
-                                          mimeType: file?.mimeType || file?.mime_type
-                                        }}
-                                        videoElement={videoElement}
-                                      />
+                                      <div className="w-full space-y-2 px-2">
+                                        <VideoCaptionOverlay text={caption} compact />
+                                        <PostVideoActionBar
+                                          postId={postId}
+                                          postTitle={post?.title}
+                                          postContent={caption || post?.content}
+                                          postLocation={post?.location}
+                                          media={{
+                                            id: file?.id,
+                                            fileId: file?.fileId || file?.file_id || file?.file?.id || file?.asset?.id || file?.id || null,
+                                            url: mediaUrl,
+                                            thumbnailUrl: posterUrl,
+                                            name: file?.name || file?.originalName || file?.filename,
+                                            mimeType: file?.mimeType || file?.mime_type
+                                          }}
+                                          videoElement={videoElement}
+                                        />
+                                      </div>
                                     )}
                                   />
                                 </div>
